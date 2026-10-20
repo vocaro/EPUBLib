@@ -162,7 +162,8 @@ continues to describe the authored spine resource.
   take negligible space, so resizing changes geometry without changing offsets or CFIs.
   Short inline formulas remain atomic. A formula keeps one width-aware attachment if its
   finest engine layout needs more than 256 slots, grows vertically when internal structures
-  wrap, or exceeds the engine's limits. That attachment can contain several rows. Selection or copy of any part of an inline
+  wrap, or exceeds the engine's limits. Explicit `lineleading` also keeps one attachment,
+  preserving the engine's authored vertical row spacing. That attachment can contain several rows. Selection or copy of any part of an inline
   formula gives its full reading once; a continuation page also exposes one full reading.
 - **Spoken math.** Assistive technologies read a formula's `alttext` verbatim, with whitespace
   collapsed, in the content's language: the nearest `xml:lang` or `lang` on the `math` element or

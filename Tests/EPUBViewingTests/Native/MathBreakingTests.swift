@@ -114,6 +114,21 @@ final class MathBreakingTests: XCTestCase {
         XCTAssertEqual(unbroken.arrangement(fitting: 5).rows.count, 1)
     }
 
+    func testAuthoredLineLeadingKeepsTheEnginesVerticalRowPositions() throws {
+        for (body, attributes) in [(F.inlineSeries.body, "lineleading='3em'"),
+                                   ("<mstyle lineleading='3em'>\(F.inlineSeries.body)</mstyle>", "")] {
+            let made = try MathHarness.make("<p>\(F.math(body, attributes: attributes))</p>")
+            let attachment = try XCTUnwrap(made.attachment)
+            XCTAssertNil(attachment.inline, "the engine owns authored vertical spacing")
+            XCTAssertEqual(made.string?.length, 1)
+            let rows = attachment.formula.arrangement(fitting: 180)
+            XCTAssertGreaterThan(rows.rows.count, 2)
+            for (above, below) in zip(rows.rows, rows.rows.dropFirst()) {
+                XCTAssertGreaterThanOrEqual(below.baseline - above.baseline, 3 * 17)
+            }
+        }
+    }
+
     func testAtomicContentStillScalesUniformlyAndIsDisclosed() throws {
         let body = F.n(String(repeating: "1", count: 100))
         let made = try MathHarness.make("<p>\(F.math(body, attributes: "display='block'"))</p>")

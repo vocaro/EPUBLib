@@ -120,6 +120,13 @@ final class MathInlineRows: @unchecked Sendable {
         guard formula.layout.width > MathFormula.narrowColumn * MathFormula.minimumScale || formula.layout.rows.count > 1,
               let finest = try? MathLayout(formula.node, style: formula.style, maximumWidth: 0),
               finest.rows.count > 1, finest.rows.count <= 256 else { return nil }
+        // Paragraph lines use TextKit's leading. Keep explicitly authored math leading
+        // inside one width-aware attachment, where the engine's vertical origins apply.
+        var pending = [formula.node]
+        while let node = pending.popLast() {
+            guard node.attributes["lineleading"] == nil else { return nil }
+            pending.append(contentsOf: node.children)
+        }
         let ascent = formula.layout.rows.map(\.ascent).max() ?? 0
         let descent = formula.layout.rows.map(\.descent).max() ?? 0
         // TextKit caches an attachment's vertical image metrics from its initial proposal.
