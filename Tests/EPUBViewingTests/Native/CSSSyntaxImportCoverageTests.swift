@@ -116,11 +116,22 @@ final class CSSSyntaxImportCoverageTests: XCTestCase {
     }
 
     func testAnInvalidRuleBeforeAnImportDoesNotInvalidateIt() {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/113")
         // The same sentence counts only *valid* rules: one the parser discards cannot stand
         // between an @import and the start of the sheet.
         XCTAssertEqual(imports("@unknown-rule x; @import 'a.css';"), ["OPS/css/a.css"], "An unknown at-rule")
         XCTAssertEqual(imports("p:no-such-pseudo-class { clear: both } @import 'a.css';"), ["OPS/css/a.css"], "A rule with an invalid selector")
+        XCTAssertEqual(imports("@bogus { p { clear: both } } @import 'a.css';"), ["OPS/css/a.css"], "An unknown at-rule with a block")
+        XCTAssertEqual(imports("@media screen; @font-face; @import 'a.css';"), ["OPS/css/a.css"], "Block at-rules written as statements")
+        XCTAssertEqual(imports("svg|a { clear: both } @import 'a.css';"), ["OPS/css/a.css"], "A selector with an undeclared prefix")
+        XCTAssertEqual(imports("@import 'a.css'; @bogus; p:bogus { clear: both } @import 'b.css'; p { clear: both } @import 'c.css';"),
+                       ["OPS/css/a.css", "OPS/css/b.css"], "Nor between two imports")
+        // A valid rule ends the imports whether or not anything of it applies.
+        XCTAssertEqual(imports("p {} @import 'a.css';"), [], "An empty style rule")
+        XCTAssertEqual(imports("p { bogus: 1 } @import 'a.css';"), [], "A style rule with no valid declaration")
+        XCTAssertEqual(imports("p::selection { color: red } @import 'a.css';"), [], "A style rule for a pseudo-element that is not rendered")
+        XCTAssertEqual(imports("@media print { p { clear: both } } @import 'a.css';"), [], "A conditional rule that never applies")
+        XCTAssertEqual(imports("@page { margin: 0 } @import 'a.css';"), [], "An at-rule that does not apply to reflowed text")
+        XCTAssertEqual(imports("@-webkit-keyframes k { from { color: red } } @import 'a.css';"), [])
     }
 
     func testImportedRulesPrecedeTheImportingSheetInImportOrder() throws {

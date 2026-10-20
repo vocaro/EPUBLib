@@ -188,16 +188,28 @@ final class PackageMetadataCoverageTests: XCTestCase {
     }
 
     func testMetadataInsideTheDeprecatedDCMetadataAndXMetadataElementsIsRead() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/85")
         // OPF 2.0.1 §2.2: "Reading Systems must allow the specification of the deprecated
         // dc-metadata and x-metadata elements", as packages converted from OEBPS 1.2 still have.
-        let book = try book(metadata: "<dc-metadata \(Self.dublinCore)><dc:title>An Older Book</dc:title><dc:creator>Older Author</dc:creator>"
-            + "<dc:language>en</dc:language><dc:identifier id=\"uid\">older-book</dc:identifier></dc-metadata>"
-            + "<x-metadata><meta name=\"cover\" content=\"cover\"/></x-metadata>", attributes: "", epub2: true,
-            adding: ["OPS/cover.jpg": Data([0xFF, 0xD8, 0xFF])],
-            opf: { $0.replacingOccurrences(of: "<manifest>", with: "<manifest><item id=\"cover\" href=\"cover.jpg\" media-type=\"image/jpeg\"/>") })
-        XCTAssertEqual(book.metadata, EPUBMetadata(title: "An Older Book", authors: ["Older Author"], languages: ["en"], identifiers: ["older-book"]))
-        XCTAssertEqual(book.cover?.path, "OPS/cover.jpg")
+        // EPUB 3 has neither, and a package that says it is one and has them is read the same:
+        // what a package's version says is no reason to read less of it (#85).
+        for epub2 in [true, false] {
+            let book = try book(metadata: "<dc-metadata \(Self.dublinCore)><dc:title>An Older Book</dc:title><dc:creator>Older Author</dc:creator>"
+                + "<dc:language>en</dc:language><dc:identifier id=\"uid\">older-book</dc:identifier></dc-metadata>"
+                + "<x-metadata><meta name=\"cover\" content=\"cover\"/></x-metadata>", attributes: "", epub2: epub2,
+                adding: ["OPS/cover.jpg": Data([0xFF, 0xD8, 0xFF])],
+                opf: { $0.replacingOccurrences(of: "<manifest>", with: "<manifest><item id=\"cover\" href=\"cover.jpg\" media-type=\"image/jpeg\"/>") })
+            XCTAssertEqual(book.metadata, EPUBMetadata(title: "An Older Book", authors: ["Older Author"], languages: ["en"], identifiers: ["older-book"]),
+                           "EPUB \(epub2 ? 2 : 3)")
+            XCTAssertEqual(book.cover?.path, "OPS/cover.jpg", "EPUB \(epub2 ? 2 : 3)")
+        }
+        // A wrapper's elements stand where it does, among any written beside it. An element
+        // further down, inside any other element, is not read.
+        let mixed = try book(metadata: "<dc:title>The Main Title</dc:title><dc-metadata><dc:title>A Later Title</dc:title>"
+            + "<dc:creator>First Author</dc:creator><dc:identifier id=\"uid\">mixed-book</dc:identifier></dc-metadata>"
+            + "<dc:creator>Second Author</dc:creator><dc:language>en</dc:language>"
+            + "<other><dc:creator>Not an Author</dc:creator></other>", epub2: true)
+        XCTAssertEqual(mixed.metadata, EPUBMetadata(title: "The Main Title", authors: ["First Author", "Second Author"], languages: ["en"],
+                                                    identifiers: ["mixed-book"]))
     }
 
     func testCharacterDataSectionsCommentsAndReferencesInATitle() throws {
