@@ -366,8 +366,8 @@ math_power = '<msup><mi>x</mi><mn>2</mn></msup>'
 math_body = '<h1>Math readings</h1>'
 for language, name in [('en', 'English'), ('fr', 'Français'), ('de', 'Deutsch'),
                        ('es', 'Español'), ('it', 'Italiano'), ('ja', 'English fallback')]:
-    math_body += f'<p>{name}: <math {math_ns} xml:lang="{language}">{math_power}</math>.</p>'
-math_body += f'<p>Authored: <math {math_ns} xml:lang="de" alttext="Die eigene Beschreibung">{math_power}</math>.</p>'
+    math_body += f'<p xml:lang="{language}">{name}: <math {math_ns}>{math_power}</math>.</p>'
+math_body += f'<p xml:lang="de">Authored: <math {math_ns} alttext="Die eigene Beschreibung">{math_power}</math>.</p>'
 math_body += (f'<math {math_ns} display="block"><mstack><mscarries><mn>1</mn><none/></mscarries>'
               '<mn>19</mn><msrow><mo>+</mo><mn>2</mn></msrow><msline length="2"/>'
               '<mn>21</mn></mstack></math>')
@@ -379,6 +379,11 @@ files['OPS/package.opf'] = files['OPS/package.opf'].replace('</manifest>',
     '<item id="math" href="math.xhtml" media-type="application/xhtml+xml" properties="mathml"/></manifest>').replace(
     '</spine>', '<itemref idref="math"/></spine>')
 files['OPS/nav.xhtml'] = files['OPS/nav.xhtml'].replace('</ol>', '<li><a href="math.xhtml">Math readings</a></li></ol>')
+# Declare the embedded content of the fixture's existing picture and entry sections too.
+for name, property in [('pictures.xhtml', 'svg'), ('entries.xhtml', 'mathml')]:
+    item = f'href="{name}" media-type="application/xhtml+xml"'
+    files['OPS/package.opf'] = files['OPS/package.opf'].replace(item, item + f' properties="{property}"')
+
 
 # A second book of ordinary paragraphs, for continuous scroll: chapters of forty, forty and six
 # paragraphs, each of forty numbered words ("p017w23" is the seventeenth paragraph's
