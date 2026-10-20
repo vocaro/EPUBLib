@@ -2831,7 +2831,9 @@ The following are the defaults. Host commands and accessibility actions stay ena
   of its characters are in, and each part of its label carries its own
   (`accessibilitySpeechLanguage` in its attributed label): "He said bonjour and left."
   names English, and "bonjour" in it French. White space is in the language of the words
-  before it. The label's words, the item's traits and its actions are those of words in one
+  before it. What VoiceOver is not given weighs nothing: characters `visibility: hidden`
+  hides ("Hidden text"), and the words of a picture the book keeps from assistive
+  technology. The label's words, the item's traits and its actions are those of words in one
   language, and a heading keeps its level over the whole label. A cell of a table of data
   is read as one text, in the language most of it is in, and so is the name of a header
   cell VoiceOver says before it: a part of a cell in another language is not set apart. A

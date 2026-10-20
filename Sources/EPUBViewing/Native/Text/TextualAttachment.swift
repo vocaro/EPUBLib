@@ -111,7 +111,7 @@ extension NSAttributedString {
         }
     }
 
-    /// The languages `readerPlainText(in:spoken: true)` is to be spoken in. Text is in the
+    /// The languages of the words `readerPlainText(in:spoken:)` gives VoiceOver. Text is in the
     /// language its characters carry for typesetting (`InlineStyling.languageKey`): what the
     /// content declares, else the package's, as `MathSpeech.contentLanguage` finds it for a
     /// formula, with the tags that name no voice left out (`InlineLanguage.spoken`). An

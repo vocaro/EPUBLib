@@ -21,10 +21,16 @@ import XCTest
 
     private static let square = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\"><rect width=\"32\" height=\"32\" fill=\"#07c\"/></svg>"
 
+    /// English words that no one reads, more of them than the French beside them.
+    private static let unread = "a much longer English sentence that no one reads"
+
     /// A German book, by its package, with French and English in it: a section of lines,
-    /// headings, links, a formula and a picture, and one that opens with a line of English
-    /// and French and holds a rule, a table used for layout and a table of data. Each takes
-    /// one page of an iPhone.
+    /// headings, links, a formula and a picture, one that opens with a line of English and
+    /// French and holds a rule, a table used for layout and a table of data, and one of words
+    /// that are not read, which would outweigh the French around them: English that
+    /// `visibility: hidden` hides, in a line and in a cell, and a picture the book keeps from
+    /// assistive technology in a heading. That one holds a rule kept from assistive technology
+    /// too, which is all its link holds. Each takes one page of an iPhone.
     private static func book() throws -> EPUBPublication {
         try EPUBPublication.open(data: SessionCoverageBook.epub([
             SessionCoverageBook.Section("sprachen", """
@@ -44,6 +50,13 @@ import XCTest
                 <table><tr><td>Deutsche Tabellenzelle</td><td lang="fr">Cellule</td></tr></table>\
                 <table><tr><th>Name</th><th lang="fr">Ville</th></tr><tr><td>Anna</td><td lang="fr">Lyon</td></tr></table>\
                 <p>Letzte Worte.</p>
+                """),
+            SessionCoverageBook.Section("verborgen", """
+                <p lang="fr">Oui<span style="visibility: hidden" lang="en">\(unread)</span>non.</p>\
+                <h2 lang="fr">Titre <img src="square.svg" alt="\(unread)" aria-hidden="true"/> caché</h2>\
+                <a href="notes.xhtml"><hr aria-hidden="true"/></a>\
+                <table><tr><th>Wort</th></tr><tr><td lang="fr">Oui<span style="visibility: hidden" lang="en">\(unread)</span></td></tr></table>\
+                <p>Ende.</p>
                 """),
             SessionCoverageBook.Section("notes", "<h1>Notes</h1><p>The linked note.</p>")],
             manifest: "<item id=\"square\" href=\"square.svg\" media-type=\"image/svg+xml\"/>",
@@ -132,6 +145,21 @@ import XCTest
         ]
     }
 
+    /// The third section's items, with the actions `page` adds to each: none reads the words
+    /// that are not read, and those decide no language.
+    private static func unread(page: [String]) -> [Spoken] {
+        [
+            Spoken(label: "Oui non.", language: "fr", actions: page),
+            Spoken(label: "Titre  caché", language: "fr", level: 2, traits: [.staticText, .header], actions: page),
+            // A rule kept from assistive technology that is all its link holds is the link, in
+            // the reader's word, which is in no language of the book's.
+            Spoken(label: "Separator", language: nil, traits: .link, actions: page),
+            Spoken(label: "Wort", language: "de", actions: page + ["Select Cell Text"]),
+            Spoken(label: "Oui", language: "fr", actions: page + ["Select Cell Text"]),
+            Spoken(label: "Ende.", language: "de", actions: page),
+        ]
+    }
+
     func testEachElementOfAPageNamesTheLanguageOfItsWords() async throws {
         let reader = try SessionCoverageReader(publication: try Self.book())
         readers.append(reader)
@@ -147,6 +175,11 @@ import XCTest
         try await reader.wait("the second section") { canvas.visibleRange?.start.section == 1 }
         try await reader.wait("the cells' text views") { view.tableInteraction?.cells.isEmpty == false }
         XCTAssertEqual(try items(of: view).map(spoken), Self.tables(page: turns))
+
+        XCTAssertEqual(canvas.turnPage(forward: true), .turned)
+        try await reader.wait("the third section") { canvas.visibleRange?.start.section == 2 }
+        try await reader.wait("the cells' text views") { view.tableInteraction?.cells.isEmpty == false }
+        XCTAssertEqual(try items(of: view).map(spoken), Self.unread(page: turns))
     }
 
     func testEachElementOfContinuousScrollNamesTheLanguageOfItsWords() async throws {
@@ -162,7 +195,7 @@ import XCTest
         try await reader.wait("the cells' text views") { view.tableInteraction?.cells.isEmpty == false }
         // Continuous scroll scrolls by VoiceOver's own gesture: no item turns a page. The
         // scroll view lists the book's lines past the screen, and its bars after them.
-        let expected = Self.languages(page: []) + Self.tables(page: [])
+        let expected = Self.languages(page: []) + Self.tables(page: []) + Self.unread(page: [])
         let listed = try items(of: view).map(spoken)
         XCTAssertGreaterThan(listed.count, expected.count)
         XCTAssertEqual(Array(listed.prefix(expected.count)), expected)

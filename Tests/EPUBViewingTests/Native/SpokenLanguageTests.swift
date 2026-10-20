@@ -11,7 +11,7 @@ import UIKit
 /// a word is in the language its characters carry for typesetting, the content's or else the
 /// package's, which is the language a formula looks up for itself, with the tags that name
 /// no voice left out; an attachment is in the language it declares for its words. The parts
-/// cover the reader's plain text exactly, so a label can carry them.
+/// cover the reader's plain text as VoiceOver is given it exactly, so a label can carry them.
 final class SpokenLanguageTests: XCTestCase {
     private typealias F = MathFixtures
 
@@ -19,7 +19,7 @@ final class SpokenLanguageTests: XCTestCase {
     private func parts(_ text: NSAttributedString, _ range: NSRange? = nil) -> [String] {
         let range = range ?? NSRange(location: 0, length: text.length)
         let languages = text.readerSpokenLanguages(in: range)
-        let plain = text.readerPlainText(in: range) as NSString
+        let plain = text.readerPlainText(in: range, spoken: true) as NSString
         XCTAssertEqual(languages.runs.reduce(0) { $0 + $1.length }, plain.length, "the parts cover the plain text")
         var location = 0
         return languages.runs.map { run in
@@ -99,6 +99,37 @@ final class SpokenLanguageTests: XCTestCase {
         XCTAssertEqual(parts(labelled(nil)), ["fr:Vu hidden words ici."])
         XCTAssertEqual(parts(labelled("und")), ["fr:Vu", "none: hidden words ", "fr:ici."],
                        "a label declared undetermined names no language, and does not take the text's")
+    }
+
+    /// What is not read decides no language: words `visibility: hidden` hides (#357), and the
+    /// words of a picture the book keeps from assistive technology, which VoiceOver is not
+    /// given. Each would outweigh the French around it.
+    @MainActor func testWhatIsNotReadDecidesNoLanguage() throws {
+        let english = "a much longer English sentence that no one reads"
+        let section = try BoxLayoutHarness.build("""
+            <p lang="fr">Oui<span class="v" lang="en">\(english)</span>non.</p>\
+            <p lang="fr">Voici <img src="p.png" alt="\(english)" aria-hidden="true"/> une image.</p>\
+            <table><tr><td lang="de">Wort</td><td lang="fr">Oui<span class="v" lang="en">\(english)</span></td></tr></table>
+            """, css: BoxLayoutHarness.reset + ".v { visibility: hidden } img { width: 20px; height: 20px }",
+            files: ["p.png": RichFixture.image(width: 40, height: 40)])
+        let text = section.string
+        // Hidden between two shown words, the English is read as one space, which is theirs.
+        let hidden = range(of: "Oui", in: text).union(range(of: "non.", in: text))
+        XCTAssertEqual(parts(text, hidden), ["fr:Oui non."])
+        XCTAssertEqual(text.readerSpokenLanguages(in: hidden).main, "fr")
+
+        let picture = range(of: "Voici", in: text).union(range(of: "une image.", in: text))
+        XCTAssertTrue(text.readerPlainText(in: picture).contains(english), "Copy takes the picture's words")
+        XCTAssertEqual(parts(text, picture), ["fr:Voici  une image."])
+        XCTAssertEqual(text.readerSpokenLanguages(in: picture).main, "fr")
+
+        var rows: [TableRowAttachment] = []
+        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+            if let row = value as? TableRowAttachment { rows.append(row) }
+        }
+        let table = try XCTUnwrap(rows.first?.table)
+        XCTAssertEqual(table.cells.map(\.text), ["Wort", "Oui"])
+        XCTAssertEqual(table.cells.map(\.spokenLanguage), ["de", "fr"])
     }
 
     func testWhiteSpaceAndEvenCountsChangeNoVoice() {
