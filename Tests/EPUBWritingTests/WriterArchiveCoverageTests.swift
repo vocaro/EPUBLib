@@ -231,7 +231,8 @@ struct WriterArchiveCoverageTests {
 
     // EPUB 3.3, 4.3.3: "The mimetype file MUST NOT contain any leading or trailing padding or
     // whitespace." doc/writing.md: the writer "stores the exact mimetype". A trailing newline is
-    // the usual way to get it wrong (echo, an editor), and the reader refuses such an archive.
+    // the usual way to get it wrong (echo, an editor); the reader reads past it
+    // (https://github.com/vocaro/EPUBLib/issues/216), but EPUBCheck reports it (PKG-007).
     // Any byte after the mimetype is refused, however long the file, before an archive is
     // created or a source consumed (https://github.com/vocaro/EPUBLib/issues/97).
     @Test func aMimetypeFileWithTrailingBytesIsRefused() async throws {
