@@ -689,6 +689,10 @@ final class ReaderTextView: UITextView {
                     ?? ReaderPageAccessibilityElement(view: self, range: range, url: url)
                 element.image = attachment as? ReaderImageAttachment
                 element.rule = attachment as? ReaderRuleAttachment
+                // The languages the words are in. A rule's name is the reader's word, in no
+                // language of the book's, whether the book keeps the rule from assistive
+                // technology or not.
+                var languages: ReaderSpokenLanguages?
                 if attachment is ReaderRuleAttachment {
                     // A rule is a break between what stands before it and what follows:
                     // not a picture, which VoiceOver would call an image, and not words of
@@ -696,33 +700,28 @@ final class ReaderTextView: UITextView {
                     // of its own for one and the reader names it.
                     label = ReaderRuleAttachment.spokenName
                     traits.remove(.staticText)
-                } else if isRow {
-                    if isWordlessRow { label = nil; traits.insert(.image) }
-                } else if attachment != nil {
-                    if !isSpoken { traits.insert(.image) }
-                    // An image without words is an image and no more: the trait says so, in
-                    // VoiceOver's own language, and the reader makes up no name for it. Nor
-                    // does it give the words of one the book keeps from assistive technology,
-                    // listed all the same as all its link holds or all a page holds.
-                    if let image = attachment as? ReaderImageAttachment { label = image.spokenAlt.isEmpty ? nil : image.spokenAlt }
-                    // A formula's reading has its own voice: the book's language or the generator's.
-                    if let language = (attachment as? ReaderTextualAttachment)?.textLanguage {
-                        element.accessibilityLanguage = language
+                } else if let row = attachment as? TableRowAttachment {
+                    if isWordlessRow { label = nil; traits.insert(.image) } else { languages = row.spokenLanguages }
+                } else {
+                    if attachment != nil {
+                        if !isSpoken { traits.insert(.image) }
+                        // An image without words is an image and no more: the trait says so, in
+                        // VoiceOver's own language, and the reader makes up no name for it. Nor
+                        // does it give the words of one the book keeps from assistive technology,
+                        // listed all the same as all its link holds or all a page holds.
+                        if let image = attachment as? ReaderImageAttachment { label = image.spokenAlt.isEmpty ? nil : image.spokenAlt }
                     }
+                    // Words in the language their characters carry. A formula's reading has its
+                    // own voice, the book's language or the generator's, and a hidden label
+                    // the language it declares.
+                    languages = storage.readerSpokenLanguages(in: range)
                 }
                 // A heading is read as its words: with its paragraph's break after them VoiceOver
                 // ends the phrase there, before it has said that this is a heading.
                 if heading != nil, let words = label, let end = words.lastIndex(where: { !$0.isNewline }) { label = String(words[...end]) }
-                element.accessibilityLabel = label
+                if heading != nil { traits.insert(.header) }
+                element.setLabel(label, languages: languages, headingLevel: heading?.level)
                 element.position = canvas?.position(at: range.location, in: self)
-                if let heading {
-                    traits.insert(.header)
-                    // VoiceOver takes a heading's level from its label's attributes; 0 is none.
-                    if let label {
-                        element.accessibilityAttributedLabel = NSAttributedString(
-                            string: label, attributes: [.accessibilityTextHeadingLevel: heading.level])
-                    }
-                }
                 element.accessibilityTraits = traits
                 // A scroll view's bounds move with its content, and a line listed past the
                 // screen is outside them.
@@ -825,6 +824,8 @@ final class ReaderTextView: UITextView {
                 ?? ReaderPageAccessibilityElement(view: self, range: range, table: row.table, cell: spoken.cell)
             cells[key] = element
             element.accessibilityLabel = spoken.text.isEmpty ? nil : spoken.text
+            // A cell is read as one text, in the language most of it is in.
+            element.accessibilityLanguage = row.table.cells[spoken.cell].spokenLanguage
             element.position = canvas?.position(at: range.location, in: self)
             element.continuations = []
             element.images = spoken.images
@@ -1018,6 +1019,35 @@ private struct ReaderAccessibilityList {
         self.init(view: view, range: range, url: nil)
         self.table = table
         self.cell = cell
+    }
+
+    /// Gives the element its words and the languages they are in. The element's own language
+    /// is the one most of them are in. Where some are in another, each part of the label
+    /// carries its own (`accessibilitySpeechLanguage`), and VoiceOver reads it in a voice
+    /// for that language; a part in none is read in the element's. A heading's level is in
+    /// its label's attributes too, over all of it; 0 is none. The label's words are the same
+    /// either way.
+    func setLabel(_ label: String?, languages: ReaderSpokenLanguages?, headingLevel: Int?) {
+        // An attributed label is not left from words this element had before.
+        accessibilityAttributedLabel = nil
+        accessibilityLabel = label
+        accessibilityLanguage = languages?.main
+        guard let label else { return }
+        let mixed = languages?.isMixed == true
+        guard headingLevel != nil || mixed else { return }
+        let text = NSMutableAttributedString(string: label)
+        let whole = NSRange(location: 0, length: text.length)
+        if let headingLevel { text.addAttribute(.accessibilityTextHeadingLevel, value: headingLevel, range: whole) }
+        if mixed, let languages {
+            // A heading's label is its words without the break after them: the runs go as far as it does.
+            var location = 0
+            for run in languages.runs where location < text.length {
+                let part = NSRange(location: location, length: min(run.length, text.length - location))
+                if let language = run.language { text.addAttribute(.accessibilitySpeechLanguage, value: language, range: part) }
+                location = NSMaxRange(part)
+            }
+        }
+        accessibilityAttributedLabel = text
     }
 
     /// Becomes `line`, an element made for a line or a cell of the page now shown: its
@@ -1339,6 +1369,7 @@ private struct ReaderTableCellKey: Hashable {
         columns = NSRange(location: cell.column, length: cell.columnSpan)
         super.init(accessibilityContainer: table)
         accessibilityLabel = cell.text
+        accessibilityLanguage = cell.spokenLanguage
         accessibilityTraits = .staticText
     }
 

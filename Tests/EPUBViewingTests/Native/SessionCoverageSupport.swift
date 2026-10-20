@@ -44,9 +44,10 @@ enum SessionCoverageBook {
     /// `toc`, `landmarks` and `pageList` are the `<li>` markup of each navigation list; a nil `toc`
     /// lists every section by its title, and a nil `landmarks` or `pageList` leaves that list out.
     /// `guide` is a whole OPF `<guide>` element and `manifest` extra `<item>` elements.
+    /// `language` is the package's `dc:language`.
     static func epub(_ sections: [Section], toc: String? = nil, landmarks: String? = nil, pageList: String? = nil,
                      guide: String = "", manifest: String = "", spine: String = "", files: [String: String] = [:],
-                     epub2: Bool = false) throws -> Data {
+                     epub2: Bool = false, language: String = "en") throws -> Data {
         let items = sections.enumerated().map {
             "<item id=\"s\($0.offset)\" href=\"\(encoded($0.element.name)).xhtml\" media-type=\"application/xhtml+xml\"/>"
         }.joined()
@@ -61,7 +62,7 @@ enum SessionCoverageBook {
             <?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0"><rootfiles><rootfile full-path="OPS/book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>
             """,
             "OPS/book.opf": """
-            <package xmlns="http://www.idpf.org/2007/opf" version="\(epub2 ? "2.0" : "3.0")" unique-identifier="uid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>A Session Coverage Book</dc:title><dc:language>en</dc:language><dc:identifier id="uid">session-coverage-book</dc:identifier></metadata><manifest>\(items)<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" \(epub2 ? "" : "properties=\"nav\"")/><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\(manifest)</manifest><spine toc="ncx"\(spine)>\(itemrefs)</spine>\(guide)</package>
+            <package xmlns="http://www.idpf.org/2007/opf" version="\(epub2 ? "2.0" : "3.0")" unique-identifier="uid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>A Session Coverage Book</dc:title><dc:language>\(language)</dc:language><dc:identifier id="uid">session-coverage-book</dc:identifier></metadata><manifest>\(items)<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" \(epub2 ? "" : "properties=\"nav\"")/><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\(manifest)</manifest><spine toc="ncx"\(spine)>\(itemrefs)</spine>\(guide)</package>
             """,
             "OPS/nav.xhtml": page("Contents", nav),
             "OPS/toc.ncx": "<ncx xmlns=\"http://www.daisy.org/z3986/2005/ncx/\" version=\"2005-1\"><navMap/></ncx>",

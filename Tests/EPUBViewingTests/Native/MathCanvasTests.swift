@@ -328,7 +328,8 @@ import UIKit
         let images = elements.filter { $0.accessibilityTraits.contains(.image) }
         XCTAssertEqual(images.map(\.accessibilityLabel), [F.frenchAlttext, "début de fraction a sur b au carré fin de fraction"])
         XCTAssertEqual(images.map(\.accessibilityLanguage), ["fr", "fr"])
-        XCTAssertTrue(elements.filter { !$0.accessibilityTraits.contains(.image) }.allSatisfy { $0.accessibilityLanguage == nil })
+        // The words around them are in the text's own language (#65).
+        XCTAssertEqual(Set(elements.filter { !$0.accessibilityTraits.contains(.image) }.map(\.accessibilityLanguage)), ["fr"])
         #endif
     }
 }

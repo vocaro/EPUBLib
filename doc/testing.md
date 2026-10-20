@@ -2845,6 +2845,18 @@ The stop after the scroll bar is adjusted was found this way
 results"). The log of a physical device holds whatever else its owner's device did, and is
 not read.
 
+What a transcript and `vot`'s log do not say is the voice VoiceOver speaks with: XCTest gives
+a phrase's words alone, and `vot` enqueues each phrase with `voice: <nil>` and its words
+redacted. The simulator's speech extension says it, in a log of its own. Add it to the
+predicate, `process == "vot" OR process == "MauiAUSP"`, and each phrase has `Processing
+markup for voice locale: fr_FR`, and the first phrase in a voice `Setting voice:
+com.apple.voice.super-compact.fr-FR.Thomas`. A move stops what is left of the phrase
+before it, so where the voice of each part of a phrase matters, let VoiceOver finish it
+(`listen=`) before the next move: a line of English with French in it was three
+syntheses, `en_US`, `fr_FR` and `en_US`, and a move half a second after the line had begun
+left the first alone. The voices the reader's languages are given were read this way
+([#65](https://github.com/vocaro/EPUBLib/issues/65#issuecomment-6164353724)).
+
 A move costs half a second and a touch about five and a half, most of it XCTest waiting for
 an event that VoiceOver keeps from the reader. The end of a `read` costs 3.3 seconds and an
 `activate` or `rotate` a little over one after the gesture. The simulators are not the

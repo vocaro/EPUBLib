@@ -703,7 +703,8 @@ import XCTest
             [.staticText, .causesPageTurn]])
         XCTAssertEqual(fresh.map { $0[0].headingLevel }, [nil, nil, nil, nil, 2, nil, nil, nil])
         XCTAssertNotNil(fresh[5][0].language, "a formula's reading has a language of its own")
-        XCTAssertEqual(fresh.map { $0[0].language == nil }, [true, true, true, true, true, false, true, true])
+        // Words are in the book's language (#65); a picture's words and the reader's word for a rule are in none.
+        XCTAssertEqual(fresh.map { $0[0].language }, ["en", "en", nil, "en", "en", "en", nil, "en"])
         canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
         try await shown(0)
         XCTAssertGreaterThanOrEqual(toldOfAPage(), 1)
