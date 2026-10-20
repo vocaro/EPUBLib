@@ -32,11 +32,15 @@ additional identifiers and avoids adding another copy when a publication's metad
 again ([#95](https://github.com/vocaro/EPUBLib/issues/95)).
 
 Write prepared documents and content into staging, then call `EPUBArchiveWriter.write` with
-ordered file-backed entries, placing `mimetype` first. It stores the exact mimetype uncompressed,
-deflates other entries, checks cancellation between entries and archive chunks, enforces the
-uncompressed content-byte budget and removes an unfinished archive on failure or cancellation.
-The destination must be a new local file. Progress runs in order from zero through one; consumer
-publication/atomic destination handling happens after writing.
+ordered file-backed entries, placing `mimetype` first. The `mimetype` entry's source must be
+exactly the 20 bytes `application/epub+zip`. Any other content, a trailing line end or space
+included, is refused with `EPUBWritingError.invalidPublication("invalid mimetype")` before an
+archive is created or a source consumed ([#97](https://github.com/vocaro/EPUBLib/issues/97)).
+It stores the exact mimetype uncompressed, deflates other entries, checks cancellation between
+entries and archive chunks, enforces the uncompressed content-byte budget and removes an
+unfinished archive on failure or cancellation. The destination must be a new local file.
+Progress runs in order from zero through one; consumer publication/atomic destination handling
+happens after writing.
 
 Entries default to preserving caller-owned files. `consume: true` permits deletion after a
 file's final referring entry; a non-consuming reference keeps a shared file alive even when
