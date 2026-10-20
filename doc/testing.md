@@ -2707,7 +2707,7 @@ python3 scripts/run-voiceover-simulator.py --device iPad-Air-13-inch-M4 --font-s
 
 The runner generates the fixture and project if they are missing or stale and builds the probe
 once; a simulator build needs no signing team. It creates an iPhone 17 Pro and an iPad Air
-13-inch (M4) on the iOS 27.0 runtime (`--device` and `--runtime` choose others), boots them
+13-inch (M4) on pinned iOS 27.2 build `24B5110a` (`--device` and `--runtime` choose others), boots them
 with `simctl` alone, sets each one's volume to 0 and runs one `xcodebuild
 test-without-building` for each at the same time, under `--timeout`. It deletes its simulators
 however the run ends, also when it is terminated, and never boots, changes or deletes one it
@@ -2717,6 +2717,9 @@ log and result bundle in `.build/voiceover/results/`: the device, build revision
 probe's lines, then the result, with VoiceOver's state and the volume as `devicectl` reports
 them. The exit status is 0 only when every probe ran all its steps and passed, VoiceOver is
 off again and no simulator lost its mute.
+The default cursor-activation mode has a 600-second timeout and the guards and known
+announcement limitation described under [Investigating cursor activation](#investigating-cursor-activation).
+Stock mode defaults to 300 seconds.
 
 The `BUILD` line gives `git describe --always --dirty` from before the probe was built, saved
 after a successful build in `voiceover-build-revision.txt` in the derived data folder
@@ -2769,7 +2772,7 @@ Four things went wrong in the first runs, and the runner and probe now allow for
   unit tests were running on the Mac; its own transcript was complete. `FAILURE` lines give
   XCTest's reasons.
 
-A simulator session establishes what VoiceOver reads and in what order: each line, the end of
+A stock simulator session establishes what VoiceOver reads and in what order: each line, the end of
 the page, both columns of an iPad's landscape spread, and the page after a turn. It does not
 establish that VoiceOver can activate anything. On these simulators a double tap under
 VoiceOver does not perform the cursor item's action. The reader receives one plain touch
@@ -2888,13 +2891,14 @@ When that returns true it sends a plain touch at the gesture's point and returns
 activation has no touch point. The gate reads an internal testing flag; the issue records
 the runtime comparisons and a diagnostic patch that makes this one method return false,
 letting VoiceOver itself dispatch the cursor item's default action or the rotor action.
-The patch changes VoiceOver's behaviour and is experimental evidence, not an extension of
-the acceptance policy below. It changes no installed runtime file or reader implementation.
+The guarded bypass is the runner's default on pinned iOS 27.2, with the announcement
+limitation below. It changes no installed runtime file or reader implementation; physical
+acceptance requirements remain as described below.
 
 Compare the stock simulator with an off-target double tap and with the keyboard command:
 
 ```sh
-python3 scripts/run-voiceover-simulator.py --runtime com.apple.CoreSimulator.SimRuntime.iOS-27-2 \
+python3 scripts/run-voiceover-simulator.py --activation stock --runtime com.apple.CoreSimulator.SimRuntime.iOS-27-2 \
   --device iPad-Air-13-inch-M4 --href OPS/grids.xhtml --launch '-SampleSelectionLine YES' \
   --vot-log --timeout 600 \
   --steps 'touch=Alder,rotor=Actions,choose=Select Cell Text,keyactivate,state,doublepoint=0.5:0.6,state'
@@ -2904,6 +2908,12 @@ An offered action is not a performed one, and a passing recording test is not ev
 activation: read the `state` lines. The issue keeps the patch, its base revision, the full
 step lists, results and remaining gaps so the experiment can be repeated without retaining
 an investigation branch.
+
+The runner defaults to iOS 27.2 and guarded cursor dispatch for that runtime. An explicit
+`--runtime` or `EPUB_SIM_RUNTIME` selecting another runtime defaults to stock activation;
+`--activation stock` always selects an unmodified control. Explicit cursor activation on
+an unsupported runtime, or a changed build or binary under the pinned runtime name, fails
+before any simulator is created. There is no silent fallback after a failed guard.
 
 The guarded bypass builds and signs its own simulator-only library. Select the Xcode with
 `DEVELOPER_DIR` for both build and run:
@@ -2975,10 +2985,19 @@ on the ordinary runner records and sends an explicit step override for one reque
 the qualification runner uses that for the two input paths. The small Python suite checks that unknown builds, altered binaries and missing
 hook/canary evidence cannot pass. Qualification results and device comparisons are recorded on
 [#495](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6296467408), with the revision tested.
-The native comparison validates landscape activation but leaves a post-activation
-announcement discrepancy unresolved. Until the complete qualification passes, the runner's
-default and the acceptance policy remain unchanged. Keep the immediate announcement
-assertion when repeating the link workflow; the physical reference satisfies it.
+Default adoption does not mean that the full qualification passes. In the 23-point portrait
+iPhone link workflow, activation reaches the destination but the guarded simulator can
+retain the link's old announcement instead of immediately announcing “Link target reached”.
+The following forward move reads the sentence after the heading, and the backward move
+reads the heading. The physical iPhone announces the heading immediately, including with
+the matching source, app SDK, model and OS build. The remaining discrepancy's cause is
+unassigned. Verify the affected immediate announcement on a physical device.
+
+Cursor runs print this known limitation and retain it in their transcripts. The matrix
+keeps `expect=Link target reached` immediately after link activation and exits nonzero when
+it fails; there is no skip, expected-failure conversion or relaxed assertion. This leaves
+the qualification failure visible while allowing the guarded technique to be used for
+activation tests on the pinned runtime.
 
 To separate a navigation announcement from activation, the sample's existing
 `-SampleStepAfter SECONDS` timer accepts `-SampleStepHref HREF`: it navigates to that

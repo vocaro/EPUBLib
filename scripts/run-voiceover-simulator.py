@@ -201,9 +201,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--device", action="append", metavar="TYPE",
                         help="a simulator device type, repeatable (default: iPhone-17-Pro and iPad-Air-13-inch-M4)")
-    parser.add_argument("--runtime", default=os.environ.get("EPUB_SIM_RUNTIME", activation.RUNTIME if activation.QUALIFIED else "com.apple.CoreSimulator.SimRuntime.iOS-27-0"))
-    parser.add_argument("--activation", choices=["stock", "cursor"], default="cursor" if activation.QUALIFIED else "stock",
-                        help="validated cursor dispatch or an explicit unmodified stock control")
+    parser.add_argument("--runtime", default=os.environ.get("EPUB_SIM_RUNTIME", activation.RUNTIME),
+                        help="simulator runtime (default: EPUB_SIM_RUNTIME or %(default)s)")
+    parser.add_argument("--activation", choices=["stock", "cursor"],
+                        help="default: guarded cursor dispatch on the pinned runtime, stock on other runtimes; stock explicitly selects an unmodified control")
     parser.add_argument("--strict", action="store_true", help="fail immediately if a requested target, rotor setting or action is missing")
     parser.add_argument("--activation-check", action="store_true", help="also require the activation canary in a stock negative control")
     parser.add_argument("--steps", default=STEPS, help="the probe's comma-separated steps (default: %(default)s)")
@@ -228,6 +229,7 @@ def main():
     parser.add_argument("--derived-data", type=Path, default=root / ".build/voiceover/ios-simulator")
     parser.add_argument("--results", type=Path, default=root / ".build/voiceover/results")
     args = parser.parse_args()
+    args.activation = args.activation or activation.default_mode(args.runtime)
     if args.timeout is None:
         args.timeout = 600 if args.activation == "cursor" and not args.voiceover_off else 300
     if args.voiceover_off and args.activation_check:
@@ -255,6 +257,7 @@ def main():
         library = activation.prepare(root, args.derived_data, args.runtime, run) if args.activation == "cursor" and not args.voiceover_off else None
         if library:
             args.vot_log = True
+            print("LIMITATION " + activation.LIMITATION, flush=True)
         xctestrun, revision = build(root, args.derived_data, args.results / f"simulator-{stamp}.build.log",
                                     args.build_timeout, args.skip_build)
         built = time.monotonic()
@@ -279,6 +282,7 @@ def main():
             if library:
                 run("xcrun", "simctl", "spawn", session.udid, "launchctl", "setenv", "DYLD_INSERT_LIBRARIES", str(library))
                 session.transcript.append(f"{now()} ACTIVATION cursor v1, build {activation.BUILD}, vot SHA-256 {activation.VOT_SHA256}; marker and startup self-test required")
+                session.transcript.append(f"{now()} LIMITATION {activation.LIMITATION}")
             else:
                 session.transcript.append(f"{now()} ACTIVATION stock (unmodified)")
             # VoiceOver speaks through the Mac's own output device, so nothing runs before this holds.

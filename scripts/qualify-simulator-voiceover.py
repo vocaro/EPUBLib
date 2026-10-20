@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Assert cursor activation workflows on fresh iPhone/iPad simulators at two text sizes.
 
-Requires the Xcode whose SDK matches the pinned runtime. Stops on any failed assertion,
+The immediate link-target announcement remains a known failure on the pinned iPhone
+runtime (#495); default adoption does not waive it. Requires the Xcode whose SDK matches
+the pinned runtime. Stops on any failed assertion,
 missing action, missing hook/canary, timeout, lost mute or cleanup failure. Results are
 local; publish a concise result on #495 before changing qualification or acceptance policy.
 """

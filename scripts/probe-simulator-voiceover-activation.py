@@ -9,7 +9,7 @@ root = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('simulator_probe', root / 'scripts/run-voiceover-simulator.py')
 probe = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(probe)
-if '--activation' not in sys.argv:
+if '--activation' not in sys.argv and 'EPUB495_OVERRIDE' in os.environ:
     sys.argv += ['--activation', 'cursor' if os.environ.get('EPUB495_OVERRIDE') == '1' else 'stock']
 if '--runtime' not in sys.argv and os.environ.get('EPUB495_OVERRIDE') == '1':
     sys.argv += ['--runtime', probe.activation.RUNTIME]
