@@ -420,10 +420,9 @@ final class ReaderTextView: NSTextView {
         // Inline formula slots retain source offsets while rows reflow. Expose one image
         // reading for the selected part; the remaining placeholders are silent spaces.
         var mathSpaces: [Int] = []
-        var formulas: Set<ObjectIdentifier> = []
         contentStorage.textStorage?.enumerateAttribute(.attachment, in: range) { value, run, _ in
-            guard let math = value as? MathAttachment, let inline = math.inline else { return }
-            if !formulas.insert(ObjectIdentifier(inline)).inserted { mathSpaces.append(run.location) }
+            guard let math = value as? MathAttachment, math.inline != nil else { return }
+            if run.location != max(0, run.location - math.row) { mathSpaces.append(run.location) }
         }
         let images = announcedImages(in: range)
         let rules = rules(in: range)

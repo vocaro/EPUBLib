@@ -151,10 +151,19 @@ import UIKit
                 XCTAssertGreaterThanOrEqual(after.minY, placed.box.maxY - 0.5)
                 // What is drawn is those rows, not one row squeezed into their box.
                 let image = try XCTUnwrap(snapshot(host.canvas))
-                let ink = try XCTUnwrap(ink(image, in: areaInCanvas(placed, canvas: host.canvas), canvas: host.canvas), "\(flow) \(fontSize)")
-                XCTAssertEqual(ink.bands, rows.rows.count, "\(flow) \(fontSize)")
-                XCTAssertLessThan(ink.left, fontSize * 0.5, "the first row starts at the left edge")
-                XCTAssertGreaterThan(ink.right, placed.box.width - fontSize * 0.5, "the widest row reaches the right edge")
+                let extent = try XCTUnwrap(ink(image, in: areaInCanvas(placed, canvas: host.canvas), canvas: host.canvas), "\(flow) \(fontSize)")
+                // The engine uses the font's MATH leading, which can leave less than the
+                // old fixed three-point gap between rows at phone text sizes. Check ink in
+                // each actual engine row box instead of inferring rows from that old gap.
+                let area = areaInCanvas(placed, canvas: host.canvas)
+                for (index, row) in rows.rows.enumerated() {
+                    let rowArea = CGRect(x: area.minX + row.x,
+                                         y: area.minY + 0.15 * fontSize + row.baseline - row.layout.ascent,
+                                         width: row.layout.width, height: row.layout.ascent + row.layout.descent)
+                    XCTAssertNotNil(ink(image, in: rowArea, canvas: host.canvas), "row \(index) \(flow) \(fontSize)")
+                }
+                XCTAssertLessThan(extent.left, fontSize * 0.5, "the first row starts at the left edge")
+                XCTAssertGreaterThan(extent.right, placed.box.width - fontSize * 0.5, "the widest row reaches the right edge")
             }
         }
     }
@@ -254,6 +263,12 @@ import UIKit
                     }
                 }
                 XCTAssertEqual(readings.filter { $0 == label }.count, 1, "one accessible formula on each continuation page")
+                // A client may ask for one continuation character rather than the whole
+                // page. That query must not give the same formula a second image reading.
+                for row in placed where row.offset > 0 && row.attachment.row > 0 {
+                    let piece = try XCTUnwrap(row.view.accessibilityAttributedString(for: NSRange(location: row.offset, length: 1)))
+                    XCTAssertNil(piece.attribute(.accessibilityAttachment, at: 0, effectiveRange: nil))
+                }
                 #endif
             }
             page += 1

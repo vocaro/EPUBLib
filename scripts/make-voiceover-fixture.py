@@ -368,7 +368,7 @@ for language, name in [('en', 'English'), ('fr', 'Français'), ('de', 'Deutsch')
                        ('es', 'Español'), ('it', 'Italiano'), ('ja', 'English fallback')]:
     math_body += f'<p>{name}: <math {math_ns} xml:lang="{language}">{math_power}</math>.</p>'
 math_body += f'<p>Authored: <math {math_ns} xml:lang="de" alttext="Die eigene Beschreibung">{math_power}</math>.</p>'
-math_body += (f'<math {math_ns} display="block"><mstack><mscarries><mn>1</mn></mscarries>'
+math_body += (f'<math {math_ns} display="block"><mstack><mscarries><mn>1</mn><none/></mscarries>'
               '<mn>19</mn><msrow><mo>+</mo><mn>2</mn></msrow><msline length="2"/>'
               '<mn>21</mn></mstack></math>')
 math_sum = '<mo>+</mo>'.join(f'<msub><mi>x</mi><mn>{n}</mn></msub>' for n in range(1, 25))
