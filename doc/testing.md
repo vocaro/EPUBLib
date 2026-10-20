@@ -2974,8 +2974,11 @@ can be interrupted by UIKit's “Keyboard visible” announcements. `--device-st
 on the ordinary runner records and sends an explicit step override for one requested device;
 the qualification runner uses that for the two input paths. The small Python suite checks that unknown builds, altered binaries and missing
 hook/canary evidence cannot pass. Qualification results and device comparisons are recorded on
-[#495](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6293715824), with the revision tested. Until that
-qualification passes, the runner's default and the acceptance policy remain unchanged.
+[#495](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6296467408), with the revision tested.
+The native comparison validates landscape activation but leaves a post-activation
+announcement discrepancy unresolved. Until the complete qualification passes, the runner's
+default and the acceptance policy remain unchanged. Keep the immediate announcement
+assertion when repeating the link workflow; the physical reference satisfies it.
 
 To separate a navigation announcement from activation, the sample's existing
 `-SampleStepAfter SECONDS` timer accepts `-SampleStepHref HREF`: it navigates to that
