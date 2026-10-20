@@ -21,14 +21,44 @@ import SwiftUI
                 NavigationStack { ReaderScreen() }.frame(minWidth: 360, minHeight: 600)
             }
             #else
-            NavigationStack { ReaderScreen() }
+            if UserDefaults.standard.bool(forKey: "VerificationActivationCheck") {
+                ActivationReference()
+            } else {
+                if let width = referenceDimension("VerificationWidth"),
+                   let height = referenceDimension("VerificationHeight") {
+                    NavigationStack { ReaderScreen() }.frame(width: width, height: height)
+                } else {
+                    NavigationStack { ReaderScreen() }
+                }
+            }
             #endif
         }
         #if os(macOS)
         .defaultSize(width: 1100, height: 850)
         #endif
     }
+
+    private func referenceDimension(_ key: String) -> CGFloat? {
+        let value = UserDefaults.standard.double(forKey: key)
+        return value > 0 ? CGFloat(value) : nil
+    }
 }
+
+#if os(iOS)
+/// An independent activation canary: neither a coordinate tap elsewhere nor a duplicate
+/// activation can produce the expected count. It is never shown in reader recordings.
+private struct ActivationReference: View {
+    @State private var count = 0
+    var body: some View {
+        VStack {
+            Button("Activation check \(count)") { count += 1 }
+                .accessibilityIdentifier("activation.check")
+                .accessibilityAction(named: "Increment check") { count += 10 }
+            Text("Other item")
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+#endif
 
 #if os(macOS)
 /// AppKit's own text view holding a link of words and a link that is a picture, with none of

@@ -20,6 +20,7 @@ import subprocess
 import sys
 import time
 from types import SimpleNamespace
+import simulator_voiceover_activation as activation
 
 DEVICE_TYPE = "com.apple.CoreSimulator.SimDeviceType."
 TEST = "VoiceOverProbeIOS/VoiceOverProbe/testCaptureNavigation"
@@ -144,6 +145,11 @@ def report(session):
         heard, source = session.recovered, "the unfinished result bundle"
     ended = TEST_ENDED.search(log)
     failures = sorted(set(FAILURES.findall(log)))
+    counts = re.findall(r"Executed (\d+) tests?[, ]", log)
+    if not counts or any(count != "1" for count in counts):
+        failures.append("the filtered run did not confirm exactly one executed test")
+    if session.activation:
+        failures += activation.evidence_failures(log, session.vot.read_text(errors="replace") if session.vot.exists() else "")
     if "Restarting after unexpected exit, crash, or test timeout" in log:
         failures.append("the test runner exited unexpectedly")
     # The probe's last line: without it some steps never ran, whatever the test session reports.
@@ -195,16 +201,25 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--device", action="append", metavar="TYPE",
                         help="a simulator device type, repeatable (default: iPhone-17-Pro and iPad-Air-13-inch-M4)")
-    parser.add_argument("--runtime", default=os.environ.get("EPUB_SIM_RUNTIME", "com.apple.CoreSimulator.SimRuntime.iOS-27-0"))
+    parser.add_argument("--runtime", default=os.environ.get("EPUB_SIM_RUNTIME", activation.RUNTIME),
+                        help="simulator runtime (default: EPUB_SIM_RUNTIME or %(default)s)")
+    parser.add_argument("--activation", choices=["stock", "cursor"],
+                        help="default: guarded cursor dispatch on the pinned runtime, stock on other runtimes; stock explicitly selects an unmodified control")
+    parser.add_argument("--strict", action="store_true", help="fail immediately if a requested target, rotor setting or action is missing")
+    parser.add_argument("--activation-check", action="store_true", help="also require the activation canary in a stock negative control")
     parser.add_argument("--steps", default=STEPS, help="the probe's comma-separated steps (default: %(default)s)")
+    parser.add_argument("--device-steps", action="append", metavar="TYPE=STEPS",
+                        help="override the steps for one requested device type, repeatable")
     parser.add_argument("--font-size", help="the reader's launch text size in points")
     parser.add_argument("--flow", choices=["paginated", "scrolled"], help="the reader's launch flow (default: paginated)")
     parser.add_argument("--href", help="the section the reader opens at, as OPS/labels.xhtml (default: the book's first)")
+    parser.add_argument("--book", choices=["sample", "paragraphs"], help="the bundled synthetic book (default: sample)")
     parser.add_argument("--launch", help="further launch arguments of the reader, as '-SampleSelectionLine YES'")
     parser.add_argument("--voiceover-off", action="store_true", help="leave VoiceOver off: the same steps as plain touches")
     parser.add_argument("--vot-log", action="store_true",
                         help="stream each simulator's VoiceOver log (process vot) beside its transcript")
-    parser.add_argument("--timeout", type=int, default=300, help="seconds each simulator's probe may take (default: %(default)s)")
+    parser.add_argument("--timeout", type=int,
+                        help="seconds each probe may take (default: 600 with cursor activation, 300 for stock)")
     parser.add_argument("--start-limit", type=int,
                         help="seconds the probe waits for VoiceOver's first phrase (default: the probe's 180)")
     parser.add_argument("--exit-grace", type=int, default=30,
@@ -214,6 +229,18 @@ def main():
     parser.add_argument("--derived-data", type=Path, default=root / ".build/voiceover/ios-simulator")
     parser.add_argument("--results", type=Path, default=root / ".build/voiceover/results")
     args = parser.parse_args()
+    args.activation = args.activation or activation.default_mode(args.runtime)
+    if args.timeout is None:
+        args.timeout = 600 if args.activation == "cursor" and not args.voiceover_off else 300
+    if args.voiceover_off and args.activation_check:
+        parser.error("--activation-check requires VoiceOver; omit --voiceover-off")
+    kinds = args.device or ["iPhone-17-Pro", "iPad-Air-13-inch-M4"]
+    device_steps = {}
+    for override in args.device_steps or []:
+        kind, separator, steps = override.partition("=")
+        if not separator or not steps or kind not in kinds or kind in device_steps:
+            parser.error("--device-steps requires a unique requested TYPE=STEPS")
+        device_steps[kind] = steps
     if not 1 <= args.timeout <= 1800:
         parser.error("--timeout must be between 1 and 1800 seconds")
     os.environ.setdefault("DEVELOPER_DIR", "/Applications/Xcode.app/Contents/Developer")
@@ -227,28 +254,45 @@ def main():
     sessions = []
     status = 0
     try:
+        library = activation.prepare(root, args.derived_data, args.runtime, run) if args.activation == "cursor" and not args.voiceover_off else None
+        if library:
+            args.vot_log = True
+            print("LIMITATION " + activation.LIMITATION, flush=True)
         xctestrun, revision = build(root, args.derived_data, args.results / f"simulator-{stamp}.build.log",
                                     args.build_timeout, args.skip_build)
         built = time.monotonic()
         checkout = run("git", "-C", str(root), "describe", "--always", "--dirty").strip()
         xcode = " ".join(run("xcodebuild", "-version").split())
         print(f"Probe built in {built - began:.0f} s; load averages {' '.join(f'{load:.0f}' for load in os.getloadavg())}.")
-        for kind in args.device or ["iPhone-17-Pro", "iPad-Air-13-inch-M4"]:
+        for kind in kinds:
             name = f"EPUBLib-voiceover-{kind}-{os.getpid()}"
             udid = run("xcrun", "simctl", "create", name, DEVICE_TYPE + kind, args.runtime).strip()
             sessions.append(SimpleNamespace(
-                kind=kind, name=name, udid=udid, process=None, stream=None, started=None, ended=None, finished=None,
-                note=None, late=False, recovered=[], unmuted=[], unread=[],
+                kind=kind, name=name, udid=udid, steps=device_steps.get(kind, args.steps), process=None, stream=None, started=None, ended=None, finished=None,
+                note=None, late=False, recovered=[], unmuted=[], unread=[], activation=bool(library),
                 log=args.results / f"simulator-{kind}-{stamp}.log", bundle=args.results / f"simulator-{kind}-{stamp}.xcresult",
                 vot=args.results / f"simulator-{kind}-{stamp}.vot.log",
                 transcript=[f"{now()} SIMULATOR {kind}, {args.runtime}, {udid}",
-                            f"{now()} BUILD {revision}, {xcode}", f"{now()} CHECKOUT {checkout}"]))
+                            f"{now()} BUILD {revision}, {xcode}", f"{now()} CHECKOUT {checkout}",
+                            f"{now()} SETTINGS font {args.font_size or '17'} pt, flow {args.flow or 'paginated'}, book {args.book or 'sample'}, strict {args.strict}"]))
         for session in sessions:
             run("xcrun", "simctl", "boot", session.udid, timeout=120)
         for session in sessions:
             run("xcrun", "simctl", "bootstatus", session.udid, "-b", timeout=600)
+            if library:
+                run("xcrun", "simctl", "spawn", session.udid, "launchctl", "setenv", "DYLD_INSERT_LIBRARIES", str(library))
+                session.transcript.append(f"{now()} ACTIVATION cursor v1, build {activation.BUILD}, vot SHA-256 {activation.VOT_SHA256}; marker and startup self-test required")
+                session.transcript.append(f"{now()} LIMITATION {activation.LIMITATION}")
+            else:
+                session.transcript.append(f"{now()} ACTIVATION stock (unmodified)")
             # VoiceOver speaks through the Mac's own output device, so nothing runs before this holds.
-            if state(session.udid, "audio", "--volume", "0")["volume"] != 0:
+            volume = state(session.udid, "audio", "--volume", "0")["volume"]
+            for _ in range(5):
+                if volume == 0:
+                    break
+                time.sleep(1)
+                volume = state(session.udid, "audio", "--volume", "0")["volume"]
+            if volume != 0:
                 raise RuntimeError(f"{session.name} could not be muted; nothing was run")
         print(f"Simulators booted and muted in {time.monotonic() - built:.0f} s: {', '.join(session.name for session in sessions)}.")
         if args.vot_log:
@@ -259,12 +303,18 @@ def main():
                     "--predicate", 'process == "vot"'], stdout=session.vot.open("w"), stderr=subprocess.STDOUT,
                     start_new_session=True)
         environment = dict(os.environ, TEST_RUNNER_VOICEOVER_STEPS=args.steps)
+        if library or args.activation_check:
+            environment["TEST_RUNNER_VOICEOVER_ACTIVATION_CHECK"] = "1"
+        if args.strict:
+            environment["TEST_RUNNER_VOICEOVER_STRICT"] = "1"
         if args.font_size:
             environment["TEST_RUNNER_VOICEOVER_FONT_SIZE"] = args.font_size
         if args.flow:
             environment["TEST_RUNNER_VOICEOVER_FLOW"] = args.flow
         if args.href:
             environment["TEST_RUNNER_VOICEOVER_HREF"] = args.href
+        if args.book:
+            environment["TEST_RUNNER_VOICEOVER_BOOK"] = args.book
         if args.launch:
             environment["TEST_RUNNER_VOICEOVER_LAUNCH"] = args.launch
         if args.voiceover_off:
@@ -273,7 +323,7 @@ def main():
             environment["TEST_RUNNER_VOICEOVER_START_LIMIT"] = str(args.start_limit)
         deadline = time.monotonic() + args.timeout
         for session in sessions:
-            session.transcript.append(f"{now()} STEPS {args.steps}")
+            session.transcript.append(f"{now()} STEPS {session.steps}")
             if args.href:
                 session.transcript.append(f"{now()} SECTION {args.href}")
             if args.launch:
@@ -284,9 +334,10 @@ def main():
             session.process = subprocess.Popen([
                 "xcodebuild", "test-without-building", "-xctestrun", str(xctestrun),
                 "-destination", f"platform=iOS Simulator,id={session.udid}", "-resultBundlePath", str(session.bundle),
-                "-derivedDataPath", str(args.derived_data / "runs" / session.kind),
+                "-derivedDataPath", str(args.derived_data / "runs" / f"{session.kind}-{stamp}"),
                 "-collect-test-diagnostics", "never", f"-only-testing:{TEST}"],
-                stdout=session.log.open("w"), stderr=subprocess.STDOUT, start_new_session=True, env=environment)
+                stdout=session.log.open("w"), stderr=subprocess.STDOUT, start_new_session=True,
+                env=dict(environment, TEST_RUNNER_VOICEOVER_STEPS=session.steps))
         while any(session.finished is None for session in sessions):
             time.sleep(1)
             for session in sessions:
@@ -330,6 +381,8 @@ def main():
                 deleted = subprocess.run(["xcrun", "simctl", "delete", session.udid], capture_output=True, text=True)
                 print(f"Deleted {session.name}." if deleted.returncode == 0
                       else f"Could not delete {session.name} ({session.udid}): {deleted.stderr.strip()}")
+                if deleted.returncode:
+                    status = max(status, 125)
             opened = "was already running" if window else "was started by something else" if simulator_app() else "did not run"
             print(f"Finished in {time.monotonic() - began:.0f} s; load averages "
                   f"{' '.join(f'{load:.0f}' for load in os.getloadavg())}; Simulator.app {opened}.")

@@ -29,11 +29,18 @@ if name == "xcodebuild":
             (products / "VoiceOverProbeIOS_fake.xctestrun").touch()
     elif "test-without-building" in args:
         print("VOICEOVER_EVENT 2026-10-19T00:00:00.000Z finished: fake probe")
+        print("Executed 1 test, with 0 failures")
+        print("VOICEOVER_EVENT timestamp input_steps: " + os.environ["TEST_RUNNER_VOICEOVER_STEPS"])
         print("Test Case '-[VoiceOverProbeIOS.VoiceOverProbe testCaptureNavigation]' passed (0.1 seconds)")
     else:
         raise AssertionError(args)
 elif name == "xcrun":
-    if args[:2] == ["simctl", "create"]:
+    if args == ["simctl", "list", "runtimes", "--json"]:
+        # A recognized runtime name with an unrecognized build must fail closed even
+        # when cursor dispatch was selected implicitly by the command-line default.
+        print(json.dumps({"runtimes": [{"identifier": "com.apple.CoreSimulator.SimRuntime.iOS-27-2",
+                                        "buildversion": "unknown-build"}]}))
+    elif args[:2] == ["simctl", "create"]:
         print("fake-owned-device")
     elif args[:2] in (["simctl", "boot"], ["simctl", "bootstatus"],
                      ["simctl", "shutdown"], ["simctl", "delete"]):
@@ -57,6 +64,8 @@ class SimulatorBuildRevisionTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         (self.root / "scripts").mkdir()
         shutil.copyfile(SCRIPT, self.root / "scripts" / SCRIPT.name)
+        shutil.copyfile(SCRIPT.with_name("simulator_voiceover_activation.py"), self.root / "scripts/simulator_voiceover_activation.py")
+        shutil.copyfile(SCRIPT.with_name("probe-simulator-voiceover-activation.py"), self.root / "scripts/probe-simulator-voiceover-activation.py")
         generator = self.root / "scripts/make-voiceover-fixture.py"
         generator.touch()
         resources = self.root / "Examples/VoiceOverVerification/Resources"
@@ -76,6 +85,8 @@ class SimulatorBuildRevisionTests(unittest.TestCase):
             stub.write_text(STUB)
             stub.chmod(0o755)
         self.env = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ["PATH"])
+        self.env.pop("EPUB_SIM_RUNTIME", None)
+        self.env.pop("EPUB495_OVERRIDE", None)
         self.derived = self.root / "derived"
         self.results = self.root / "results"
         self.record = self.derived / "voiceover-build-revision.txt"
@@ -86,11 +97,11 @@ class SimulatorBuildRevisionTests(unittest.TestCase):
     def revision(self):
         return self.git("describe", "--always", "--dirty")
 
-    def run_probe(self, *args, expected=0, **environment):
+    def run_probe(self, *args, expected=0, mode="stock", entry=SCRIPT.name, **environment):
         result = subprocess.run([
-            sys.executable, str(self.root / "scripts" / SCRIPT.name),
+            sys.executable, str(self.root / "scripts" / entry),
             "--derived-data", str(self.derived), "--results", str(self.results),
-            "--device", "fake-device", *args],
+            "--device", "fake-device", *([] if mode is None else ["--activation", mode]), *args],
             env=dict(self.env, **environment), capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         if expected:
@@ -105,6 +116,39 @@ class SimulatorBuildRevisionTests(unittest.TestCase):
                          [f"{build}, Xcode fake Build version fake"])
         self.assertEqual([line.split(" CHECKOUT ", 1)[1] for line in transcript.splitlines() if " CHECKOUT " in line],
                          [checkout])
+
+    def test_device_steps_are_recorded_and_sent_to_the_probe(self):
+        text = self.run_probe('--steps', 'read', '--device-steps', 'fake-device=visible,wait=1')
+        self.assertIn(' STEPS visible,wait=1', text)
+        self.assertIn(' input_steps: visible,wait=1', text)
+        self.run_probe('--device-steps', 'unrequested=read', expected=2)
+
+    def test_default_pinned_runtime_refuses_an_unknown_build_before_building(self):
+        self.assertIn("does not support this runtime/build", self.run_probe(mode=None, expected=125))
+        self.assertFalse(self.record.exists())
+        self.assertFalse(list(self.results.glob("*.transcript.txt")))
+
+    def test_other_runtimes_default_to_stock_and_explicit_cursor_still_refuses(self):
+        other = "com.apple.CoreSimulator.SimRuntime.iOS-27-0"
+        for args, environment in [(("--runtime", other), {}), ((), {"EPUB_SIM_RUNTIME": other})]:
+            with self.subTest(args=args, environment=environment):
+                text = self.run_probe(*args, mode=None, **environment)
+                self.assertIn(other, text)
+                self.assertIn("ACTIVATION stock (unmodified)", text)
+        self.assertIn("does not support this runtime/build",
+                      self.run_probe("--runtime", other, mode="cursor", expected=125))
+
+    def test_explicit_stock_retains_the_pinned_runtime_without_injection(self):
+        text = self.run_probe()
+        self.assertIn("com.apple.CoreSimulator.SimRuntime.iOS-27-2", text)
+        self.assertIn("ACTIVATION stock (unmodified)", text)
+
+    def test_compatibility_entry_uses_default_but_retains_explicit_legacy_control(self):
+        entry = "probe-simulator-voiceover-activation.py"
+        self.assertIn("does not support this runtime/build",
+                      self.run_probe(mode=None, entry=entry, expected=125))
+        self.assertIn("ACTIVATION stock (unmodified)",
+                      self.run_probe(mode=None, entry=entry, EPUB495_OVERRIDE="0"))
 
     def test_reused_build_keeps_revision_after_commit_and_dirty_edits(self):
         self.assert_revisions(self.run_probe(), self.original, self.original)
