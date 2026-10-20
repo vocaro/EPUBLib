@@ -2581,6 +2581,9 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 - `keyactivate`: send VoiceOver's Activate key, Control-Option-Space, without moving its
   cursor or changing the chosen rotor action, then wait for the screen as after `activate`.
   Like `doubletap`, both steps are skipped after `choose` could not find the requested action.
+  Use off-target double taps for the activation acceptance matrix. A keyboard activation can
+  leave the previous utterance standing while the cursor has reached the target; compare
+  the following forward and backward moves when using this diagnostic input.
 - `flick=down`, `flick=up`: one finger steps through the rotor. With the cursor on a line of
   a page it offers the line's actions, Next Page first; `doubletap=LABEL` on that same line
   then performs the chosen one without moving the cursor. After the last of an item's actions
@@ -2954,8 +2957,9 @@ python3 scripts/test-simulator-voiceover-activation.py
 The matrix creates fresh iPhone and iPad simulators at 17 and 23 points, exercises both
 orientations and both reading flows, and checks page turns, links, image inspection,
 selection, updated rotor actions and reading after activation, plus both #428 cache cases. It stops on the first failed
-session. Its iPhone steps use the keyboard rotor; its iPad steps use rotor gestures and
-off-target double taps, matching the device input. Repeated synthetic rotor keys on an iPad
+session. Both families activate through off-target double taps, matching the device reference.
+Its iPhone steps use the keyboard rotor; its iPad steps use rotor gestures. The startup
+canary separately checks keyboard activation. Repeated synthetic rotor keys on an iPad
 can be interrupted by UIKit's “Keyboard visible” announcements. `--device-steps TYPE=STEPS`
 on the ordinary runner records and sends an explicit step override for one requested device;
 the qualification runner uses that for the two input paths. The small Python suite checks that unknown builds, altered binaries and missing

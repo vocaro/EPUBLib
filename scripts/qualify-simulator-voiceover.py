@@ -18,15 +18,15 @@ def workflows(size):
     for orientation in ('portrait', 'landscape'):
         steps += [f'rotate={orientation}', f'fresh=paginated:{size}:OPS/body.xhtml:none',
                   'touch=Page boundary', 'keyrotor=Actions', 'chooseup=Next Page',
-                  'mark=first', 'keyactivate', 'changed=first', 'visible', 'forward=1', 'focusvisible',
+                  'mark=first', 'doublepoint=0.5:0.2', 'changed=first', 'visible', 'forward=1', 'focusvisible',
                   'touch=word', 'keyrotor=Actions', 'chooseup=Previous Page',
                   'doublepoint=0.5:0.2', 'same=first',
                   f'fresh=paginated:{size}:OPS/body.xhtml#activation-link:none',
-                  'touch=Verification link', 'keyactivate', 'expect=Link target reached',
+                  'touch=Verification link', 'doublepoint=0.5:0.2', 'expect=Link target reached',
                   'forward=1', 'expect=This is the end', 'backward=1', 'expect=Link target reached',
                   f'fresh=paginated:{size}:OPS/body.xhtml#verification-image:none',
                   'touch=Blue verification square', 'keyrotor=Actions', 'chooseup=Inspect Image',
-                  'keyactivate', 'exists=Zoom In', 'exists=Magnification', 'forward=1', 'expect=Zoom In',
+                  'doublepoint=0.5:0.2', 'exists=Zoom In', 'exists=Magnification', 'forward=1', 'expect=Zoom In',
                   f'fresh=paginated:{size}:OPS/grids.xhtml#activation-cell:none',
                   'touch=Alder', 'keyrotor=Actions', 'chooseup=Select Cell Text',
                   'doublepoint=0.5:0.2', 'expectstate=Selected: Alder. Used: nothing.',
@@ -34,9 +34,9 @@ def workflows(size):
                   'chooseup=Deselect Cell Text', 'doublepoint=0.5:0.2', 'expectstate=Selected: nothing. Used: Alder.',
                   'forward=1', 'expectcontains=1901', 'backward=1', 'expectcontains=Alder',
                   f'fresh=scrolled:{size}:OPS/body.xhtml:normal',
-                  'touch=Verification link', 'keyactivate', 'expect=Link target reached',
+                  'touch=Verification link', 'doublepoint=0.5:0.2', 'expect=Link target reached',
                   'forward=1', 'expect=This is the end', 'backward=1', 'expect=Link target reached',
-                  'touch=Scroll Backward', 'mark=scroll', 'keyactivate', 'changed=scroll',
+                  'touch=Scroll Backward', 'mark=scroll', 'doublepoint=0.5:0.2', 'changed=scroll',
                   'entertext', 'focusvisible', 'forward=2', 'focusvisible', 'backward=2', 'focusvisible']
     return ','.join(steps)
 
@@ -90,7 +90,7 @@ def main():
             for kind in kinds:
                 command += ['--device', kind]
             if workflow == 'reader' and 'iPad-Air-13-inch-M4' in kinds:
-                command += ['--device-steps', 'iPad-Air-13-inch-M4=' + workflows(size).replace('keyrotor=', 'rotor=').replace('keyactivate', 'doublepoint=0.5:0.2')]
+                command += ['--device-steps', 'iPad-Air-13-inch-M4=' + workflows(size).replace('keyrotor=', 'rotor=').replace('doublepoint=0.5:0.2', 'doublepoint=0.5:0.2')]
             if workflow in ('cache', 'menu'):
                 command += ['--book', 'paragraphs', '--flow', 'scrolled']
             if built:
