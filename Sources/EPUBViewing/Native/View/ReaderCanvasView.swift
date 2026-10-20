@@ -57,6 +57,11 @@ import AppKit
     func announce(_ words: String) {
         postToAccessibility(.announcement, NSAttributedString(string: words, attributes: [.accessibilitySpeechQueueAnnouncement: true]))
     }
+
+    /// Whether a keyboard is over the canvas's window, and the page area last laid out with
+    /// none there and no animation under way: what pages keep while one is (`pageArea`).
+    var keyboardIsUp = false
+    var uncoveredPageArea: CGRect?
     #endif
 
     // Paginated flow.
@@ -104,6 +109,18 @@ import AppKit
     private var scrollGeometry: (bounds: CGRect, minX: CGFloat, width: CGFloat)?
     /// The person scrolled since the anchor was set, so the visible start replaces it.
     private var anchorFollowsScroll = false
+    /// `showFound` is showing a place: in continuous scroll its line rests below the top.
+    private var isShowingFound = false
+    /// The place `showFound` rested below the top of continuous scroll, with the anchor it
+    /// rested there under (`foundPlace`).
+    private var found: (anchor: ReaderTextPosition, place: ReaderTextPosition)?
+    /// The place found that the view still rests on: until the anchor changes or the person
+    /// scrolls. An assistive technology goes to its line, not to the first line on screen,
+    /// through a resize as well.
+    private var foundPlace: ReaderTextPosition? {
+        guard configuration.flow == .scrolled, !anchorFollowsScroll, let found, anchor == found.anchor else { return nil }
+        return found.place
+    }
     private var isScrollingProgrammatically = false
     private var scrollReportPending = false
     /// Where the first line on screen stood when the scroll view was last read: its location in
@@ -217,7 +234,8 @@ import AppKit
         pendingSelection = range.flatMap { $0.isEmpty ? nil : $0 }
         pendingSelectionPreservesFullRange = pendingSelection != nil
         #if os(macOS)
-        // Continuous scroll rests the position at the top, where the insertion point already is.
+        // Continuous scroll rests the position at the top, where the insertion point already is,
+        // or a place found below it, where `updateVisibleRange` puts it (`foundPlace`).
         pageEntry = entry == .position && configuration.flow == .paginated ? position : nil
         enteredPlace = nil
         #endif
@@ -228,6 +246,17 @@ import AppKit
             if scrollTextView == nil { layOutCanvas() } else { showInScroll() }
         }
         applyPendingSelection()
+    }
+
+    /// Brings a place found into view, as a search result: its page in paginated flow, as
+    /// `show` does. In continuous scroll its line rests a third of the way down the view, not
+    /// at the top, with the text before it above, and the line above the third is the anchor
+    /// kept through resizes. At the top, a match was a line above the view on an iPhone after
+    /// the search sheet closed, and it is where a toolbar's popover hangs (#49).
+    func showFound(_ position: ReaderTextPosition) {
+        isShowingFound = true
+        defer { isShowingFound = false }
+        show(position, selecting: nil)
     }
 
     func turnPage(forward: Bool) -> PageTurnResult {
@@ -364,10 +393,10 @@ import AppKit
         if configuration.flow == .scrolled {
             let entry = scrollEntry.flatMap { location in scrollBook.map { $0.position(at: location) }
                 ?? ReaderTextPosition(section: range.start.section, offset: location) }
-            placeScrollInsertionPoint(at: entry ?? range.start, requested: force)
+            placeScrollInsertionPoint(at: foundPlace.flatMap(scrollLineStart) ?? entry ?? range.start, requested: force)
         }
         #else
-        if force, configuration.flow == .scrolled { accessibilityCursorFollowsTheScrollView(to: anchor) }
+        if force, configuration.flow == .scrolled { accessibilityCursorFollowsTheScrollView(to: foundPlace ?? anchor) }
         #endif
         if force || changed { delegate?.canvas(self, didShow: range, sectionProgress: progress(of: range.start)) }
     }
@@ -802,7 +831,47 @@ import AppKit
             loadScrollContent()
         }
         scrollToAnchor()
+        found = nil
+        if isShowingFound {
+            // `anchor` here is the place shown; resting moves the canvas's own.
+            restAnchor(above: anchor)
+            if let rested = self.anchor { found = (rested, anchor) }
+        }
         updateVisibleRange(force: true)
+    }
+
+    /// Makes the line a third of the view above `found`, whose line `scrollToAnchor` has put at
+    /// the top, the anchor and scrolls it to the top (`showFound`). What is between them is
+    /// laid out in one run first, so the third is measured on the lines where they stand.
+    /// The anchor stays in the found place's section, so that the location, its title and its
+    /// page are that section's: a match in a section's first lines has the section's start at
+    /// the top. Where the found line would then not be wholly on screen, it stays at the top.
+    private func restAnchor(above found: ReaderTextPosition) {
+        func restore() {
+            anchor = found
+            scrollToAnchor()
+        }
+        guard let textView = scrollTextView, found.tableCell == nil else { return }
+        let location: Int
+        if let book = scrollBook {
+            location = book.location(of: found)
+        } else if textView.placement.section == found.section {
+            location = found.offset
+        } else { return }
+        guard location < textView.textLength, let first = textView.lineFrame(containing: location) else { return }
+        let rise = scrollVisibleContainerRect.height / 3
+        withProgrammaticScroll { scrollToContainerY(first.minY - rise) }
+        let above = textView.lineBoundary(atContainerY: scrollVisibleContainerRect.minY, lineEnd: false)
+        textView.ensureLayout(from: min(above, location), through: location)
+        guard let line = textView.lineFrame(containing: location) else { return restore() }
+        let sectionStart = scrollBook?.location(of: ReaderTextPosition(section: found.section, offset: 0)) ?? 0
+        let top = max(sectionStart, textView.lineBoundary(atContainerY: max(0, line.minY - rise), lineEnd: false))
+        guard top < location, let start = position(at: top, in: textView) else { return restore() }
+        anchor = start
+        scrollToAnchor()
+        let visible = scrollVisibleContainerRect
+        guard let shown = textView.lineFrame(containing: location),
+              shown.minY >= visible.minY - 1, shown.maxY <= visible.maxY + 1 else { return restore() }
     }
 
     /// Scrolls the anchor to the top of the visible area (a section's end to the bottom).
@@ -1042,10 +1111,21 @@ import AppKit
     }
 
     #if os(macOS)
+    /// The start of the line VoiceOver is given that holds `position` in the scroll view: where
+    /// it enters at a place found below the top (`showFound`), as it enters the line on screen.
+    private func scrollLineStart(of position: ReaderTextPosition) -> ReaderTextPosition? {
+        guard let textView = scrollTextView else { return nil }
+        let location = scrollBook?.location(of: position) ?? position.offset
+        guard location < textView.textLength else { return nil }
+        let line = textView.accessibilityRange(forLine: textView.accessibilityLine(for: location))
+        return self.position(at: line.location, in: textView)
+    }
+
     /// Keeps the scroll view's insertion point on the first line on screen. VoiceOver enters a
     /// Mac text view at its insertion point, which a read-only view does not draw; new text
     /// starts with it at its first line. As a page turn does for a column, a move the reader
-    /// makes itself (`requested`) puts it at the visible start. After any other scrolling it
+    /// makes itself (`requested`) puts it at the visible start, or at the start of a found
+    /// place's line (`scrollLineStart`). After any other scrolling it
     /// follows only while it is where the reader last put it: one placed by a click, or by an
     /// assistive client that scrolls the view as it reads, stays there. A selection is never
     /// moved. A move the reader makes itself is for VoiceOver to come along with, wherever its

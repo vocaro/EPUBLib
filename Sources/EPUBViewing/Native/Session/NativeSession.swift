@@ -431,7 +431,7 @@ import SwiftUI
         emit(.searchResultsChanged(results))
         if let first {
             canvas?.clearSelection()
-            canvas?.show(first.start, selecting: nil)
+            canvas?.showFound(first.start)
         }
         guard !closed, ticket == searchGeneration else { return }
         emit(.searchChanged(completion))
@@ -493,7 +493,8 @@ import SwiftUI
     }
 
     /// Makes a result the current match and brings it into view: its page in paginated flow,
-    /// the top of the view in continuous scroll. Its section is built, or it would not be listed.
+    /// a third of the way down the view in continuous scroll (`ReaderCanvasView.showFound`).
+    /// Its section is built, or it would not be listed.
     private func showSearchResult(at index: Int) {
         guard var results = searchResults, searchResultRanges.indices.contains(index) else { return }
         navigation += 1
@@ -502,7 +503,7 @@ import SwiftUI
         drawCurrentSearchResult()
         emit(.searchResultsChanged(results))
         canvas?.clearSelection()
-        canvas?.show(searchResultRanges[index].start, selecting: nil)
+        canvas?.showFound(searchResultRanges[index].start)
     }
 
     /// Moves the current match's emphasis, always the last highlight drawn, and leaves every

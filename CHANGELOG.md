@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Have VoiceOver say the match, its place and the text after it when Next Match, Previous Match or a chosen search result shows it ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
+- Keep the toolbar's search popover open on iPad when a result is chosen in it, and close the search pane or result list only where it is a sheet ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
+- Keep the pages as they are laid out on iPhone and iPad while a keyboard is up, so a search no longer paginates the book again as the keyboard rises and falls ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
+- Show a search result about a third of the way down continuous scroll, with the text before it above, and not at the top ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
 - Lay out a right-to-left list item's first line from the same edge as its wrapped lines, with its marker hanging in the start-side indent, in page text and in table cells ([#276](https://github.com/vocaro/EPUBLib/issues/276)).
 - Resolve `inline-start` and `inline-end` sides of margins, padding, borders, `float` and `clear` against the writing direction, and indent lists and `dd` on their start side, so right-to-left content is indented on the right ([#124](https://github.com/vocaro/EPUBLib/issues/124)).
 - Keep VoiceOver on Mac at the line of a place shown in pages across a resize, a text size or the text built again that comes before anything moves from it, where it went back to the top of the page ([#594](https://github.com/vocaro/EPUBLib/issues/594)).

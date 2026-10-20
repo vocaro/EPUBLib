@@ -2590,6 +2590,15 @@ the same lines and new items for them, all but the one under VoiceOver's cursor.
 host does that hides them while a book is read: VoiceOver reading on by itself does
 differently after a page turn with and without them
 ([#554](https://github.com/vocaro/EPUBLib/issues/554)).
+`-SampleSearch word00` submits that search once the book is ready, as the strip's field does,
+so that its match row has 99 results to step through, and `-SampleSearchAfter 6` submits it
+that many seconds later: after the text built again for `-SampleFontSize`, which on a Mac
+moves the view under a search result in continuous scroll and takes VoiceOver's entry back to
+the first line on screen. `touch=Next Match,doubletap=Next Match,listen=6` on a simulator,
+and on the Mac eleven `right` from `ax:focus=search` and `activate=Next\ Matc`, step through
+them under VoiceOver. The Mac's VoiceOver reads the button's value before its name, and the
+runner checks the name in the phrase's first 64 characters, so the name is given cut short
+([#49](https://github.com/vocaro/EPUBLib/issues/49)).
 `TEST_RUNNER_VOICEOVER_OFF=1`
 leaves VoiceOver off, so the same steps are plain touches: use it to tell a VoiceOver failure
 from one of the reader's own. The probe stops when the reader is no longer in the foreground.
