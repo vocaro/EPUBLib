@@ -2996,7 +2996,7 @@ can be interrupted by UIKit's “Keyboard visible” announcements. `--device-st
 on the ordinary runner records and sends an explicit step override for one requested device;
 the qualification runner uses that for the two input paths. The small Python suite checks that unknown builds, altered binaries and missing
 hook/canary evidence cannot pass. Qualification results and device comparisons are recorded on
-[#495](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6296467408), with the revision tested.
+[#495](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6296767191), with the revision tested.
 Default adoption does not mean that the full qualification passes. In the 23-point portrait
 iPhone link workflow, activation reaches the destination but the guarded simulator can
 retain the link's old announcement instead of immediately announcing “Link target reached”.
