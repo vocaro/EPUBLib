@@ -176,10 +176,17 @@ private final class XHTMLTextReader {
         var math: MathTextNode?
         var startsMath: Bool
     }
+    /// The elements in a body that the HTML Standard's Rendering section gives `display: block`
+    /// (flow content, sections and headings, lists, fieldset and legend, details and summary, and
+    /// a `select`'s `optgroup` and `option`), with list items, table rows and cells and `br` (#90).
+    /// Not `html` and `body`, which hold the section's text; not `marquee`, which HTML makes
+    /// `inline-block`; not `frameset` or `frame`, which hold no text.
     private static let blocks: Set<String> = [
-        "address", "article", "aside", "blockquote", "br", "dd", "div", "dl", "dt", "figcaption",
-        "figure", "footer", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main",
-        "nav", "ol", "p", "pre", "section", "table", "td", "th", "tr", "ul",
+        "address", "article", "aside", "blockquote", "br", "center", "dd", "details", "dialog",
+        "dir", "div", "dl", "dt", "fieldset", "figcaption", "figure", "footer", "form", "h1", "h2",
+        "h3", "h4", "h5", "h6", "header", "hgroup", "hr", "legend", "li", "listing", "main", "menu",
+        "nav", "ol", "optgroup", "option", "p", "plaintext", "pre", "search", "section", "summary",
+        "table", "td", "th", "tr", "ul", "xmp",
     ]
     private let limits: EPUBTextExtractionLimits
     private var stack: [Frame] = []

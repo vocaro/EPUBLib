@@ -14,6 +14,14 @@ final class ExtractionStructureCoverageTests: XCTestCase {
         try document("<html xmlns='http://www.w3.org/1999/xhtml' xmlns:epub='http://www.idpf.org/2007/ops'>"
             + "<head>\(head)</head><body>\(body)</body></html>")
     }
+    /// A body read by the recovery parser: the markup given must not be well-formed XML.
+    private func recovered(_ body: String) throws -> EPUBTextSection {
+        let extracted = try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/one.xhtml":
+            "<html xmlns='http://www.w3.org/1999/xhtml'><head><title>T</title></head><body>\(body)</body></html>"]))
+            .textSection(at: 0, recoversMalformedMarkup: true)
+        XCTAssertTrue(extracted.recoveredAsHTML)
+        return extracted
+    }
     private func mark(_ offset: Int, _ separator: Int) -> EPUBTextMark { EPUBTextMark(offset: offset, separator: separator) }
 
     // MARK: Blocks and inline content
@@ -36,13 +44,42 @@ final class ExtractionStructureCoverageTests: XCTestCase {
 
     // HTML Standard, Rendering ("Flow content", "The fieldset and legend elements", "The details
     // and summary elements"): details, summary, fieldset, legend and center (with dialog, form,
-    // hgroup, menu, dir, search, listing, xmp) are `display: block`, as in this package's own
-    // reader (UserAgentStyleSheet.swift). Their text must not run into what follows.
+    // hgroup, menu, dir, search, listing, plaintext, xmp) are `display: block`, as in this
+    // package's own reader (UserAgentStyleSheet.swift). Their text must not run into what follows.
     func testDisclosureFormAndLegacyBlockElementsDoNotRunTheirTextTogether() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/90")
         XCTAssertEqual(try section("<details><summary>Answer</summary>Forty-two</details>").text, "Answer\nForty-two")
         XCTAssertEqual(try section("<fieldset><legend>Question 1</legend>Pick one</fieldset>").text, "Question 1\nPick one")
         XCTAssertEqual(try section("<center>Title</center>Text").text, "Title\nText")
+        XCTAssertEqual(try section("a<dialog open='open'>b</dialog>c<dir>d</dir>e<form>f</form>g<hgroup>h</hgroup>i"
+            + "<listing>j</listing>k<menu>l</menu>m<plaintext>n</plaintext>o<search>p</search>q<xmp>r</xmp>s").text,
+            "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\nm\nn\no\np\nq\nr\ns")
+        // The same in a recovered tree; the unclosed `<br>` is not well-formed XML.
+        XCTAssertEqual(try recovered("<details><summary>Answer</summary>Forty-two<br></details>"
+            + "<fieldset><legend>Question 1</legend>Pick one</fieldset><center>Title</center>Text").text,
+            "Answer\nForty-two\nQuestion 1\nPick one\nTitle\nText")
+    }
+
+    // HTML Standard, Rendering ("The select element"): option and optgroup are `display: block`.
+    func testTheOptionsOfASelectDoNotRunTheirTextTogether() throws {
+        XCTAssertEqual(try section("<p>Pick <select><option>One</option><option>Two</option></select> now</p>").text,
+            "Pick\nOne\nTwo\nnow")
+        XCTAssertEqual(try section("<select><optgroup label='Odd'><option>One</option><option>Three</option></optgroup>"
+            + "<optgroup label='Even'><option>Two</option></optgroup></select>After").text, "One\nThree\nTwo\nAfter")
+        // Options whose end tags are left out, as HTML allows, are read by the recovery parser.
+        XCTAssertEqual(try recovered("<p>Pick <select><option>One<option>Two</select> now</p>").text, "Pick\nOne\nTwo\nnow")
+    }
+
+    // The contract is structural, not the visible text: what HTML does not display is kept.
+    func testTheTextOfHiddenElementsClosedDetailsAndDialogsIsIncluded() throws {
+        XCTAssertEqual(try section("<p hidden='hidden'>Hidden</p><details><summary>Shown</summary>Folded</details>"
+            + "<dialog>Shut</dialog>").text, "Hidden\nShown\nFolded\nShut")
+    }
+
+    // An anchor on inline text after such an element marks that text past the newline.
+    func testAnInlineAnchorAfterASummaryCountsTheNewlineBeforeIt() throws {
+        let extracted = try section("<details><summary id='s'>Answer</summary><span id='t'>Forty-two</span></details>")
+        XCTAssertEqual(extracted.anchors["s"], mark(0, 0))
+        XCTAssertEqual(extracted.anchors["t"], mark(7, 1))
     }
 
     func testInlineElementsCommentsAndProcessingInstructionsNeverSplitWords() throws {

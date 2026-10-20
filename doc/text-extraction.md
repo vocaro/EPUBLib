@@ -35,14 +35,24 @@ trusted classifications nor instructions, and are not inferred from filenames or
 Text includes body character data and authored root content following the body in document order,
 including trailing headings and anchors on the strict XML path ([#197](https://github.com/vocaro/EPUBLib/issues/197)).
 It joins inline markup without inserting spaces
-inside words, and separates common block elements and line breaks. Script, style and template
+inside words, and separates block elements and line breaks. The block elements are those in the
+body that the HTML Standard's Rendering section gives `display: block`: `address`, `article`,
+`aside`, `blockquote`, `center`, `dd`, `details`, `dialog`, `dir`, `div`, `dl`, `dt`,
+`fieldset`, `figcaption`, `figure`, `footer`, `form`, the headings `h1` to `h6`, `header`,
+`hgroup`, `hr`, `legend`, `listing`, `main`, `menu`, `nav`, `ol`, `optgroup`, `option`, `p`,
+`plaintext`, `pre`, `search`, `section`, `summary`, `ul` and `xmp`, with `li`, `table`, `tr`,
+`td` and `th` ([#90](https://github.com/vocaro/EPUBLib/issues/90)). Each option of a `select`
+is therefore a line of its own. A `marquee`, which HTML makes `inline-block`, is not separated.
+Script, style and template
 subtrees are excluded. XML entities and CDATA are decoded. In recovery, a comment also ends at `--!>`, and an `&#` with no initial decimal or hexadecimal digit stays literal in text and surfaced attributes, matching the native reader ([#244](https://github.com/vocaro/EPUBLib/issues/244)). Whitespace is normalized to single spaces
 within lines and single newlines at block boundaries. Whitespace normalization operates on
 Unicode scalars, so combining marks following a space or
 no-break space remain in body text, headings, image alternatives and MathML text
 ([#89](https://github.com/vocaro/EPUBLib/issues/89)). This is structural text extraction, not a
 browser's computed visible-text representation: CSS layout, generated content, image OCR and
-external resources are not evaluated. No page numbers or engine-specific bookmarks are invented.
+external resources are not evaluated. The text of elements HTML does not display is therefore
+included, such as that of `hidden` elements, the content of a closed `details` and a `dialog`
+without `open`. No page numbers or engine-specific bookmarks are invented.
 
 Nonempty `alt` attributes on XHTML `img` elements contribute text at the image's source position,
 using the same whitespace normalization as surrounding prose. This preserves authored alternatives
