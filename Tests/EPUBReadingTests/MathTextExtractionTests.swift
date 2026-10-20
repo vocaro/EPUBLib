@@ -55,6 +55,19 @@ final class MathTextExtractionTests: XCTestCase {
         }
     }
 
+    func testUndescribedGlyphAnchorsStayAtTheirPosition() throws {
+        let section = try book(math("<mrow><mi>a</mi><mglyph id='row-empty'/><mi>b</mi></mrow><mtext>x<mglyph id='token-empty'/>y</mtext>")).textSection(at: 0)
+        XCTAssertEqual(section.text, #"math(row("a", "b"), "xy")"#)
+        XCTAssertEqual(section.anchors["row-empty"], EPUBTextMark(offset: "math(row(\"a\"".utf8.count, separator: 0))
+        XCTAssertEqual(section.anchors["token-empty"], EPUBTextMark(offset: "math(row(\"a\", \"b\"), \"x".utf8.count, separator: 0))
+        let empty = try book(math("<mglyph id='only' alt=' '/>")).textSection(at: 0)
+        XCTAssertEqual(empty.text, "math()")
+        XCTAssertEqual(empty.anchors["only"], EPUBTextMark(offset: "math(".utf8.count, separator: 0))
+        let semantics = try book(math("<semantics><mglyph id='silent'/><mi>x</mi></semantics>")).textSection(at: 0)
+        XCTAssertEqual(semantics.text, #"math("x")"#)
+        XCTAssertEqual(semantics.anchors["silent"], EPUBTextMark(offset: "math(".utf8.count, separator: 0))
+    }
+
     func testNestedFractionsPowersIndicesAndFencesHaveExplicitScope() throws {
         let text = try extract("""
         <mfrac><msubsup><mi>x</mi><mi>i</mi><mn>2</mn></msubsup>

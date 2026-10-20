@@ -233,7 +233,7 @@ struct MathRendering: Sendable {
 /// text view first asks for its image.
 final class MathAttachment: NSTextAttachment {
     let formula: MathFormula
-    /// The whole formula on one row.
+    /// The engine's unbounded layout, including any authored line breaks.
     var layout: MathLayout { formula.layout }
     /// What assistive technologies read: the `alttext`, else a spoken reading of the markup.
     let label: String

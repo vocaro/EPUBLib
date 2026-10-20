@@ -308,7 +308,7 @@ final class MathFormula: @unchecked Sendable {
 
     let node: MathMLNode
     let style: MathStyle
-    /// The whole formula on one row.
+    /// The engine's unbounded layout, including any authored line breaks.
     let layout: MathLayout
     let breaks: MathBreaks
     /// The formula with room to spare: one row, or the rows its `newline` breaks make.

@@ -878,16 +878,22 @@ private final class MathTextNode {
             if !silentGlyph { try quoted(attributes["alt"] ?? "", to: &output, limit: limit) }
             return
         }
-        let values = significantChildren.filter {
-            if case .element(let node) = $0 { return !node.annotation && !node.silentGlyph }; return true
+        let presentation = significantChildren.filter {
+            if case .element(let node) = $0 { return !node.annotation }; return true
+        }
+        let values = presentation.filter {
+            if case .element(let node) = $0 { return !node.silentGlyph }; return true
         }
         for child in children {
-            if case .element(let node) = child, node.annotation || node.silentGlyph { try node.markSubtree(in: &output) }
+            if case .element(let node) = child, node.annotation { try node.markSubtree(in: &output) }
         }
         if namespace == Self.namespace, name == "semantics", parameters.isEmpty, values.count == 1,
            case .element = values[0] {
             // A valid semantics wrapper contributes one presentation, not its annotations.
-            try writeChild(values[0], to: &output, limit: limit)
+            for child in presentation {
+                if case .element(let node) = child, node.silentGlyph { try node.markSubtree(in: &output) }
+                else { try writeChild(child, to: &output, limit: limit) }
+            }
             return
         }
         let args = parameters
@@ -942,9 +948,15 @@ private final class MathTextNode {
         }
         if genericElement { try output.append(")", limit: limit) }
         if (genericElement || !named.isEmpty) && !values.isEmpty { try output.append("; ", limit: limit) }
-        for (index, child) in values.enumerated() {
-            if index > 0 { try output.append(", ", limit: limit) }
+        var written = 0
+        for child in presentation {
+            if case .element(let node) = child, node.silentGlyph {
+                try node.markSubtree(in: &output)
+                continue
+            }
+            if written > 0 { try output.append(", ", limit: limit) }
             try writeChild(child, to: &output, limit: limit)
+            written += 1
         }
         try output.append(")", limit: limit)
     }
