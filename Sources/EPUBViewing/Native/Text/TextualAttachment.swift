@@ -62,36 +62,90 @@ extension NSAttributedString {
     }
 
     private func attachmentPlainText(in range: NSRange?, authored: Bool, spoken: Bool) -> String {
-        let range = range ?? NSRange(location: 0, length: length)
-        guard range.length > 0 else { return "" }
         var text = ""
+        enumerateReaderTextPieces(in: range, authored: authored, spoken: spoken) { piece, _, _, _ in text += piece }
+        return text
+    }
+
+    /// What a piece of the reader's text reads: characters of the text, characters that
+    /// `visibility: hidden` hides, or an attachment.
+    private enum ReaderTextPiece {
+        case text
+        case hidden
+        case attachment(Any)
+    }
+
+    /// The pieces `attachmentPlainText` joins, in order: each with the characters it reads,
+    /// the run of the text it reads them for, what that run is, and whether the piece opens
+    /// with the space that sets off a hidden label.
+    private func enumerateReaderTextPieces(in range: NSRange?, authored: Bool, spoken: Bool,
+                                           _ body: (_ piece: String, _ run: NSRange, _ kind: ReaderTextPiece, _ spaced: Bool) -> Void) {
+        let range = range ?? NSRange(location: 0, length: length)
+        guard range.length > 0 else { return }
+        var last: Unicode.Scalar?
         var afterLabel = false
         var formulas: Set<ObjectIdentifier> = []
-        func append(_ piece: String, isLabel: Bool) {
+        func append(_ piece: String, _ run: NSRange, _ kind: ReaderTextPiece, isLabel: Bool) {
             guard !piece.isEmpty else { return }
-            if afterLabel || isLabel, let last = text.unicodeScalars.last, let first = piece.unicodeScalars.first,
-               !last.properties.isWhitespace, !first.properties.isWhitespace { text += " " }
-            text += piece
+            var piece = piece, spaced = false
+            if afterLabel || isLabel, let last, let first = piece.unicodeScalars.first,
+               !last.properties.isWhitespace, !first.properties.isWhitespace {
+                piece = " " + piece
+                spaced = true
+            }
+            last = piece.unicodeScalars.last
             afterLabel = isLabel
+            body(piece, run, kind, spaced)
         }
         enumerateAttribute(.readerHidden, in: range) { hidden, part, _ in
-            if hidden != nil { return append(readerHiddenText(part), isLabel: false) }
+            if hidden != nil { return append(readerHiddenText(part), part, .hidden, isLabel: false) }
             enumerateAttribute(.attachment, in: part) { value, run, _ in
                 if let value {
+                    // An inline formula broken over rows is read once, where its first part stands.
                     if let math = value as? MathAttachment, let inline = math.inline {
-                        if formulas.insert(ObjectIdentifier(inline)).inserted { append(math.label, isLabel: false) }
+                        if formulas.insert(ObjectIdentifier(inline)).inserted { append(math.label, run, .attachment(value), isLabel: false) }
                         return
                     }
                     let attachment = value as? ReaderTextualAttachment
                     let words = authored ? (value as? TableRowAttachment)?.copyTextEquivalent : nil
                     append(words ?? (spoken ? attachment?.spokenEquivalent : attachment?.textEquivalent) ?? "",
-                           isLabel: value is SpokenLabelAttachment)
+                           run, .attachment(value), isLabel: value is SpokenLabelAttachment)
                 } else {
-                    append((string as NSString).substring(with: run), isLabel: false)
+                    append((string as NSString).substring(with: run), run, .text, isLabel: false)
                 }
             }
         }
-        return text
+    }
+
+    /// The languages of the words `readerPlainText(in:spoken:)` gives VoiceOver. Text is in the
+    /// language its characters carry for typesetting (`InlineStyling.languageKey`): what the
+    /// content declares, else the package's, as `MathSpeech.contentLanguage` finds it for a
+    /// formula, with the tags that name no voice left out (`InlineLanguage.spoken`). An
+    /// attachment's spoken words are in the language it declares for them, a formula's or a
+    /// hidden label's, else in its character's; an image the book keeps from assistive
+    /// technology has none to weigh. What `visibility: hidden` hides is read as breaks or a
+    /// space at most, so it decides no language: white space takes the words' beside it.
+    func readerSpokenLanguages(in range: NSRange) -> ReaderSpokenLanguages {
+        var parts: [(text: String, language: String?)] = []
+        let text = string as NSString
+        func language(at location: Int) -> String? {
+            (attribute(InlineStyling.languageKey, at: location, effectiveRange: nil) as? String).flatMap(InlineLanguage.spoken)
+        }
+        enumerateReaderTextPieces(in: range, authored: false, spoken: true) { piece, run, kind, spaced in
+            switch kind {
+            case .hidden:
+                parts.append((piece, nil))
+            case .attachment(let attachment):
+                let declared = (attachment as? ReaderTextualAttachment)?.textLanguage
+                parts.append((piece, declared.map(InlineLanguage.spoken) ?? language(at: run.location)))
+            case .text:
+                if spaced { parts.append((" ", language(at: run.location))) }
+                enumerateAttribute(InlineStyling.languageKey, in: run) { value, part, _ in
+                    parts.append((text.substring(with: part), (value as? String).flatMap(InlineLanguage.spoken)))
+                }
+            }
+        }
+        return ReaderSpokenLanguages(parts)
     }
 
     /// What is read of `run`, characters that `visibility: hidden` hides in the flow
@@ -148,4 +202,53 @@ extension NSAttributedString {
 
     /// U+000A, U+2028 and U+2029: what ends a line or a paragraph of the reader's text.
     static func isReaderBreak(_ unit: unichar) -> Bool { unit == 0x0A || unit == 0x2028 || unit == 0x2029 }
+}
+
+/// The languages words the reader reads out are in, for an assistive technology to choose its
+/// voices by: each part of the words, and the language most of them are in.
+struct ReaderSpokenLanguages: Equatable {
+    struct Run: Equatable {
+        /// UTF-16 units of the words.
+        var length: Int
+        /// The language of this part; nil where none is named.
+        var language: String?
+    }
+
+    /// The words' parts in order, each in another language than the one before. White space
+    /// is in the language of the words before it, or at the start of the words after it: a
+    /// space or a break is no reason to change voices.
+    private(set) var runs: [Run] = []
+    /// The language of most of the words, counted by their characters other than white
+    /// space; the first such language where two have as many. nil when that is none, or when
+    /// there are no words.
+    private(set) var main: String?
+
+    /// Whether some of the words are in another language than `main`.
+    var isMixed: Bool { runs.contains { $0.language != main } }
+
+    /// The languages of `parts`, which follow one another in the words.
+    init(_ parts: [(text: String, language: String?)]) {
+        var weights: [(language: String?, weight: Int)] = []
+        var leading = 0
+        for (text, language) in parts where !text.isEmpty {
+            let length = text.utf16.count
+            let weight = text.unicodeScalars.filter { !$0.properties.isWhitespace }.count
+            guard weight > 0 else {
+                // White space before any words waits for them; after words it is theirs.
+                if runs.isEmpty { leading += length } else { runs[runs.count - 1].length += length }
+                continue
+            }
+            if let last = runs.last, last.language == language {
+                runs[runs.count - 1].length += length
+            } else {
+                runs.append(Run(length: length + leading, language: language))
+                leading = 0
+            }
+            if let index = weights.firstIndex(where: { $0.language == language }) { weights[index].weight += weight }
+            else { weights.append((language, weight)) }
+        }
+        if leading > 0 { runs.append(Run(length: leading, language: nil)) }
+        // `max(by:)` gives the first of the heaviest.
+        main = weights.max { $0.weight < $1.weight }?.language
+    }
 }

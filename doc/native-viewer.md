@@ -1435,10 +1435,10 @@ continues to describe the authored spine resource.
   - Typesetting and speech still take the package's first `dc:language` as a hint, because
     some language has to be chosen anyway: the CoreText language attribute, which steers
     glyph choice and line breaking (every run of an unlabelled document in a Japanese book is
-    tagged `ja`, so its Han characters take their Japanese forms), and the language a formula
-    is spoken in (see Spoken math); body text on UIKit is to follow
-    ([#65](https://github.com/vocaro/EPUBLib/issues/65)). So typesetting is not independent of
-    the package, which is the sense in which the reading is narrow.
+    tagged `ja`, so its Han characters take their Japanese forms), the language a formula
+    is spoken in (see Spoken math), and the language each item VoiceOver is given on iPhone
+    and iPad names for its words ("Language" under Input and accessibility). So typesetting
+    is not independent of the package, which is the sense in which the reading is narrow.
 
   Content that declares a language overrides the package for both, and `lang=""` (the language
   is unknown) leaves text without a language or the hint. `:lang()` selectors and the search
@@ -2828,6 +2828,31 @@ The following are the defaults. Host commands and accessibility actions stay ena
   past the last heading begins again.
   Not marked for VoiceOver: a heading inside a table, whose cells are read as cells, and on
   iPhone and iPad a heading inside a note's popover, which keeps UIKit's own elements.
+- Language: VoiceOver chooses a voice for the language it is given. On iPhone and iPad each
+  item of a page or of continuous scroll names the language of its words
+  (`accessibilityLanguage`): the language its characters carry for typesetting, which is
+  the nearest `xml:lang` or `lang` and else the package's first `dc:language` ("Content
+  language" under Decisions), and none for an empty tag and for `und`, `mis`, `mul` and
+  `zxx`, which name no voice (`InlineLanguage.spoken`). It is the language a formula looks
+  up for its `alttext` ("Spoken math"), and a formula's item keeps its reading's language.
+  An item whose words are in several languages, a line of English with a French phrase in
+  it, a heading, or a row of a table read whole whose cells differ, names the language most
+  of its characters are in, and each part of its label carries its own
+  (`accessibilitySpeechLanguage` in its attributed label): "He said bonjour and left."
+  names English, and "bonjour" in it French. White space is in the language of the words
+  before it. What VoiceOver is not given weighs nothing: characters `visibility: hidden`
+  hides ("Hidden text"), and the words of a picture the book keeps from assistive
+  technology. The label's words, the item's traits and its actions are those of words in one
+  language, and a heading keeps its level over the whole label. A cell of a table of data
+  is read as one text, in the language most of it is in, and so is the name of a header
+  cell VoiceOver says before it: a part of a cell in another language is not set apart. A
+  picture's words name no language ([#548](https://github.com/vocaro/EPUBLib/issues/548)),
+  and the reader's word for a rule, which is none of the book's, names none. A note's
+  popover keeps UIKit's own elements. In the simulator lane VoiceOver speaks a line of
+  French, one of German and one of Spanish each in a voice for its language, and "He said
+  bonjour mes amis and left." in three parts, the middle one in its French voice; without
+  the languages it spoke all of them in its English voice
+  ([#65](https://github.com/vocaro/EPUBLib/issues/65#issuecomment-6164353724)).
 - Selection: native selection UI with the host's `EPUBSelectionAction` in the edit or context
   menu, no length cap. Dragging can extend a selection across a two-column spread in either
   reading direction. A located passage is selected in every visible column and remains
@@ -3021,7 +3046,9 @@ Go: the native viewer is the bundled engine.
   inline formulas can use one attachment rather than individual paragraph rows, as described
   above. `mglyph` images that cannot be resolved or decoded within the reader's limits use
   `alt` in the token's own style; without a description they show a box and have no spoken
-  name. Body text and authored `alttext` rely on the platform's voices; generated readings
+  name. Body text and authored `alttext` are given their content's language, for VoiceOver to
+  choose a voice by: AppKit reports each run's language, and on iPhone and iPad each item names
+  the language of its words ("Language" under Input and accessibility). Generated readings
   carry the engine's actual selected language, which may be English fallback. The vocabulary's
   regional wording and naturalness are tracked by the upstream
   [speech review](https://github.com/vocaro/MathMLLayout/issues/63).

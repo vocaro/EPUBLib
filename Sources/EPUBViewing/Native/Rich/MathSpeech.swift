@@ -20,20 +20,16 @@ enum MathSpeech {
     /// The language of the content at `element`: the nearest `xml:lang` or `lang` on it or an
     /// ancestor, else the publication's first language. An empty value says the language is
     /// unknown, as in XML, and stops the search; so do the tags for undetermined, uncoded,
-    /// multiple and no linguistic content, which name no voice.
+    /// multiple and no linguistic content, which name no voice (`InlineLanguage.spoken`).
+    /// It is the language the section's walk gives the text there (`InlineLanguage.typesetting`),
+    /// which a formula, built apart from that walk, looks up for itself.
     static func contentLanguage(of element: ContentNode, publication: EPUBPublication) -> String? {
         var node: ContentNode? = element
         while let current = node {
-            if let language = current.language { return spoken(language) }
+            if let language = current.language { return InlineLanguage.spoken(language) }
             node = current.parent
         }
-        return publication.metadata.languages.first.flatMap(spoken)
-    }
-
-    private static func spoken(_ tag: String) -> String? {
-        let tag = tag.trimmingCharacters(in: .whitespacesAndNewlines)
-        let primary = tag.split(separator: "-").first.map { $0.lowercased() } ?? ""
-        return primary.isEmpty || ["und", "mis", "mul", "zxx"].contains(primary) ? nil : tag
+        return publication.metadata.languages.first.flatMap(InlineLanguage.spoken)
     }
 
     /// The reading of a formula with `alttext` (whitespace already collapsed; empty when the

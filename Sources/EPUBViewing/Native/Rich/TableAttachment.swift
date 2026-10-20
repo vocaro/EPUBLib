@@ -63,14 +63,28 @@ final class TableRowAttachment: ReaderAttachment {
     /// The words of each cell read where this row stands, in column order: the cells that
     /// start in a whole row, and each cell a continuation holds lines of, by those lines. A
     /// cell without words is there with none.
-    var cellWords: [String] {
+    var cellWords: [String] { spokenCellWords.map(\.words) }
+
+    /// `cellWords`, each with the index of its cell in the table's cells.
+    var spokenCellWords: [(cell: Int, words: String)] {
         if let fragment, let layout = fragmentLayout {
             return fragment.cells.sorted { table.cells[$0.cell].column < table.cells[$1.cell].column }.map { entry in
-                return layout.cellText[entry.cell].spokenText(inLines: entry.lines)
+                return (entry.cell, layout.cellText[entry.cell].spokenText(inLines: entry.lines))
             }
         }
-        return table.rowCells[row].map { table.cells[$0] }.filter { $0.row == row }
-            .sorted { $0.column < $1.column }.map(\.text)
+        return table.rowCells[row].filter { table.cells[$0].row == row }
+            .sorted { table.cells[$0].column < table.cells[$1].column }.map { ($0, table.cells[$0].text) }
+    }
+
+    /// The languages of `textEquivalent`: each cell's words in the language most of the cell
+    /// is in (`ReaderSpokenLanguages`).
+    var spokenLanguages: ReaderSpokenLanguages {
+        var parts: [(text: String, language: String?)] = []
+        for (index, entry) in spokenCellWords.enumerated() {
+            if index > 0 { parts.append(("\t", nil)) }
+            parts.append((entry.words, table.cells[entry.cell].spokenLanguage))
+        }
+        return ReaderSpokenLanguages(parts)
     }
 
     /// The row has nothing to say where it stands: its cells hold no words there, and nothing
