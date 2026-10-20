@@ -32,9 +32,12 @@ public enum EPUBArchiveWriter {
             let source = entry.fileURL.standardizedFileURL
             consumption[source] = (consumption[source] ?? true) && entry.consume
         }
+        // The source must be exactly the mimetype (EPUB 3.3, 4.3.3: no padding or whitespace).
+        // One byte past it is read, so trailing bytes are refused without reading a large file.
+        let mimetype = Data("application/epub+zip".utf8)
         let mime = try FileHandle(forReadingFrom: entries[0].fileURL)
         defer { try? mime.close() }
-        guard try mime.read(upToCount: 20) == Data("application/epub+zip".utf8) else {
+        guard try mime.read(upToCount: mimetype.count + 1) == mimetype else {
             throw EPUBWritingError.invalidPublication("invalid mimetype")
         }
         var remainingUses = Dictionary(grouping: entries, by: { $0.fileURL.standardizedFileURL }).mapValues(\.count)
