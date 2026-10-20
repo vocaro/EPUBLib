@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 
-SCRIPT = Path(__file__).with_name("run-voiceover-simulator.py")
+SCRIPT = Path(__file__).resolve().parents[1] / "run-voiceover-simulator.py"
 STUB = r'''#!/usr/bin/env python3
 import json, os, sys, time
 from pathlib import Path

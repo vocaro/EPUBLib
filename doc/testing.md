@@ -26,11 +26,13 @@ The script checks use Python's standard `unittest` library and run independently
 python3 -m unittest discover -s scripts/tests -v
 ```
 
-They run copies of the scripts in temporary directories with fake `gh` and `git` commands,
-or stub application and probe calls in process; they need no network, GitHub login, build or
+They run copies of the scripts in temporary directories with fake tool commands,
+or stub application and probe calls in process; the simulator revision checks use real local
+Git repositories in those temporary directories. They need no network, GitHub login, build or
 running app, and never start VoiceOver or a hosted job. They cover queue refusals and dispatch
 arguments, per-session settings and Safari restrictions, session deadlines and reports, and
-the list state used when restoring VoiceOver ([#433](https://github.com/vocaro/EPUBLib/issues/433)).
+the list state used when restoring VoiceOver ([#433](https://github.com/vocaro/EPUBLib/issues/433)),
+and simulator build revisions ([#504](https://github.com/vocaro/EPUBLib/issues/504)).
 They do not establish what VoiceOver reads or does; that uses the speech lanes below.
 
 Run one gate at a time on this shared Mac, with its Mac and iOS suites one after the other.
@@ -2665,8 +2667,9 @@ the checkout do not change the build's revision. A build this runner did not rec
 one built elsewhere, has `BUILD unknown`; the separate `CHECKOUT` line gives the checkout's
 current revision. A failed or interrupted rebuild removes the old revision record. The
 `-dirty` suffix says there were uncommitted tracked edits at build time; it does not identify
-those edits. `python3 scripts/test-run-voiceover-simulator.py` checks this bookkeeping with
-temporary Git repositories and fake tools, without building or starting a simulator.
+those edits. `python3 -m unittest discover -s scripts/tests -p test_voiceover_simulator.py`
+checks this bookkeeping with temporary Git repositories and fake tools, without building or
+starting a simulator; it also runs in the local gate's offline script checks.
 The build-revision checks are recorded on
 [#504](https://github.com/vocaro/EPUBLib/issues/504#issuecomment-6283694583).
 
