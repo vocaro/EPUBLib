@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Record the simulator VoiceOver probe's build revision in its transcript when reusing a build, and mark an unrecorded build's revision unknown with the checkout revision separate ([#504](https://github.com/vocaro/EPUBLib/issues/504)).
 - Check the hosted-run and VoiceOver session scripts offline as part of the local gate ([#433](https://github.com/vocaro/EPUBLib/issues/433)).
 - Add the required modification timestamp to the reader sample's generated EPUB so it passes EPUBCheck ([#168](https://github.com/vocaro/EPUBLib/issues/168)).
 - Separate in text extraction the text of `details`, `summary`, `fieldset`, `legend`, `center`, `form`, `hgroup`, `option` and eight other elements HTML renders as blocks, where it ran into the text beside it ([#90](https://github.com/vocaro/EPUBLib/issues/90)).
