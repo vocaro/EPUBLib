@@ -217,7 +217,8 @@ def main():
     parser.add_argument("--voiceover-off", action="store_true", help="leave VoiceOver off: the same steps as plain touches")
     parser.add_argument("--vot-log", action="store_true",
                         help="stream each simulator's VoiceOver log (process vot) beside its transcript")
-    parser.add_argument("--timeout", type=int, default=300, help="seconds each simulator's probe may take (default: %(default)s)")
+    parser.add_argument("--timeout", type=int,
+                        help="seconds each probe may take (default: 600 with cursor activation, 300 for stock)")
     parser.add_argument("--start-limit", type=int,
                         help="seconds the probe waits for VoiceOver's first phrase (default: the probe's 180)")
     parser.add_argument("--exit-grace", type=int, default=30,
@@ -227,6 +228,10 @@ def main():
     parser.add_argument("--derived-data", type=Path, default=root / ".build/voiceover/ios-simulator")
     parser.add_argument("--results", type=Path, default=root / ".build/voiceover/results")
     args = parser.parse_args()
+    if args.timeout is None:
+        args.timeout = 600 if args.activation == "cursor" and not args.voiceover_off else 300
+    if args.voiceover_off and args.activation_check:
+        parser.error("--activation-check requires VoiceOver; omit --voiceover-off")
     kinds = args.device or ["iPhone-17-Pro", "iPad-Air-13-inch-M4"]
     device_steps = {}
     for override in args.device_steps or []:

@@ -2934,7 +2934,10 @@ controls can have different XCTest labels and VoiceOver names (the inspector’s
 “Zoom In”), so assert their known speech explicitly. `mark=NAME` remembers visible
 labels, and `changed=NAME` or `same=NAME` compares them. `entertext` moves from a host control
 into the text and checks that the first numbered line reached is the first on screen; it
-never skips a stale numbered line to find a passing one. `relaunch=FLOW:SIZE:HREF:CONTROLS`
+never skips a stale numbered line to find a passing one. `menuback`, after returning to
+Chapter two’s heading, checks the native continuation after a chapter menu: Bookmark and
+the three controls before it, or consecutive visible words back from chapter one’s last
+word. The transcript records which continuation VoiceOver took. `relaunch=FLOW:SIZE:HREF:CONTROLS`
 starts another reader workflow while keeping VoiceOver running (`none` hides the host
 controls, `normal` shows them). `fresh=FLOW:SIZE:HREF:CONTROLS` disables VoiceOver, launches the
 next workflow, enables VoiceOver again and waits until its move service answers. The matrix

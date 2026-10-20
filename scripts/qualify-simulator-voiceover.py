@@ -54,15 +54,14 @@ def cache_workflow(size):
 
 
 def menu_workflow(size):
-    # #428 case 2: the physical iPad returned from the chapter heading to Bookmark,
-    # while the stock simulator could walk into the previous chapter instead.
+    # #428 case 2: the physical iPad can return to controls or read into the previous
+    # chapter; the probe validates both observed native continuations.
     steps = []
     for orientation in ('portrait', 'landscape'):
         steps += [f'rotate={orientation}', f'fresh=scrolled:{size}:OPS/chapter1.xhtml:normal',
                   'activate=Contents', 'activate=Chapter two', 'wait=2', 'forward=5',
                   'expect=Chapter two', 'forward=8', 'backward=8', 'expect=Chapter two',
-                  'backward=1', 'expect=Bookmark', 'backward=1', 'expect=Paging',
-                  'backward=1', 'expectcontains=Continuous Scroll', 'backward=1', 'expect=Appearance']
+                  'menuback']
     return ','.join(steps)
 
 

@@ -499,6 +499,41 @@ import XCUIAutomation
                     }
                 }
                 XCTAssertTrue(found, "VoiceOver never entered the visible text after activation")
+            case "menuback":
+                // The physical 27.2 iPad takes both paths after a chapter menu: pinned
+                // controls, or the previous chapter. Check each observed continuation;
+                // text must end chapter one and remain visible and consecutive, not stale.
+                var phrase = try voiceOver.moveBackward().utterance
+                note(step, phrase)
+                if phrase.hasPrefix("Bookmark") {
+                    for wanted in ["Paging", "Continuous Scroll", "Appearance"] {
+                        phrase = try voiceOver.moveBackward().utterance
+                        note(step, phrase)
+                        XCTAssertTrue(phrase.contains(wanted), "Expected native control \(wanted), got \(phrase)")
+                    }
+                } else {
+                    let pattern = try NSRegularExpression(pattern: "p([0-9]{3})w([0-9]{2})")
+                    var previous = 1601 // forty paragraphs of forty words before Chapter two
+                    for move in 0..<4 {
+                        if move > 0 { phrase = try voiceOver.moveBackward().utterance; note(step, phrase) }
+                        let text = phrase as NSString
+                        let numbers = pattern.matches(in: phrase, range: NSRange(location: 0, length: text.length)).compactMap { match -> Int? in
+                            guard let paragraph = Int(text.substring(with: match.range(at: 1))),
+                                  let word = Int(text.substring(with: match.range(at: 2))),
+                                  (1...40).contains(paragraph), (1...40).contains(word) else { return nil }
+                            return (paragraph - 1) * 40 + word
+                        }
+                        guard let first = numbers.first, let last = numbers.last, first <= last else {
+                            XCTFail("Expected the previous chapter's numbered text, got \(phrase)"); return
+                        }
+                        XCTAssertEqual(last, previous - 1, "Backward reading skipped or repeated words")
+                        XCTAssertEqual(numbers.count, last - first + 1)
+                        XCTAssertTrue(numbers.enumerated().allSatisfy { $0.element == first + $0.offset })
+                        let labels = try visibleLabels()
+                        XCTAssertTrue(labels.contains { phrase.hasPrefix($0) }, "Previous-chapter speech must be visible: \(phrase)")
+                        previous = first
+                    }
+                }
             case "mark", "changed", "same":
                 let key = parts.last ?? ""
                 let value = try visibleLabels().joined(separator: "\n")
