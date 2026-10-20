@@ -7,6 +7,15 @@ XML and the exact mimetype. The package is
 EPUB 3, reflowable by default, with optional fixed-layout spine overrides. Resource paths and
 navigation hrefs are archive-relative; package documents live under `EPUB/`. IDs and paths must
 be unique, spine resources must be declared and navigation must resolve to a declared resource.
+A resource ID must be an XML name without a colon, as an `id` and `idref` are, and may not be
+`nav` or `book-id`, the IDs the writer gives its own navigation item and unique identifier; a
+resource's media type may not be empty. The writer refuses any other resource, with
+`"duplicate or invalid resource: "` and its path, rather than rewrite its ID, so what is read back
+is the resource that was given ([#96](https://github.com/vocaro/EPUBLib/issues/96)). A name is
+held to the character classes of XML 1.0 before its fifth edition (Appendix B), as libxml2 and
+EPUBCheck's validator hold it, character for character. The fifth edition's wider classes also
+take an ID such as `ⅰ`, `a‿b` or one with a character outside the Basic Multilingual Plane, which
+EPUBCheck refuses.
 A navigation or stylesheet href is written as the declared path it resolves to, relative to the
 navigation document and percent-encoded as that path's manifest href is, not as it was spelled:
 `EPUB//one.xhtml`, `EPUB/./one.xhtml` and `EPUB/c:x/../one.xhtml` are each written `one.xhtml`.
@@ -25,13 +34,30 @@ hold (a C0 control character other than tab, line feed and carriage return, U+FF
 left out. A reader does normalize what it reads: `EPUBReading`, as EPUB Reading Systems 3.3 §5.3
 requires, reads a metadata value or a label with each run of ASCII whitespace as one space and
 none at its ends, so a title given with a tab, a line end, doubled spaces or a space at an end
-is written as given and does not read back as given. Nor does one given as nothing but white
-space of any kind, a lone no-break space included: it is written, and read back as empty. The
-caller chooses a stable identifier and modification date for reproducible output; package
-generation does not invent document facts.
+is written as given and does not read back as given. The caller chooses a stable identifier and
+modification date for reproducible output; package generation does not invent document facts.
 
-Every metadata language and identifier is written in its supplied order, including duplicates.
-The navigation document uses the first language; an empty language list writes `und`.
+No value is written empty. EPUB 3.3 requires each Dublin Core value and each navigation label to
+hold something once its ASCII whitespace is stripped, and a value is empty to the writer when,
+with what XML cannot hold left out, it is nothing but white space of any kind (Foundation's
+`whitespacesAndNewlines`, a lone no-break space included), as the reader reads it as empty
+([#96](https://github.com/vocaro/EPUBLib/issues/96)):
+
+- An empty author, language, additional identifier or keyword is left out of its list, and an
+  empty summary is left out, as the reader leaves an empty value out of what it reads.
+- An empty title or identifier is refused, with `EPUBWritingError.invalidPublication("empty title")`
+  or `("empty identifier")`: the package requires each, and the writer invents neither. A book
+  read without a title reads back with `title` empty, and needs one before it is written again.
+- Contents with no entry are refused (`"empty contents"`): the contents `nav` is required and its
+  list needs an entry.
+- A contents or page entry with an empty label is refused (`"navigation entry without a label"`,
+  followed by its href when it has one), as is one with neither a target nor entries of its own
+  (`"navigation entry without a target: "` and its title). The writer leaves no entry out, so
+  none is lost without the caller's knowing.
+
+Every metadata language and identifier that is not empty is written in its supplied order,
+including duplicates. The navigation document uses the first language; a list with no language
+left writes `und`.
 `EPUBPackageMetadata.identifier` selects the package's unique identifier: its first byte-identical
 entry in the metadata list receives `id="book-id"`, or it is prepended when absent. This keeps
 additional identifiers and avoids adding another copy when a publication's metadata is written

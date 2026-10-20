@@ -11,7 +11,7 @@ struct WriterManifestFallbackTests {
         let final = EPUBResource(id: "static", path: "EPUB/static.xhtml", mediaType: "application/xhtml+xml")
         let resources = [original, middle, final]
         let docs = try EPUBPackageWriter.documents(metadata: WriterCoverage.facts(), resources: resources,
-                                                  spine: [.init(resource: original)], contents: [])
+                                                  spine: [.init(resource: original)], contents: [.init(title: "Source", href: original.href)])
         let directory = try WriterCoverage.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let archive = try await WriterCoverage.archive(docs, content: [original.path: Data("{}".utf8), middle.path: Data("foreign".utf8),

@@ -44,41 +44,50 @@ final class EPUBCheckWriterOutputCoverageTests: XCTestCase {
         for list in lists { XCTAssertFalse(list.children.filter { $0.name == "li" }.isEmpty, "an ol with no li") }
     }
 
-    func testContentsWithoutAnEntryAreRefusedOrWrittenAsAValidList() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/96")
-        // RSC-005, as above: the contents `nav` is required and its list needs an entry, so
-        // empty contents cannot be written as they are.
-        for (name, contents) in [("no entries", [EPUBNavigationItem]()), ("an entry with no target or children", [.init(title: "A heading")])] {
-            var book = paged
-            book.contents = contents
-            guard let document = try? book.document("EPUB/nav.xhtml"), let nav = XML.parse(document) else { continue }
-            let toc = try XCTUnwrap(nav.descendants("nav").first { $0.attributes["epub:type"] == "toc" }, name)
-            for list in toc.descendants("ol") { XCTAssertFalse(list.children.filter { $0.name == "li" }.isEmpty, "\(name): an ol with no li") }
+    /// Records a failure unless writing `book` is refused with `error`.
+    private func assertRefused(_ book: Book, _ error: EPUBWritingError, _ message: String = "", file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertThrowsError(try book.documents(), message, file: file, line: line) {
+            XCTAssertEqual($0 as? EPUBWritingError, error, message, file: file, line: line)
         }
     }
 
+    // An empty value is one with nothing in it but white space of any kind, once what XML cannot
+    // hold is left out: a lone no-break space as well, which `EPUBReading` reads as empty.
+
+    func testContentsWithoutAnEntryAreRefusedOrWrittenAsAValidList() throws {
+        // RSC-005, as above: the contents `nav` is required and its list needs an entry, so
+        // empty contents cannot be written as they are. An entry with neither a target nor
+        // entries cannot be written at all, and was left out without a word.
+        var empty = paged, untargeted = paged
+        empty.contents = []
+        untargeted.contents = [.init(title: "A heading")]
+        assertRefused(empty, .invalidPublication("empty contents"))
+        assertRefused(untargeted, .invalidPublication("navigation entry without a target: A heading"))
+    }
+
     func testNavigationLabelsAreNeverWrittenEmpty() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/96")
         // RSC-005 "Anchors within nav elements must contain text". EPUB 3.3, 7.3: the `a` or
-        // `span` "MUST provide a non-zero-length text label".
-        for title in ["", "  \n", "\u{1}"] {
-            var book = paged
-            book.contents = [.init(title: title, href: "EPUB/chapter.xhtml"), .init(title: title, children: [.init(title: "Chapter", href: "EPUB/chapter.xhtml#start")])]
-            book.pages = [.init(title: title, href: "EPUB/chapter.xhtml")]
-            guard let document = try? book.document("EPUB/nav.xhtml"), let nav = XML.parse(document) else { continue }
-            for label in nav.descendants("a") + nav.descendants("span") {
-                XCTAssertFalse(label.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "an empty <\(label.name)> for the title \(title.debugDescription)")
-            }
+        // `span` "MUST provide a non-zero-length text label". Leaving the entry out would lose
+        // its target, so it is refused.
+        for title in ["", "  \n", "\u{1}", "\u{A0}"] {
+            var link = paged, heading = paged, page = paged
+            link.contents = [.init(title: title, href: "EPUB/chapter.xhtml")]
+            heading.contents = [.init(title: title, children: [.init(title: "Chapter", href: "EPUB/chapter.xhtml#start")])]
+            page.pages = [.init(title: title, href: "EPUB/chapter.xhtml#start")]
+            assertRefused(link, .invalidPublication("navigation entry without a label: EPUB/chapter.xhtml"), "link \(title.debugDescription)")
+            assertRefused(heading, .invalidPublication("navigation entry without a label"), "heading \(title.debugDescription)")
+            assertRefused(page, .invalidPublication("navigation entry without a label: EPUB/chapter.xhtml#start"), "page \(title.debugDescription)")
         }
     }
 
     func testOptionalMetadataWithoutAValueIsLeftOut() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/96")
         // RSC-005 `character content of element "dc:creator" invalid; must be a string with
         // length at least 1`. EPUB 3.3, 5.5.2: these elements "MUST have non-empty values after
-        // leading and trailing ASCII whitespace is stripped".
+        // leading and trailing ASCII whitespace is stripped". A list leaves out its empty values,
+        // as the reader does.
         var book = paged
-        book.metadata.metadata = .init(title: "A Written Book", authors: ["", "  ", "Test Author"], languages: ["en"])
+        book.metadata.metadata = .init(title: "A Written Book", authors: ["", "  ", "\u{A0}", "Test Author"], languages: ["", "en", "\u{1}"],
+                                       identifiers: ["", "urn:isbn:9780000000002", "\t"])
         book.metadata.summary = " "
         book.metadata.keywords = ["", "\t", "kept"]
         let metadata = try XCTUnwrap(try package(book).children.first { $0.name == "metadata" })
@@ -87,36 +96,48 @@ final class EPUBCheckWriterOutputCoverageTests: XCTestCase {
         }
         XCTAssertEqual(metadata.children.filter { $0.name == "dc:creator" }.map(\.content), ["Test Author"])
         XCTAssertEqual(metadata.children.filter { $0.name == "dc:subject" }.map(\.content), ["kept"])
+        XCTAssertEqual(metadata.children.filter { $0.name == "dc:language" }.map(\.content), ["en"])
+        XCTAssertEqual(metadata.children.filter { $0.name == "dc:identifier" }.map(\.content), [book.metadata.identifier, "urn:isbn:9780000000002"])
+        XCTAssertTrue(metadata.children.filter { $0.name == "dc:description" }.isEmpty)
     }
 
     func testRequiredMetadataWithoutAValueIsRefusedOrNeverWrittenEmpty() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/96")
-        // RSC-005, as above, for `dc:title`, `dc:language` and `dc:identifier`, each REQUIRED.
-        var untitled = paged, unidentified = paged, unspoken = paged
-        untitled.metadata.metadata = .init(title: " \n ", authors: ["Test Author"], languages: ["en"])
-        unidentified.metadata.identifier = ""
-        unspoken.metadata.metadata = .init(title: "A Written Book", languages: [""])
-        for (name, book) in [("title", untitled), ("identifier", unidentified), ("language", unspoken)] {
-            guard let document = try? book.document("EPUB/package.opf"), let package = XML.parse(document) else { continue }
-            let metadata = try XCTUnwrap(package.children.first { $0.name == "metadata" })
-            let element = try XCTUnwrap(metadata.children.first { $0.name == "dc:" + name }, name)
-            XCTAssertFalse(element.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "an empty <dc:\(name)>")
+        // RSC-005, as above, for `dc:title`, `dc:identifier` and `dc:language`, each REQUIRED.
+        // The writer invents neither a title nor an identifier, so it refuses a book without one.
+        for title in ["", " \n ", "\u{A0}", "\u{0}"] {
+            var book = paged
+            book.metadata.metadata = .init(title: title, authors: ["Test Author"], languages: ["en"])
+            assertRefused(book, .invalidPublication("empty title"), title.debugDescription)
         }
+        for identifier in ["", "\t"] {
+            var book = paged
+            book.metadata.identifier = identifier
+            book.metadata.metadata = .init(title: "A Written Book", languages: ["en"], identifiers: [identifier, "urn:isbn:9780000000002"])
+            assertRefused(book, .invalidPublication("empty identifier"), identifier.debugDescription)
+        }
+        // With no language left, the book is in an undetermined one, as with none given.
+        var unspoken = paged
+        unspoken.metadata.metadata = .init(title: "A Written Book", languages: ["", " "])
+        let metadata = try XCTUnwrap(try package(unspoken).children.first { $0.name == "metadata" })
+        XCTAssertEqual(metadata.children.filter { $0.name == "dc:language" }.map(\.content), ["und"])
+        XCTAssertEqual(try navigation(unspoken).attributes["xml:lang"], "und")
     }
 
     func testResourceIdentifiersThatAreNotXMLNamesAreRefusedOrNeverWritten() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/96")
-        // RSC-005 `value of attribute "id" is invalid; must be an XML name without colons`.
-        for id in ["1 chapter", "7", "a:b", "-x", "two words"] {
+        // RSC-005 `value of attribute "id" is invalid; must be an XML name without colons`. The ID
+        // is the caller's, and is read back as given, so the writer refuses one it cannot write
+        // rather than rewrite it. "book-id" is the XML ID the writer gives the unique identifier.
+        for id in ["1 chapter", "7", "a:b", "-x", ".x", "two words", "x\u{1}", "\u{300}x", "book-id"] + Book.fifthEditionOnlyXMLNames {
             var book = Book()
             book.addChapter(id: id, path: "EPUB/chapter.xhtml", title: "Chapter")
-            book.pages = [.init(title: "1", href: "EPUB/chapter.xhtml")]
-            guard let document = try? book.document("EPUB/package.opf"), let package = XML.parse(document) else { continue }
-            let written = package.descendants("item").compactMap { $0.attributes["id"] } + package.descendants("itemref").compactMap { $0.attributes["idref"] }
-            for value in written {
-                XCTAssertNotNil(value.wholeMatch(of: #/[A-Za-z_][A-Za-z0-9._\-]*/#), "\(value.debugDescription) written for the resource id \(id.debugDescription)")
-            }
+            assertRefused(book, .invalidPublication("duplicate or invalid resource: EPUB/chapter.xhtml"), id.debugDescription)
         }
+        // XML names at the edges of the older character classes are written as given.
+        var book = Book()
+        for (index, id) in Book.xmlNamesAtTheEdges.enumerated() { book.addChapter(id: id, path: "EPUB/c\(index).xhtml", title: "Chapter \(index)") }
+        let package = try package(book)
+        XCTAssertEqual(package.descendants("item").compactMap { $0.attributes["id"] }, ["nav"] + Book.xmlNamesAtTheEdges)
+        XCTAssertEqual(package.descendants("itemref").compactMap { $0.attributes["idref"] }, Book.xmlNamesAtTheEdges)
     }
 
     // MARK: Facts given and facts written

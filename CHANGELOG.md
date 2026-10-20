@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Refuse an empty title, identifier, contents or navigation label, a contents entry with neither a target nor entries, and a resource ID that is not an XML name, and leave out an empty author, language, summary or keyword, where the writer wrote each into a package EPUBCheck rejects or dropped the entry without a word ([#96](https://github.com/vocaro/EPUBLib/issues/96)).
 - Default simulator VoiceOver activation to guarded cursor dispatch on pinned iOS 27.2 and announce link destinations through its layout handler before screen updates ([#495](https://github.com/vocaro/EPUBLib/issues/495)).
 - Name the language of each line, heading, link and table cell to VoiceOver on iPhone and iPad, part by part where a line mixes languages ([#65](https://github.com/vocaro/EPUBLib/issues/65)).
 - Use MathMLLayout’s native wrapping, elementary-math layout and localized generated readings, with long inline formulas flowing across text lines ([#25](https://github.com/vocaro/EPUBLib/issues/25)).

@@ -1,5 +1,6 @@
 import EPUBCore
 import Foundation
+import libxml2
 
 /// Publication facts supplied by a producer. No PDF reconstruction or reader UI policy.
 public struct EPUBPackageMetadata: Sendable {
@@ -38,13 +39,17 @@ public enum EPUBPackageWriter {
                                  spine: [EPUBSpineItem], contents: [EPUBNavigationItem],
                                  pages: [EPUBNavigationItem] = [], stylesheet: String? = nil) throws -> [Document] {
         guard !spine.isEmpty else { throw EPUBWritingError.invalidPublication("empty spine") }
+        // The package requires a title and an identifier, and the writer invents neither.
+        guard !isEmpty(facts.metadata.title) else { throw EPUBWritingError.invalidPublication("empty title") }
+        guard !isEmpty(facts.identifier) else { throw EPUBWritingError.invalidPublication("empty identifier") }
         // By byte, as `ResourceReference` reads a path: as a `Character`, the "/" before a
         // combining mark is another character, and no prefix of the path is "EPUB/".
         func inPackage(_ path: String) -> Bool { path.utf8.starts(with: "EPUB/".utf8) }
+        // "nav" is the navigation document's manifest ID, and "book-id" the unique identifier's.
         var ids: Set<String> = ["nav"]
         var paths: Set<String> = ["EPUB/nav.xhtml", "EPUB/package.opf", "META-INF/container.xml", "mimetype"]
         for resource in resources {
-            guard !resource.id.isEmpty, ids.insert(resource.id).inserted,
+            guard isName(resource.id), resource.id != "book-id", ids.insert(resource.id).inserted, !isEmpty(resource.mediaType),
                   ResourceReference.isSafePath(resource.path), inPackage(resource.path),
                   paths.insert(resource.path).inserted else {
                 throw EPUBWritingError.invalidPublication("duplicate or invalid resource: \(resource.path)")
@@ -70,7 +75,9 @@ public enum EPUBPackageWriter {
         guard spine.allSatisfy({ resources.contains($0.resource) }) else {
             throw EPUBWritingError.invalidPublication("spine references an undeclared resource")
         }
-        let languages = facts.metadata.languages.isEmpty ? ["und"] : facts.metadata.languages
+        // An empty value in a list is left out, as the reader leaves it out of what it reads.
+        let given = facts.metadata.languages.filter { !isEmpty($0) }
+        let languages = given.isEmpty ? ["und"] : given
         let language = xml(languages[0])
         func href(_ value: String) throws -> String {
             let resolved = try ResourceReference.resolve(value, relativeTo: "root.opf", strict: true)
@@ -88,16 +95,26 @@ public enum EPUBPackageWriter {
             let fragment = resolved.utf8.firstIndex(of: 0x23).map { String(decoding: resolved.utf8[$0...], as: UTF8.self) } ?? "" // #
             return String(decoding: ResourceReference.encoded(path: declared).utf8.dropFirst(5), as: UTF8.self) + fragment
         }
+        // EPUB 3.3, 7.3: each entry's link or heading has a text label, and a heading, an entry
+        // without a target, is followed by the list of its entries. An entry that cannot be
+        // written so is refused, not left out, so each list holds an item for each entry given.
         func items(_ entries: [EPUBNavigationItem]) throws -> String {
             try entries.map { entry in
-                let children = try items(entry.children)
-                let nested = children.isEmpty ? "" : "<ol>\(children)</ol>"
+                guard !isEmpty(entry.title) else {
+                    throw EPUBWritingError.invalidPublication("navigation entry without a label" + (entry.href.map { ": \($0)" } ?? ""))
+                }
+                guard entry.href != nil || !entry.children.isEmpty else {
+                    throw EPUBWritingError.invalidPublication("navigation entry without a target: \(entry.title)")
+                }
+                let nested = entry.children.isEmpty ? "" : "<ol>\(try items(entry.children))</ol>"
                 if let target = entry.href {
                     return "<li><a href=\"\(xml(try href(target)))\">\(xml(entry.title))</a>\(nested)</li>"
                 }
-                return nested.isEmpty ? "" : "<li><span>\(xml(entry.title))</span>\(nested)</li>"
+                return "<li><span>\(xml(entry.title))</span>\(nested)</li>"
             }.joined()
         }
+        // The contents `nav` is required, and its list needs an entry.
+        guard !contents.isEmpty else { throw EPUBWritingError.invalidPublication("empty contents") }
         let pageItems = try items(pages)
         let pageList = pageItems.isEmpty ? "" : """
         <nav epub:type="page-list" hidden="hidden"><h2>Source pages</h2><ol>\(pageItems)</ol></nav>
@@ -112,7 +129,7 @@ public enum EPUBPackageWriter {
         <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="\(language)" lang="\(language)">
         <head><title>Contents</title>\(style)</head><body>\(nav)</body></html>
         """
-        var identifierValues = facts.metadata.identifiers
+        var identifierValues = facts.metadata.identifiers.filter { !isEmpty($0) }
         let uniqueIndex: Int
         if let index = identifierValues.firstIndex(where: { $0.utf8.elementsEqual(facts.identifier.utf8) }) {
             uniqueIndex = index
@@ -125,9 +142,9 @@ public enum EPUBPackageWriter {
         }.joined()
         let languageMarkup = languages.map { "<dc:language>\(xml($0))</dc:language>" }.joined()
         let modified = ISO8601DateFormatter().string(from: facts.modificationDate)
-        let authors = facts.metadata.authors.map { "<dc:creator>\(xml($0))</dc:creator>" }.joined()
-        let summary = facts.summary.map { "<dc:description>\(xml($0))</dc:description>" } ?? ""
-        let subjects = facts.keywords.map { "<dc:subject>\(xml($0))</dc:subject>" }.joined()
+        let authors = facts.metadata.authors.filter { !isEmpty($0) }.map { "<dc:creator>\(xml($0))</dc:creator>" }.joined()
+        let summary = facts.summary.flatMap { isEmpty($0) ? nil : "<dc:description>\(xml($0))</dc:description>" } ?? ""
+        let subjects = facts.keywords.filter { !isEmpty($0) }.map { "<dc:subject>\(xml($0))</dc:subject>" }.joined()
         let created = facts.created.map {
             "<meta property=\"dcterms:created\">\(ISO8601DateFormatter().string(from: $0))</meta>"
         } ?? ""
@@ -155,6 +172,26 @@ public enum EPUBPackageWriter {
                 .init(path: "EPUB/package.opf", content: package),
                 .init(path: "META-INF/container.xml", content: container),
                 .init(path: "mimetype", content: "application/epub+zip")]
+    }
+
+    /// Whether `value` holds nothing a reader can show once written: with what `xml` leaves out
+    /// left out, nothing but white space of any kind. EPUB 3.3 asks for no more than something
+    /// beside ASCII whitespace, but `EPUBReading` reads a value of nothing but Foundation's
+    /// `whitespacesAndNewlines`, a lone no-break space among them, as empty.
+    private static func isEmpty(_ value: String) -> Bool {
+        xml(value).unicodeScalars.allSatisfy(CharacterSet.whitespacesAndNewlines.contains)
+    }
+
+    /// Whether `id` is an XML name without a colon, as an `id` or `idref` value must be, by the
+    /// character classes of XML 1.0 before its fifth edition (Appendix B). libxml2 holds a name to
+    /// them, and so does EPUBCheck's validator, character for character. The fifth edition's
+    /// wider classes, which hold every name the older ones do, also take names EPUBCheck refuses
+    /// (RSC-005): one with U+2170 "ⅰ", U+203F "‿" or a character outside the Basic Multilingual
+    /// Plane.
+    private static func isName(_ id: String) -> Bool {
+        // A NUL, which is no name character, would end the name there for libxml2. It writes a
+        // message to standard error of U+FFFE or U+FFFF.
+        !id.utf8.contains(0) && LibXML2Messages.silenced { xmlValidateNCName(id, 0) == 0 }
     }
 
     /// `string` as text or an attribute value, escaped scalar by scalar. As a `Character`, and to
