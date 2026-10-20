@@ -54,7 +54,12 @@ as one space and none left at either end. EPUB Reading Systems 3.3 §5.3 require
 Core and `meta` values, and it is how a browser renders a link, so a title or a label its
 authoring tool wrapped and indented is one line. The values are the Dublin Core title, creators,
 languages and identifiers and the `rendition:layout` `meta`; the labels are a contents entry's
-link or heading, a landmark's link, a page-list link and an NCX `navLabel`. White space outside
+link or heading, a landmark's link, a page-list link and an NCX `navLabel`. The values, the
+legacy cover `meta` and the unique identifier a font key is made from are read from the
+children of `metadata` and, where they stand among them, from those of the `dc-metadata` and
+`x-metadata` elements that OPF 2.0.1 §2.2 deprecates and has a reading system allow. EPUB 3 has
+neither, but a package that says it is EPUB 3 and has one is read the same
+([#85](https://github.com/vocaro/EPUBLib/issues/85)). White space outside
 ASCII, a no-break or an ideographic space among it, is the author's character and is kept
 inside and at the ends of a value that holds anything else, but a value that is nothing but
 white space of any kind (Foundation's `whitespacesAndNewlines`, which counts the zero-width

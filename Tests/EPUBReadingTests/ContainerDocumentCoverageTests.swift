@@ -464,6 +464,26 @@ final class ContainerDocumentCoverageTests: XCTestCase {
         XCTAssertEqual(try EPUBPublication.open(data: data).data(at: "OPS/font.otf"), original)
     }
 
+    func testTheKeyIsMadeFromAnIdentifierInsideTheDeprecatedDCMetadataElement() throws {
+        // OPF 2.0.1 §2.2 has a reading system allow `dc-metadata`, which OEBPS 1.2 packages wrapped
+        // their Dublin Core elements in, the unique identifier among them (#85). Read without it,
+        // the identifier was empty: IDPF's key could not be made and the book was refused.
+        let uuid = "urn:uuid:00112233-4455-6677-8899-aabbccddeeff"
+        let originals = ["OPS/a.otf": font(1_100), "OPS/b.ttf": font(1_100)]
+        let data = try Fixture.packageVariant(epub2: true, opf: {
+            $0.replacingOccurrences(of: "<metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">",
+                                    with: "<metadata><dc-metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">")
+                .replacingOccurrences(of: "</metadata>", with: "</dc-metadata></metadata>").replacingOccurrences(of: ">test-book<", with: ">\(uuid)<")
+        }, adding: [
+            "META-INF/encryption.xml": encryption([(Self.idpf, "OPS/a.otf"), (Self.adobe, "OPS/b.ttf")]),
+            "OPS/a.otf": obfuscated(originals["OPS/a.otf"]!, key: sha1(uuid), prefix: 1040),
+            "OPS/b.ttf": obfuscated(originals["OPS/b.ttf"]!, key: Array(stride(from: UInt8(0x00), through: UInt8(0xff), by: 0x11)), prefix: 1024),
+        ])
+        let book = try EPUBPublication.open(data: data)
+        XCTAssertEqual(book.metadata.identifiers, [uuid])
+        for (path, original) in originals { XCTAssertEqual(try book.data(at: path), original, path) }
+    }
+
     func testTheIDPFKeyKeepsOtherSpaceCharactersOfTheIdentifier() throws {
         XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/82")
         // EPUB 3.3 §4.4.3 removes "specifically, the Unicode code points U+0020, U+0009, U+000D

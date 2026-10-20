@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Read the title, creators, languages, identifiers and cover of an EPUB 2 package that wraps them in the deprecated `dc-metadata` and `x-metadata` elements, where it opened with none and refused an IDPF-obfuscated font ([#85](https://github.com/vocaro/EPUBLib/issues/85)).
 - Have VoiceOver say the match, its place and the text after it when Next Match, Previous Match or a chosen search result shows it ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
 - Keep the toolbar's search popover open on iPad when a result is chosen in it, and close the search pane or result list only where it is a sheet ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
 - Keep the pages as they are laid out on iPhone and iPad while a keyboard is up, so a search no longer paginates the book again as the keyboard rises and falls ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
