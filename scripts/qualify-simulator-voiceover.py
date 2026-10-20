@@ -57,6 +57,7 @@ def main():
     parser.add_argument('--results', type=Path, default=Path('.build/voiceover/cursor-qualification'))
     parser.add_argument('--derived-data', type=Path, default=Path('.build/voiceover/ios-simulator'))
     parser.add_argument('--font-size', type=int, action='append', help='repeatable; default 17 and 23')
+    parser.add_argument('--device', action='append', help='repeatable; default iPhone-17-Pro and iPad-Air-13-inch-M4')
     parser.add_argument('--workflow', choices=['all', 'reader', 'cache'], default='all')
     args = parser.parse_args()
     def interrupted(number, frame):
@@ -65,6 +66,7 @@ def main():
         signal.signal(number, interrupted)
     runner = Path(__file__).with_name('run-voiceover-simulator.py')
     built = False
+    kinds = args.device or ['iPhone-17-Pro', 'iPad-Air-13-inch-M4']
     for size in args.font_size or [17, 23]:
         for workflow in ['reader', 'cache'] if args.workflow == 'all' else [args.workflow]:
             command = [sys.executable, '-u', str(runner), '--activation', 'cursor', '--runtime', activation.RUNTIME,
@@ -72,6 +74,10 @@ def main():
                        '--timeout', '1800', '--derived-data', str(args.derived_data),
                        '--results', str(args.results / f'{size}pt' / workflow), '--steps',
                        workflows(size) if workflow == 'reader' else cache_workflow(size)]
+            for kind in kinds:
+                command += ['--device', kind]
+            if workflow == 'reader' and 'iPad-Air-13-inch-M4' in kinds:
+                command += ['--device-steps', 'iPad-Air-13-inch-M4=' + workflows(size).replace('keyrotor=', 'rotor=').replace('keyactivate', 'doublepoint=0.5:0.2')]
             if workflow == 'cache':
                 command += ['--book', 'paragraphs', '--flow', 'scrolled']
             if built:

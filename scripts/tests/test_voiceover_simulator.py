@@ -30,6 +30,7 @@ if name == "xcodebuild":
     elif "test-without-building" in args:
         print("VOICEOVER_EVENT 2026-10-19T00:00:00.000Z finished: fake probe")
         print("Executed 1 test, with 0 failures")
+        print("VOICEOVER_EVENT timestamp input_steps: " + os.environ["TEST_RUNNER_VOICEOVER_STEPS"])
         print("Test Case '-[VoiceOverProbeIOS.VoiceOverProbe testCaptureNavigation]' passed (0.1 seconds)")
     else:
         raise AssertionError(args)
@@ -107,6 +108,12 @@ class SimulatorBuildRevisionTests(unittest.TestCase):
                          [f"{build}, Xcode fake Build version fake"])
         self.assertEqual([line.split(" CHECKOUT ", 1)[1] for line in transcript.splitlines() if " CHECKOUT " in line],
                          [checkout])
+
+    def test_device_steps_are_recorded_and_sent_to_the_probe(self):
+        text = self.run_probe('--steps', 'read', '--device-steps', 'fake-device=visible,wait=1')
+        self.assertIn(' STEPS visible,wait=1', text)
+        self.assertIn(' input_steps: visible,wait=1', text)
+        self.run_probe('--device-steps', 'unrequested=read', expected=2)
 
     def test_reused_build_keeps_revision_after_commit_and_dirty_edits(self):
         self.assert_revisions(self.run_probe(), self.original, self.original)

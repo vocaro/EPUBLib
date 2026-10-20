@@ -655,6 +655,15 @@ used to test it.
 What a measurement or a comparison found is on its issue. These are the scripts, variables
 and inputs that repeat one.
 
+### Simulator VoiceOver cursor activation
+
+The scripts and inputs for [#495](https://github.com/vocaro/EPUBLib/issues/495) are in
+[Investigating cursor activation](#investigating-cursor-activation): the guarded simulator
+library, the startup canary, the assertion matrix and its stock negative control.
+`python3 scripts/qualify-simulator-voiceover.py` runs the recorded reader and cache workflows;
+`--workflow`, `--font-size` and `--device` select a narrower repeat. Results belong on the
+issue, including the exact runtime build and whether the hook and canary confirmed it.
+
 ### Corpus teardown
 
 The [reproduction on #589](https://github.com/vocaro/EPUBLib/issues/589#issuecomment-6283724393)
@@ -2935,7 +2944,11 @@ python3 scripts/test-simulator-voiceover-activation.py
 The matrix creates fresh iPhone and iPad simulators at 17 and 23 points, exercises both
 orientations and both reading flows, and checks page turns, links, image inspection,
 selection, updated rotor actions and reading after activation. It stops on the first failed
-session. The small Python suite checks that unknown builds, altered binaries and missing
+session. Its iPhone steps use the keyboard rotor; its iPad steps use rotor gestures and
+off-target double taps, matching the device input. Repeated synthetic rotor keys on an iPad
+can be interrupted by UIKit's “Keyboard visible” announcements. `--device-steps TYPE=STEPS`
+on the ordinary runner records and sends an explicit step override for one requested device;
+the qualification runner uses that for the two input paths. The small Python suite checks that unknown builds, altered binaries and missing
 hook/canary evidence cannot pass. Qualification results and device comparisons belong on
 [#495](https://github.com/vocaro/EPUBLib/issues/495), with the revision tested. Until that
 qualification passes, the runner's default and the acceptance policy remain unchanged.

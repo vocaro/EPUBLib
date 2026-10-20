@@ -207,6 +207,8 @@ def main():
     parser.add_argument("--strict", action="store_true", help="fail immediately if a requested target, rotor setting or action is missing")
     parser.add_argument("--activation-check", action="store_true", help="also require the activation canary in a stock negative control")
     parser.add_argument("--steps", default=STEPS, help="the probe's comma-separated steps (default: %(default)s)")
+    parser.add_argument("--device-steps", action="append", metavar="TYPE=STEPS",
+                        help="override the steps for one requested device type, repeatable")
     parser.add_argument("--font-size", help="the reader's launch text size in points")
     parser.add_argument("--flow", choices=["paginated", "scrolled"], help="the reader's launch flow (default: paginated)")
     parser.add_argument("--href", help="the section the reader opens at, as OPS/labels.xhtml (default: the book's first)")
@@ -225,6 +227,13 @@ def main():
     parser.add_argument("--derived-data", type=Path, default=root / ".build/voiceover/ios-simulator")
     parser.add_argument("--results", type=Path, default=root / ".build/voiceover/results")
     args = parser.parse_args()
+    kinds = args.device or ["iPhone-17-Pro", "iPad-Air-13-inch-M4"]
+    device_steps = {}
+    for override in args.device_steps or []:
+        kind, separator, steps = override.partition("=")
+        if not separator or not steps or kind not in kinds or kind in device_steps:
+            parser.error("--device-steps requires a unique requested TYPE=STEPS")
+        device_steps[kind] = steps
     if not 1 <= args.timeout <= 1800:
         parser.error("--timeout must be between 1 and 1800 seconds")
     os.environ.setdefault("DEVELOPER_DIR", "/Applications/Xcode.app/Contents/Developer")
@@ -247,11 +256,11 @@ def main():
         checkout = run("git", "-C", str(root), "describe", "--always", "--dirty").strip()
         xcode = " ".join(run("xcodebuild", "-version").split())
         print(f"Probe built in {built - began:.0f} s; load averages {' '.join(f'{load:.0f}' for load in os.getloadavg())}.")
-        for kind in args.device or ["iPhone-17-Pro", "iPad-Air-13-inch-M4"]:
+        for kind in kinds:
             name = f"EPUBLib-voiceover-{kind}-{os.getpid()}"
             udid = run("xcrun", "simctl", "create", name, DEVICE_TYPE + kind, args.runtime).strip()
             sessions.append(SimpleNamespace(
-                kind=kind, name=name, udid=udid, process=None, stream=None, started=None, ended=None, finished=None,
+                kind=kind, name=name, udid=udid, steps=device_steps.get(kind, args.steps), process=None, stream=None, started=None, ended=None, finished=None,
                 note=None, late=False, recovered=[], unmuted=[], unread=[], activation=bool(library),
                 log=args.results / f"simulator-{kind}-{stamp}.log", bundle=args.results / f"simulator-{kind}-{stamp}.xcresult",
                 vot=args.results / f"simulator-{kind}-{stamp}.vot.log",
@@ -305,7 +314,7 @@ def main():
             environment["TEST_RUNNER_VOICEOVER_START_LIMIT"] = str(args.start_limit)
         deadline = time.monotonic() + args.timeout
         for session in sessions:
-            session.transcript.append(f"{now()} STEPS {args.steps}")
+            session.transcript.append(f"{now()} STEPS {session.steps}")
             if args.href:
                 session.transcript.append(f"{now()} SECTION {args.href}")
             if args.launch:
@@ -318,7 +327,8 @@ def main():
                 "-destination", f"platform=iOS Simulator,id={session.udid}", "-resultBundlePath", str(session.bundle),
                 "-derivedDataPath", str(args.derived_data / "runs" / f"{session.kind}-{stamp}"),
                 "-collect-test-diagnostics", "never", f"-only-testing:{TEST}"],
-                stdout=session.log.open("w"), stderr=subprocess.STDOUT, start_new_session=True, env=environment)
+                stdout=session.log.open("w"), stderr=subprocess.STDOUT, start_new_session=True,
+                env=dict(environment, TEST_RUNNER_VOICEOVER_STEPS=session.steps))
         while any(session.finished is None for session in sessions):
             time.sleep(1)
             for session in sessions:
