@@ -147,9 +147,14 @@ import AppKit
     /// Where the reader last put the scroll view's insertion point (`placeScrollInsertionPoint`).
     private var placedScrollInsertionPoint: Int?
     /// A place `show` was asked for in pages, until the spread that holds it is installed:
-    /// VoiceOver enters the page there (`enterPage`). A page turn, a relayout, a change of
-    /// flow and a show in continuous scroll leave none.
+    /// VoiceOver enters the page there (`enterPage`). A page turn, a change of flow and a show
+    /// in continuous scroll leave none, and a relayout only the place it still enters at
+    /// (`placeStillEntered`).
     private var pageEntry: ReaderTextPosition?
+    /// The place the page on screen was entered at (`enterPage`), which a relayout enters
+    /// again while nothing has moved from it (`placeStillEntered`). A page turn, another show
+    /// and a change of flow leave none.
+    private var enteredPlace: ReaderTextPosition?
     /// Posts what the canvas tells an assistive client itself: the layout change after a spread
     /// is installed, and after the reader moves the scroll view the insertion point's second
     /// notice and the layout change (`placeScrollInsertionPoint`). A test puts its own closure
@@ -232,6 +237,7 @@ import AppKit
         // Continuous scroll rests the position at the top, where the insertion point already is,
         // or a place found below it, where `updateVisibleRange` puts it (`foundPlace`).
         pageEntry = entry == .position && configuration.flow == .paginated ? position : nil
+        enteredPlace = nil
         #endif
         switch configuration.flow {
         case .paginated:
@@ -348,6 +354,7 @@ import AppKit
         guard old.flow != configuration.flow else { return layOutCanvas() }
         #if os(macOS)
         pageEntry = nil
+        enteredPlace = nil
         #endif
         anchor = currentStart(in: old.flow) ?? anchor
         anchorFollowsScroll = false
@@ -590,6 +597,11 @@ import AppKit
         guard let spread, let paginator = paginator(for: section) else { return }
         let carriedSelection = programmaticSelection?.selection.range ?? (externalSelectionSource != nil ? currentSelection?.range : nil)
         let preservesFullRange = programmaticSelection?.preservesFullRange ?? false
+        #if os(macOS)
+        // Read before the columns' new text puts their insertion points at its start.
+        if pageEntry == nil { pageEntry = placeStillEntered() }
+        enteredPlace = nil
+        #endif
         shownPage = (section, firstPage)
         while columns.count < spread.columns.count {
             let column = makeColumnView()
@@ -665,6 +677,9 @@ import AppKit
         let target = forward ? shownPage.page + count : max(0, shownPage.page - count)
         if target != shownPage.page, let page = paginator.page(at: target) {
             anchor = ReaderTextPosition(section: shownPage.section, offset: page.range.location)
+            #if os(macOS)
+            enteredPlace = nil
+            #endif
             display(section: shownPage.section, firstPage: target)
             return .turned
         }
@@ -1159,18 +1174,18 @@ import AppKit
     /// listener read down the page to the place they went to (#383). The line is one that
     /// VoiceOver is given (`ReaderTextView.accessibilityRange(forLine:)`). A position with no
     /// character of its own, as a section's end, is on no line, and the page keeps its first.
+    /// A relayout enters the place again while nothing has moved from it (`placeStillEntered`).
     ///
     /// VoiceOver stays in the column that has the keyboard focus (`focusFirstColumnAfterTurn`),
     /// so focus in another column of the spread goes to this one, and VoiceOver goes with it.
     /// Focus anywhere else, as on a host's list of search results, is left where it is.
     private func enterPage(at position: ReaderTextPosition) {
-        let place = ReaderTextRange(section: position.section, position.offset..<(position.offset + 1))
-        guard let (column, local) = columns.lazy.filter({ !$0.isHidden })
-            .compactMap({ view in self.localRange(of: place, in: view).map { (view, $0.location) } }).first else { return }
+        guard let (column, local) = column(holding: position) else { return }
         let line = column.accessibilityLine(for: local)
         let range = line == NSNotFound ? NSRange(location: NSNotFound, length: 0) : column.accessibilityRange(forLine: line)
         let start = range.location == NSNotFound ? local : range.location
         column.entryLocation = start
+        enteredPlace = position
         if column.selectedRange != NSRange(location: start, length: 0) {
             isApplyingSelection = true
             column.selectedRange = NSRange(location: start, length: 0)
@@ -1180,6 +1195,32 @@ import AppKit
            columns.contains(where: { $0 === responder }) {
             focus(column)
         }
+    }
+
+    /// The place the page on screen was entered at, while the page stands as the reader left
+    /// it: every column's insertion point where the reader put it, nothing selected, and
+    /// keyboard focus in no column but the place's. A relayout (a resize, a text size, the text
+    /// built again, a division) installs the spread that holds the place, since it is still
+    /// the anchor, and VoiceOver enters there again rather than at the page's first line. A
+    /// host that restores a place at opening, while its window settles or its text is built
+    /// for its style, keeps it. Continuous scroll keeps its insertion point by the same rule
+    /// (`placeScrollInsertionPoint`). A click, VoiceOver's moves by line, which move the
+    /// insertion point, a selection, or focus taken to the column beside ends it, and a
+    /// relayout after that enters at the first line, as after a page turn. A move of
+    /// VoiceOver's own cursor that changes neither the insertion point nor focus goes unseen.
+    private func placeStillEntered() -> ReaderTextPosition? {
+        guard let place = enteredPlace, let (column, _) = column(holding: place), currentSelection == nil,
+              textViews.allSatisfy({ $0.selectedRange == NSRange(location: $0.entryLocation, length: 0) }) else { return nil }
+        if let responder = window?.firstResponder as? ReaderTextView, responder !== column,
+           columns.contains(where: { $0 === responder }) { return nil }
+        return place
+    }
+
+    /// The shown column that holds `position`'s character, and where in its text.
+    private func column(holding position: ReaderTextPosition) -> (ReaderTextView, Int)? {
+        let place = ReaderTextRange(section: position.section, position.offset..<(position.offset + 1))
+        return columns.lazy.filter({ !$0.isHidden })
+            .compactMap({ view in self.localRange(of: place, in: view).map { (view, $0.location) } }).first
     }
     #endif
 

@@ -6,8 +6,9 @@ import XCTest
 
 /// Where VoiceOver on Mac enters a page column: at its insertion point, which a read-only column
 /// does not draw. A place shown (a link's target, a search result, a contents entry, a bookmark)
-/// puts it at the start of the place's line, in the column that holds it; a page turn, a relayout
-/// and the start or end of a section a turn reaches keep every column's first line (#383). What
+/// puts it at the start of the place's line, in the column that holds it; a page turn and the
+/// start or end of a section a turn reaches keep every column's first line (#383). A relayout
+/// enters the place again until something moves from it, and the first line after that. What
 /// VoiceOver does with it is heard only in a speech session (doc/testing.md#voiceover-testing).
 @MainActor final class PageEntryAccessibilityTests: XCTestCase {
     private var windows: [NSWindow] = []
@@ -61,6 +62,49 @@ import XCTest
             XCTAssertEqual(column.accessibilityInsertionPointLineNumber(), 0, "\(label), column \(index)", file: file, line: line)
             XCTAssertEqual(column.entryLocation, 0, "\(label), column \(index)", file: file, line: line)
         }
+    }
+
+    /// `place` is on screen, and its column's insertion point is at the start of its line, past
+    /// the page's first; every other column's is at its first line. Returns the place's line.
+    @discardableResult
+    private func assertEntered(_ canvas: ReaderCanvasView, at place: ReaderTextPosition, _ label: String,
+                               file: StaticString = #filePath, line: UInt = #line) throws -> (column: ReaderTextView, index: Int, start: Int) {
+        let shown = try XCTUnwrap(canvas.entryLine(holding: place), "\(label): the place is not on screen", file: file, line: line)
+        XCTAssertGreaterThan(shown.start, 0, "\(label): on the page's first line, which shows nothing", file: file, line: line)
+        for (index, column) in canvas.textViews.enumerated() {
+            let start = column === shown.column ? shown.start : 0
+            XCTAssertEqual(column.selectedRange, NSRange(location: start, length: 0), "\(label), column \(index)", file: file, line: line)
+            XCTAssertEqual(column.accessibilityInsertionPointLineNumber(), column === shown.column ? shown.index : 0,
+                           "\(label), column \(index)", file: file, line: line)
+            XCTAssertEqual(column.entryLocation, start, "\(label), column \(index)", file: file, line: line)
+        }
+        return shown
+    }
+
+    /// Makes `change` and waits for the spread it lays out, which a size whose pages are not
+    /// known yet paginates over a few turns of the run loop.
+    private func relayOut(_ reader: Reader, _ label: String, by change: () -> Void,
+                          file: StaticString = #filePath, line: UInt = #line) async throws {
+        let canvas = reader.canvas
+        let before = canvas.textViews.map(\.frame)
+        change()
+        reader.window.contentView?.layoutSubtreeIfNeeded()
+        let deadline = Date().addingTimeInterval(10)
+        while canvas.textViews.map(\.frame) == before, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertNotEqual(canvas.textViews.map(\.frame), before, "\(label): the spread was laid out again", file: file, line: line)
+    }
+
+    private func resize(_ reader: Reader, to width: CGFloat) async throws {
+        try await relayOut(reader, "\(Int(width)) points wide") { reader.window.setContentSize(CGSize(width: width, height: 500)) }
+    }
+
+    /// The fifth line of the second column of the book's second spread, with the first spread
+    /// on screen again.
+    private func secondSpreadPlace(_ canvas: ReaderCanvasView) throws -> ReaderTextPosition {
+        XCTAssertEqual(canvas.turnPage(forward: true), .turned)
+        let target = try place(inColumn: 1, line: 5, of: canvas)
+        XCTAssertEqual(canvas.turnPage(forward: false), .turned)
+        return target
     }
 
     func testAPlaceShownIsEnteredAtTheStartOfItsLineInTheColumnThatHoldsIt() throws {
@@ -126,12 +170,10 @@ import XCTest
         XCTAssertFalse(window.isVisible)
     }
 
-    func testPageTurnsAndRelayoutsEnterAtTheFirstLine() async throws {
+    func testPageTurnsEnterAtTheFirstLine() throws {
         let reader = reader(width: 1100)
         let canvas = reader.canvas
-        XCTAssertEqual(canvas.turnPage(forward: true), .turned)
-        let target = try place(inColumn: 1, line: 5, of: canvas)
-        XCTAssertEqual(canvas.turnPage(forward: false), .turned)
+        let target = try secondSpreadPlace(canvas)
 
         canvas.show(target, selecting: nil)
         XCTAssertGreaterThan(canvas.textViews[1].selectedRange.location, 0)
@@ -140,25 +182,116 @@ import XCTest
         XCTAssertEqual(canvas.turnPage(forward: false), .turned)
         XCTAssertNotNil(canvas.entryLine(holding: target), "back at the place's spread")
         assertFirstLines(canvas, "a turn back to the place's spread")
-
-        canvas.show(target, selecting: nil)
         canvas.reloadContent(keeping: nil)
-        XCTAssertNotNil(canvas.entryLine(holding: target), "the text built again keeps the place on screen")
-        assertFirstLines(canvas, "the text built again")
-
-        canvas.show(target, selecting: nil)
-        let width = canvas.textViews[0].frame.width
-        reader.window.setContentSize(CGSize(width: 1000, height: 500))
-        reader.window.contentView?.layoutSubtreeIfNeeded()
-        let deadline = Date().addingTimeInterval(10)
-        while canvas.textViews[0].frame.width == width, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
-        XCTAssertNotEqual(canvas.textViews[0].frame.width, width, "the spread was laid out for the new width")
-        XCTAssertNotNil(canvas.entryLine(holding: target), "a resize keeps the place on screen")
-        assertFirstLines(canvas, "a resize")
+        assertFirstLines(canvas, "the text built again after the turns")
 
         canvas.show(target, selecting: nil, entry: .firstLine)
         assertFirstLines(canvas, "a show for the page's first line")
+        canvas.reloadContent(keeping: nil)
+        assertFirstLines(canvas, "the text built again after a show for the first line")
         XCTAssertFalse(reader.window.isVisible)
+    }
+
+    /// A relayout installs the spread that holds the place, still the anchor, and enters it
+    /// there again while nothing has moved from it: a host restoring a place while its window
+    /// settles, or while its text is built for its style, keeps it (#383's session 5).
+    func testARelayoutEntersAPlaceAgainWhileNothingHasMovedFromIt() async throws {
+        let reader = reader(width: 1100)
+        let canvas = reader.canvas, window = reader.window
+        let target = try secondSpreadPlace(canvas)
+        window.makeFirstResponder(canvas.textViews[0])
+        canvas.show(target, selecting: nil)
+        try assertEntered(canvas, at: target, "the place shown")
+        XCTAssertTrue(window.firstResponder === canvas.textViews[1], "focus went to the place's column")
+
+        canvas.reloadContent(keeping: nil)
+        try assertEntered(canvas, at: target, "the text built again")
+        canvas.reloadContent(keeping: nil)
+        try assertEntered(canvas, at: target, "the text built again twice")
+
+        // At 1200 points the place's line is in the first column, at 1000 in the second again,
+        // and keyboard focus goes with it from the column beside.
+        for (width, slot) in [(1200.0, 0), (1000, 1)] {
+            try await resize(reader, to: width)
+            let shown = try assertEntered(canvas, at: target, "a resize to \(Int(width)) points")
+            XCTAssertTrue(shown.column === canvas.textViews[slot], "\(Int(width)) points: the place is in column \(slot)")
+            XCTAssertTrue(window.firstResponder === shown.column, "\(Int(width)) points: focus went to the place's column")
+        }
+
+        // Focus outside the columns, as on a host's list of search results, stays there.
+        window.makeFirstResponder(nil)
+        try await resize(reader, to: 600)
+        XCTAssertEqual(canvas.textViews.count, 1)
+        try assertEntered(canvas, at: target, "a resize to one column")
+        XCTAssertTrue(window.firstResponder === window)
+
+        try await resize(reader, to: 1100)
+        try assertEntered(canvas, at: target, "a resize to two columns again")
+        try await relayOut(reader, "a division") { canvas.configuration.division = CGRect(x: 530, y: 0, width: 40, height: 500) }
+        try assertEntered(canvas, at: target, "a division reserved")
+        try await relayOut(reader, "no division") { canvas.configuration.division = nil }
+        try assertEntered(canvas, at: target, "the division gone")
+        XCTAssertTrue(window.firstResponder === window)
+        XCTAssertFalse(window.isVisible)
+    }
+
+    /// Once anything moves from the place, a relayout enters at the first line, as after a
+    /// page turn: a click or VoiceOver moving the insertion point, in any column, a selection,
+    /// keyboard focus taken to the column beside, and a change of flow.
+    func testAnythingThatMovesFromAPlaceEndsItsEntryAtTheNextRelayout() throws {
+        let reader = reader(width: 1100)
+        let canvas = reader.canvas, window = reader.window
+        let target = try secondSpreadPlace(canvas)
+
+        // VoiceOver's move by line leaves the insertion point at the end of the line it reads.
+        canvas.show(target, selecting: nil)
+        var shown = try assertEntered(canvas, at: target, "the place shown")
+        let line = shown.column.accessibilityRange(forLine: shown.index)
+        shown.column.setAccessibilitySelectedTextRange(NSRange(location: NSMaxRange(line) - 1, length: 0))
+        XCTAssertNotEqual(shown.column.selectedRange.location, shown.start)
+        canvas.reloadContent(keeping: nil)
+        assertFirstLines(canvas, "VoiceOver read on from the place")
+        canvas.reloadContent(keeping: nil)
+        assertFirstLines(canvas, "the text built again once more")
+
+        // A click puts the insertion point where it lands, in the place's column or the other.
+        for slot in [1, 0] {
+            canvas.show(target, selecting: nil)
+            shown = try assertEntered(canvas, at: target, "the place shown")
+            canvas.textViews[slot].selectedRange = NSRange(location: slot == 1 ? shown.start + 4 : 4, length: 0)
+            canvas.reloadContent(keeping: nil)
+            assertFirstLines(canvas, "a click in column \(slot)")
+        }
+
+        // A selection is carried across the relayout instead, and VoiceOver enters at it.
+        canvas.show(target, selecting: nil)
+        shown = try assertEntered(canvas, at: target, "the place shown")
+        shown.column.selectedRange = NSRange(location: shown.start, length: 6)
+        let selected = try XCTUnwrap(canvas.currentSelection?.range)
+        canvas.reloadContent(keeping: nil)
+        XCTAssertEqual(canvas.currentSelection?.range, selected)
+        XCTAssertEqual(canvas.textViews.map(\.entryLocation), [0, 0])
+        canvas.clearSelection()
+
+        // Focus taken to the column beside, where VoiceOver goes with it.
+        window.makeFirstResponder(canvas.textViews[1])
+        canvas.show(target, selecting: nil)
+        try assertEntered(canvas, at: target, "the place shown")
+        window.makeFirstResponder(canvas.textViews[0])
+        canvas.reloadContent(keeping: nil)
+        assertFirstLines(canvas, "focus taken to the first column")
+        XCTAssertTrue(window.firstResponder === canvas.textViews[0], "no focus moves")
+
+        // Continuous scroll keeps its own entry (`placeScrollInsertionPoint`).
+        canvas.show(target, selecting: nil)
+        try assertEntered(canvas, at: target, "the place shown")
+        canvas.configuration.flow = .scrolled
+        window.contentView?.layoutSubtreeIfNeeded()
+        canvas.configuration.flow = .paginated
+        window.contentView?.layoutSubtreeIfNeeded()
+        XCTAssertNotNil(canvas.entryLine(holding: target))
+        assertFirstLines(canvas, "a change of flow and back")
+        XCTAssertFalse(window.isVisible)
     }
 
     /// A page turn that reaches another section shows its start or its end, which is no place
@@ -208,7 +341,8 @@ import XCTest
 
         canvas.reloadContent(keeping: nil)
         XCTAssertNil(canvas.currentSelection, "no selection is carried across a relayout")
-        assertFirstLines(canvas, "the text built again")
+        XCTAssertNil(canvas.selectionContinuation)
+        try assertEntered(canvas, at: target, "the text built again")
 
         // A passage asked for is selected whole, in place of the place's line.
         let passage = ReaderTextRange(section: 0, target.offset..<(target.offset + 12))
@@ -357,6 +491,50 @@ import XCTest
         reader.session.canvas(canvas, needsSection: 3, forward: true)
         try await reader.wait("chapter three's start") { reader.section == 3 }
         assertFirstLines("a turn on into a section built for it")
+    }
+
+    /// The session's own relayout, the text built again for a new text size, enters the place
+    /// again until something moves from it, and the first line after that.
+    func testTheTextBuiltForAnotherSizeKeepsAPlacesEntryUntilItIsLeft() async throws {
+        let reader = try SessionCoverageReader(SessionCoverageBook.chapters())
+        defer { reader.close() }
+        try await reader.settle()
+        let canvas = try XCTUnwrap(reader.session.canvas)
+        let mid = try reader.anchor("mid", section: 2)
+
+        func restyle(_ size: Double, _ label: String) async throws {
+            let before = reader.session.visibleRange
+            try await reader.session.send(.style(EPUBReaderStyle(fontSize: size)))
+            try await reader.wait(label) {
+                reader.session.book.isComplete && reader.session.book.typography.fontSize == size
+                    && reader.session.visibleRange != before && reader.isVisible(mid)
+            }
+            try await reader.settle()
+        }
+        func entered(_ label: String) throws -> (column: ReaderTextView, index: Int, start: Int) {
+            let shown = try XCTUnwrap(canvas.entryLine(holding: mid), "\(label): not on screen")
+            XCTAssertGreaterThan(shown.index, 0, "\(label): on a page's first line, which shows nothing")
+            for (index, column) in canvas.textViews.enumerated() {
+                XCTAssertEqual(column.selectedRange, NSRange(location: column === shown.column ? shown.start : 0, length: 0),
+                               "\(label), column \(index)")
+            }
+            return shown
+        }
+
+        try await reader.session.send(.navigate(href: "OPS/two.xhtml#mid"))
+        try await reader.wait("a link's target") { reader.isVisible(mid) }
+        _ = try entered("a link's target")
+        // At 19 points the place is on the eighth line of its page; at 25 it begins one.
+        try await restyle(19, "the text built at 19 points")
+        let shown = try entered("the text built at 19 points")
+
+        let line = shown.column.accessibilityRange(forLine: shown.index)
+        shown.column.setAccessibilitySelectedTextRange(NSRange(location: NSMaxRange(line) - 1, length: 0))
+        try await restyle(EPUBReaderStyle().fontSize, "the text built at the first size")
+        XCTAssertNotNil(canvas.entryLine(holding: mid))
+        for (index, column) in canvas.textViews.enumerated() {
+            XCTAssertEqual(column.selectedRange, NSRange(location: 0, length: 0), "VoiceOver read on from the place, column \(index)")
+        }
     }
 }
 

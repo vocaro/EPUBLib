@@ -1947,14 +1947,25 @@ as they did.
   page turn made in the second column; focus anywhere else, as on a host's list of search
   results, stays where it is. Before, VoiceOver began at the top of the page, and a listener
   read down it to the place they went to
-  ([#383](https://github.com/vocaro/EPUBLib/issues/383)). A page turn, a relayout (a text
-  size, a resize, rebuilt text, a change of flow), the start or end of a section a turn
-  reaches, and VoiceOver's own moves to a heading, where it is given the heading's element or
-  characters itself, keep the first line: the session says which a show is
-  (`ReaderPageEntry`). A position with no character of its own, as a section's end, is on no
-  line, and its page keeps the first. Nothing else reads the insertion point: a selection,
-  Copy, and the selection carried across a relayout or continued onto another page take a
-  range with characters in it, and a passage selected with the place replaces it.
+  ([#383](https://github.com/vocaro/EPUBLib/issues/383)). A page turn, a change of flow, the
+  start or end of a section a turn reaches, and VoiceOver's own moves to a heading, where it is
+  given the heading's element or characters itself, keep the first line: the session says
+  which a show is (`ReaderPageEntry`). A relayout (a text size, a resize, the text built again,
+  a division) shows the spread that holds the place, which is still the anchor, and enters at
+  the place's line again, in whichever column holds it then, while the page stands as the
+  reader left it: every column's insertion point where the reader put it, nothing selected, and
+  keyboard focus in no column but the place's (`ReaderCanvasView.placeStillEntered`).
+  Continuous scroll keeps its insertion point by the same rule. A host that restores a place
+  while its window settles, or while its text is built for its style, keeps it. A click,
+  VoiceOver's moves by line, which move the insertion point, a selection, or focus taken to
+  the column beside ends it, and a relayout after that keeps the first line, as a page turn
+  does ([#594](https://github.com/vocaro/EPUBLib/issues/594)). A move of VoiceOver's own cursor
+  that changes neither the insertion point nor focus goes unseen, and a relayout after one
+  takes VoiceOver back to the place's line. A position with no character of its own, as a
+  section's end, is on no line, and its page keeps the first. Nothing else reads the
+  insertion point: a selection, Copy, and the selection carried across a relayout or continued
+  onto another page take a range with characters in it, and a passage selected with the place
+  replaces it.
   On the hosted runner, after a link to a heading in the middle of a page, VoiceOver entered
   at the heading in one column and two, with its cursor in the text, resting on the column or
   on the search field; on `main` it read the page's first line. Told of the insertion point's
@@ -1965,9 +1976,12 @@ as they did.
   column: it says "text" and the column's first words, Read Line reads the place's line, and
   interacting enters there. From the place, as from a page's first line after a turn, its
   first move down reads the place's line again, because its own moves by line leave the
-  insertion point at a line's end, and the next goes on. A relayout straight after the place
-  is shown, as a window still settling, puts the first line back
-  ([sessions](https://github.com/vocaro/EPUBLib/issues/383#issuecomment-6277358412)).
+  insertion point at a line's end, and the next goes on
+  ([sessions](https://github.com/vocaro/EPUBLib/issues/383#issuecomment-6277358412)). With
+  the reader opened at the heading and its window then resized, VoiceOver entered at the top of
+  the page until #594, and at the heading since. At the resize, which it heard from outside the
+  text, it said the words before the new insertion point, where before it read the page's
+  first line ([sessions](https://github.com/vocaro/EPUBLib/issues/594#issuecomment-6278967907)).
   UIKit exposes visible line/run accessibility children with links, attachment labels and
   page actions, keeping hidden paragraph context out of its native text accessibility traversal.
   A heading is one such child however many lines it takes, with the header trait and its
@@ -2054,6 +2068,23 @@ as they did.
   rotation or bar change repaginates once it ends, in steps when far into a section, with the
   old spread on screen until the new one is ready. A finished pagination keeps only its pages.
 - **Right to left.** `page-progression-direction="rtl"` mirrors spreads, swipes and tap zones.
+  Within a page, a box's sides by flow (`margin-inline-start`, `padding-inline`,
+  `border-inline-end`) are the sides the element's own `direction` maps them to, and cascade
+  with those sides' physical declarations in order; `float` and `clear` with `inline-start` or
+  `inline-end` take the side of the parent's direction, the containing block's
+  (CSS Logical Properties 1). The reader's own stylesheet indents lists and `dd` on their start
+  side, as HTML 15.3.7 does, so a right-to-left list is indented on the right
+  ([#124](https://github.com/vocaro/EPUBLib/issues/124)). Vertical writing is laid out
+  horizontally, so the block axis is always top to bottom, and `dir="auto"` does not yet give an
+  element the direction of its content, so its sides by flow follow its parent's.
+  A right-to-left item's marker hangs in that indent and each of its lines starts at the same
+  edge, in page text and in table cells. A marker's tab stop is a distance from the paragraph's
+  leading edge, the right in right-to-left text, as TextKit 1 measures it in either direction.
+  TextKit 2, where it applies a right-to-left paragraph's indents itself, measures a stop from the
+  first line's start less the tail indent, and set the item's first line a first-line indent
+  further along than its wrapped lines; the text container shows it the stop moved by the
+  difference (`ReaderTextContainer.rightToLeftStops`,
+  [#276](https://github.com/vocaro/EPUBLib/issues/276)).
 
 ### Floats and positioned boxes
 

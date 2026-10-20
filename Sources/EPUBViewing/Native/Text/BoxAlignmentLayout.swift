@@ -434,6 +434,8 @@ enum ReaderAlignmentLayout {
             container.viewportSize = viewport
             container.paragraphText = measured
             manager.textContainer = container
+            // TextKit is shown the paragraphs as the reader's text view shows them.
+            container.deliverIndents(for: storage)
             storage.attributedString = measured
             var top: CGFloat?, bottom: CGFloat = 0, exceeds = false
             manager.enumerateTextLayoutFragments(from: storage.documentRange.location, options: [.ensuresLayout]) { fragment in

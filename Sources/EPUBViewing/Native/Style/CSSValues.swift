@@ -51,6 +51,26 @@ enum CSSProperty: Int, CaseIterable, Sendable {
         }
     }
 
+    /// The same property on the other side of the inline axis: right for left and left for
+    /// right; any other property is itself.
+    var otherInlineSide: CSSProperty {
+        switch self {
+        case .left: .right
+        case .right: .left
+        case .marginLeft: .marginRight
+        case .marginRight: .marginLeft
+        case .paddingLeft: .paddingRight
+        case .paddingRight: .paddingLeft
+        case .borderLeftStyle: .borderRightStyle
+        case .borderRightStyle: .borderLeftStyle
+        case .borderLeftWidth: .borderRightWidth
+        case .borderRightWidth: .borderLeftWidth
+        case .borderLeftColor: .borderRightColor
+        case .borderRightColor: .borderLeftColor
+        default: self
+        }
+    }
+
     static let insets: [CSSProperty] = [.top, .right, .bottom, .left]
     static let margins: [CSSProperty] = [.marginTop, .marginRight, .marginBottom, .marginLeft]
     static let paddings: [CSSProperty] = [.paddingTop, .paddingRight, .paddingBottom, .paddingLeft]
@@ -134,6 +154,15 @@ enum CSSFontSize: Equatable, Sendable {
 }
 
 enum CSSFontWeight: Equatable, Sendable { case absolute(Int), bolder, lighter }
+
+/// A flow-relative side on the inline axis: the left in left-to-right text, the right in
+/// right-to-left.
+enum CSSInlineSide: Equatable, Sendable {
+    case start, end
+
+    func isLeft(in direction: ComputedStyle.Direction) -> Bool { (self == .start) == (direction == .ltr) }
+}
+
 enum CSSLineHeight: Equatable, Sendable { case normal, number(Double), length(CSSLength) }
 
 /// A specified value, already validated and typed for its property.
@@ -146,6 +175,9 @@ enum CSSValue: Equatable, Sendable {
     case display(ComputedStyle.Display, blockifies: Bool, grid: Bool = false)
     case float(ComputedStyle.Float)
     case clear(ComputedStyle.Clear)
+    /// `float` and `clear` by flow: the side of the containing block's direction
+    /// (CSS Logical Properties 1 §3.1).
+    case inlineSide(CSSInlineSide)
     case position(ComputedStyle.Position)
     /// `font-style: italic`, small caps, `visibility: hidden`, `border-collapse: collapse` and
     /// generic Boolean properties.
@@ -190,9 +222,25 @@ enum CSSValue: Equatable, Sendable {
 }
 
 struct CSSDeclaration: Equatable, Sendable {
+    /// The longhand set in left-to-right text.
     let property: CSSProperty
     let value: CSSValue
     let important: Bool
+    /// The longhand set in right-to-left text, for a flow-relative side on the inline axis
+    /// (`margin-inline-start` is the left margin there and the right one here); nil when it is
+    /// `property` whatever the direction. The cascade picks one by the element's `direction`
+    /// (CSS Logical Properties 1 §4), so that the two sides' declarations cascade together.
+    let rightToLeft: CSSProperty?
+
+    init(property: CSSProperty, value: CSSValue, important: Bool, rightToLeft: CSSProperty? = nil) {
+        self.property = property; self.value = value; self.important = important
+        self.rightToLeft = rightToLeft == property ? nil : rightToLeft
+    }
+
+    /// The longhand this declaration sets in text of `direction`.
+    func property(in direction: ComputedStyle.Direction) -> CSSProperty {
+        direction == .rtl ? rightToLeft ?? property : property
+    }
 }
 
 /// Validates declarations and expands shorthands into typed longhands. Unknown properties and
@@ -205,15 +253,17 @@ enum CSSPropertyParser {
         // `attr()` is part of `content`'s own grammar (CSS 2 §12.2); anywhere else it is a
         // substitution the cascade does not make, as `var()` is.
         guard !components.isEmpty, !containsVariable(components, allowingAttr: name == "content") else { return nil }
-        func all(_ properties: [CSSProperty], _ value: CSSValue) -> [CSSDeclaration] {
-            properties.map { CSSDeclaration(property: $0, value: value, important: important) }
+        let flowRelative = isInlineFlowRelative(name)
+        func declaration(_ property: CSSProperty, _ value: CSSValue) -> CSSDeclaration {
+            CSSDeclaration(property: property, value: value, important: important,
+                           rightToLeft: flowRelative ? property.otherInlineSide : nil)
         }
         if components.count == 1, let keyword = components[0].ident, let global = globalKeyword(keyword) {
             guard let properties = longhands(of: name) else { return nil }
-            return all(properties, global)
+            return properties.map { declaration($0, global) }
         }
         guard let pairs = parseValue(name: name, components) else { return nil }
-        return pairs.map { CSSDeclaration(property: $0.0, value: $0.1, important: important) }
+        return pairs.map { declaration($0.0, $0.1) }
     }
 
     /// Parses a declaration from text (a presentational hint or a `@supports` test).
@@ -248,7 +298,9 @@ enum CSSPropertyParser {
 
     private enum Side { case top, right, bottom, left }
 
-    /// Logical sides map to physical ones for horizontal, left-to-right text.
+    /// Logical sides map to physical ones for horizontal, left-to-right text. Those on the
+    /// inline axis are mirrored for right-to-left text by the cascade (`isInlineFlowRelative`);
+    /// vertical writing modes are laid out horizontally, so the block axis is always vertical.
     private static func sides(_ name: String) -> [Side]? {
         switch name {
         case "top", "block-start": [.top]
@@ -259,6 +311,19 @@ enum CSSPropertyParser {
         case "inline": [.left, .right]
         default: nil
         }
+    }
+
+    /// Whether a box property names a side on the inline axis by flow (`margin-inline-start`,
+    /// `padding-inline`, `border-inline-end-width`), whose physical side follows the direction.
+    private static func isInlineFlowRelative(_ name: String) -> Bool {
+        for prefix in ["margin-", "padding-", "border-"] where name.hasPrefix(prefix) {
+            var side = name.dropFirst(prefix.count)
+            if prefix == "border-", let suffix = ["-width", "-style", "-color"].first(where: side.hasSuffix) {
+                side = side.dropLast(suffix.count)
+            }
+            return side == "inline" || side == "inline-start" || side == "inline-end"
+        }
+        return false
     }
 
     private static func pick(_ properties: [CSSProperty], _ sides: [Side]) -> [CSSProperty] {
@@ -462,8 +527,10 @@ enum CSSPropertyParser {
         case .float:
             switch keyword {
             case "none": return .float(.none)
-            case "left", "inline-start": return .float(.left)
-            case "right", "inline-end": return .float(.right)
+            case "left": return .float(.left)
+            case "right": return .float(.right)
+            case "inline-start": return .inlineSide(.start)
+            case "inline-end": return .inlineSide(.end)
             default: return nil
             }
         case .clear:
@@ -472,6 +539,8 @@ enum CSSPropertyParser {
             case "left": return .clear(.left)
             case "right": return .clear(.right)
             case "both": return .clear(.both)
+            case "inline-start": return .inlineSide(.start)
+            case "inline-end": return .inlineSide(.end)
             default: return nil
             }
         case .position:

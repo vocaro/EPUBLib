@@ -963,9 +963,10 @@ final class SectionWriter {
         // paragraph has the interval of its box's `tab-size`.
         key.tabInterval = format.tabInterval
         // A marker's one stop is not always ahead of it: a box left in flow moves its first
-        // line onto or past the stop (`ReaderFlowBoxLayout`), and TextKit measures a
-        // right-to-left paragraph's stops short by its tail indent. A tab past the stop falls
-        // on the next multiple of the marker's width instead, unless the item keeps its tabs.
+        // line onto or past the stop (`ReaderFlowBoxLayout`). A tab past the stop falls on the
+        // next multiple of the marker's width instead, unless the item keeps its tabs. The stop
+        // is measured from the leading edge in either direction; TextKit 2 is shown a
+        // right-to-left one where it measures it from (`ReaderTextContainer.rightToLeftStops`).
         if !format.preservesTabs, let width = paragraph.markerWidth { key.tabInterval = InlineStyling.tabInterval(width) }
         guard let base = paragraph.factoryStyle, let style = base.mutableCopy() as? NSMutableParagraphStyle else {
             return styling.paragraphStyle(key)

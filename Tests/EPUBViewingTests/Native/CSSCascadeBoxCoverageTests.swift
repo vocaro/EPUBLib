@@ -49,6 +49,77 @@ final class CSSCascadeBoxCoverageTests: XCTestCase {
         XCTAssertEqual(styles[12].margin.left, .points(9))
     }
 
+    /// CSS Logical Properties 1 §4: a flow-relative side is the physical side the element's own
+    /// direction maps it to, and cascades with that side's physical declarations in order (#124).
+    func testInlineSidesByFlowMapToTheElementsOwnDirection() throws {
+        let rules = [
+            "margin-inline-start: 7px; padding-inline: 1px 2px; border-inline-end: 3px solid",
+            "padding-right: 1px; padding-inline-start: 2px",
+            "padding-inline-start: 2px; padding-right: 1px",
+            "padding-inline-start: 2px; direction: ltr",
+            "margin-inline-end: inherit",
+        ]
+        let body = rules.indices.map { "<p id=\"e\($0)\">x</p>" }.joined()
+        let css = "p { margin: 0 } div { margin: 0 5px 0 9px } "
+            + rules.enumerated().map { "#e\($0.offset), #l\($0.offset) { \($0.element) }" }.joined(separator: " ")
+        let result = try CSSCascadeSupport.styled("<div dir='rtl'>\(body)</div><div>"
+            + rules.indices.map { "<p id=\"l\($0)\">x</p>" }.joined() + "</div>", css: css)
+        XCTAssertEqual(result.style("e0").margin, edges(.points(0), .points(7), .points(0), .points(0)), "right to left, the start is the right")
+        XCTAssertEqual(result.style("e0").padding, edges(.points(0), .points(1), .points(0), .points(2)))
+        XCTAssertEqual(result.style("e0").border.left.width, 3)
+        XCTAssertEqual(result.style("e0").border.right.width, 0)
+        XCTAssertEqual(result.style("l0").margin, edges(.points(0), .points(0), .points(0), .points(7)), "left to right, the start is the left")
+        XCTAssertEqual(result.style("l0").padding, edges(.points(0), .points(2), .points(0), .points(1)))
+        XCTAssertEqual(result.style("l0").border.right.width, 3)
+        XCTAssertEqual(result.style("e1").padding.right, .points(2), "the later of a side's two declarations wins")
+        XCTAssertEqual(result.style("e2").padding.right, .points(1))
+        XCTAssertEqual(result.style("e2").padding.left, .points(0))
+        XCTAssertEqual(result.style("l1").padding, edges(.points(0), .points(1), .points(0), .points(2)))
+        XCTAssertEqual(result.style("e3").padding, edges(.points(0), .points(0), .points(0), .points(2)),
+                       "the element's own direction maps it, wherever that is declared")
+        XCTAssertEqual(result.style("e4").margin.left, .points(9), "the end side inherits its physical side's value: the parent's left margin")
+        XCTAssertEqual(result.style("l4").margin.right, .points(5))
+    }
+
+    /// HTML 15.3.7 indents lists and `dd` on their start side, and a list's markers hang there.
+    /// The start side follows the direction, and a generated box maps its sides by its own.
+    func testUserAgentIndentsAndGeneratedBoxesTakeTheStartSide() throws {
+        let result = try CSSCascadeSupport.styled("""
+            <ul id="ltr"><li>a</li></ul><ul id="rtl" dir="rtl"><li>a</li></ul><dl dir="rtl"><dd id="dd">b</dd></dl>
+            <p id="before" dir="rtl">c</p><div style="direction: rtl"><ol id="css"><li>d</li></ol></div>
+            """, css: "#before::before { content: 'x'; margin-inline-start: 3px }")
+        XCTAssertEqual(result.style("ltr").padding.left, .points(32))
+        XCTAssertEqual(result.style("ltr").padding.right, .points(0))
+        XCTAssertEqual(result.style("rtl").padding.right, .points(32))
+        XCTAssertEqual(result.style("rtl").padding.left, .points(0))
+        XCTAssertEqual(result.style("dd").margin.right, .points(40))
+        XCTAssertEqual(result.style("dd").margin.left, .points(0))
+        XCTAssertEqual(result.style("css").padding.right, .points(32), "a direction set by CSS alone")
+        XCTAssertEqual(result.style("css").padding.left, .points(0))
+        let before = try XCTUnwrap(result.style("before").generated?.before)
+        XCTAssertEqual(before.margin.right, .points(3))
+        XCTAssertEqual(before.margin.left, .points(0))
+    }
+
+    /// CSS Logical Properties 1 §3.1: `float` and `clear` by flow take the containing block's
+    /// direction, not the element's own.
+    func testFloatAndClearByFlowTakeTheContainingBlocksDirection() throws {
+        let result = try CSSCascadeSupport.styled("""
+            <div dir="rtl"><p id="start">a</p><p id="end">b</p><p id="own" dir="ltr">c</p></div>
+            <div><p id="ltr-start">d</p><p id="ltr-own" dir="rtl">e</p></div>
+            """, css: """
+            #start, #own, #ltr-start, #ltr-own { float: inline-start; clear: inline-end } #end { float: inline-end; clear: inline-start }
+            """)
+        XCTAssertEqual(result.style("start").float, .right)
+        XCTAssertEqual(result.style("start").clear, .left)
+        XCTAssertEqual(result.style("end").float, .left)
+        XCTAssertEqual(result.style("end").clear, .right)
+        XCTAssertEqual(result.style("own").float, .right, "its own direction does not decide its side")
+        XCTAssertEqual(result.style("ltr-start").float, .left)
+        XCTAssertEqual(result.style("ltr-start").clear, .right)
+        XCTAssertEqual(result.style("ltr-own").float, .left)
+    }
+
     func testBorderShorthandsTakeWidthStyleAndColorInAnyOrder() throws {
         let styles = try paragraphs([
             "border: red solid 1px",
