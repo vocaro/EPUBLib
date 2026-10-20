@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Write a navigation or stylesheet link as the path the writer checked, so a target spelled with an empty or dot segment, such as `EPUB//one.xhtml`, is no longer written as a link to the container root, a host or a scheme ([#240](https://github.com/vocaro/EPUBLib/issues/240)).
 - Read the title, creators, languages, identifiers and cover of an EPUB 2 package that wraps them in the deprecated `dc-metadata` and `x-metadata` elements, where it opened with none and refused a book with an IDPF-obfuscated font ([#85](https://github.com/vocaro/EPUBLib/issues/85)).
 - Keep an `@import` that follows an invalid rule, such as an unknown at-rule or a style rule with an invalid selector, where it was ignored ([#113](https://github.com/vocaro/EPUBLib/issues/113)).
 - Refuse a `mimetype` source with any byte after `application/epub+zip`, a trailing line end included, which the archive writer wrote into an invalid EPUB when it compared only the first 20 bytes ([#97](https://github.com/vocaro/EPUBLib/issues/97)).

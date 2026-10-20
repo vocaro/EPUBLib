@@ -75,10 +75,18 @@ public enum EPUBPackageWriter {
         func href(_ value: String) throws -> String {
             let resolved = try ResourceReference.resolve(value, relativeTo: "root.opf", strict: true)
             let path = String(resolved.split(separator: "#", maxSplits: 1)[0]).removingPercentEncoding ?? ""
-            guard inPackage(value), paths.contains(path), inPackage(path) else {
+            // A `Set` finds a path by canonical equivalence; the member it finds is the path declared.
+            guard inPackage(value), inPackage(path), let declared = paths.firstIndex(of: path).map({ paths[$0] }),
+                  inPackage(declared) else {
                 throw EPUBWritingError.invalidPublication("navigation references an undeclared resource: \(value)")
             }
-            return String(decoding: value.utf8.dropFirst(5), as: UTF8.self)
+            // The link checked: the declared path from EPUB/nav.xhtml, encoded as its manifest href
+            // is, and not the text given after "EPUB/". With an empty or dot segment in it, that
+            // text is another link ("/x" names the container root, "//x" a host, "c:x/../x" a
+            // scheme), and with a decomposed "é" for a declared composed one, it names by its bytes
+            // no entry the archive holds.
+            let fragment = resolved.utf8.firstIndex(of: 0x23).map { String(decoding: resolved.utf8[$0...], as: UTF8.self) } ?? "" // #
+            return String(decoding: ResourceReference.encoded(path: declared).utf8.dropFirst(5), as: UTF8.self) + fragment
         }
         func items(_ entries: [EPUBNavigationItem]) throws -> String {
             try entries.map { entry in
