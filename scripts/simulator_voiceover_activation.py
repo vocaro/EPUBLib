@@ -1,6 +1,7 @@
 """Guarded simulator-only VoiceOver cursor dispatch; qualification: issue #495."""
 import hashlib
 import json
+import re
 from pathlib import Path
 from uuid import uuid4
 
@@ -32,8 +33,13 @@ def prepare(root, derived, runtime, run):
 
 def evidence_failures(log, vot):
     failures = []
-    if MARKER not in vot:
+    observed = set(re.findall(r'\bvot\[(\d+):', vot))
+    confirmed = {match[1] for line in vot.splitlines() if MARKER in line
+                 for match in [re.search(r'\bvot\[(\d+):', line)] if match}
+    if not confirmed:
         failures.append('cursor activation hook did not confirm its validated installation')
+    if observed - confirmed:
+        failures.append('a VoiceOver process did not confirm the hook after a restart')
     if 'EPUB495: refused' in vot:
         failures.append('cursor activation hook refused an unknown implementation')
     if 'VOICEOVER_ACTIVATION_CHECK passed:' not in log:

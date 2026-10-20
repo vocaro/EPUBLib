@@ -43,6 +43,7 @@ private struct ActivationReference: View {
         VStack {
             Button("Activation check \(count)") { count += 1 }
                 .accessibilityIdentifier("activation.check")
+                .accessibilityAction(named: "Increment check") { count += 10 }
             Text("Other item")
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }

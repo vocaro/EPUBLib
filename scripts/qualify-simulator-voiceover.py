@@ -16,23 +16,24 @@ import simulator_voiceover_activation as activation
 def workflows(size):
     steps = []
     for orientation in ('portrait', 'landscape'):
-        steps += [f'rotate={orientation}', f'relaunch=paginated:{size}:OPS/body.xhtml:none',
+        steps += [f'rotate={orientation}', f'fresh=paginated:{size}:OPS/body.xhtml:none',
                   'touch=Page boundary', 'keyrotor=Actions', 'chooseup=Next Page',
                   'mark=first', 'keyactivate', 'changed=first', 'visible', 'forward=1', 'focusvisible',
                   'touch=word', 'keyrotor=Actions', 'chooseup=Previous Page',
                   'doublepoint=0.5:0.2', 'same=first',
+                  f'fresh=paginated:{size}:OPS/body.xhtml#activation-link:none',
                   'touch=Verification link', 'keyactivate', 'expect=Link target reached',
                   'forward=1', 'expect=This is the end', 'backward=1', 'expect=Link target reached',
-                  f'relaunch=paginated:{size}:OPS/body.xhtml#verification-image:none',
+                  f'fresh=paginated:{size}:OPS/body.xhtml#verification-image:none',
                   'touch=Blue verification square', 'keyrotor=Actions', 'chooseup=Inspect Image',
                   'keyactivate', 'exists=Zoom In', 'exists=Magnification', 'forward=1', 'expect=Zoom In',
-                  f'relaunch=paginated:{size}:OPS/grids.xhtml#activation-cell:none',
+                  f'fresh=paginated:{size}:OPS/grids.xhtml#activation-cell:none',
                   'touch=Alder', 'keyrotor=Actions', 'chooseup=Select Cell Text',
                   'doublepoint=0.5:0.2', 'expectstate=Selected: Alder. Used: nothing.',
                   'chooseup=Use passage', 'doublepoint=0.5:0.2', 'expectstate=Selected: Alder. Used: Alder.',
                   'chooseup=Deselect Cell Text', 'doublepoint=0.5:0.2', 'expectstate=Selected: nothing. Used: Alder.',
                   'forward=1', 'expectcontains=1901', 'backward=1', 'expectcontains=Alder',
-                  f'relaunch=scrolled:{size}:OPS/body.xhtml:normal',
+                  f'fresh=scrolled:{size}:OPS/body.xhtml:normal',
                   'touch=Verification link', 'keyactivate', 'expect=Link target reached',
                   'forward=1', 'expect=This is the end', 'backward=1', 'expect=Link target reached',
                   'touch=Scroll Backward', 'mark=scroll', 'keyactivate', 'changed=scroll',
@@ -43,12 +44,25 @@ def workflows(size):
 def cache_workflow(size):
     steps = []
     for orientation in ('portrait', 'landscape'):
-        steps += [f'rotate={orientation}', f'relaunch=scrolled:{size}:OPS/chapter1.xhtml:normal',
+        steps += [f'rotate={orientation}', f'fresh=scrolled:{size}:OPS/chapter1.xhtml:normal',
                   'activate=Contents', 'activate=Chapter one', 'wait=2', 'forward=5', 'forward=18',
                   'touch=Scroll Forward', 'mark=scroll', 'doublepoint=0.5:0.2', 'changed=scroll',
                   'visible', 'entertext', 'forward=3', 'focusvisible', 'backward=3', 'focusvisible',
                   'touch=Scroll Backward', 'mark=back', 'doublepoint=0.5:0.2', 'changed=back',
                   'visible', 'entertext', 'forward=3', 'focusvisible']
+    return ','.join(steps)
+
+
+def menu_workflow(size):
+    # #428 case 2: the physical iPad returned from the chapter heading to Bookmark,
+    # while the stock simulator could walk into the previous chapter instead.
+    steps = []
+    for orientation in ('portrait', 'landscape'):
+        steps += [f'rotate={orientation}', f'fresh=scrolled:{size}:OPS/chapter1.xhtml:normal',
+                  'activate=Contents', 'activate=Chapter two', 'wait=2', 'forward=5',
+                  'expect=Chapter two', 'forward=8', 'backward=8', 'expect=Chapter two',
+                  'backward=1', 'expect=Bookmark', 'backward=1', 'expect=Paging',
+                  'backward=1', 'expectcontains=Continuous Scroll', 'backward=1', 'expect=Appearance']
     return ','.join(steps)
 
 
@@ -58,7 +72,7 @@ def main():
     parser.add_argument('--derived-data', type=Path, default=Path('.build/voiceover/ios-simulator'))
     parser.add_argument('--font-size', type=int, action='append', help='repeatable; default 17 and 23')
     parser.add_argument('--device', action='append', help='repeatable; default iPhone-17-Pro and iPad-Air-13-inch-M4')
-    parser.add_argument('--workflow', choices=['all', 'reader', 'cache'], default='all')
+    parser.add_argument('--workflow', choices=['all', 'reader', 'cache', 'menu'], default='all')
     args = parser.parse_args()
     def interrupted(number, frame):
         raise SystemExit(128 + number)
@@ -68,17 +82,17 @@ def main():
     built = False
     kinds = args.device or ['iPhone-17-Pro', 'iPad-Air-13-inch-M4']
     for size in args.font_size or [17, 23]:
-        for workflow in ['reader', 'cache'] if args.workflow == 'all' else [args.workflow]:
+        for workflow in ['reader', 'cache', 'menu'] if args.workflow == 'all' else [args.workflow]:
             command = [sys.executable, '-u', str(runner), '--activation', 'cursor', '--runtime', activation.RUNTIME,
                        '--strict', '--font-size', str(size), '--launch', '-SampleSelectionLine YES -SampleControls none',
                        '--timeout', '1800', '--derived-data', str(args.derived_data),
                        '--results', str(args.results / f'{size}pt' / workflow), '--steps',
-                       workflows(size) if workflow == 'reader' else cache_workflow(size)]
+                       {'reader': workflows, 'cache': cache_workflow, 'menu': menu_workflow}[workflow](size)]
             for kind in kinds:
                 command += ['--device', kind]
             if workflow == 'reader' and 'iPad-Air-13-inch-M4' in kinds:
                 command += ['--device-steps', 'iPad-Air-13-inch-M4=' + workflows(size).replace('keyrotor=', 'rotor=').replace('keyactivate', 'doublepoint=0.5:0.2')]
-            if workflow == 'cache':
+            if workflow in ('cache', 'menu'):
                 command += ['--book', 'paragraphs', '--flow', 'scrolled']
             if built:
                 command.append('--skip-build')

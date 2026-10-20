@@ -26,6 +26,9 @@ import XCUIAutomation
             if !wasEnabled && service.isEnabled {
                 do { try service.disable() }
                 catch { XCTFail("VoiceOver restoration failed: \(error)") }
+            } else if wasEnabled && !service.isEnabled {
+                do { try service.enable() }
+                catch { XCTFail("VoiceOver restoration failed: \(error)") }
             }
         }
         // `VOICEOVER_OFF` runs the same steps as plain touches, to tell a VoiceOver failure
@@ -64,7 +67,28 @@ import XCUIAutomation
                 XCTFail("Cursor activation self-test failed: off-target double tap must activate exactly once")
                 return
             }
-            print("VOICEOVER_ACTIVATION_CHECK passed: keyboard and off-target double tap each activated once")
+            var actions = false
+            for _ in 0..<30 {
+                app.typeKey(.rightArrow, modifierFlags: [.control, .option, .command])
+                RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+                if (try? voiceOver.currentSpeech().utterance.hasPrefix("Actions")) == true { actions = true; break }
+            }
+            guard actions else { XCTFail("Activation self-test: Actions rotor missing"); return }
+            var chosen = false
+            for _ in 0..<4 {
+                app.swipeUp(velocity: .fast)
+                RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+                if (try? voiceOver.currentSpeech().utterance.hasPrefix("Increment check")) == true { chosen = true; break }
+            }
+            guard chosen else { XCTFail("Activation self-test: custom action missing"); return }
+            app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.8)).doubleTap()
+            let custom = NSPredicate(format: "label == %@", "Activation check 12")
+            guard XCTWaiter.wait(for: [expectation(for: custom, evaluatedWith: button)], timeout: 5) == .completed else {
+                XCTFail("Cursor activation self-test failed: custom action must add ten exactly once")
+                return
+            }
+            print("VOICEOVER_ACTIVATION_CHECK passed: keyboard default, off-target default and off-target custom action each activated once")
+            try voiceOver.disable()
             app.terminate()
             app.launchArguments = readerArguments
         }
@@ -76,6 +100,9 @@ import XCUIAutomation
             XCTFail("The bundled synthetic EPUB must be open")
             return
         }
+        #if os(iOS)
+        if environment["VOICEOVER_ACTIVATION_CHECK"] == "1" { try voiceOver.enable() }
+        #endif
         var events: [[String: String]] = []
         let clock = ISO8601DateFormatter()
         clock.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -529,11 +556,13 @@ import XCUIAutomation
                 XCUIDevice.shared.orientation = parts.last == "landscape" ? .landscapeLeft : .portrait
                 settle(before, limit: 3)
                 heard(step)
-            case "relaunch":
+            case "relaunch", "fresh":
                 // FLOW:SIZE:HREF starts another workflow in the same owned simulator. This
                 // also exercises text-size changes and an already running VoiceOver process.
                 let settings = (parts.last ?? "").split(separator: ":").map(String.init)
                 guard settings.count == 4 else { XCTFail("relaunch=FLOW:SIZE:HREF:CONTROLS"); return }
+                let fresh = parts[0] == "fresh" && environment["VOICEOVER_OFF"] == nil
+                if fresh, voiceOver.isEnabled { try voiceOver.disable() }
                 var arguments: [String] = []
                 var index = 0
                 while index < readerArguments.count {
@@ -546,6 +575,16 @@ import XCUIAutomation
                 XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 20))
                 unchosen = false
                 RunLoop.current.run(until: Date().addingTimeInterval(2))
+                if fresh {
+                    try voiceOver.enable()
+                    let deadline = Date().addingTimeInterval(startLimit)
+                    var ready = false
+                    repeat {
+                        if (try? voiceOver.moveForward()) != nil { ready = true; break }
+                        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+                    } while Date() < deadline
+                    guard ready else { XCTFail("Fresh VoiceOver session never became ready"); return }
+                }
                 heard(step)
             default: XCTFail("Unknown step \(step)")
             }

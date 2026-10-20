@@ -659,7 +659,8 @@ and inputs that repeat one.
 
 The scripts and inputs for [#495](https://github.com/vocaro/EPUBLib/issues/495) are in
 [Investigating cursor activation](#investigating-cursor-activation): the guarded simulator
-library, the startup canary, the assertion matrix and its stock negative control.
+library, the startup canary, the assertion matrix and its stock negative control. The cache workflows replay both
+#428’s first-line-after-scroll case and its move back past the chapter heading after a menu.
 `python3 scripts/qualify-simulator-voiceover.py` runs the recorded reader and cache workflows;
 `--workflow`, `--font-size` and `--device` select a narrower repeat. Results belong on the
 issue, including the exact runtime build and whether the hook and canary confirmed it.
@@ -2914,8 +2915,11 @@ sets the Mac's injection environment or modifies an installed runtime.
 Every cursor run requires both `EPUB495: cursor activation v1 enabled build 24B5110a` in its
 VoiceOver log and a startup canary in a separate verification view. The canary focuses a
 counter button, activates it with Control-Option-Space and then double-taps elsewhere. Each
-must increment the counter exactly once. Failure ends the test before the reader steps; an
-absent marker or canary also makes the outer runner fail. The reader then launches normally,
+must increment the counter exactly once. The canary then chooses a named custom action in
+VoiceOver’s Actions rotor and activates it through an off-target double tap; that action adds
+ten, so a missing or duplicate custom activation fails independently of the button’s default. Failure ends the test before the reader steps; an
+absent marker or canary also makes the outer runner fail. Each VoiceOver process seen in the
+log must confirm the hook, including processes started by a later VoiceOver session. The reader then launches in a new VoiceOver session,
 without the canary in its layout. The transcript names the mode, runtime build and binary
 fingerprint. `--activation stock --activation-check` runs the canary as a negative control;
 a passing result there needs investigation. The original experiment wrapper delegates to
@@ -2932,7 +2936,10 @@ labels, and `changed=NAME` or `same=NAME` compares them. `entertext` moves from 
 into the text and checks that the first numbered line reached is the first on screen; it
 never skips a stale numbered line to find a passing one. `relaunch=FLOW:SIZE:HREF:CONTROLS`
 starts another reader workflow while keeping VoiceOver running (`none` hides the host
-controls, `normal` shows them). `--book paragraphs` selects the ordinary-paragraph fixture.
+controls, `normal` shows them). `fresh=FLOW:SIZE:HREF:CONTROLS` disables VoiceOver, launches the
+next workflow, enables VoiceOver again and waits until its move service answers. The matrix
+uses fresh sessions between independent workflows; an action and all the following focus,
+speech and rotor assertions run in the same uninterrupted session. `--book paragraphs` selects the ordinary-paragraph fixture.
 
 Repeat the assertion matrix with:
 
@@ -2943,7 +2950,7 @@ python3 scripts/test-simulator-voiceover-activation.py
 
 The matrix creates fresh iPhone and iPad simulators at 17 and 23 points, exercises both
 orientations and both reading flows, and checks page turns, links, image inspection,
-selection, updated rotor actions and reading after activation. It stops on the first failed
+selection, updated rotor actions and reading after activation, plus both #428 cache cases. It stops on the first failed
 session. Its iPhone steps use the keyboard rotor; its iPad steps use rotor gestures and
 off-target double taps, matching the device input. Repeated synthetic rotor keys on an iPad
 can be interrupted by UIKit's “Keyboard visible” announcements. `--device-steps TYPE=STEPS`

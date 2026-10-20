@@ -69,7 +69,7 @@ files = {'mimetype': 'application/epub+zip',
                    '32px; height: 32px; }</style></head><body><h1>Page boundary '
                    'verification</h1><p>Read the numbered words across two consecutive pages. The '
                    'next page must resume at the next numbered word.</p><p><a '
-                   'href="#link-target">Verification link</a>. Image: <img id="verification-image" src="square.svg" '
+                   'id="activation-link" href="#link-target">Verification link</a>. Image: <img id="verification-image" src="square.svg" '
                    'alt="Blue verification square"/>.</p><p class="sequence">NUMBERED_WORDS</p><h2 '
                    'id="link-target">Link target reached</h2><p>This is the end of the numbered '
                    'paragraph.</p></body></html>',
