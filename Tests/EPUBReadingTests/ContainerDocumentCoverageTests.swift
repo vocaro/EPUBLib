@@ -467,21 +467,24 @@ final class ContainerDocumentCoverageTests: XCTestCase {
     func testTheKeyIsMadeFromAnIdentifierInsideTheDeprecatedDCMetadataElement() throws {
         // OPF 2.0.1 §2.2 has a reading system allow `dc-metadata`, which OEBPS 1.2 packages wrapped
         // their Dublin Core elements in, the unique identifier among them (#85). Read without it,
-        // the identifier was empty: IDPF's key could not be made and the book was refused.
+        // the identifier was empty: IDPF's key could not be made and the book was refused, and
+        // Adobe's, from the first identifier that is a UUID, left its font out.
         let uuid = "urn:uuid:00112233-4455-6677-8899-aabbccddeeff"
-        let originals = ["OPS/a.otf": font(1_100), "OPS/b.ttf": font(1_100)]
-        let data = try Fixture.packageVariant(epub2: true, opf: {
-            $0.replacingOccurrences(of: "<metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">",
-                                    with: "<metadata><dc-metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">")
-                .replacingOccurrences(of: "</metadata>", with: "</dc-metadata></metadata>").replacingOccurrences(of: ">test-book<", with: ">\(uuid)<")
-        }, adding: [
-            "META-INF/encryption.xml": encryption([(Self.idpf, "OPS/a.otf"), (Self.adobe, "OPS/b.ttf")]),
-            "OPS/a.otf": obfuscated(originals["OPS/a.otf"]!, key: sha1(uuid), prefix: 1040),
-            "OPS/b.ttf": obfuscated(originals["OPS/b.ttf"]!, key: Array(stride(from: UInt8(0x00), through: UInt8(0xff), by: 0x11)), prefix: 1024),
-        ])
-        let book = try EPUBPublication.open(data: data)
-        XCTAssertEqual(book.metadata.identifiers, [uuid])
-        for (path, original) in originals { XCTAssertEqual(try book.data(at: path), original, path) }
+        let original = font(1_100)
+        // A book for each algorithm, so that neither stops the other being checked.
+        func check(_ algorithm: String, key: [UInt8], prefix: Int) throws {
+            let data = try Fixture.packageVariant(epub2: true, opf: {
+                $0.replacingOccurrences(of: "<metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">",
+                                        with: "<metadata><dc-metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">")
+                    .replacingOccurrences(of: "</metadata>", with: "</dc-metadata></metadata>").replacingOccurrences(of: ">test-book<", with: ">\(uuid)<")
+            }, adding: ["META-INF/encryption.xml": encryption([(algorithm, "OPS/font.otf")]),
+                        "OPS/font.otf": obfuscated(original, key: key, prefix: prefix)])
+            let book = try EPUBPublication.open(data: data)
+            XCTAssertEqual(book.metadata.identifiers, [uuid], algorithm)
+            XCTAssertEqual(try book.data(at: "OPS/font.otf"), original, algorithm)
+        }
+        XCTAssertNoThrow(try check(Self.idpf, key: sha1(uuid), prefix: 1040), "IDPF")
+        XCTAssertNoThrow(try check(Self.adobe, key: Array(stride(from: UInt8(0x00), through: UInt8(0xff), by: 0x11)), prefix: 1024), "Adobe")
     }
 
     func testTheIDPFKeyKeepsOtherSpaceCharactersOfTheIdentifier() throws {
