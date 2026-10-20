@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Assert cursor activation workflows on fresh Pro, Pro Max and iPad simulators at two text sizes.
 
-Includes the immediate link-target announcement regression from #495. Requires the Xcode
+Runs at most two simulators concurrently. Includes the initial link-target announcement
+regression from #495. Requires the Xcode
 whose SDK matches the pinned runtime. Stops on any failed assertion,
 missing action, missing hook/canary, timeout, lost mute or cleanup failure. Results are
 local; publish a concise result on #495 before changing qualification or acceptance policy.
@@ -84,36 +85,39 @@ def main():
     runner = Path(__file__).with_name('run-voiceover-simulator.py')
     built = False
     # Pro Max exposed a silent-layout case after the original Pro/iPad matrix passed.
-    kinds = args.device or ['iPhone-17-Pro', 'iPhone-17-Pro-Max', 'iPad-Air-13-inch-M4']
-    for size in args.font_size or [17, 23]:
-        for workflow in ['reader', 'cache', 'menu'] if args.workflow == 'all' else [args.workflow]:
-            command = [sys.executable, '-u', str(runner), '--activation', 'cursor', '--runtime', activation.RUNTIME,
-                       '--strict', '--font-size', str(size), '--launch', '-SampleSelectionLine YES -SampleControls none',
-                       '--timeout', '1800', '--derived-data', str(args.derived_data),
-                       '--results', str(args.results / f'{size}pt' / workflow), '--steps',
-                       {'reader': workflows, 'cache': cache_workflow, 'menu': menu_workflow}[workflow](size)]
-            for kind in kinds:
-                command += ['--device', kind]
-            if workflow == 'reader':
-                command += ['--href', 'OPS/body.xhtml#activation-link']
-            if workflow == 'reader' and 'iPad-Air-13-inch-M4' in kinds:
-                command += ['--device-steps', 'iPad-Air-13-inch-M4=' + workflows(size).replace('keyrotor=', 'rotor=')]
-            if workflow in ('cache', 'menu'):
-                command += ['--book', 'paragraphs', '--flow', 'scrolled']
-            if built:
-                command.append('--skip-build')
-            process = subprocess.Popen(command)
-            try:
-                status = process.wait()
-            finally:
-                # The child runner owns restoration and deletion; do not strand it when
-                # this matrix is interrupted between workflow groups.
-                if process.poll() is None:
-                    process.terminate()
-                    process.wait(timeout=120)
-            if status:
-                return status
-            built = True
+    requested = args.device or ['iPhone-17-Pro', 'iPad-Air-13-inch-M4', 'iPhone-17-Pro-Max']
+    # Bound the shared Mac's UI automation load while retaining every model/workflow.
+    for offset in range(0, len(requested), 2):
+        kinds = requested[offset:offset + 2]
+        for size in args.font_size or [17, 23]:
+            for workflow in ['reader', 'cache', 'menu'] if args.workflow == 'all' else [args.workflow]:
+                command = [sys.executable, '-u', str(runner), '--activation', 'cursor', '--runtime', activation.RUNTIME,
+                           '--strict', '--font-size', str(size), '--launch', '-SampleSelectionLine YES -SampleControls none',
+                           '--timeout', '1800', '--derived-data', str(args.derived_data),
+                           '--results', str(args.results / f'{size}pt' / workflow), '--steps',
+                           {'reader': workflows, 'cache': cache_workflow, 'menu': menu_workflow}[workflow](size)]
+                for kind in kinds:
+                    command += ['--device', kind]
+                if workflow == 'reader':
+                    command += ['--href', 'OPS/body.xhtml#activation-link']
+                if workflow == 'reader' and 'iPad-Air-13-inch-M4' in kinds:
+                    command += ['--device-steps', 'iPad-Air-13-inch-M4=' + workflows(size).replace('keyrotor=', 'rotor=')]
+                if workflow in ('cache', 'menu'):
+                    command += ['--book', 'paragraphs', '--flow', 'scrolled']
+                if built:
+                    command.append('--skip-build')
+                process = subprocess.Popen(command)
+                try:
+                    status = process.wait()
+                finally:
+                    # The child runner owns restoration and deletion; do not strand it when
+                    # this matrix is interrupted between workflow groups.
+                    if process.poll() is None:
+                        process.terminate()
+                        process.wait(timeout=120)
+                if status:
+                    return status
+                built = True
     return 0
 
 
