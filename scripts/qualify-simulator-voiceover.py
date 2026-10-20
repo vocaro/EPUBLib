@@ -90,7 +90,7 @@ def main():
             for kind in kinds:
                 command += ['--device', kind]
             if workflow == 'reader' and 'iPad-Air-13-inch-M4' in kinds:
-                command += ['--device-steps', 'iPad-Air-13-inch-M4=' + workflows(size).replace('keyrotor=', 'rotor=').replace('doublepoint=0.5:0.2', 'doublepoint=0.5:0.2')]
+                command += ['--device-steps', 'iPad-Air-13-inch-M4=' + workflows(size).replace('keyrotor=', 'rotor=')]
             if workflow in ('cache', 'menu'):
                 command += ['--book', 'paragraphs', '--flow', 'scrolled']
             if built:

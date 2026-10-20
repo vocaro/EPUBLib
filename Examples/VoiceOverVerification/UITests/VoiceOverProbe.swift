@@ -1,5 +1,8 @@
 import XCTest
 import XCUIAutomation
+#if os(iOS)
+import UIKit
+#endif
 
 /// Diagnostic speech capture. A passing probe does not satisfy the acceptance matrix.
 @MainActor final class VoiceOverProbe: XCTestCase {
@@ -67,9 +70,17 @@ import XCUIAutomation
                 XCTFail("Cursor activation self-test failed: off-target double tap must activate exactly once")
                 return
             }
+            // SwiftUI has updated the button twice. Focus its current element before
+            // asking for actions, and use the same native iPad rotor as the reader matrix.
+            button.tap()
+            XCTAssertEqual(button.label, "Activation check 2")
             var actions = false
             for _ in 0..<30 {
-                app.typeKey(.rightArrow, modifierFlags: [.control, .option, .command])
+                if UIDevice.current.userInterfaceIdiom == .pad {
+                    app.rotate(.pi / 12, withVelocity: 2)
+                } else {
+                    app.typeKey(.rightArrow, modifierFlags: [.control, .option, .command])
+                }
                 RunLoop.current.run(until: Date().addingTimeInterval(0.8))
                 if (try? voiceOver.currentSpeech().utterance.hasPrefix("Actions")) == true { actions = true; break }
             }
