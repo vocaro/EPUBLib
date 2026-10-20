@@ -417,14 +417,22 @@ final class ReaderTextView: NSTextView {
                   let words = (entry.attachment as? ReaderTextualAttachment)?.spokenEquivalent, !words.isEmpty else { return nil }
             return (entry.attachment, words, entry.range)
         }
+        // Inline formula slots retain source offsets while rows reflow. Expose one image
+        // reading for the selected part; the remaining placeholders are silent spaces.
+        var mathSpaces: [Int] = []
+        var formulas: Set<ObjectIdentifier> = []
+        contentStorage.textStorage?.enumerateAttribute(.attachment, in: range) { value, run, _ in
+            guard let math = value as? MathAttachment, let inline = math.inline else { return }
+            if !formulas.insert(ObjectIdentifier(inline)).inserted { mathSpaces.append(run.location) }
+        }
         let images = announcedImages(in: range)
         let rules = rules(in: range)
         let headings = contentStorage.textStorage?.readerHeadings(in: range) ?? []
         let links = accessibilityLinks(in: range)
         guard !attachments.isEmpty || !images.isEmpty || !rules.isEmpty || !headings.isEmpty || !links.isEmpty || !tableRows.isEmpty
-                || !spaces.isEmpty || !hidden.isEmpty else { return base }
+                || !spaces.isEmpty || !mathSpaces.isEmpty || !hidden.isEmpty else { return base }
         let result = NSMutableAttributedString(attributedString: base)
-        for place in spaces where place - range.location < result.length {
+        for place in spaces + mathSpaces where place - range.location < result.length {
             let local = NSRange(location: place - range.location, length: 1)
             result.replaceCharacters(in: local, with: " ")
             result.removeAttribute(.attachment, range: local)

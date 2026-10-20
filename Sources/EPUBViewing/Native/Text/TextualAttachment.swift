@@ -66,6 +66,7 @@ extension NSAttributedString {
         guard range.length > 0 else { return "" }
         var text = ""
         var afterLabel = false
+        var formulas: Set<ObjectIdentifier> = []
         func append(_ piece: String, isLabel: Bool) {
             guard !piece.isEmpty else { return }
             if afterLabel || isLabel, let last = text.unicodeScalars.last, let first = piece.unicodeScalars.first,
@@ -77,6 +78,10 @@ extension NSAttributedString {
             if hidden != nil { return append(readerHiddenText(part), isLabel: false) }
             enumerateAttribute(.attachment, in: part) { value, run, _ in
                 if let value {
+                    if let math = value as? MathAttachment, let inline = math.inline {
+                        if formulas.insert(ObjectIdentifier(inline)).inserted { append(math.label, isLabel: false) }
+                        return
+                    }
                     let attachment = value as? ReaderTextualAttachment
                     let words = authored ? (value as? TableRowAttachment)?.copyTextEquivalent : nil
                     append(words ?? (spoken ? attachment?.spokenEquivalent : attachment?.textEquivalent) ?? "",

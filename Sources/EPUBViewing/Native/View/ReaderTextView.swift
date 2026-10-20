@@ -132,7 +132,12 @@ extension ReaderTextView {
         guard let storage = contentStorage.textStorage else { return [] }
         let full = NSRange(location: 0, length: storage.length)
         var result: [(NSTextAttachment, String, NSRange)] = []
+        var formulas: Set<ObjectIdentifier> = []
         storage.enumerateAttribute(.attachment, in: range.map { NSIntersectionRange($0, full) } ?? full) { value, run, _ in
+            if let math = value as? MathAttachment, let inline = math.inline {
+                if formulas.insert(ObjectIdentifier(inline)).inserted { result.append((math, math.label, NSRange(location: run.location, length: 1))) }
+                return
+            }
             guard let attachment = value as? NSTextAttachment,
                   let text = (attachment as? ReaderTextualAttachment)?.textEquivalent, !text.isEmpty else { return }
             result.append((attachment, text, run))
