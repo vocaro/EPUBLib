@@ -2942,13 +2942,13 @@ python3 scripts/run-voiceover-simulator.py --activation cursor \
 This lane currently permits only arm64 iOS 27.2 build `24B5110a`. Before creating a simulator
 it checks the runtime build and the SHA-256 of its entire `vot` executable. In that process,
 the library checks the Objective-C type encodings and original instructions of the activation
-gate, screen handler and called layout-timer entry before installing either override.
+gate, screen handler and called layout entry before installing either override.
 An unknown build or binary is refused; `--activation stock` explicitly chooses
 an unmodified recording. The library is injected only inside this run's disposable simulators,
 ignores processes other than `vot`, and cannot be compiled for a device or Mac target. Nothing
 sets the Mac's injection environment or modifies an installed runtime.
 
-Every cursor run requires both `EPUB495: cursor activation v2 enabled build 24B5110a` in its
+Every cursor run requires both `EPUB495: cursor activation v3 enabled build 24B5110a` in its
 VoiceOver log and a startup canary in a separate verification view. The canary focuses a
 counter button, activates it with Control-Option-Space and then double-taps elsewhere. Each
 must increment the counter exactly once. The canary then chooses a named custom action in
@@ -2987,8 +2987,9 @@ python3 scripts/qualify-simulator-voiceover.py
 python3 scripts/test-simulator-voiceover-activation.py
 ```
 
-The matrix creates fresh iPhone and iPad simulators at 17 and 23 points, exercises both
-orientations and both reading flows, and checks page turns, links, image inspection,
+The matrix creates fresh iPhone 17 Pro, iPhone 17 Pro Max and iPad Air 13-inch M4 simulators
+at 17 and 23 points and runs at most two concurrently. It exercises both orientations and
+both reading flows, checking page turns, links, image inspection,
 selection, updated rotor actions and reading after activation, plus both #428 cache cases. It stops on the first failed
 session. Both families activate through off-target double taps, matching the device reference.
 Its iPhone steps use the keyboard rotor; its iPad steps use rotor gestures. The startup
@@ -2996,8 +2997,8 @@ canary separately checks keyboard activation. Repeated synthetic rotor keys on a
 can be interrupted by UIKit's “Keyboard visible” announcements. `--device-steps TYPE=STEPS`
 on the ordinary runner records and sends an explicit step override for one requested device;
 the qualification runner uses that for the two input paths. The small Python suite checks that unknown builds, altered binaries and missing
-hook/canary evidence cannot pass, including an older v1 marker that does not confirm the
-layout repair. [Qualification results](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6298467117)
+hook/canary evidence cannot pass, including older v1/v2 markers that do not confirm the
+speaking-layout repair. [Qualification results](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6301363775)
 and [device comparisons](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6296467408)
 are recorded on #495 with the revisions tested.
 
@@ -3006,20 +3007,27 @@ but VoiceOver could keep the source link as its latest speech. The paired native
 announced the heading immediately. The [original failed qualification](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6296767191)
 remains recorded; default adoption did not waive that failure.
 
-The [v2 investigation and source patch](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6297469108)
-fix the notification ordering behind it. A targeted Layout Changed notification can carry
-a renamed item with the same accessibility identity as the current cursor item. The following
-generic Screen Changed update could consume that pending target before the layout timer
-built its announcement. If the pending target equals the current item and their non-nil
-labels differ, the hook lets VoiceOver's existing layout-timer handler finish first, then
-calls the original screen handler. It supplies no announcement text and changes no global
-testing mode; the layout handler keeps its own cursor and rotor behavior. A repair logs
-`EPUB495: processed renamed target before screen update v2`.
+The [ordering investigation](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6297469108)
+traced the mismatch to a pending targeted Layout Changed notification whose item has the same
+accessibility identity as the cursor, but a new label. A generic Screen Changed update could
+consume that target before the layout handler built its announcement. The first repair ran
+the layout timer first; a [Pro Max follow-up](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6298557598)
+showed a remaining silent case after the original Pro/iPad matrix passed.
 
-The matrix retains `expect=Link target reached` immediately after link activation, plus the
-forward/backward reading checks. No assertion or timeout was relaxed, and no skip or
-expected-failure conversion was added. The obsolete active limitation notice was removed
-after the v2 qualification passed. Other runtime implementations still require their own
+The [v3 hook](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6298857262) calls
+VoiceOver's ordinary `_handleLayoutChange:YES` before the generic screen handler only when
+the pending target equals the current item and both non-nil labels differ. Requesting speech
+avoids inheriting the timer's mutable speech flag, which notification handling can clear for
+a reused identity. The original screen handler then runs. VoiceOver still chooses the target,
+cursor, rotor behavior and announcement text; the hook changes no reader code or global
+testing mode. A repair logs `EPUB495: processed renamed target before screen update v3`.
+
+Qualification includes Pro, Pro Max and iPad, runs at most two simulators concurrently, and
+checks a link as the initial reader workflow before the existing page/image/selection/link
+checks. The immediate `expect=Link target reached` assertion and forward/backward checks
+remain unchanged. No assertion or timeout was relaxed, and no skip or expected-failure
+conversion was added. The [expanded qualification results](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6301363775) record the tested
+revision and the earlier failures. Other runtime implementations still require their own
 guards and qualification; physical acceptance requirements remain below.
 
 To separate a navigation announcement from activation, the sample's existing
