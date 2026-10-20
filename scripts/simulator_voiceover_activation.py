@@ -8,14 +8,12 @@ from uuid import uuid4
 RUNTIME = 'com.apple.CoreSimulator.SimRuntime.iOS-27-2'
 BUILD = '24B5110a'
 VOT_SHA256 = 'eff48aa54691d86f352370f71dce32fcbec847b34967b9446bebce17a4f360fd'
-MARKER = 'EPUB495: cursor activation v1 enabled build ' + BUILD
-LIMITATION = ('Immediate link-target announcements can be missing after activation; '
-              'full qualification still fails (#495).')
+MARKER = 'EPUB495: cursor activation v3 enabled build ' + BUILD
 
 
 def default_mode(runtime):
     # Adoption is limited to this runtime; prepare() still checks its build and binary.
-    # Default use does not imply that the announcement qualification has passed.
+    # Other runtime implementations require their own guards and qualification.
     return 'cursor' if runtime == RUNTIME else 'stock'
 
 
@@ -28,7 +26,7 @@ def prepare(root, derived, runtime, run):
     if hashlib.sha256(binary.read_bytes()).hexdigest() != VOT_SHA256:
         raise RuntimeError('VoiceOver executable differs from the pinned SHA-256; refusing injection')
     # Never replace a dylib mapped by another concurrent run in this worktree.
-    library = derived / 'cursor-activation' / f'v1-{uuid4().hex}.dylib'
+    library = derived / 'cursor-activation' / f'v3-{uuid4().hex}.dylib'
     library.parent.mkdir(parents=True, exist_ok=True)
     run('xcrun', '--sdk', 'iphonesimulator', 'clang', '-dynamiclib',
         '-target', 'arm64-apple-ios27.0-simulator',

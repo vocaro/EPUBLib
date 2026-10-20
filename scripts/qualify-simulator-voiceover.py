@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Assert cursor activation workflows on fresh iPhone/iPad simulators at two text sizes.
+"""Assert cursor activation workflows on fresh Pro, Pro Max and iPad simulators at two text sizes.
 
-The immediate link-target announcement remains a known failure on the pinned iPhone
-runtime (#495); default adoption does not waive it. Requires the Xcode whose SDK matches
-the pinned runtime. Stops on any failed assertion,
+Runs at most two simulators concurrently. Includes the initial link-target announcement
+regression from #495. Requires the Xcode
+whose SDK matches the pinned runtime. Stops on any failed assertion,
 missing action, missing hook/canary, timeout, lost mute or cleanup failure. Results are
 local; publish a concise result on #495 before changing qualification or acceptance policy.
 """
@@ -16,7 +16,10 @@ import simulator_voiceover_activation as activation
 
 
 def workflows(size):
-    steps = []
+    # Start with the link before any page turn/fresh workflow can change VoiceOver's
+    # layout-speech state; Pro Max exposed this separately from the original matrix.
+    steps = ['touch=Verification link', 'doublepoint=0.5:0.2', 'expect=Link target reached',
+             'forward=1', 'expect=This is the end', 'backward=1', 'expect=Link target reached']
     for orientation in ('portrait', 'landscape'):
         steps += [f'rotate={orientation}', f'fresh=paginated:{size}:OPS/body.xhtml:none',
                   'touch=Page boundary', 'keyrotor=Actions', 'chooseup=Next Page',
@@ -72,7 +75,7 @@ def main():
     parser.add_argument('--results', type=Path, default=Path('.build/voiceover/cursor-qualification'))
     parser.add_argument('--derived-data', type=Path, default=Path('.build/voiceover/ios-simulator'))
     parser.add_argument('--font-size', type=int, action='append', help='repeatable; default 17 and 23')
-    parser.add_argument('--device', action='append', help='repeatable; default iPhone-17-Pro and iPad-Air-13-inch-M4')
+    parser.add_argument('--device', action='append', help='repeatable; default iPhone-17-Pro, iPhone-17-Pro-Max and iPad-Air-13-inch-M4')
     parser.add_argument('--workflow', choices=['all', 'reader', 'cache', 'menu'], default='all')
     args = parser.parse_args()
     def interrupted(number, frame):
@@ -81,34 +84,40 @@ def main():
         signal.signal(number, interrupted)
     runner = Path(__file__).with_name('run-voiceover-simulator.py')
     built = False
-    kinds = args.device or ['iPhone-17-Pro', 'iPad-Air-13-inch-M4']
-    for size in args.font_size or [17, 23]:
-        for workflow in ['reader', 'cache', 'menu'] if args.workflow == 'all' else [args.workflow]:
-            command = [sys.executable, '-u', str(runner), '--activation', 'cursor', '--runtime', activation.RUNTIME,
-                       '--strict', '--font-size', str(size), '--launch', '-SampleSelectionLine YES -SampleControls none',
-                       '--timeout', '1800', '--derived-data', str(args.derived_data),
-                       '--results', str(args.results / f'{size}pt' / workflow), '--steps',
-                       {'reader': workflows, 'cache': cache_workflow, 'menu': menu_workflow}[workflow](size)]
-            for kind in kinds:
-                command += ['--device', kind]
-            if workflow == 'reader' and 'iPad-Air-13-inch-M4' in kinds:
-                command += ['--device-steps', 'iPad-Air-13-inch-M4=' + workflows(size).replace('keyrotor=', 'rotor=')]
-            if workflow in ('cache', 'menu'):
-                command += ['--book', 'paragraphs', '--flow', 'scrolled']
-            if built:
-                command.append('--skip-build')
-            process = subprocess.Popen(command)
-            try:
-                status = process.wait()
-            finally:
-                # The child runner owns restoration and deletion; do not strand it when
-                # this matrix is interrupted between workflow groups.
-                if process.poll() is None:
-                    process.terminate()
-                    process.wait(timeout=120)
-            if status:
-                return status
-            built = True
+    # Pro Max exposed a silent-layout case after the original Pro/iPad matrix passed.
+    requested = args.device or ['iPhone-17-Pro', 'iPad-Air-13-inch-M4', 'iPhone-17-Pro-Max']
+    # Bound the shared Mac's UI automation load while retaining every model/workflow.
+    for offset in range(0, len(requested), 2):
+        kinds = requested[offset:offset + 2]
+        for size in args.font_size or [17, 23]:
+            for workflow in ['reader', 'cache', 'menu'] if args.workflow == 'all' else [args.workflow]:
+                command = [sys.executable, '-u', str(runner), '--activation', 'cursor', '--runtime', activation.RUNTIME,
+                           '--strict', '--font-size', str(size), '--launch', '-SampleSelectionLine YES -SampleControls none',
+                           '--timeout', '1800', '--derived-data', str(args.derived_data),
+                           '--results', str(args.results / f'{size}pt' / workflow), '--steps',
+                           {'reader': workflows, 'cache': cache_workflow, 'menu': menu_workflow}[workflow](size)]
+                for kind in kinds:
+                    command += ['--device', kind]
+                if workflow == 'reader':
+                    command += ['--href', 'OPS/body.xhtml#activation-link']
+                if workflow == 'reader' and 'iPad-Air-13-inch-M4' in kinds:
+                    command += ['--device-steps', 'iPad-Air-13-inch-M4=' + workflows(size).replace('keyrotor=', 'rotor=')]
+                if workflow in ('cache', 'menu'):
+                    command += ['--book', 'paragraphs', '--flow', 'scrolled']
+                if built:
+                    command.append('--skip-build')
+                process = subprocess.Popen(command)
+                try:
+                    status = process.wait()
+                finally:
+                    # The child runner owns restoration and deletion; do not strand it when
+                    # this matrix is interrupted between workflow groups.
+                    if process.poll() is None:
+                        process.terminate()
+                        process.wait(timeout=120)
+                if status:
+                    return status
+                built = True
     return 0
 
 

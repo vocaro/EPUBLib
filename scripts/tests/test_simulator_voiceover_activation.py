@@ -31,6 +31,13 @@ class ActivationGuards(unittest.TestCase):
         self.assertTrue(activation.evidence_failures(log, MARKED + '\nvot[2:def] restarted'))
         self.assertFalse(activation.evidence_failures(log, MARKED + '\nvot[2:def] ' + activation.MARKER))
 
+    def test_older_hooks_do_not_confirm_the_speaking_layout_fix(self):
+        log = 'VOICEOVER_ACTIVATION_CHECK passed:'
+        for version in (1, 2):
+            with self.subTest(version=version):
+                old = MARKED.replace('cursor activation v3', f'cursor activation v{version}')
+                self.assertTrue(activation.evidence_failures(log, old))
+
     def test_unknown_build_stops_before_compilation_or_injection(self):
         calls = []
         def run(*command, **options):
