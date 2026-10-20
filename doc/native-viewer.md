@@ -82,7 +82,8 @@ continues to describe the authored spine resource.
    [#128](https://github.com/vocaro/EPUBLib/issues/128)).
 4. **Positions** (`EPUBCFI`, `SpineCFIs`, `TextSearch`). Swift ports of foliate-js
    `epubcfi.js`, `search.js` and `text-walker.js` (MIT) over `ContentDocument`, producing and
-   resolving the same CFIs foliate-js produced, and locating quotes with its matcher.
+   resolving the same CFIs foliate-js produced (but for the ID assertions under
+   [Decisions](#decisions)), and locating quotes with its matcher.
 5. **Views** (`ReaderCanvas`, `ReaderCanvasView`). TextKit 2 text views: one real scroll view
    over the whole book for continuous scroll, and section pages sliced from one layout per
    column width for page turns.
@@ -116,6 +117,17 @@ continues to describe the authored spine resource.
   nothing had shipped, so a host migrates its own stored ones by re-tagging them, since the CFI
   value names the same position. A CFI that no longer resolves (a changed book has a different
   publication ID and is rejected before that) produces a `.notice`.
+- **ID assertions.** An ID assertion names the element whose `id` has the same code units, as
+  `getElementById` compares them, so `caf&#xE9;` and `cafe&#x301;` are two IDs although Swift
+  strings compare them equal. Every CFI the reader issues passes the check `restore` applies to
+  a bookmark (`EPUBCFI.isWellFormed`), which refuses a C0 or C1 control character, a line or
+  paragraph separator, and a CFI longer than its 4,096-character budget. An ID holding one of
+  those characters is therefore not asserted: the CFI grammar would take the character only as
+  it is, and the step's index names the element without it. A CFI whose ID assertions take it
+  past the budget is issued with none. Both depart from EPUB CFI 1.1, which has a step to an
+  element with an ID assert it, and from foliate-js, which asserted every ID and nested one
+  `epubcfi(…)` inside another for an ID with a line separator
+  ([#105](https://github.com/vocaro/EPUBLib/issues/105)).
 - **Fixed layout.** Out of scope at first: neither StudyWright catalog (50 shipped EPUBs, 87
   PDFReflowLib conversions) contains a pre-paginated book. Fixed-layout spine items render as
   reflowable text with a `.disclosure`; capabilities are not reduced. Owner decision

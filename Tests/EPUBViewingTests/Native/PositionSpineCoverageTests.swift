@@ -125,6 +125,31 @@ final class PositionSpineCoverageTests: XCTestCase {
         XCTAssertEqual(publication.spine[0].resource.path, publication.spine[2].resource.path, "the repeat is the same document")
     }
 
+    /// An itemref ID the reader's check would refuse in a bookmark (a control character, a line
+    /// separator, or one too long for the length budget) is left out of the base, which then
+    /// names its itemref by its steps, as `resolve` reads it anyway. A base within the budget
+    /// keeps its ID, unless a CFI under it would be too long with it; that CFI asserts no ID.
+    func testABaseLeavesOutAnItemrefIDTheReadersCheckWouldRefuse() throws {
+        let tooLong = String(repeating: "r", count: EPUBCFI.maximumLength)
+        let (publication, spine) = try open(package("\(Self.metadata)\(Self.manifest)<spine><itemref id=\"r&#9;1\" idref=\"one\"/>"
+            + "<itemref id=\"r&#x2028;2\" idref=\"two\"/><itemref id=\"\(tooLong)\" idref=\"three\"/></spine>"))
+        XCTAssertEqual(spine.bases, ["epubcfi(/6/2)", "epubcfi(/6/4)", "epubcfi(/6/6)"])
+        let document = try document(publication, 2)
+        let passage = try XCTUnwrap(document.nodes.first { $0.isText && $0.text == "passage" })
+        let cfi = spine.cfi(spineIndex: 2, start: DOMPosition(passage, 1), end: DOMPosition(passage, 4), in: document)
+        XCTAssertEqual(cfi, "epubcfi(/6/6!/4/4[p]/2,/1:1,/1:4)")
+        XCTAssertEqual(spine.resolve(cfi)?.spineIndex, 2)
+
+        let fits = String(repeating: "r", count: EPUBCFI.maximumLength - "epubcfi(/6/2[])".count)
+        let (_, fitting) = try open(package("\(Self.metadata)\(Self.manifest)<spine><itemref id=\"\(fits)\" idref=\"three\"/></spine>"))
+        XCTAssertEqual(fitting.bases, ["epubcfi(/6/2[\(fits)])"])
+        XCTAssertTrue(EPUBCFI.isWellFormed(fitting.bases[0]))
+        let unasserted = fitting.cfi(spineIndex: 0, start: DOMPosition(passage, 1), end: DOMPosition(passage, 4), in: document)
+        XCTAssertEqual(unasserted, "epubcfi(/6/2!/4/4/2,/1:1,/1:4)")
+        XCTAssertEqual(fitting.resolve(unasserted)?.spineIndex, 0)
+        XCTAssertEqual(fitting.resolve(unasserted)?.localPath, "/4/4/2,/1:1,/1:4")
+    }
+
     func testASpineOfOneItem() throws {
         let (publication, spine) = try open(package("\(Self.metadata)\(Self.manifest)<spine><itemref idref=\"three\"/></spine>"))
         XCTAssertEqual(spine.bases, ["epubcfi(/6/2)"])
