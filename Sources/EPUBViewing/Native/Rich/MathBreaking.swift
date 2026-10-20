@@ -4,7 +4,7 @@ import MathMLLayout
 
 /// Where a formula too wide for its line may continue on a new row.
 ///
-/// MathMLLayout lays a formula out as one row and has no line breaking. This finds the places
+/// The reader retains its original row-breaking policy. This finds the places
 /// a row may end along the formula's own rows: the `math` element and the plain `mrow`,
 /// `mstyle` and `semantics` groups nested in it. A row may end before a relation or a binary
 /// operator, after a separator, and where the author's `linebreak` attribute says. Fractions,
@@ -308,7 +308,7 @@ final class MathFormula: @unchecked Sendable {
 
     let node: MathMLNode
     let style: MathStyle
-    /// The whole formula on one row.
+    /// The engine's unbounded layout, including any authored line breaks.
     let layout: MathLayout
     let breaks: MathBreaks
     /// The formula with room to spare: one row, or the rows its `newline` breaks make.

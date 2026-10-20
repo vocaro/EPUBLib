@@ -830,6 +830,10 @@ private final class MathTextNode {
     private var annotation: Bool {
         namespace == Self.namespace && (name == "annotation" || name == "annotation-xml")
     }
+    private var glyph: Bool { namespace == Self.namespace && name == "mglyph" }
+    private var silentGlyph: Bool {
+        glyph && !(attributes["alt"] ?? "").unicodeScalars.contains { !$0.properties.isWhitespace }
+    }
     private var authoredAlternative: String? {
         if namespace == Self.namespace, let value = attributes["alttext"], value.unicodeScalars.contains(where: { !$0.properties.isWhitespace }) { return value }
         if namespace == Self.namespace, name == "math", significantChildren.count == 1,
@@ -869,8 +873,16 @@ private final class MathTextNode {
             try markSubtree(in: &output)
             return
         }
-        let values = significantChildren.filter {
+        if glyph {
+            try markSubtree(in: &output)
+            if !silentGlyph { try quoted(attributes["alt"] ?? "", to: &output, limit: limit) }
+            return
+        }
+        let presentation = significantChildren.filter {
             if case .element(let node) = $0 { return !node.annotation }; return true
+        }
+        let values = presentation.filter {
+            if case .element(let node) = $0 { return !node.silentGlyph }; return true
         }
         for child in children {
             if case .element(let node) = child, node.annotation { try node.markSubtree(in: &output) }
@@ -878,7 +890,10 @@ private final class MathTextNode {
         if namespace == Self.namespace, name == "semantics", parameters.isEmpty, values.count == 1,
            case .element = values[0] {
             // A valid semantics wrapper contributes one presentation, not its annotations.
-            try writeChild(values[0], to: &output, limit: limit)
+            for child in presentation {
+                if case .element(let node) = child, node.silentGlyph { try node.markSubtree(in: &output) }
+                else { try writeChild(child, to: &output, limit: limit) }
+            }
             return
         }
         let args = parameters
@@ -893,9 +908,20 @@ private final class MathTextNode {
             values.count == expected && values.allSatisfy { if case .element = $0 { return true }; return false }
         } ?? true)
         if compact, ["mi", "mn", "mo", "mtext", "ms"].contains(name),
-           children.allSatisfy({ if case .text = $0 { return true }; return false }) {
-            let text = children.compactMap { if case .text(let text) = $0 { return text }; return nil }.joined()
-            try quoted(text, to: &output, limit: limit)
+           children.allSatisfy({ if case .element(let node) = $0 { return node.glyph }; return true }) {
+            try output.append("\"", limit: limit)
+            var pendingSpace = false, hasText = false
+            for child in children {
+                let text: String
+                switch child {
+                case .text(let value): text = value
+                case .element(let node):
+                    try node.markSubtree(in: &output)
+                    text = (node.attributes["alt"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                try quotedContents(text, to: &output, limit: limit, pendingSpace: &pendingSpace, hasText: &hasText)
+            }
+            try output.append("\"", limit: limit)
             return
         }
         let fences = isMath && name == "mfenced" && Set(args.keys).isSubset(of: ["open", "close", "separators"])
@@ -922,9 +948,15 @@ private final class MathTextNode {
         }
         if genericElement { try output.append(")", limit: limit) }
         if (genericElement || !named.isEmpty) && !values.isEmpty { try output.append("; ", limit: limit) }
-        for (index, child) in values.enumerated() {
-            if index > 0 { try output.append(", ", limit: limit) }
+        var written = 0
+        for child in presentation {
+            if case .element(let node) = child, node.silentGlyph {
+                try node.markSubtree(in: &output)
+                continue
+            }
+            if written > 0 { try output.append(", ", limit: limit) }
             try writeChild(child, to: &output, limit: limit)
+            written += 1
         }
         try output.append(")", limit: limit)
     }
@@ -939,6 +971,11 @@ private final class MathTextNode {
         try output.append("\"", limit: limit)
         var pendingSpace = false
         var hasText = false
+        try quotedContents(value, to: &output, limit: limit, pendingSpace: &pendingSpace, hasText: &hasText)
+        try output.append("\"", limit: limit)
+    }
+    private func quotedContents(_ value: String, to output: inout NormalizedText, limit: Int,
+                                pendingSpace: inout Bool, hasText: inout Bool) throws {
         for scalar in value.unicodeScalars {
             try Task.checkCancellation()
             if scalar.properties.isWhitespace {
@@ -956,6 +993,5 @@ private final class MathTextNode {
             try output.append(escaped, limit: limit)
             hasText = true
         }
-        try output.append("\"", limit: limit)
     }
 }

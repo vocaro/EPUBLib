@@ -166,7 +166,7 @@ final class MathBreakingTests: XCTestCase {
         XCTAssertEqual(authored.natural.rows.count, 3)
         XCTAssertEqual(authored.arrangement(fitting: 2000).rows.count, 3)
         XCTAssertEqual(authored.arrangement(fitting: 0).rows.count, 3)
-        XCTAssertGreaterThan(authored.layout.width, authored.natural.width, "the one-row layout is not what is shown")
+        XCTAssertEqual(authored.layout.rows.count, 3, "the upgraded engine also honors authored breaks")
         // Relations line up under the first one.
         XCTAssertEqual(authored.natural.rows[1].x, authored.natural.rows[2].x, accuracy: 0.01)
         XCTAssertGreaterThan(authored.natural.rows[1].x, 0)

@@ -100,8 +100,8 @@ final class RichMediaMathCoverageTests: XCTestCase {
         let unknown = try made("<mwidget><mn>12</mn></mwidget>")
         XCTAssertEqual(unknown.string?.string, "12")
         XCTAssertEqual(unknown.report.mathFallbacks, 1)
-        // An empty elementary stack is nothing; an empty `<math/>` lays out as a zero-width attachment.
-        XCTAssertNil(try made("<mstack/>").string)
+        // The upgraded engine lays out an empty stack and `<math/>` as zero-width attachments.
+        XCTAssertEqual(try made("<mstack/>").attachment?.layout.width, 0)
         let empty = try made("")
         XCTAssertEqual(empty.attachment?.layout.width, 0)
     }

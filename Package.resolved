@@ -1,13 +1,13 @@
 {
-  "originHash" : "230252161dc6d1285cd61025fae5fc356d3be953652177528e7506b33f2a3097",
+  "originHash" : "8eba8aa2ed8be1bdb1c231fa6781bb9d753cae2d6e0900574373c925a9ecf855",
   "pins" : [
     {
       "identity" : "mathmllayout",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/vocaro/MathMLLayout.git",
       "state" : {
-        "revision" : "217ea67575fcdcc9efd01c5bd49931a61bfeb09f",
-        "version" : "0.1.1"
+        "revision" : "100ef2b95e5edf67586497e7cde040f83139a38f",
+        "version" : "0.3.1"
       }
     },
     {

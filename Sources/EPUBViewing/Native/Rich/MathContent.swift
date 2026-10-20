@@ -14,11 +14,11 @@ import AppKit
 /// the text view asks for the attachment's image. `display="block"` formulas lay out in
 /// display style; the stylesheet and builder make them their own centred paragraph.
 ///
-/// Three things the engine does not do are handled around it, each disclosed in the report:
-/// an `mglyph` shows its `alt` (`MathConversion`), elementary math becomes a table
-/// (`MathElementary`), and a formula too wide for its line breaks into rows (`MathFormula`).
+/// Glyph images come from the publication, with their alternatives retained for speech and
+/// missing images. The reader retains its elementary-math and row-breaking policies.
 enum MathContent {
-    static func make(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
+    static func make(_ element: ContentNode, style: ComputedStyle, context: RichContentContext,
+                     images: ReaderImageCache = .shared) -> NSAttributedString? {
         let dark = context.typography.isDark
         let alt = collapsed(element.attribute("alttext") ?? "")
         let textColor = style.color.map(platformColor) ?? ReaderPalette.text(dark: dark)
@@ -27,10 +27,12 @@ enum MathContent {
             // Book colors apply in light appearance only, as for text.
             var conversion = MathConversion(keepsColors: !dark)
             let source = try conversion.convert(element, depth: 0)
-            var isApproximated = conversion.replacedGlyphs > 0
+            let glyphs = glyphImages(conversion.glyphs, style: style, context: context, cache: images)
+            var isApproximated = glyphs.hasFallback
             let node = MathElementary.rewrite(source, isApproximated: &isApproximated)
             let display = element.attribute("display") == "block" || element.attribute("mode") == "display"
-            let formula = try MathFormula(node, style: MathStyle(fontSize: style.fontSize, color: color, isDisplay: display))
+            let formula = try MathFormula(node, style: MathStyle(fontSize: style.fontSize, color: color,
+                                                               isDisplay: display, imageProvider: glyphs.provider))
             if isApproximated { context.report.report.mathApproximations += 1 }
             if formula.isReduced(in: MathFormula.narrowColumn) { context.report.report.mathReductions += 1 }
             let font = context.fonts.font(for: style)
@@ -51,6 +53,38 @@ enum MathContent {
         }
     }
 
+    /// Resolve during the section build: a retained provider must not retain the build's
+    /// mutable context. Limit retained decoded pixels as well as the shared image cache.
+    private static func glyphImages(_ glyphs: [MathMLNode], style: ComputedStyle, context: RichContentContext,
+                                    cache: ReaderImageCache) -> (provider: MathImageProvider, hasFallback: Bool) {
+        let factory = NativeRichContent(images: cache)
+        var resolved: [String: MathImage] = [:]
+        var attempted: Set<String> = []
+        var bytes = 0
+        var hasFallback = false
+        for glyph in glyphs {
+            guard let reference = glyph.attributes["src"], !reference.isEmpty else { hasFallback = true; continue }
+            guard attempted.insert(reference).inserted else { continue }
+            guard let path = context.resolve(reference) else { hasFallback = true; continue }
+            // At most 1024 pixels on the long side, and 16 MiB of retained images per formula.
+            guard bytes < 16 << 20,
+                  let resource = factory.resolvedImage(at: path, style: style, context: context),
+                  let image = cache.image(for: resource.source, maxPixelSize: 1024,
+                                          inverted: style.invertsColors,
+                                          lightBackdrop: context.typography.isDark,
+                                          maximumDecodedPixelSize: 1024),
+                  image.bytesPerRow * image.height <= (16 << 20) - bytes else {
+                context.report.report.unreadableResources += 1
+                hasFallback = true
+                continue
+            }
+            bytes += image.bytesPerRow * image.height
+            resolved[reference] = MathImage(image, logicalSize: resource.intrinsic)
+        }
+        let images = resolved
+        return (.resolving { images[$0] }, hasFallback)
+    }
+
     /// The MathML subtree as the engine's tree, for callers that need no account of what was
     /// replaced on the way.
     static func convert(_ element: ContentNode, keepsColors: Bool, depth: Int) throws -> MathMLNode {
@@ -67,24 +101,21 @@ enum MathContent {
     }
 
     fileprivate static func collapsed(_ text: String) -> String {
-        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        text.unicodeScalars.split(whereSeparator: { $0.properties.isWhitespace })
+            .map { String(String.UnicodeScalarView($0)) }.joined(separator: " ")
     }
 }
 
 /// The MathML subtree as the engine's tree. Elements in another namespace keep a prefixed
 /// name, which the engine reports as unsupported. Annotations are dropped unread.
 ///
-/// The engine draws no images, so an `mglyph` is replaced where it stands by its `alt`, the
-/// name MathML gives a glyph for when its image cannot be shown, or by a box when it has none.
+/// Token glyphs keep their attributes and mark their position with U+FFFC, as the engine
+/// expects. Their images are supplied separately; `alt` remains available for fallback/speech.
 struct MathConversion {
     private static let tokens: Set<String> = ["mi", "mn", "mo", "mtext", "ms"]
     private static let colorAttributes: Set<String> = ["mathcolor", "mathbackground", "color", "background"]
-    /// What stands for an `mglyph` without an `alt`: a white vertical rectangle.
-    static let missingGlyph = "\u{25AF}"
-
     let keepsColors: Bool
-    /// `mglyph` elements shown as text.
-    private(set) var replacedGlyphs = 0
+    private(set) var glyphs: [MathMLNode] = []
 
     init(keepsColors: Bool) { self.keepsColors = keepsColors }
 
@@ -97,6 +128,13 @@ struct MathConversion {
             if !keepsColors, Self.colorAttributes.contains(attribute.name) { continue }
             attributes[attribute.name] = attribute.value
         }
+        if isMathML, name == "mglyph" {
+            if let alt = attributes["alt"] { attributes["alt"] = MathContent.collapsed(alt) }
+            if let src = attributes["src"] { attributes["src"] = src.trimmingCharacters(in: .whitespacesAndNewlines) }
+            let glyph = MathMLNode(name: name, attributes: attributes)
+            glyphs.append(glyph)
+            return glyph
+        }
         if isMathML, Self.tokens.contains(name) {
             var text = ""
             var children: [MathMLNode] = []
@@ -104,7 +142,8 @@ struct MathConversion {
                 if child.isText {
                     text += child.text
                 } else if Self.isMathML(child), child.name == "mglyph" {
-                    text += glyphText(child)
+                    text += "\u{FFFC}"
+                    children.append(try convert(child, depth: depth + 1))
                 } else if child.isElement {
                     children.append(MathMLNode(name: child.name))
                     text += child.textContent
@@ -112,8 +151,6 @@ struct MathConversion {
             }
             return MathMLNode(name: name, attributes: attributes, children: children, text: text)
         }
-        // A glyph outside a token, as MathML 2 allowed.
-        if isMathML, name == "mglyph" { return MathMLNode(name: "mtext", text: glyphText(element)) }
         if isMathML, name == "annotation" || name == "annotation-xml" { return MathMLNode(name: name, attributes: attributes) }
         var children: [MathMLNode] = []
         for child in element.elementChildren { children.append(try convert(child, depth: depth + 1)) }
@@ -122,12 +159,6 @@ struct MathConversion {
 
     private static func isMathML(_ node: ContentNode) -> Bool {
         node.isElement && (node.namespace == ContentNamespace.mathML || node.namespace.isEmpty)
-    }
-
-    private mutating func glyphText(_ glyph: ContentNode) -> String {
-        replacedGlyphs += 1
-        let alt = MathContent.collapsed(glyph.attribute("alt") ?? "")
-        return alt.isEmpty ? Self.missingGlyph : alt
     }
 }
 
@@ -202,7 +233,7 @@ struct MathRendering: Sendable {
 /// text view first asks for its image.
 final class MathAttachment: NSTextAttachment {
     let formula: MathFormula
-    /// The whole formula on one row.
+    /// The engine's unbounded layout, including any authored line breaks.
     var layout: MathLayout { formula.layout }
     /// What assistive technologies read: the `alttext`, else a spoken reading of the markup.
     let label: String
