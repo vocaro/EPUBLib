@@ -2268,9 +2268,14 @@ quite that: its VoiceOver read hidden words inside a shown paragraph, and passed
 - **Positions.** A saved position or a CFI inside hidden text names the characters it named
   before hiding them, and resolves to them.
 
-An image, a formula, a table or a rule inside such a box is still drawn
-([#132](https://github.com/vocaro/EPUBLib/issues/132)) and still read
-([#549](https://github.com/vocaro/EPUBLib/issues/549)). A note's popover on iPhone and iPad
+An image, an SVG drawing, a formula, a table or a rule that `visibility: hidden` hides keeps
+its room and draws nothing, nor do the words shown where an image or a formula cannot be
+([#132](https://github.com/vocaro/EPUBLib/issues/132)). A hidden table draws none of its
+borders and backgrounds, its rows' or its cells'. One that sets `visibility: visible` again
+inside a hidden box is drawn, a table's row or cell among them; a part of an SVG drawing or
+a formula is not, since the attachment the whole is drawn by is hidden. All of them are still
+read ([#549](https://github.com/vocaro/EPUBLib/issues/549)), and a hidden image is still
+opened by a double click or a tap on its room. A note's popover on iPhone and iPad
 gives VoiceOver UIKit's own text accessibility, which these changes do not reach
 ([#550](https://github.com/vocaro/EPUBLib/issues/550)).
 

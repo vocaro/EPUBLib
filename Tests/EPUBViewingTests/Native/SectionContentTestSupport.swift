@@ -225,8 +225,9 @@ enum SectionContentSupport {
 
     // MARK: Drawing
 
-    /// The greatest alpha an image draws at `size`; nil when there is no image to draw.
-    static func maximumAlpha(of image: PlatformImage?, size: CGSize) -> UInt8? {
+    /// The greatest alpha an image draws at `size`, a pixel a point, outside `excluded` (top-left
+    /// origin) when it is given; nil when there is no image to draw.
+    static func maximumAlpha(of image: PlatformImage?, size: CGSize, outside excluded: CGRect? = nil) -> UInt8? {
         let width = Int(size.width.rounded(.up)), height = Int(size.height.rounded(.up))
         guard let image, width > 0, height > 0,
               let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
@@ -241,7 +242,12 @@ enum SectionContentSupport {
         guard let data = context.data else { return nil }
         let pixels = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
         var maximum: UInt8 = 0
-        for index in stride(from: 3, to: width * height * 4, by: 4) { maximum = max(maximum, pixels[index]) }
+        // The context's first row of memory is the image's top row.
+        for y in 0..<height {
+            for x in 0..<width where !(excluded?.contains(CGPoint(x: CGFloat(x) + 0.5, y: CGFloat(y) + 0.5)) ?? false) {
+                maximum = max(maximum, pixels[(y * width + x) * 4 + 3])
+            }
+        }
         return maximum
     }
 }
