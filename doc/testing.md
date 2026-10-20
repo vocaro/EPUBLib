@@ -216,9 +216,15 @@ invalidation by clear, a replaced, rejected, superseded or cancelled query, `.lo
 close, the bounded list, and ten thousand results in one flat section. Control tests cover the
 indicator, button and result wording for every state, engines that only highlight, the FIFO
 match commands beside page turns, and mount the supplied views in each state: on their own, at
-a large accessibility text size and in a navigation toolbar. They do not establish toolbar
-overflow, popover or VoiceOver behaviour on a device: SwiftUI builds no accessibility tree for
-an in-process query. Set `EPUB_SNAPSHOT_DIR` for `swift test`, or
+a large accessibility text size and in a navigation toolbar. They hold the announcement after a
+step or a chosen result, and that a presentation covers the reader only in a window of compact
+width, which is read from a view the test mounts rather than by choosing a row. They do not
+establish toolbar overflow, popover or VoiceOver behaviour on a device: SwiftUI builds no
+accessibility tree for an in-process query, so a row cannot be activated there either. The
+package's iOS test host has no window scene and brings up no keyboard, so the canvas test of
+pages kept under a keyboard posts UIKit's keyboard notification itself and makes the canvas
+shorter, as a host's stack does
+([#49](https://github.com/vocaro/EPUBLib/issues/49#issuecomment-6279333375)). Set `EPUB_SNAPSHOT_DIR` for `swift test`, or
 `TEST_RUNNER_EPUB_SNAPSHOT_DIR` for `scripts/test-ios.sh`, to keep a PNG of each mounted state.
 These are layer renders from a test host, not screen captures, so system bar materials and
 presentations are absent from them.
