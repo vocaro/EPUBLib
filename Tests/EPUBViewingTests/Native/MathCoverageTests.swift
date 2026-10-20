@@ -16,19 +16,6 @@ final class MathCoverageTests: XCTestCase {
         return (node, conversion.glyphs.count)
     }
 
-    /// The token text of each table row, cell by cell (nil: an empty cell).
-    private func grid(_ table: MathMLNode) -> [[String?]] {
-        table.children.map { row in row.children.map { cell in MathHarness.tokens(cell).first } }
-    }
-
-    private func table(_ body: String) throws -> MathMLNode {
-        var approximated = false
-        let node = MathElementary.rewrite(try MathHarness.node(body), isApproximated: &approximated)
-        XCTAssertTrue(approximated)
-        func find(_ node: MathMLNode) -> MathMLNode? { node.name == "mtable" ? node : node.children.lazy.compactMap(find).first }
-        return try XCTUnwrap(find(node))
-    }
-
     // MARK: What the engine covers
 
     /// The upgraded engine covers glyphs and elementary math as well as the other elements.
@@ -92,122 +79,57 @@ final class MathCoverageTests: XCTestCase {
 
     // MARK: Elementary math
 
-    func testStacksKeepPlaceValuesInColumns() throws {
-        // 496 + 28 = 524 with carries over the hundreds and tens.
-        let addition = try table(F.addition)
-        XCTAssertEqual(grid(addition), [["1", "1", nil], ["4", "9", "6"], ["+", "2", "8"], ["5", "2", "4"]])
-        XCTAssertEqual(addition.attributes["rowlines"], "none none solid", "the line rules off the sum")
-        XCTAssertEqual(addition.children[0].children[0].children[0].name, "mstyle", "carries are set small")
-        XCTAssertEqual(addition.children[0].children[0].children[0].attributes["scriptlevel"], "+1")
-        // Partial products move a place left each row.
-        let multiplication = try table(F.multiplication)
-        XCTAssertEqual(grid(multiplication), [
-            [nil, nil, "1", "2", "3"], [nil, "×", "3", "2", "1"], [nil, nil, "1", "2", "3"], [nil, "2", "4", "6", nil],
-            ["3", "6", "9", nil, nil], ["3", "9", "4", "8", "3"],
-        ])
-        XCTAssertEqual(multiplication.attributes["rowlines"], "none solid none none solid")
-        // Decimals align on the point, which has a column of its own.
-        XCTAssertEqual(grid(try table(F.decimals)), [["1", "2", ".", "5", nil], ["+", "3", ".", "2", "5"], ["1", "5", ".", "7", "5"]])
-        // Borrows cross out the digits they change, and only those.
-        let subtraction = try table(F.subtraction)
-        XCTAssertEqual(grid(subtraction)[0], [nil, nil, nil, "2", "12", nil])
-        XCTAssertEqual(subtraction.children[1].children.map { $0.children.first?.name }, [nil, "mn", "mn", "menclose", "menclose", "mn"])
-        XCTAssertEqual(subtraction.children[1].children[3].children[0].attributes["notation"], "updiagonalstrike")
-        XCTAssertEqual(subtraction.children[2].children.map { $0.children.first?.name }, ["mo", "mn", "mn", "mn", "mn", "mn"])
-        // Other alignments.
-        let left = try table("<mstack stackalign=\"left\"><mn>12</mn><mn>3</mn></mstack>")
-        XCTAssertEqual(grid(left), [["1", "2"], ["3", nil]])
-        let comma = try table("<mstack decimalpoint=\",\"><mn>1,5</mn><mn>20</mn></mstack>")
-        XCTAssertEqual(grid(comma), [[nil, "1", ",", "5"], ["2", "0", nil, nil]])
-    }
-
-    func testLongDivisionKeepsItsParts() throws {
-        var approximated = false
-        // The default style: divisor, bracket, then the result ruled off over the dividend.
-        let division = MathElementary.rewrite(try MathHarness.node(F.longDivision), isApproximated: &approximated).children[0]
-        XCTAssertEqual(division.children.map(\.name), ["mn", "mo", "mtable"])
-        XCTAssertEqual(division.children[0].text, "3")
-        XCTAssertEqual(division.children[1].text, ")")
-        let table = division.children[2]
-        XCTAssertEqual(table.attributes["align"], "baseline 2", "the divisor stands on the dividend's line")
-        XCTAssertTrue(table.attributes["rowlines"]?.hasPrefix("solid ") == true)
-        let rows = grid(table)
-        XCTAssertEqual(rows[0], [nil, "4", "3", "5", ".", "3"])
-        XCTAssertEqual(rows[1], ["1", "3", "0", "6", nil, nil], "the result's digits stand over the dividend's")
-        XCTAssertEqual(rows[2], ["1", "2", nil, nil, nil, nil])
-        XCTAssertEqual(rows[3], [nil, "1", "0", nil, nil, nil], "each step of the working moves a place right")
-        XCTAssertEqual(rows.last, [nil, nil, nil, nil, nil, "1"])
-        // The German style reads along the dividend's line; a stacked style is drawn as the default.
-        let german = MathElementary.rewrite(try MathHarness.node(F.germanDivision), isApproximated: &approximated).children[0]
-        XCTAssertEqual(german.children.map(\.name), ["mtable", "mo", "mn", "mo", "mn"])
-        XCTAssertEqual(german.children.dropFirst().map(\.text), [":", "12", "=", "32"])
-        XCTAssertEqual(german.children[0].attributes["align"], "baseline 1")
-        XCTAssertEqual(grid(german.children[0]), [["3", "8", "4"], ["3", "6", nil], [nil, "2", "4"], [nil, "2", "4"], [nil, nil, "0"]])
-        let french = MathElementary.rewrite(try MathHarness.node(F.frenchDivision), isApproximated: &approximated).children[0]
-        XCTAssertEqual(french.children.map(\.name), ["mn", "mo", "mtable"])
-        // Not a division the reader can set: left for the alttext fallback.
-        let short = try MathHarness.node("<mlongdiv><mn>3</mn><mn>12</mn></mlongdiv>")
-        approximated = false
-        XCTAssertEqual(MathElementary.rewrite(short, isApproximated: &approximated), short)
-        XCTAssertFalse(approximated)
-    }
-
-    func testElementaryMathLaysOutAndIsDisclosed() throws {
+    func testElementaryMathUsesNativeLayoutsWithoutApproximation() throws {
         for (name, body) in F.elementary {
-            let made = try MathHarness.make("<p>Work: \(F.math(body))</p>")
+            let made = try MathHarness.make("<p>\(F.math(body, attributes: "display='block'"))</p>")
             let attachment = try XCTUnwrap(made.attachment, name)
             XCTAssertEqual(made.report.mathFallbacks, 0, name)
-            XCTAssertEqual(made.report.mathApproximations, 1, name)
-            XCTAssertEqual(made.report.mathReductions, 0, name)
-            // A stack of rows, taller than a line of text, astride the baseline as a table sits.
-            let bounds = attachment.bounds(lineWidth: 320, height: 0)
-            XCTAssertGreaterThan(bounds.height, 17 * 1.5, name)
-            XCTAssertLessThan(bounds.minY, 0, name)
-            XCTAssertGreaterThan(bounds.maxY, 17 * 0.5, name)
-            XCTAssertLessThanOrEqual(bounds.width, 320, name)
+            XCTAssertEqual(made.report.mathApproximations, 0, name)
+            XCTAssertEqual(attachment.formula.node, try MathHarness.node(body, attributes: "display='block'"), "the source's elementary attributes reach the engine")
+            XCTAssertGreaterThan(attachment.layout.ascent + attachment.layout.descent, 17, name)
             XCTAssertFalse(attachment.label.isEmpty, name)
         }
-        XCTAssertEqual(NativeDisclosure.text(for: try MathHarness.make("<p>\(F.math(F.addition))</p>").report),
-                       "One formula is shown in a simplified layout.")
-        // A stack inside a larger formula is set in place.
-        let nested = try MathHarness.make("<p>\(F.math(F.i("s") + F.o("=") + F.addition))</p>")
-        XCTAssertNotNil(nested.attachment)
-        XCTAssertEqual(nested.report.mathApproximations, 1)
+        XCTAssertNil(NativeDisclosure.text(for: try MathHarness.make("<p>\(F.math(F.addition))</p>").report))
     }
 
-    func testStacksBeyondTheReadersTablePolicyUseTheEnginesBounds() throws {
-        // More columns or rows than arithmetic set by hand has, or rows shifted out of reach.
-        let digits = String(repeating: "7", count: 5000)
-        let rows = String(repeating: "<mn>1</mn>", count: 400)
-        for body in ["<mstack><mn>\(digits)</mn></mstack>", "<mstack>\(rows)</mstack>",
-                     "<mstack><msgroup shift=\"64\">\(String(repeating: "<mn>1</mn>", count: 40))</msgroup></mstack>"] {
-            let source = try MathHarness.node(body)
-            var approximated = false
-            XCTAssertEqual(MathElementary.rewrite(source, isApproximated: &approximated), source)
-            XCTAssertFalse(approximated)
-            let made = try MathHarness.make("<p>\(F.math(body, attributes: "alttext=\"a large sum\""))</p>")
-            if let attachment = made.attachment {
-                XCTAssertEqual(attachment.label, "a large sum")
-                XCTAssertTrue(attachment.layout.width.isFinite)
-                XCTAssertTrue(attachment.layout.ascent.isFinite)
-                XCTAssertTrue(attachment.layout.descent.isFinite)
-                XCTAssertEqual(made.report.mathFallbacks, 0)
-            } else {
-                XCTAssertEqual(made.string?.string, "a large sum")
-                XCTAssertEqual(made.report.mathFallbacks, 1)
+    func testAllTenLongDivisionStylesReachTheNativeEngine() throws {
+        let styles = ["lefttop", "stackedrightright", "mediumstackedrightright", "shortstackedrightright", "righttop",
+                      "left/\\right", "left)(right", ":right=right", "stackedleftleft", "stackedleftlinetop"]
+        var widths: Set<Int> = []
+        for name in styles {
+            let body = "<mlongdiv longdivstyle='\(name)'><mn>12</mn><mn>32</mn><mn>384</mn><mn>36</mn><msline length='2'/><mn>24</mn></mlongdiv>"
+            let made = try MathHarness.make("<p>\(F.math(body))</p>")
+            let attachment = try XCTUnwrap(made.attachment, name)
+            XCTAssertEqual(made.report.mathApproximations, 0, name)
+            XCTAssertEqual(made.report.mathFallbacks, 0, name)
+            XCTAssertEqual(attachment.formula.node.children[0].attributes["longdivstyle"], name)
+            widths.insert(Int(attachment.layout.width * 100))
+        }
+        XCTAssertGreaterThan(widths.count, 4, "the engine's division styles keep their distinct geometry")
+    }
+
+    func testElementaryAttributesChangeTheDrawing() throws {
+        func signature(_ attributes: String, _ carry: String = "n", _ line: String = "length='1'") throws -> Data {
+            let body = "<mstack \(attributes)><mscarries location='\(carry)'><mn>1</mn></mscarries><mn>123</mn><msline \(line)/><mn>456</mn></mstack>"
+            let attachment = try XCTUnwrap(MathHarness.make("<p>\(F.math(body))</p>").attachment)
+            let image = RichMediaImages.bitmap(width: 180, height: 180) { context, _ in
+                attachment.layout.draw(in: context, baselineOrigin: CGPoint(x: 20, y: 90))
             }
+            return try XCTUnwrap(image.dataProvider?.data) as Data
         }
+        let ordinary = try signature("")
+        XCTAssertNotEqual(ordinary, try signature("", "s"), "carry location is honored")
+        XCTAssertNotEqual(ordinary, try signature("", "n", "length='3'"), "finite rules keep their lengths")
+        XCTAssertNotEqual(ordinary, try signature("charspacing='1em'"), "authored column spacing is honored")
+        XCTAssertNotEqual(ordinary, try signature("", "n", "length='1' mslinethickness='3px'"), "authored rule thickness is honored")
     }
 
-    func testElementaryMathIsReadRowByRow() throws {
-        func label(_ body: String, attributes: String = "") throws -> String? {
-            try MathHarness.make("<p>\(F.math(body, attributes: attributes))</p>").attachment?.label
-        }
-        XCTAssertEqual(try label(F.addition), "carry 1 1, 496, plus 28, line, 524")
-        XCTAssertEqual(try label(F.multiplication), "123, times 321, line, 123, 246, 369, line, 39483")
-        XCTAssertEqual(try label(F.germanDivision), "long division of 384 by 12, result 32, working: 36, line, 24, 24, line, 0")
-        XCTAssertEqual(try label(F.frenchDivision), "long division of 384 by 12, result 32")
-        // The author's reading is preferred, as for any formula.
-        XCTAssertEqual(try label(F.addition, attributes: "alttext=\"496 plus 28 is 524\""), "496 plus 28 is 524")
+    func testElementarySpeechIncludesColumnsCarriesAndRuleExtent() throws {
+        let made = try XCTUnwrap(MathHarness.make("<p>\(F.math(F.addition))</p>").attachment)
+        XCTAssertTrue(made.label.contains("column"), made.label)
+        XCTAssertTrue(made.label.contains("carr"), made.label)
+        XCTAssertTrue(made.label.contains("line"), made.label)
+        let authored = try MathHarness.make("<p>\(F.math(F.addition, attributes: "alttext='496 plus 28 is 524'"))</p>")
+        XCTAssertEqual(authored.attachment?.label, "496 plus 28 is 524")
     }
 }

@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Name the language of each line, heading, link and table cell to VoiceOver on iPhone and iPad, part by part where a line mixes languages ([#65](https://github.com/vocaro/EPUBLib/issues/65)).
+- Use MathMLLayout’s native wrapping, elementary-math layout and localized generated readings, with long inline formulas flowing across text lines ([#25](https://github.com/vocaro/EPUBLib/issues/25)).
+
 - Draw MathML glyph images from the book with alternative-text fallbacks, and include glyph alternatives in headless text extraction ([#25](https://github.com/vocaro/EPUBLib/issues/25), [#66](https://github.com/vocaro/EPUBLib/issues/66)).
 - Document the native teardown that can keep a Mac corpus layout process running after its test passes, and how to keep its output visible ([#589](https://github.com/vocaro/EPUBLib/issues/589)).
 - Record the simulator VoiceOver probe's build revision in its transcript when reusing a build, and mark an unrecorded build's revision unknown with the checkout revision separate ([#504](https://github.com/vocaro/EPUBLib/issues/504)).

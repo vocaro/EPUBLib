@@ -75,13 +75,18 @@ final class SpokenLanguageTests: XCTestCase {
         XCTAssertTrue(languages.isMixed)
     }
 
-    /// A formula's generated reading is English in French text; a hidden label is in the
-    /// language it declares, else in the text's, and the space that sets it off is counted.
+    /// A formula's generated reading is in the language the engine reads it in: the text's,
+    /// or English where the engine has no words for the formula's own, here in French text. A
+    /// hidden label is in the language it declares, else in the text's, and the space that
+    /// sets it off is counted.
     func testAnAttachmentIsInTheLanguageItDeclaresForItsWords() throws {
-        let generated = try BuilderHarness.build("<p>Soit \(F.math(F.fraction)) ici.</p>", rootAttributes: "xml:lang=\"fr\"",
-                                                 rich: NativeRichContent())
+        let generated = try BuilderHarness.build("""
+            <p>Soit \(F.math(F.fraction)) ici.</p><p>Puis \(F.math(F.fraction, attributes: "xml:lang=\"ja\"")) là.</p>
+            """, rootAttributes: "xml:lang=\"fr\"", rich: NativeRichContent())
         let sentence = range(of: "Soit", in: generated.string).union(range(of: "ici.", in: generated.string))
-        XCTAssertEqual(parts(generated.string, sentence), ["fr:Soit ", "en:\(F.englishReading)", "fr: ici."])
+        XCTAssertEqual(parts(generated.string, sentence), ["fr:Soit début de fraction a sur b au carré fin de fraction ici."])
+        let fallback = range(of: "Puis", in: generated.string).union(range(of: "là.", in: generated.string))
+        XCTAssertEqual(parts(generated.string, fallback), ["fr:Puis ", "en:\(F.englishReading)", "fr: là."])
 
         let french: [NSAttributedString.Key: Any] = [InlineStyling.languageKey: "fr"]
         func labelled(_ language: String?) -> NSAttributedString {

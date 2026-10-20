@@ -84,6 +84,7 @@ extension NSAttributedString {
         guard range.length > 0 else { return }
         var last: Unicode.Scalar?
         var afterLabel = false
+        var formulas: Set<ObjectIdentifier> = []
         func append(_ piece: String, _ run: NSRange, _ kind: ReaderTextPiece, isLabel: Bool) {
             guard !piece.isEmpty else { return }
             var piece = piece, spaced = false
@@ -100,6 +101,11 @@ extension NSAttributedString {
             if hidden != nil { return append(readerHiddenText(part), part, .hidden, isLabel: false) }
             enumerateAttribute(.attachment, in: part) { value, run, _ in
                 if let value {
+                    // An inline formula broken over rows is read once, where its first part stands.
+                    if let math = value as? MathAttachment, let inline = math.inline {
+                        if formulas.insert(ObjectIdentifier(inline)).inserted { append(math.label, run, .attachment(value), isLabel: false) }
+                        return
+                    }
                     let attachment = value as? ReaderTextualAttachment
                     let words = authored ? (value as? TableRowAttachment)?.copyTextEquivalent : nil
                     append(words ?? (spoken ? attachment?.spokenEquivalent : attachment?.textEquivalent) ?? "",
