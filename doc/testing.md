@@ -2964,7 +2964,7 @@ can be interrupted by UIKit's “Keyboard visible” announcements. `--device-st
 on the ordinary runner records and sends an explicit step override for one requested device;
 the qualification runner uses that for the two input paths. The small Python suite checks that unknown builds, altered binaries and missing
 hook/canary evidence cannot pass. Qualification results and device comparisons are recorded on
-[#495](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6285945526), with the revision tested. Until that
+[#495](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6293715824), with the revision tested. Until that
 qualification passes, the runner's default and the acceptance policy remain unchanged.
 
 To separate a navigation announcement from activation, the sample's existing
