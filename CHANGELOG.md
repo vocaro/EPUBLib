@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Separate in text extraction the text of every element HTML renders as a block, `details`, `summary`, `fieldset`, `legend`, `center`, `form` and `hgroup` among them, where it ran into the text beside it ([#90](https://github.com/vocaro/EPUBLib/issues/90)).
 - Have VoiceOver say the match, its place and the text after it when Next Match, Previous Match or a chosen search result shows it ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
 - Keep the toolbar's search popover open on iPad when a result is chosen in it, and close the search pane or result list only where it is a sheet ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
 - Keep the pages as they are laid out on iPhone and iPad while a keyboard is up, so a search no longer paginates the book again as the keyboard rises and falls ([#49](https://github.com/vocaro/EPUBLib/issues/49)).

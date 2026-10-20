@@ -36,13 +36,22 @@ final class ExtractionStructureCoverageTests: XCTestCase {
 
     // HTML Standard, Rendering ("Flow content", "The fieldset and legend elements", "The details
     // and summary elements"): details, summary, fieldset, legend and center (with dialog, form,
-    // hgroup, menu, dir, search, listing, xmp) are `display: block`, as in this package's own
-    // reader (UserAgentStyleSheet.swift). Their text must not run into what follows.
+    // hgroup, menu, dir, search, listing, plaintext, xmp) are `display: block`, as in this
+    // package's own reader (UserAgentStyleSheet.swift). Their text must not run into what follows.
     func testDisclosureFormAndLegacyBlockElementsDoNotRunTheirTextTogether() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/90")
         XCTAssertEqual(try section("<details><summary>Answer</summary>Forty-two</details>").text, "Answer\nForty-two")
         XCTAssertEqual(try section("<fieldset><legend>Question 1</legend>Pick one</fieldset>").text, "Question 1\nPick one")
         XCTAssertEqual(try section("<center>Title</center>Text").text, "Title\nText")
+        XCTAssertEqual(try section("a<dialog open='open'>b</dialog>c<dir>d</dir>e<form>f</form>g<hgroup>h</hgroup>i"
+            + "<listing>j</listing>k<menu>l</menu>m<plaintext>n</plaintext>o<search>p</search>q<xmp>r</xmp>s").text,
+            "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\nm\nn\no\np\nq\nr\ns")
+    }
+
+    // An anchor on inline text after such an element marks that text past the newline.
+    func testAnInlineAnchorAfterASummaryCountsTheNewlineBeforeIt() throws {
+        let extracted = try section("<details><summary id='s'>Answer</summary><span id='t'>Forty-two</span></details>")
+        XCTAssertEqual(extracted.anchors["s"], mark(0, 0))
+        XCTAssertEqual(extracted.anchors["t"], mark(7, 1))
     }
 
     func testInlineElementsCommentsAndProcessingInstructionsNeverSplitWords() throws {

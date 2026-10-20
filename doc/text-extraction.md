@@ -35,7 +35,15 @@ trusted classifications nor instructions, and are not inferred from filenames or
 Text includes body character data and authored root content following the body in document order,
 including trailing headings and anchors on the strict XML path ([#197](https://github.com/vocaro/EPUBLib/issues/197)).
 It joins inline markup without inserting spaces
-inside words, and separates common block elements and line breaks. Script, style and template
+inside words, and separates block elements and line breaks. The block elements are those the
+HTML Standard's Rendering section gives `display: block` in a flow, as the native reader's
+stylesheet does: `address`, `article`, `aside`, `blockquote`, `center`, `dd`, `details`,
+`dialog`, `dir`, `div`, `dl`, `dt`, `fieldset`, `figcaption`, `figure`, `footer`, `form`, the
+headings `h1` to `h6`, `header`, `hgroup`, `hr`, `legend`, `listing`, `main`, `menu`, `nav`,
+`ol`, `p`, `plaintext`, `pre`, `search`, `section`, `summary`, `ul` and `xmp`, with `li`,
+`table`, `tr`, `td` and `th` ([#90](https://github.com/vocaro/EPUBLib/issues/90)). A `marquee`,
+which HTML makes `inline-block`, is not separated, nor are the `optgroup` and `option` elements
+of a `select` control. Script, style and template
 subtrees are excluded. XML entities and CDATA are decoded. In recovery, a comment also ends at `--!>`, and an `&#` with no initial decimal or hexadecimal digit stays literal in text and surfaced attributes, matching the native reader ([#244](https://github.com/vocaro/EPUBLib/issues/244)). Whitespace is normalized to single spaces
 within lines and single newlines at block boundaries. Whitespace normalization operates on
 Unicode scalars, so combining marks following a space or
