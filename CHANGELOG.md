@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Refuse in strict text extraction a name that Namespaces in XML forbids, such as `<:p>` or `script:`, and read it in recovery as the native reader does, where it was read as `p` or `script` and its text restructured or dropped ([#178](https://github.com/vocaro/EPUBLib/issues/178)).
 - Default simulator VoiceOver activation to guarded cursor dispatch on pinned iOS 27.2 and announce link destinations through its layout handler before screen updates ([#495](https://github.com/vocaro/EPUBLib/issues/495)).
 - Name the language of each line, heading, link and table cell to VoiceOver on iPhone and iPad, part by part where a line mixes languages ([#65](https://github.com/vocaro/EPUBLib/issues/65)).
 - Use MathMLLayout’s native wrapping, elementary-math layout and localized generated readings, with long inline formulas flowing across text lines ([#25](https://github.com/vocaro/EPUBLib/issues/25)).

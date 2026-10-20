@@ -98,7 +98,13 @@ their own cumulative text budget while iterating. `CancellationError` propagates
 `EPUBTextExtractionError` distinguishes invalid spine indices, unsupported media types, malformed
 XHTML and exceeded limits. XHTML 1.x named character references such as `&nbsp;` and `&mdash;`
 are supported without loading a DTD. Their spelling inside CDATA and comments is left unchanged.
-Malformed markup fails by default. Entity declarations and internal DTD subsets always fail.
+Malformed markup fails by default, and so does a name that Namespaces in XML forbids, which
+libxml2 reports and reads on: an element or attribute name that begins or ends with a colon or
+holds a second one (`<:p>`, `script:`, `a:b:c`), and a processing instruction's target with a
+colon. The native reader reads such a section as HTML, and recovery reads it as the reader does:
+`<:p>` is text and `<script:>` an unknown element ([#178](https://github.com/vocaro/EPUBLib/issues/178)).
+A prefix that is never declared names no namespace, and its element is read by its local name.
+Entity declarations and internal DTD subsets always fail.
 Ordinary external
 DOCTYPE identifiers are allowed but never fetched or resolved. Declaration-looking examples inside
 comments, CDATA or processing instructions are inert on the strict path; its safety check follows
