@@ -184,7 +184,8 @@ disclosed:
   space in an ASCII-compatible document, and so as one of the run of whitespace it stands in.
 
 `EPUBWriting` holds what it writes to the stricter rules: a path with a colon is refused, and so
-is a navigation href with a query, a leading `/` or a step above the root. The package does not
+is a navigation href with a query, a leading `/` or a step above the root. A navigation href is
+written as the path it was checked as, not as it was spelled. The package does not
 otherwise repair malformed EPUBs, validate the full EPUB specification, synthesize page numbers
 or provide DRM support. Standard IDPF
 and Adobe font obfuscation are decoded for resource access, including the viewer's embedded fonts. Media overlays,

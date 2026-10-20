@@ -7,6 +7,10 @@ XML and the exact mimetype. The package is
 EPUB 3, reflowable by default, with optional fixed-layout spine overrides. Resource paths and
 navigation hrefs are archive-relative; package documents live under `EPUB/`. IDs and paths must
 be unique, spine resources must be declared and navigation must resolve to a declared resource.
+A navigation or stylesheet href is written as the path it resolves to, relative to the navigation
+document and percent-encoded as a manifest href is, not as it was spelled: `EPUB//one.xhtml`,
+`EPUB/./one.xhtml` and `EPUB/c:x/../one.xhtml` are each written `one.xhtml`
+([#240](https://github.com/vocaro/EPUBLib/issues/240)).
 
 A resource may supply `fallbackID`; the writer emits that manifest relationship and refuses
 undeclared targets or cycles ([#78](https://github.com/vocaro/EPUBLib/issues/78)).

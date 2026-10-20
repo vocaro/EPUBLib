@@ -78,7 +78,10 @@ public enum EPUBPackageWriter {
             guard inPackage(value), paths.contains(path), inPackage(path) else {
                 throw EPUBWritingError.invalidPublication("navigation references an undeclared resource: \(value)")
             }
-            return String(decoding: value.utf8.dropFirst(5), as: UTF8.self)
+            // The link checked, from EPUB/nav.xhtml and encoded as a manifest href is, and not the
+            // text given after "EPUB/": with an empty or dot segment in it, that text is another
+            // link ("/x" names the container root, "//x" a host, "c:x/../x" a scheme).
+            return String(decoding: resolved.utf8.dropFirst(5), as: UTF8.self)
         }
         func items(_ entries: [EPUBNavigationItem]) throws -> String {
             try entries.map { entry in

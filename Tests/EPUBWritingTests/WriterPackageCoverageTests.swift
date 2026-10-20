@@ -512,6 +512,56 @@ struct WriterPackageCoverageTests {
         #expect(section.anchors["secci\u{F3}n-2"] == EPUBTextMark(offset: "Título\nUno dos.\n".utf8.count, separator: 1))
     }
 
+    // A target is checked by the path it resolves to, and was written as the text after its
+    // "EPUB/". Spelled with an empty or dot segment, that text is another link: "/one.xhtml"
+    // names the container root, "//one.xhtml" a host and "c:x/../one.xhtml" a scheme
+    // (https://github.com/vocaro/EPUBLib/issues/240). The link written is the one checked: the
+    // path from the navigation document, encoded as the manifest encodes it.
+    @Test func everyTargetIsWrittenAsThePathItWasCheckedByWhateverItsSpelling() async throws {
+        let odd = EPUBResource(id: "odd", path: "EPUB/text/a b \u{E9}.xhtml", mediaType: "application/xhtml+xml")
+        let css = EPUBResource(id: "css", path: "EPUB/css/nav.css", mediaType: "text/css")
+        // Each target as given, the link it is written as in EPUB/nav.xhtml, and what that reaches.
+        let plain = [("EPUB/one.xhtml", "one.xhtml", one), ("EPUB/one.xhtml#start", "one.xhtml#start", one),
+                     (odd.href + "#start", "text/a%20b%20%C3%A9.xhtml#start", odd)]
+        let respelled = [("EPUB//one.xhtml", "one.xhtml", one), ("EPUB///one.xhtml#start", "one.xhtml#start", one),
+                         ("EPUB/c:x/../one.xhtml", "one.xhtml", one), ("EPUB/./one.xhtml", "one.xhtml", one),
+                         ("EPUB/text/../one.xhtml#start", "one.xhtml#start", one),
+                         ("EPUB//text/a b \u{E9}.xhtml#\u{E9}", "text/a%20b%20%C3%A9.xhtml#%C3%A9", odd),
+                         // Written as it stands, a tab in an attribute value is read back as a space
+                         // (https://github.com/vocaro/EPUBLib/issues/254).
+                         ("EPUB/one.xhtml#a\tb", "one.xhtml#a%09b", one)]
+        let targets = plain + respelled
+        let stylesheets = [("EPUB/css/nav.css", "css/nav.css"), ("EPUB//css/nav.css", "css/nav.css"), ("EPUB///css/nav.css", "css/nav.css"),
+                           ("EPUB/c:x/../css/nav.css", "css/nav.css"), ("EPUB/./css//nav.css", "css/nav.css")]
+        let content = [one.path: WriterCoverage.xhtml("<p id=\"start\">Text</p>"), odd.path: WriterCoverage.xhtml("<p id=\"start\">Odd</p>"),
+                       css.path: Data("p{}".utf8)]
+        // As a browser reads a link: by URL parsing, from the navigation document's URL.
+        let base = try #require(URL(string: "https://reader.invalid/EPUB/nav.xhtml"))
+        func expectReaches(_ link: String, _ resource: EPUBResource, _ what: String, sourceLocation: SourceLocation = #_sourceLocation) {
+            #expect(!link.hasPrefix("/") && URL(string: link)?.scheme == nil, "\(what) is written as \(link)", sourceLocation: sourceLocation)
+            let url = URL(string: link, relativeTo: base)?.absoluteURL
+            #expect(url?.scheme == "https" && url?.host() == "reader.invalid" && url?.path(percentEncoded: false) == "/" + resource.path,
+                    "\(what), written as \(link), reaches \(url?.absoluteString ?? "nothing")", sourceLocation: sourceLocation)
+        }
+        for (stylesheet, written) in stylesheets {
+            let documents = try generate(resources: [one, odd, css], spine: [.init(resource: one), .init(resource: odd)],
+                                         contents: targets.map { .init(title: "Entry", href: $0.0) },
+                                         pages: targets.map { .init(title: "1", href: $0.0) }, stylesheet: stylesheet)
+            let navigation = try nav(documents)
+            let links = navigation.named("a").compactMap { $0.attributes["href"] }
+            #expect(links == (targets + targets).map(\.1), "with the stylesheet \(stylesheet)")
+            #expect(navigation.named("link").map { $0.attributes["href"] } == [written], "stylesheet \(stylesheet)")
+            // The path of each link is a manifest href, as the manifest writes it.
+            let manifest = try opf(documents).named("item").compactMap { $0.attributes["href"] }
+            #expect(Set(links.map { String($0.split(separator: "#")[0]) }).isSubset(of: manifest))
+            for ((given, _, resource), link) in zip(targets + targets, links) { expectReaches(link, resource, given) }
+            expectReaches(written, css, "stylesheet \(stylesheet)")
+            let publication = try await reopened(documents, content: content)
+            #expect(publication.tableOfContents.map(\.href) == targets.map { "EPUB/" + $0.1 })
+            #expect((publication.pageList ?? []).map(\.href) == targets.map { "EPUB/" + $0.1 })
+        }
+    }
+
     // MARK: Refused input
 
     @Test func unsafeReservedAndOutOfPackageResourcePathsAndIDsAreRefused() {
@@ -558,14 +608,15 @@ struct WriterPackageCoverageTests {
             let marked = EPUBResource(id: "m", path: "EPUB/\(m)x.xhtml", mediaType: "application/xhtml+xml")
             let nested = EPUBResource(id: "n", path: "EPUB/a/\(m)y.css", mediaType: "text/css")
             #expect(marked.href == "EPUB/\(e)x.xhtml")
-            // A target as the resource's href spells it, and written out.
+            // A target as the resource's href spells it, and written out. Both are written as the
+            // link they were checked as (https://github.com/vocaro/EPUBLib/issues/240).
             let contents = [EPUBNavigationItem(title: "Escaped", href: marked.href + "#\(e)top"),
                             EPUBNavigationItem(title: "Written", href: "EPUB/\(m)x.xhtml#\(m)top")]
             let documents = try generate(resources: [marked, nested], spine: [.init(resource: marked)], contents: contents, stylesheet: "EPUB/a/\(m)y.css")
             #expect(try opf(documents).named("item").map { $0.attributes["href"] } == ["nav.xhtml", "\(e)x.xhtml", "a/\(e)y.css"])
             let links = try nav(documents).named("a").compactMap { $0.attributes["href"] }
-            #expect(links.map { Array($0.unicodeScalars) } == ["\(e)x.xhtml#\(e)top", "\(m)x.xhtml#\(m)top"].map { Array($0.unicodeScalars) }, "\(m.debugDescription)")
-            #expect(try nav(documents).named("link").map { $0.attributes["href"] } == ["a/\(m)y.css"])
+            #expect(links == ["\(e)x.xhtml#\(e)top", "\(e)x.xhtml#\(e)top"], "\(m.debugDescription)")
+            #expect(try nav(documents).named("link").map { $0.attributes["href"] } == ["a/\(e)y.css"])
             let publication = try await reopened(documents, content: [marked.path: WriterCoverage.xhtml("<p>Marked</p>"), nested.path: Data("a{}".utf8)])
             #expect(publication.spine.map { Array($0.resource.path.unicodeScalars) } == [Array(marked.path.unicodeScalars)], "\(m.debugDescription)")
             #expect(Array(publication.resources.dropFirst()) == [marked, nested])
