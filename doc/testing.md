@@ -2967,6 +2967,17 @@ hook/canary evidence cannot pass. Qualification results and device comparisons b
 [#495](https://github.com/vocaro/EPUBLib/issues/495), with the revision tested. Until that
 qualification passes, the runner's default and the acceptance policy remain unchanged.
 
+To separate a navigation announcement from activation, the sample's existing
+`-SampleStepAfter SECONDS` timer accepts `-SampleStepHref HREF`: it navigates to that
+href instead of turning one page. For example, launch at `OPS/body.xhtml#activation-link`
+with `-SampleStepAfter 120 -SampleStepHref OPS/body.xhtml#link-target`, focus
+`Verification link`, then `listen=125`. This does not activate an accessibility item.
+The verification host also accepts positive `-VerificationWidth POINTS` and
+`-VerificationHeight POINTS` together to constrain the reader's content size for a
+layout comparison. A constrained iPad remains an iPad; it does not establish native
+iPhone behaviour. Neither diagnostic changes the host's layout or navigation without
+those arguments.
+
 On an iPhone in landscape, begin on the visible heading with `touch=Page boundary`, not
 `touch=word`: its first page contains the introduction and link, and numbered words start
 on the next page. Use `keyrotor=Actions` when two-finger turns do not register, then

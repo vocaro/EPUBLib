@@ -24,13 +24,23 @@ import SwiftUI
             if UserDefaults.standard.bool(forKey: "VerificationActivationCheck") {
                 ActivationReference()
             } else {
-                NavigationStack { ReaderScreen() }
+                if let width = referenceDimension("VerificationWidth"),
+                   let height = referenceDimension("VerificationHeight") {
+                    NavigationStack { ReaderScreen() }.frame(width: width, height: height)
+                } else {
+                    NavigationStack { ReaderScreen() }
+                }
             }
             #endif
         }
         #if os(macOS)
         .defaultSize(width: 1100, height: 850)
         #endif
+    }
+
+    private func referenceDimension(_ key: String) -> CGFloat? {
+        let value = UserDefaults.standard.double(forKey: key)
+        return value > 0 ? CGFloat(value) : nil
     }
 }
 

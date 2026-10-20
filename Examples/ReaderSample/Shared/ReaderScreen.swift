@@ -133,7 +133,11 @@ struct ReaderScreen: View {
         if delay > 0 {
             Task {
                 try? await Task.sleep(for: .seconds(delay))
-                reader.send(.nextPage)
+                if let href = defaults.string(forKey: "SampleStepHref") {
+                    reader.send(.navigate(href: href))
+                } else {
+                    reader.send(.nextPage)
+                }
             }
         }
         let dark = defaults.double(forKey: "SampleDarkAfter")
