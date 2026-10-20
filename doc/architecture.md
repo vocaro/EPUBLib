@@ -118,6 +118,12 @@ disclosed:
   ([#78](https://github.com/vocaro/EPUBLib/issues/78)).
 - **Contents.** An entry whose href does not resolve keeps its title and children, without an
   href. A landmark or page that does not resolve is left out.
+- **NCX.** The NCX is the item the spine's `toc` names, whatever its media type. Where `toc` is
+  missing, which OPF 2.0.1 §2.4 does not allow, or names no item the archive holds, the NCX is
+  the first manifest item of type `application/x-dtbncx+xml` that it does, as foliate-js finds
+  it (Readium does where `toc` is missing). A book without a navigation document is refused when
+  the NCX its spine names does not parse; one found by its media type was not needed to open it,
+  and is ignored ([#169](https://github.com/vocaro/EPUBLib/issues/169)).
 - **Archive.** The last end record in the file decides which archive is read, so bytes after a book
   are passed over, however many, when they hold no end record's signature: a page a download was
   wrapped in. Another archive after the book ends in one, and that record is followed with its
