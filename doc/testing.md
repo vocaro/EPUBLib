@@ -2639,10 +2639,20 @@ test-without-building` for each at the same time, under `--timeout`. It deletes 
 however the run ends, also when it is terminated, and never boots, changes or deletes one it
 did not create. `--steps`, `--font-size`, `--flow scrolled`, `--href OPS/labels.xhtml`,
 `--launch '-SampleSelectionLine YES'` and `--voiceover-off` are the probe's settings above. Each simulator gets `simulator-TYPE-STAMP.transcript.txt` beside its
-log and result bundle in `.build/voiceover/results/`: the device, revision and steps, the
+log and result bundle in `.build/voiceover/results/`: the device, build revision and steps, the
 probe's lines, then the result, with VoiceOver's state and the volume as `devicectl` reports
 them. The exit status is 0 only when every probe ran all its steps and passed, VoiceOver is
 off again and no simulator lost its mute.
+
+The `BUILD` line gives `git describe --always --dirty` from before the probe was built, saved
+after a successful build in `voiceover-build-revision.txt` in the derived data folder
+(`--derived-data` chooses it). `--skip-build` reads that file, so later commits or edits in
+the checkout do not change the build's revision. A build this runner did not record, including
+one built elsewhere, has `BUILD unknown`; the separate `CHECKOUT` line gives the checkout's
+current revision. A failed or interrupted rebuild removes the old revision record. The
+`-dirty` suffix says there were uncommitted tracked edits at build time; it does not identify
+those edits. `python3 scripts/test-run-voiceover-simulator.py` checks this bookkeeping with
+temporary Git repositories and fake tools, without building or starting a simulator.
 
 Four things went wrong in the first runs, and the runner and probe now allow for each:
 
