@@ -2653,6 +2653,8 @@ current revision. A failed or interrupted rebuild removes the old revision recor
 `-dirty` suffix says there were uncommitted tracked edits at build time; it does not identify
 those edits. `python3 scripts/test-run-voiceover-simulator.py` checks this bookkeeping with
 temporary Git repositories and fake tools, without building or starting a simulator.
+The build-revision checks are recorded on
+[#504](https://github.com/vocaro/EPUBLib/issues/504#issuecomment-6283694583).
 
 Four things went wrong in the first runs, and the runner and probe now allow for each:
 
