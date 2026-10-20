@@ -13,6 +13,9 @@ struct ReaderScreen: View {
     /// reports as selected and what the selection action was last given. It is there from
     /// the start, so neither moves the page, and an automated check can read it.
     private let selectionLine = UserDefaults.standard.bool(forKey: "SampleSelectionLine")
+    /// `-SampleControls none` shows the reader with none of the host's controls above it, as a
+    /// host that hides them while a book is read: nothing between the open buttons and the page.
+    private let showsControls = UserDefaults.standard.string(forKey: "SampleControls") != "none"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,8 +29,8 @@ struct ReaderScreen: View {
                 if reader.session != nil { Button("Close") { reader.close() } }
             }.padding()
             if let session = reader.session, let book = reader.publication {
-                Button(useToolbar ? "Embed Controls" : "Use Toolbar") { useToolbar.toggle() }.padding(6)
-                if !useToolbar, let controls = reader.controls {
+                if showsControls { Button(useToolbar ? "Embed Controls" : "Use Toolbar") { useToolbar.toggle() }.padding(6) }
+                if showsControls, !useToolbar, let controls = reader.controls {
                     EPUBReaderControlStrip(controls: controls) {
                         if session.capabilities.contains(.bookmarks) {
                             bookmarkMenu
@@ -103,6 +106,9 @@ struct ReaderScreen: View {
     /// after the book is ready: a move the host makes with nothing on screen touched for it.
     /// `-SampleDarkAfter <seconds>` makes the reader dark that long after the book is ready,
     /// as a host does that follows the time of day: the same text is shown again in place.
+    /// `-SampleSearch <query>` submits that search once the book is ready, as its field does,
+    /// so that the strip has results to step through, or `-SampleSearchAfter <seconds>` later:
+    /// after the text built again for `-SampleFontSize`, which moves the view under a search.
     private func openFromLaunchArguments() {
         guard reader.session == nil, let path = UserDefaults.standard.string(forKey: "SampleBook") else { return }
         reader.open(url: URL(fileURLWithPath: path))
@@ -116,6 +122,13 @@ struct ReaderScreen: View {
         if defaults.double(forKey: "SampleFontSize") > 0 { style.fontSize = defaults.double(forKey: "SampleFontSize") }
         reader.send(.style(style))
         if let href = defaults.string(forKey: "SampleHref") { reader.send(.navigate(href: href)) }
+        if let query = defaults.string(forKey: "SampleSearch"), let controls = reader.controls {
+            Task {
+                try? await Task.sleep(for: .seconds(defaults.double(forKey: "SampleSearchAfter")))
+                controls.searchText = query
+                controls.submitSearch()
+            }
+        }
         let delay = defaults.double(forKey: "SampleStepAfter")
         if delay > 0 {
             Task {

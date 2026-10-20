@@ -30,4 +30,14 @@ enum EntryName {
         let utf8 = entry.path(using: .utf8)
         return utf8.isEmpty ? entry.path : utf8
     }
+
+    /// The path `path(of:)` gives the entry of a directory record with this name and these
+    /// general-purpose flags, for a record ZIPFoundation does not read (`LostEntries`).
+    static func path(name: Data, flags: UInt16) -> String {
+        let utf8 = String(data: name, encoding: .utf8) ?? ""
+        guard utf8.isEmpty, flags & 0x0800 == 0 else { return utf8 }
+        // ZIPFoundation's code page 437: Core Foundation's DOS Latin US.
+        let codePage437 = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(0x400)))
+        return String(data: name, encoding: codePage437) ?? ""
+    }
 }

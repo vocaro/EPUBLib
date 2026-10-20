@@ -70,6 +70,64 @@ import UIKit
         XCTAssertEqual(column.frame.height, last.maxY, accuracy: 0.5)
     }
 
+    #if os(iOS)
+    /// A keyboard over the window leaves the pages as they are. A host that makes the reader
+    /// shorter for it, as a stack with a line under the reader does, has the foot of the page
+    /// cut off, as the keyboard covers it. Laid out again for the shorter reader, an iPad's
+    /// page became two columns while the search keyboard was up, and one again as it went
+    /// (#49). Without a keyboard the same height lays the pages out again.
+    func testPagesKeepTheirHeightWhileAKeyboardIsUp() async throws {
+        let host = host(sections(3, paragraphs: 30), size: CGSize(width: 820, height: 1180))
+        // The canvas in a view of the host's, which sets its frame as a stack does.
+        let container = UIView(frame: host.window.bounds)
+        host.controller.view = container
+        container.addSubview(host.canvas)
+        host.canvas.frame = container.bounds
+        host.layOut()
+        let spread = try XCTUnwrap(host.canvas.spread)
+        XCTAssertEqual(spread.columns.count, 1, "an upright page has one column")
+        func keyboard(up: Bool) {
+            let frame = CGRect(x: 0, y: up ? 760 : 1400, width: 820, height: 420)
+            NotificationCenter.default.post(name: UIResponder.keyboardWillChangeFrameNotification, object: nil,
+                                            userInfo: [UIResponder.keyboardFrameEndUserInfoKey: frame])
+        }
+        let short = CGRect(x: 0, y: 0, width: 820, height: 700)
+        // Told of the keyboard, then made shorter.
+        keyboard(up: true)
+        host.canvas.frame = short
+        host.layOut()
+        XCTAssertEqual(host.canvas.spread, spread, "made shorter after the keyboard came up")
+        XCTAssertGreaterThan(spread.columns[0].maxY, host.canvas.bounds.maxY, "the foot of the page is cut off")
+        keyboard(up: false)
+        host.canvas.frame = container.bounds
+        host.layOut()
+        XCTAssertEqual(host.canvas.spread, spread, "given its height back after the keyboard went")
+        // Made shorter in an animation, as SwiftUI makes room for a keyboard, and then told.
+        UIView.animate(withDuration: 0.2) {
+            host.canvas.frame = short
+            host.canvas.layoutIfNeeded()
+        }
+        keyboard(up: true)
+        try await Task.sleep(for: .milliseconds(500))
+        host.layOut()
+        XCTAssertEqual(host.canvas.spread, spread, "made shorter before it was told of the keyboard")
+        UIView.animate(withDuration: 0.2) {
+            host.canvas.frame = container.bounds
+            host.canvas.layoutIfNeeded()
+        }
+        keyboard(up: false)
+        try await Task.sleep(for: .milliseconds(500))
+        host.layOut()
+        XCTAssertEqual(host.canvas.spread, spread, "given its height back before it was told the keyboard went")
+        // With no keyboard the shorter reader is laid out again: a page wider than tall.
+        host.canvas.frame = short
+        host.layOut()
+        try await Task.sleep(for: .milliseconds(500))
+        host.layOut()
+        XCTAssertEqual(host.canvas.spread?.columns.count, 2, "made shorter with no keyboard")
+    }
+    #endif
+
     func testTurningPagesWalksTheSectionsContiguously() throws {
         let host = host(sections(3, paragraphs: 3))
         let canvas = host.canvas

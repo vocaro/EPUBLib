@@ -39,8 +39,8 @@ enum UserAgentStyleSheet {
 
     dir, dl, menu, ol, ul { margin-top: 1em; margin-bottom: 1em; }
     :is(dir, dl, menu, ol, ul) :is(dir, dl, menu, ol, ul) { margin-top: 0; margin-bottom: 0; }
-    dd { margin-left: 40px; }
-    dir, menu, ol, ul { padding-left: 2em; }
+    dd { margin-inline-start: 40px; }
+    dir, menu, ol, ul { padding-inline-start: 2em; }
     ol { list-style-type: decimal; }
     dir, menu, ul { list-style-type: disc; }
     :is(dir, menu, ol, ul) :is(dir, menu, ul) { list-style-type: circle; }
@@ -68,6 +68,8 @@ enum UserAgentStyleSheet {
     s, strike, del { text-decoration: line-through; }
     mark { background-color: yellow; color: black; }
     nobr { white-space: nowrap; }
+    q::before { content: open-quote; }
+    q::after { content: close-quote; }
     :link { text-decoration: underline; }
     ruby { display: ruby; }
     rt { display: ruby-text; }

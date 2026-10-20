@@ -29,6 +29,11 @@ struct NativeProgress {
         for (index, item) in publication.spine.enumerated() where sectionByPath[item.resource.path] == nil {
             sectionByPath[item.resource.path] = index
         }
+        for (index, item) in publication.spine.enumerated() {
+            for fallback in publication.fallbackChain(for: item.resource).dropFirst() where sectionByPath[fallback.path] == nil {
+                sectionByPath[fallback.path] = index
+            }
+        }
         func target(_ href: String) -> (section: Int, fragment: String?)? {
             let parts = href.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
             let path = String(parts[0]).removingPercentEncoding ?? String(parts[0])
@@ -180,6 +185,10 @@ enum NativeDisclosure {
             sentences.append("Some flexible box or grid layouts are shown as blocks in reading order: items meant to sit side by side, wrap or be reordered follow one another.")
         }
         if report.stylesTruncated { sentences.append("Some of this book's styling was too large to apply.") }
+        if report.generatedContentOmitted {
+            sentences.append("Some text or images this book's styling adds before or after its content are not shown.")
+        }
+        if report.textNotLaidOut { sentences.append("Some text in this book could not be laid out and is not shown.") }
         return sentences.isEmpty ? nil : sentences.joined(separator: " ")
     }
 }

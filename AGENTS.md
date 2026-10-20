@@ -78,7 +78,10 @@ Do not launch a process under a debugger on this machine, or attach one: `lldb` 
 - To read system code, use what starts no process. `dyld_info -disassemble` with a
   framework's path under `/System/Library` prints its code under its method names, and
   `lldb -b -o "target create BINARY" -o "disassemble -n 'METHOD'"`, with no `run`, prints one
-  method's. Neither names the selector a call goes to.
+  method's of a binary on disk; a framework that is only in the dyld shared cache, as
+  VoiceOver's `ScreenReader.framework` is, it refuses as one that "does not exist". Neither
+  names the selector a call goes to; the reader in
+  [VoiceOver's own code](doc/testing.md#voiceovers-own-code-on-mac) does.
 - To see what the reader's own code is asked, log from it.
 - If the dialog was raised all the same, end your own processes, leave the dialog alone, and
   tell the owner in your next message.
@@ -192,6 +195,24 @@ the issues and the release notes, and the same day had the VoiceOver document fo
   [CHANGELOG.md](CHANGELOG.md). Where there is no issue, link the pull request. What changed
   in detail is on the issue.
 
+## Labels
+
+On 2026-10-19 the owner had the open issues sorted with labels: by area, by platform, by the
+kind of work, and for VoiceOver, which a quarter of them were about. Label an issue when you
+file it. `gh label list` gives each label and what it means.
+
+- Give every issue one priority, one `area:` and the kind of work it asks for: `bug`,
+  `enhancement`, `documentation`, `question` for a decision, `verify` to run, hear or check
+  something, and `investigate` to find a cause before a fix is chosen. An issue about how
+  sessions work, or about this file, takes `documentation` and no area.
+- Add `voiceover`, `tables` and `accessibility` wherever they apply.
+- A `platform:` label names the platform whose reader shows the problem, not the Mac a session
+  runs on. Leave it off when both show it.
+- `needs: device` marks what only a physical iPhone or iPad can show
+  ([above](#tests-are-automated)). Hearing what VoiceOver reads is not one of those.
+- When the work changes, change the labels: an investigation that finds its cause becomes a
+  `bug`.
+
 ## Test corpora
 
 EPUBLib is verified with public material only. The corpora are the W3C's own:
@@ -201,11 +222,22 @@ EPUBLib is verified with public material only. The corpora are the W3C's own:
 at pinned commits and prints the variables to set; [testing](doc/testing.md#corpus-runs) says
 what each run checks.
 
+The books are two public collections, which the owner made standard corpora on 2026-10-14:
+50 from [Project Gutenberg](https://www.gutenberg.org) and 50 from
+[Standard Ebooks](https://standardebooks.org), each pinned by SHA-256 in `scripts/corpora`.
+
 - Do not read books from another project's directory on this machine (StudyWright, the
   PDFReflowLib measurements or any other) to test or qualify EPUBLib, and do not record such a
   run in this repository. EPUBLib depends on none of them.
-- `EPUBLIB_CORPUS` is a hook for a directory of EPUB files and names no collection. Leave it
-  unset unless the owner names the directory for the task in hand.
+- `EPUBLIB_CORPUS` is a hook for a directory of EPUB files and names no collection. Point it at
+  `EPUBLIB_GUTENBERG` or `EPUBLIB_STANDARD_EBOOKS`, or at a directory the owner names for the
+  task in hand.
 - The first qualification ([native viewer](doc/native-viewer.md#qualification)) describes a
   run on another project's books. It is history, not a corpus to reproduce.
-- When a task needs real books, ask the owner which public collection to use.
+- When a task needs real books, use these two collections.
+  - Fetch Project Gutenberg only through `scripts/fetch-corpora.sh`, which keeps to its
+    robot-access policy.
+  - Never fetch from standardebooks.org, by any route or user agent. Its robots.txt disallows
+    agents, so the owner runs `scripts/fetch-standard-ebooks.sh`. Use those books only when
+    `scripts/fetch-corpora.sh` verifies them.
+  - Ask the owner before adding another collection.

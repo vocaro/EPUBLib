@@ -3,6 +3,52 @@
 ## Unreleased
 
 - Name the language of each line, heading, link and table cell to VoiceOver on iPhone and iPad, part by part where a line mixes languages ([#65](https://github.com/vocaro/EPUBLib/issues/65)).
+- Separate in text extraction the text of `details`, `summary`, `fieldset`, `legend`, `center`, `form`, `hgroup`, `option` and eight other elements HTML renders as blocks, where it ran into the text beside it ([#90](https://github.com/vocaro/EPUBLib/issues/90)).
+- Write a navigation or stylesheet link as the path the writer checked, so a target spelled with an empty or dot segment, such as `EPUB//one.xhtml`, is no longer written as a link to the container root, a host or a scheme ([#240](https://github.com/vocaro/EPUBLib/issues/240)).
+- Read the title, creators, languages, identifiers and cover of an EPUB 2 package that wraps them in the deprecated `dc-metadata` and `x-metadata` elements, where it opened with none and refused a book with an IDPF-obfuscated font ([#85](https://github.com/vocaro/EPUBLib/issues/85)).
+- Keep an `@import` that follows an invalid rule, such as an unknown at-rule or a style rule with an invalid selector, where it was ignored ([#113](https://github.com/vocaro/EPUBLib/issues/113)).
+- Refuse a `mimetype` source with any byte after `application/epub+zip`, a trailing line end included, which the archive writer wrote into an invalid EPUB when it compared only the first 20 bytes ([#97](https://github.com/vocaro/EPUBLib/issues/97)).
+- Have VoiceOver say the match, its place and the text after it when Next Match, Previous Match or a chosen search result shows it ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
+- Keep the toolbar's search popover open on iPad when a result is chosen in it, and close the search pane or result list only where it is a sheet ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
+- Keep the pages as they are laid out on iPhone and iPad while a keyboard is up, so a search no longer paginates the book again as the keyboard rises and falls ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
+- Show a search result about a third of the way down continuous scroll, with the text before it above, and not at the top ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
+- Lay out a right-to-left list item's first line from the same edge as its wrapped lines, with its marker hanging in the start-side indent, in page text and in table cells ([#276](https://github.com/vocaro/EPUBLib/issues/276)).
+- Resolve `inline-start` and `inline-end` sides of margins, padding, borders, `float` and `clear` against the writing direction, and indent lists and `dd` on their start side, so right-to-left content is indented on the right ([#124](https://github.com/vocaro/EPUBLib/issues/124)).
+- Keep VoiceOver on Mac at the line of a place shown in pages across a resize, a text size or the text built again that comes before anything moves from it, where it went back to the top of the page ([#594](https://github.com/vocaro/EPUBLib/issues/594)).
+- Keep libxml2's messages about a book off the host's standard error, where text extraction still wrote them for a repeated or malformed `xml:id` and every path for bytes a declared encoding cannot decode, and give a host's own libxml2 handlers back after a package document is read ([#392](https://github.com/vocaro/EPUBLib/issues/392)).
+- Start VoiceOver on Mac at the line of a place shown in pages, as a link's target, a search result or a bookmark, where it started at the top of the page ([#383](https://github.com/vocaro/EPUBLib/issues/383)).
+- End the layout of a paragraph TextKit can set on no line once it has asked a thousand times for one of its lines, lay out the rest of the section as if that paragraph had one line more than it set, and disclose the text not shown ([#288](https://github.com/vocaro/EPUBLib/issues/288)).
+- Have VoiceOver on Mac say "text" and not "empty" when a page turns with its cursor on a table of data's row element ([#485](https://github.com/vocaro/EPUBLib/issues/485)).
+- Remove an SVG filter wherever the bundled renderer reads one, after `!important` or a `*` in CSS and in `xlink:filter` among them, in time linear in the CSS ([#253](https://github.com/vocaro/EPUBLib/issues/253)).
+- Read an SVG's CSS by Unicode scalar, so a combining mark after a quote, backslash, comma or bracket hides nothing, and write an embedded font's own family name into it only when nothing in the name can be read as CSS ([#248](https://github.com/vocaro/EPUBLib/issues/248)).
+- Keep VoiceOver in the text on Mac when a page turns with its cursor on a table row's element ([#485](https://github.com/vocaro/EPUBLib/issues/485)).
+- Report a ZIP entry in a method other than stored or Deflate, or whose Deflate stream is damaged, as `EPUBPublicationError.invalidArchive`, whatever size it declares, instead of ZIPFoundation's own error ([#74](https://github.com/vocaro/EPUBLib/issues/74)).
+- Turn the page for VoiceOver reading on by itself past a page's last line on iPhone and iPad, and stop at the book's end ([#468](https://github.com/vocaro/EPUBLib/issues/468)).
+- Keep every line of a table cell narrower than its own indent on a page when its row is split across pages, drawn inside its column, in Copy and in what VoiceOver reads ([#569](https://github.com/vocaro/EPUBLib/issues/569)).
+- Paginate a section whose inline blocks or floats are taller than a page in time linear in their length, with the same pages, where a play set as one inline block per scene took minutes of main-thread work ([#573](https://github.com/vocaro/EPUBLib/issues/573)).
+- Measure every page as it is shown before committing its boundary, and fit the typography fallback to the line it makes, so no character of a section is left on no visible line ([#570](https://github.com/vocaro/EPUBLib/issues/570)).
+- Read as script or style in text extraction's recovery only what the HTML Standard reads as one, so the text after `<script"q>` or a `<script>` in a title, a `textarea` or a comment is kept ([#255](https://github.com/vocaro/EPUBLib/issues/255)).
+- Read the rest of a recovered section after an out-of-place `<html/>`, `<head/>` or `<body/>`, a second body included, instead of truncating or refusing it ([#292](https://github.com/vocaro/EPUBLib/issues/292)).
+- Keep text after a forced break out of the floats beside it, and a box's lines there inside the box ([#362](https://github.com/vocaro/EPUBLib/issues/362)).
+- Plan floats and positioned boxes against the lines the section lays out, so that a page below an indented paragraph with tabs, a caption under its table or an empty paragraph is not pushed off its foot ([#377](https://github.com/vocaro/EPUBLib/issues/377)).
+- Render `::before` and `::after` content with quotes and counters, and disclose what of it is not shown ([#131](https://github.com/vocaro/EPUBLib/issues/131)).
+- Let a book's `prefers-color-scheme` rules change only colours and filters, so a section's characters, positions, search matches and highlights stay the same across an appearance change ([#130](https://github.com/vocaro/EPUBLib/issues/130)).
+- Open a book whose archive directory loses entries without them, and report them in `EPUBPublication.lostEntries` ([#261](https://github.com/vocaro/EPUBLib/issues/261)).
+- Read a ZIP data descriptor's sizes by the form of its own bytes, so stored entries marked version 4.5 over 16-byte descriptors open ([#261](https://github.com/vocaro/EPUBLib/issues/261)).
+- Follow manifest fallbacks for unsupported or scripted content and images while preserving resource identity ([#78](https://github.com/vocaro/EPUBLib/issues/78)).
+- Keep floated and positioned inline text in its authored passage ([#127](https://github.com/vocaro/EPUBLib/issues/127)).
+- Copy authored case and line feeds through typography substitutions and native selections ([#128](https://github.com/vocaro/EPUBLib/issues/128)).
+- Size percentage images against their enclosing figure content box ([#148](https://github.com/vocaro/EPUBLib/issues/148)).
+- Retain strict trailing body content and align recovery comment endings ([#197](https://github.com/vocaro/EPUBLib/issues/197)).
+- Verify box paragraph hits and clearance against drawn lines using signed fragment origins ([#225](https://github.com/vocaro/EPUBLib/issues/225)).
+- Preserve malformed numeric-reference text in extraction and native recovery ([#244](https://github.com/vocaro/EPUBLib/issues/244)).
+- Show cross-document and legacy-anchor notes with consistent table content and navigation ordering ([#257](https://github.com/vocaro/EPUBLib/issues/257)).
+- Memoize filtered sibling positions without silently dropping selectors beyond 1,000 siblings ([#262](https://github.com/vocaro/EPUBLib/issues/262)).
+- Restore SVG foreign names before rendering sections recovered as HTML ([#317](https://github.com/vocaro/EPUBLib/issues/317)).
+
+- Pass over an image or a rule that a book marks `aria-hidden` or with the role `presentation` or `none` for VoiceOver, and keep
+  the image's words for Copy and search ([#408](https://github.com/vocaro/EPUBLib/issues/408)).
+- Keep text that `visibility: hidden` hides in the flow out of what VoiceOver, Copy and search read, while it keeps its room ([#357](https://github.com/vocaro/EPUBLib/issues/357)).
 - Keep combining marks following whitespace in extracted text and alternatives ([#89](https://github.com/vocaro/EPUBLib/issues/89)).
 - Preserve every metadata language and identifier when writing a publication ([#95](https://github.com/vocaro/EPUBLib/issues/95)).
 - Keep compatible XHTML public identifiers on the XML path with working CFIs ([#101](https://github.com/vocaro/EPUBLib/issues/101)).
@@ -12,7 +58,6 @@
 - Keep trailing text and CDATA characters when a section is recovered as HTML ([#237](https://github.com/vocaro/EPUBLib/issues/237)).
 - Read past harmless size declarations on archive directory entries ([#260](https://github.com/vocaro/EPUBLib/issues/260)).
 - Bound SVG font-size values repeatedly resolved by relative lengths ([#443](https://github.com/vocaro/EPUBLib/issues/443)).
-
 - Pack table continuations and following content using the displayed page bounds ([#546](https://github.com/vocaro/EPUBLib/issues/546)).
 - Refuse entity declarations in supported legacy encodings before parsing ([#86](https://github.com/vocaro/EPUBLib/issues/86)).
 - Resolve empty text anchors once when their next text or document end is known ([#92](https://github.com/vocaro/EPUBLib/issues/92)).

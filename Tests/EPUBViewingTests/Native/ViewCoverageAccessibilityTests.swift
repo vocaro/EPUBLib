@@ -425,7 +425,8 @@ import UIKit
                        "one stop for each rule, where it stands, and none for the break after it")
         XCTAssertEqual(ReaderRuleAttachment.spokenName, "Separator")
         XCTAssertFalse(elements.contains { $0.accessibilityTraits.contains(.image) }, "a rule is not a picture")
-        XCTAssertEqual(elements.map(\.accessibilityTraits), [.staticText, [], .staticText, .link, .staticText],
+        // The page's last line turns the page to the next section for VoiceOver reading on.
+        XCTAssertEqual(elements.map(\.accessibilityTraits), [.staticText, [], .staticText, .link, [.staticText, .causesPageTurn]],
                        "nor words of the book; inside a link it is the link")
         for element in elements {
             let frame = element.accessibilityFrameInContainerSpace
@@ -458,6 +459,224 @@ import UIKit
         XCTAssertFalse(elements[0].accessibilityFrameInContainerSpace.isEmpty)
         XCTAssertEqual(view.accessibilityValue, "", "the page has no words")
         XCTAssertEqual((elements[0].accessibilityCustomActions ?? []).map(\.name), ["Next Page", "Previous Page"])
+        XCTAssertTrue(elements[0].accessibilityScroll(.next), "the page is turned from it")
+        XCTAssertEqual((try XCTUnwrap(host.canvas.textViews.first).accessibilityElements as? [UIAccessibilityElement])?.map(described),
+                       ["text \"Next section.\""])
+    }
+    #endif
+
+    // MARK: Images and rules the book keeps from assistive technology
+
+    /// Pictures the book keeps from assistive technology (`aria-hidden="true"`, the role
+    /// `presentation` or `none`), with words and without, in a line, as all a link holds and
+    /// beside words in a link; and two it does not: `aria-hidden="false"`, and a presentational
+    /// role that ARIA ignores for a global ARIA attribute.
+    private func pageOfKeptPictures() throws -> (section: SectionText, host: CanvasHost, view: ReaderTextView) {
+        let section = try BoxLayoutHarness.build("""
+            <p>Ornament <img src="p.png" alt="Ornament words" role="presentation"/> passed.</p>\
+            <p>Quiet <img src="p.png" role="none"/> passed.</p>\
+            <p>Kept <img src="p.png" alt="Kept words" aria-hidden="true"/> passed.</p>\
+            <p>Bare: <a href="two.xhtml"><img src="p.png" alt="Unsaid jump" aria-hidden="true"/></a></p>\
+            <p><a href="three.xhtml"><img src="p.png" alt="Unsaid" role="presentation"/>Jump with an ornament</a></p>\
+            <p>Shown <img src="p.png" alt="Shown words" aria-hidden="false"/> stands.</p>\
+            <p>Named <img src="p.png" alt="Named words" role="presentation" aria-describedby="note"/> stands.</p>
+            """, css: BoxLayoutHarness.reset + "img { width: 20px; height: 20px }",
+            files: ["p.png": RichFixture.image(width: 40, height: 40)])
+        XCTAssertEqual(section.string.string, "Ornament \u{FFFC} passed.\nQuiet \u{FFFC} passed.\nKept \u{FFFC} passed.\n"
+                       + "Bare: \u{FFFC}\n\u{FFFC}Jump with an ornament\nShown \u{FFFC} stands.\nNamed \u{FFFC} stands.")
+        let host = host([section.string], size: CGSize(width: 420, height: 500))
+        let view = try XCTUnwrap(host.canvas.textViews.first)
+        XCTAssertEqual(view.placement.visibleLength, section.string.length, "the section is one page")
+        return (section, host, view)
+    }
+
+    /// What a selection, a copy and a search take: every picture's words, kept from assistive
+    /// technology or not, as a browser copies them.
+    private static let keptPicturesAsText = "Ornament Ornament words passed.\nQuiet  passed.\nKept Kept words passed.\n"
+        + "Bare: Unsaid jump\nUnsaidJump with an ornament\nShown Shown words stands.\nNamed Named words stands."
+
+    func testCopyTakesTheWordsOfAPictureKeptFromAssistiveTechnology() async throws {
+        let (section, host, view) = try pageOfKeptPictures()
+        XCTAssertEqual(view.visibleText, Self.keptPicturesAsText)
+        XCTAssertEqual(section.string.readerPlainText(), Self.keptPicturesAsText, "what a search of the section reads")
+        view.selectedRange = NSRange(location: 0, length: section.string.length)
+        host.canvas.textViewSelectionDidChange(view)
+        try await host.settle()
+        XCTAssertEqual((host.recorder.selections.last ?? nil)?.text, Self.keptPicturesAsText, "the selection a host is told of")
+        #if os(macOS)
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        XCTAssertTrue(view.writeSelection(to: pasteboard, type: .string))
+        XCTAssertEqual(pasteboard.string(forType: .string), Self.keptPicturesAsText)
+        #else
+        let pasteboard = try XCTUnwrap(UIPasteboard(name: UIPasteboard.Name("org.epublib.tests.kept.\(UUID().uuidString)"), create: true))
+        defer { UIPasteboard.remove(withName: pasteboard.name) }
+        view.pasteboard = pasteboard
+        view.copy(nil)
+        XCTAssertEqual(pasteboard.string, Self.keptPicturesAsText)
+        #endif
+    }
+
+    /// Rules the book keeps from assistive technology, one that is all a link holds, and one
+    /// whose presentational role ARIA ignores for a global ARIA attribute.
+    private func pageWithKeptRules() throws -> (section: SectionText, host: CanvasHost, view: ReaderTextView) {
+        let section = try BoxLayoutHarness.build("""
+            <p>First scene ends.</p><hr role="presentation"/><p>Second scene starts.</p><hr aria-hidden="true"/>\
+            <p>Third scene.</p><hr role="none"/><p>Fourth scene.</p><a href="two.xhtml"><hr aria-hidden="true"/></a>\
+            <p>Fifth scene.</p><hr role="presentation" aria-roledescription="scene break"/><p>Last words.</p>
+            """, css: BoxLayoutHarness.reset)
+        XCTAssertEqual(section.string.string, "First scene ends.\n\u{FFFC}\nSecond scene starts.\n\u{FFFC}\nThird scene.\n\u{FFFC}\n"
+                       + "Fourth scene.\n\u{FFFC}\nFifth scene.\n\u{FFFC}\nLast words.")
+        let host = host([section.string, CanvasText.body("Next section.")], size: CGSize(width: 420, height: 800))
+        let view = try XCTUnwrap(host.canvas.textViews.first)
+        XCTAssertEqual(view.placement.visibleLength, section.string.length, "the section is one page")
+        return (section, host, view)
+    }
+
+    #if os(macOS)
+    /// No element stands at a picture the book keeps from assistive technology: its character
+    /// stays in the value, as decoration's does. One that is all its link holds is the link,
+    /// called a picture and nothing else; one beside words in a link leaves the link to them.
+    func testAPictureKeptFromAssistiveTechnologyHasNoElementOnMac() throws {
+        let (section, host, view) = try pageOfKeptPictures()
+        XCTAssertEqual(view.accessibilityValue(), section.string.string, "the characters as they are, so every range matches")
+        let found = try attachmentElements(of: view, in: NSRange(location: 0, length: section.string.length))
+        let text = section.string.string as NSString
+        let bare = NSMaxRange(text.range(of: "Bare: ")), shown = NSMaxRange(text.range(of: "Shown ")), named = NSMaxRange(text.range(of: "Named "))
+        let picture = try XCTUnwrap(NSAccessibility.Role.image.description(with: nil))
+        let read = found.map { location, element in
+            "\(location) \(element.accessibilityRole() == .link ? "link" : "image") "
+                + ((element.accessibilityRole() == .link ? element.accessibilityTitle() : element.accessibilityLabel()) ?? "nil")
+        }
+        XCTAssertEqual(read, ["\(bare) link \(picture)", "\(bare + 2) link nil", "\(shown) image Shown words", "\(named) image Named words"],
+                       "nothing at the three pictures in lines; the link that is a picture alone is a picture without its words")
+        XCTAssertEqual(found.map { ($0.element.accessibilityCustomActions() ?? []).map(\.name) },
+                       [["Inspect Image"], [], ["Inspect Image: Shown words"], ["Inspect Image: Named words"]])
+        XCTAssertEqual(found.map { $0.element.accessibilityHelp() != nil }, [false, false, true, true])
+        XCTAssertTrue(found[0].element.accessibilityPerformPress())
+        XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/two.xhtml"))
+        // The link's own element, among the text's children, is called the same.
+        let links = (view.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityElement }.filter { $0.accessibilityRole() == .link }
+        XCTAssertEqual(links.map { $0.accessibilityTitle() ?? "nil" }, [picture, "Jump with an ornament"])
+    }
+
+    /// No separator stands at a rule the book keeps from assistive technology, and VoiceOver
+    /// is given nothing to stop on there, as at a table row that has nothing to say: its
+    /// character and the break after it are spaces, one for one, and its line is part of the
+    /// line after it. One that is all its link holds is the link, and one whose role ARIA
+    /// ignores is a separator.
+    func testARuleKeptFromAssistiveTechnologyHasNoElementOnMac() throws {
+        let (section, host, view) = try pageWithKeptRules()
+        XCTAssertEqual(view.accessibilityValue(), "First scene ends.\n  Second scene starts.\n  Third scene.\n  Fourth scene.\n\u{FFFC}\n"
+                       + "Fifth scene.\n\u{FFFC}\nLast words.", "a space for each character, so every range matches")
+        XCTAssertEqual(view.accessibilityNumberOfCharacters(), section.string.length)
+        let lines = (0..<6).map { view.accessibilityRange(forLine: $0) }.map { view.accessibilityString(for: $0) ?? "nil" }
+        XCTAssertEqual(lines, ["First scene ends.\n", "  Second scene starts.\n", "  Third scene.\n", "  Fourth scene.\n", "\u{FFFC}\n", "Fifth scene.\n"],
+                       "no line of its own for a rule kept from assistive technology")
+        let found = try attachmentElements(of: view, in: NSRange(location: 0, length: section.string.length))
+        let text = section.string.string as NSString
+        let linked = NSMaxRange(text.range(of: "Fourth scene.\n")), shown = NSMaxRange(text.range(of: "Fifth scene.\n"))
+        XCTAssertEqual(found.map(\.location), [linked, shown], "an element at the rule in a link and at the one ARIA reads, and none at the others")
+        XCTAssertEqual(found[0].element.accessibilityRole(), .link)
+        XCTAssertNil(found[0].element.accessibilityTitle())
+        XCTAssertTrue(found[0].element.accessibilityPerformPress())
+        XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/two.xhtml"))
+        assertIsASeparator(found[1].element, in: view)
+        XCTAssertEqual(view.visibleText, "First scene ends.\n\nSecond scene starts.\n\nThird scene.\n\nFourth scene.\n\nFifth scene.\n\nLast words.")
+    }
+
+    /// A page that holds a rule the book keeps from assistive technology and nothing else has
+    /// its one character, a space with no element: the text area is the element and turns
+    /// the page.
+    func testAPageThatHoldsAKeptRuleAloneHasNoSeparatorOnMac() throws {
+        let section = try BoxLayoutHarness.build("<hr aria-hidden=\"true\"/>", css: BoxLayoutHarness.reset)
+        let host = host([section.string, CanvasText.body("Next section.")])
+        let view = try XCTUnwrap(host.canvas.textViews.first)
+        XCTAssertEqual(view.accessibilityValue(), " ")
+        XCTAssertEqual(view.accessibilityRange(forLine: 0), NSRange(location: 0, length: 1))
+        XCTAssertTrue(try attachmentElements(of: view, in: NSRange(location: 0, length: 1)).isEmpty)
+        XCTAssertEqual(host.canvas.turnPage(forward: true), .turned)
+        XCTAssertEqual(view.accessibilityValue(), "Next section.")
+    }
+
+    /// The column's headings rotor and a heading's element are called by what VoiceOver is
+    /// given: no words of a picture the book keeps from it.
+    func testAHeadingIsNotCalledByTheWordsOfAKeptPictureOnMac() throws {
+        let section = try BoxLayoutHarness.build("<h1>Opening <img src=\"p.png\" alt=\"Kept words\" aria-hidden=\"true\"/> words</h1><p>Body.</p>",
+            css: BoxLayoutHarness.reset + "img { width: 20px; height: 20px }", files: ["p.png": RichFixture.image(width: 40, height: 40)])
+        let host = host([section.string])
+        let view = try XCTUnwrap(host.canvas.textViews.first)
+        let headings = (view.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityElement }.filter { $0.accessibilityRole() != .link }
+        XCTAssertEqual(headings.compactMap { $0.accessibilityLabel() }, ["Opening words"])
+        XCTAssertEqual(view.visibleText, "Opening Kept words words\nBody.", "Copy takes the picture's words")
+    }
+    #else
+    func testAPictureKeptFromAssistiveTechnologyHasNoElementAndAddsNoWords() throws {
+        let (_, host, view) = try pageOfKeptPictures()
+        let elements = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
+        XCTAssertEqual(elements.map(described), [
+            "text \"Ornament  passed.\n\"",
+            "text \"Quiet  passed.\n\"",
+            "text \"Kept  passed.\n\"",
+            "text \"Bare: \"", "link+image nil",
+            "link \"Jump with an ornament\"",
+            "text \"Shown \"", "image+text \"Shown words\"", "text \" stands.\n\"",
+            "text \"Named \"", "image+text \"Named words\"", "text \" stands.\"",
+        ], "a line with such a picture in it is one element, without its words; one that is all its link holds is the link, without a name")
+        for element in elements {
+            let frame = element.accessibilityFrameInContainerSpace
+            XCTAssertFalse(frame.isNull || frame.isEmpty, described(element))
+        }
+        for (index, href) in [(4, "two"), (5, "three")] {
+            XCTAssertTrue(elements[index].accessibilityActivate(), href)
+            XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/\(href).xhtml"))
+        }
+        let inspections = elements.map { ($0.accessibilityCustomActions ?? []).map(\.name).filter { $0.hasPrefix("Inspect Image") } }
+        XCTAssertEqual(inspections, [[], [], [], [], ["Inspect Image"], [], [], ["Inspect Image: Shown words"], [], [],
+                                     ["Inspect Image: Named words"], []])
+        XCTAssertFalse(elements[2].accessibilityActivate(), "a line with such a picture in it opens nothing")
+        XCTAssertNil(host.canvas.imageInspector)
+        XCTAssertEqual(view.accessibilityValue, "Ornament  passed.\nQuiet  passed.\nKept  passed.\nBare: \nJump with an ornament\n"
+                       + "Shown Shown words stands.\nNamed Named words stands.", "the page as VoiceOver is given it")
+    }
+
+    /// A page of pictures kept from assistive technology alone lists them, as decoration alone
+    /// is listed, so that VoiceOver has a place to turn the page from: as images without a name.
+    func testAPageOfKeptPicturesAloneListsThemWithoutTheirWords() throws {
+        let section = try BoxLayoutHarness.build("<p><img src=\"p.png\" alt=\"Kept words\" aria-hidden=\"true\"/></p><p><img src=\"p.png\" role=\"none\"/></p>",
+            css: BoxLayoutHarness.reset + "img { display: block; width: 120px }", files: ["p.png": RichFixture.image(width: 240, height: 80)])
+        let host = host([section.string, CanvasText.body("Next section.")])
+        let view = try XCTUnwrap(host.canvas.textViews.first)
+        let elements = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
+        XCTAssertEqual(elements.map(described), ["image+text nil", "image+text nil"])
+        XCTAssertEqual((elements[0].accessibilityCustomActions ?? []).map(\.name), ["Next Page", "Previous Page", "Inspect Image"])
+        XCTAssertTrue(elements[0].accessibilityScroll(.next), "the page is turned from it")
+        XCTAssertEqual((try XCTUnwrap(host.canvas.textViews.first).accessibilityElements as? [UIAccessibilityElement])?.map(described),
+                       ["text \"Next section.\""])
+    }
+
+    /// No stop stands at a rule the book keeps from assistive technology. One that is all its
+    /// link holds is the link, and one whose role ARIA ignores is a separator.
+    func testARuleKeptFromAssistiveTechnologyIsNoStop() throws {
+        let (_, host, view) = try pageWithKeptRules()
+        let elements = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
+        XCTAssertEqual(elements.map(described), [
+            "text \"First scene ends.\n\"", "text \"Second scene starts.\n\"", "text \"Third scene.\n\"", "text \"Fourth scene.\n\"",
+            "link \"Separator\"", "text \"Fifth scene.\n\"", " \"Separator\"", "text \"Last words.\"",
+        ], "no stop for the three rules kept from assistive technology, nor for the breaks after them")
+        XCTAssertTrue(elements[4].accessibilityActivate(), "a link that holds a kept rule alone is followed")
+        XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/two.xhtml"))
+        XCTAssertEqual((elements[6].accessibilityCustomActions ?? []).map(\.name), ["Next Page", "Previous Page"])
+    }
+
+    /// A page that holds a rule the book keeps from assistive technology and nothing else lists
+    /// it, as decoration alone is listed: VoiceOver has no other place to turn the page from.
+    func testAPageThatHoldsAKeptRuleAloneIsTurnedFromIt() throws {
+        let section = try BoxLayoutHarness.build("<hr role=\"presentation\"/>", css: BoxLayoutHarness.reset)
+        let host = host([section.string, CanvasText.body("Next section.")])
+        let view = try XCTUnwrap(host.canvas.textViews.first)
+        let elements = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
+        XCTAssertEqual(elements.map(described), [" \"Separator\""])
         XCTAssertTrue(elements[0].accessibilityScroll(.next), "the page is turned from it")
         XCTAssertEqual((try XCTUnwrap(host.canvas.textViews.first).accessibilityElements as? [UIAccessibilityElement])?.map(described),
                        ["text \"Next section.\""])

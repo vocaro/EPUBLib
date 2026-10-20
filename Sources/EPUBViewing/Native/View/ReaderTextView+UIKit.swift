@@ -367,6 +367,12 @@ final class ReaderTextView: UITextView {
     /// Every line and every table cell listed, in reading order.
     private var lineAccessibilityElements: [ReaderPageAccessibilityElement] { accessibilityList.elements }
 
+    /// The item VoiceOver reads last in a page column: its last line, or the last cell of a
+    /// data table that ends the page.
+    fileprivate var lastAccessibilityItem: ReaderPageAccessibilityElement? {
+        isPageColumn ? pageAccessibilityElements.elements.last : nil
+    }
+
     /// What the view lists: its lines, a table's cells inside an element for the table, and
     /// after them a stand-in for each of the scroll view's own bars.
     private var listedAccessibilityElements: [NSObject] { accessibilityList.listed + (scrollBarListed as [NSObject]) }
@@ -559,6 +565,7 @@ final class ReaderTextView: UITextView {
 
     /// An assistive technology's cursor came to `element`, a line of this view.
     fileprivate func accessibilityCursorMoved(to element: ReaderPageAccessibilityElement) {
+        if let canvas, canvas.accessibilityCursorAtTurn !== element { canvas.accessibilityCursorAtTurn = nil }
         if isPageColumn { pageAccessibilityCursor = element }
         guard isCanvasScrollView else { return }
         accessibilityCursor = element
@@ -584,6 +591,9 @@ final class ReaderTextView: UITextView {
                   (focused as? ReaderScrollBarAccessibilityElement)?.view !== self else { return }
             followsText = isCanvasScrollView && accessibilityOrderPutsAfterLines(focused)
         }
+        if let canvas, notification.userInfo?[UIAccessibility.focusedElementUserInfoKey] as AnyObject? !== canvas.accessibilityCursorAtTurn {
+            canvas.accessibilityCursorAtTurn = nil
+        }
         pageAccessibilityCursor = nil
         accessibilityCursor = nil
         accessibilityCursorFollowsText = followsText
@@ -601,11 +611,12 @@ final class ReaderTextView: UITextView {
     /// One element for each line, except where a link or attachment needs its own, and one for
     /// a heading's text however many lines it takes: VoiceOver reads it whole, says it is a
     /// heading once and stops on it once when it moves by heading. An image the book marks as
-    /// decoration has none, unless nothing on the page can be read without it, or nothing on
-    /// screen in continuous scroll: a page or a screen that holds decoration alone would leave
-    /// VoiceOver no place there to turn the page or read on from, so its images are listed, as
-    /// images without a name.
-    /// A rule always has one, so a page that holds a rule alone is turned from the rule.
+    /// decoration has none, and nor has an image or a rule the book keeps from assistive
+    /// technology, unless nothing on the page can be read without it, or nothing on screen in
+    /// continuous scroll: a page or a screen that holds such attachments alone would leave
+    /// VoiceOver no place there to turn the page or read on from, so they are listed, images
+    /// as images without a name and rules as separators.
+    /// Any other rule has one, so a page that holds such a rule alone is turned from the rule.
     private func accessibilityElements(for lines: [ReaderVisualLine],
                                        reusing existing: [ReaderPageAccessibilityElement]) -> [ReaderPageAccessibilityElement] {
         let elements = accessibilityElements(for: lines, reusing: existing, passingOverDecoration: true)
@@ -655,7 +666,8 @@ final class ReaderTextView: UITextView {
                     // The line before this one gave the same heading.
                     if let last = elements.last, last.range == range, last.url == url { continue }
                 }
-                var label: String? = plainText(in: range)
+                // What VoiceOver is given: an image the book keeps from it adds no words.
+                var label: String? = spokenText(in: range)
                 // The break after an attachment that ends its paragraph is a run of its own
                 // with nothing to say, and so is decoration between two of them: no element,
                 // or VoiceOver stops on silence.
@@ -673,8 +685,10 @@ final class ReaderTextView: UITextView {
                 let element = existing.first { !$0.isCell && $0.range == range && $0.url == url }
                     ?? ReaderPageAccessibilityElement(view: self, range: range, url: url)
                 element.image = attachment as? ReaderImageAttachment
+                element.rule = attachment as? ReaderRuleAttachment
                 // The languages the words are in. A rule's name is the reader's word, in no
-                // language of the book's.
+                // language of the book's, whether the book keeps the rule from assistive
+                // technology or not.
                 var languages: ReaderSpokenLanguages?
                 if attachment is ReaderRuleAttachment {
                     // A rule is a break between what stands before it and what follows:
@@ -689,8 +703,10 @@ final class ReaderTextView: UITextView {
                     if attachment != nil {
                         if !isSpoken { traits.insert(.image) }
                         // An image without words is an image and no more: the trait says so, in
-                        // VoiceOver's own language, and the reader makes up no name for it.
-                        if let image = attachment as? ReaderImageAttachment { label = image.alt.isEmpty ? nil : image.alt }
+                        // VoiceOver's own language, and the reader makes up no name for it. Nor
+                        // does it give the words of one the book keeps from assistive technology,
+                        // listed all the same as all its link holds or all a page holds.
+                        if let image = attachment as? ReaderImageAttachment { label = image.spokenAlt.isEmpty ? nil : image.spokenAlt }
                     }
                     // Words in the language their characters carry. A formula's reading has its
                     // own voice, the book's language or the generator's, and a hidden label
@@ -720,13 +736,15 @@ final class ReaderTextView: UITextView {
     }
 
     /// The attachment an element is made for at `range`, or nil. Decoration that is passed
-    /// over is part of the text it stands in, with nothing to say; one that was listed keeps
-    /// its element while the cursor is on it.
+    /// over, or an image or a rule the book keeps from assistive technology, is part of the
+    /// text it stands in, with nothing to say; one that was listed keeps its element while
+    /// the cursor is on it.
     private func listedAttachment(_ attributes: [NSAttributedString.Key: Any], at range: NSRange,
                                   passingOverDecoration: Bool) -> NSTextAttachment? {
         let attachment = attributes[.attachment] as? NSTextAttachment
-        if passingOverDecoration, let image = attachment as? ReaderImageAttachment, isPassedOver(image, at: range),
-           accessibilityCursor?.image !== image || accessibilityCursor?.range != range { return nil }
+        if passingOverDecoration, let attachment, attachment is ReaderImageAttachment || attachment is ReaderRuleAttachment,
+           isPassedOver(attachment, at: range),
+           (accessibilityCursor?.image ?? accessibilityCursor?.rule) !== attachment || accessibilityCursor?.range != range { return nil }
         return attachment
     }
 
@@ -823,7 +841,7 @@ final class ReaderTextView: UITextView {
 
     // VoiceOver reads the page, not the clipped context after it, with attachments as their text.
     override var accessibilityValue: String? {
-        get { isPageColumn ? visibleText : super.accessibilityValue }
+        get { isPageColumn ? spokenText(in: shownCharacters) : super.accessibilityValue }
         set { super.accessibilityValue = newValue }
     }
 
@@ -935,12 +953,14 @@ private struct ReaderAccessibilityList {
     var position: ReaderTextPosition?
     /// The image the element stands for, when it is one.
     var image: ReaderImageAttachment?
+    /// The rule the element stands for, when it is one.
+    var rule: ReaderRuleAttachment?
     // Page and scroll lists retain their elements. A raster failure discovered after
     // listing must expose the retained drawing's fallback on that same element.
     override var accessibilityLabel: String? {
         get {
             if let image, image.source.hasFailedSVGRendering {
-                return image.alt.isEmpty ? nil : image.alt
+                return image.spokenAlt.isEmpty ? nil : image.spokenAlt
             }
             if isCell, images.contains(where: { $0.source.hasFailedSVGRendering }) {
                 // Re-read the exact fragments listed for this cell. Their token-start
@@ -1038,6 +1058,7 @@ private struct ReaderAccessibilityList {
         url = line.url
         position = line.position
         image = line.image
+        rule = line.rule
         table = line.table
         cell = line.cell
         images = line.images
@@ -1130,9 +1151,27 @@ private struct ReaderAccessibilityList {
     }
 
     // VoiceOver says "Selected" of such an item whenever it comes to it, in its own language.
+    // The page's last item turns the page when VoiceOver reads on past it by itself
+    // (`ReaderCanvasView.accessibilityPageTurnColumn`). Both are asked of the reader each time,
+    // never kept: the item under VoiceOver's cursor goes on as another line when the page turns
+    // (`stand(for:)`).
     override var accessibilityTraits: UIAccessibilityTraits {
-        get { holdsSelection ? super.accessibilityTraits.union(.selected) : super.accessibilityTraits }
-        set { super.accessibilityTraits = newValue.subtracting(.selected) }
+        get {
+            var traits = super.accessibilityTraits
+            if holdsSelection { traits.insert(.selected) }
+            if turnsThePage { traits.insert(.causesPageTurn) }
+            return traits
+        }
+        set { super.accessibilityTraits = newValue.subtracting([.selected, .causesPageTurn]) }
+    }
+
+    /// Whether this is the last item of the column that turns the page for VoiceOver reading on.
+    /// While VoiceOver's cursor is where a turn it made itself left it, no other item is
+    /// (`ReaderCanvasView.accessibilityCursorAtTurn`).
+    private var turnsThePage: Bool {
+        guard let view, view.isPageColumn, view.lastAccessibilityItem === self, let canvas = view.canvas,
+              canvas.accessibilityCursorAtTurn.map({ $0 === self }) ?? true else { return false }
+        return canvas.accessibilityPageTurnColumn === view
     }
 
     /// An action of a table's cell as VoiceOver is given it. VoiceOver keeps what an item says
@@ -1165,7 +1204,7 @@ private struct ReaderAccessibilityList {
             // contains the item, and the text view and the reader around it have none.
             var actions = pageActions(of: view)
             actions += (isCell ? images : image.map { [$0] } ?? view.announcedImages(in: range).map(\.image)).map { image in
-                UIAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") { [weak view] _ in
+                UIAccessibilityCustomAction(name: image.spokenAlt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.spokenAlt)") { [weak view] _ in
                     guard let canvas = view?.canvas else { return false }
                     canvas.inspectImage(image)
                     return true

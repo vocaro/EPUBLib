@@ -328,6 +328,104 @@ import UIKit
         XCTAssertGreaterThanOrEqual(right.frame.minY, 79, "below the left float it clears")
     }
 
+    // MARK: Forced breaks
+
+    /// After a forced break the margin above a box is its first paragraph's spacing before, and
+    /// the section's layout sets the box's lines below it. Measured on its own the box had no
+    /// such spacing: the plan put the box at the top of the margin and the text after it a
+    /// margin higher than drawn. That text, set beside the narrow float in the plan, was drawn
+    /// across the wide float under it (#362, seen as a drop-cap paragraph). Neither a line nor
+    /// a box's text may cross an earlier float, in the section or on a page.
+    func testTextAfterABoxAtAForcedBreakStaysOutOfEarlierFloats() throws {
+        let wide = "Wide float words, enough of them to fill three of its lines."
+        let floats = "<figure class='n'>Narrow.</figure><figure class='w'>\(wide)</figure>"
+        let css = ".n { float:left; width:60px; height:40px } .w { float:left; width:250px; height:100px } .d { float:left; font-size:2em } "
+            + ".b { float:right; width:80px; height:40px; margin-top:60px; break-before:page } .under { float:left }"
+        for (label, body, boxes, opening) in [
+            ("prose", "<figure class='b'>Broken.</figure><p>Prose follows. \(H.prose)</p>", ["Broken."], "Prose follows. "),
+            ("drop cap", "<figure class='b'>Broken.</figure><p><span class='d'>D</span>rop cap. \(H.prose)</p>", ["Broken.", "D"], "rop cap. "),
+            ("pushed below", "<figure class='b under'>Broken.</figure><p>Prose follows. \(H.prose)</p>", ["Broken."], "Prose follows. "),
+        ] {
+            let (section, view) = try layout(floats + body, css: css)
+            var regions: [ReaderBoxGeometry.Region] = []
+            for phrase in ["Narrow.", wide] + boxes {
+                let region = try XCTUnwrap(H.region(phrase, in: section, view: view), "\(label): \(phrase)")
+                for ink in H.ink(phrase, in: section, view: view) {
+                    XCTAssertTrue(region.frame.insetBy(dx: -1, dy: -1).contains(ink), "\(label): \(phrase) \(ink) is drawn in its region \(region.frame)")
+                }
+                regions.append(region)
+            }
+            let paragraph = H.range(opening + H.prose, in: section)
+            XCTAssertFalse(H.overlaps(H.ink(opening + H.prose, in: section, view: view), regions.map(\.frame)),
+                           "\(label): no line of the paragraph crosses a float")
+            XCTAssertEqual(paragraph.upperBound, section.string.length, label)
+            XCTAssertEqual(view.visibleText, section.string.string, label)
+            XCTAssertEqual(Self.proseOverBoxText(in: view), [], label)
+            let (paginator, pages) = H.pages(section, size: size, label)
+            for page in pages {
+                XCTAssertEqual(Self.proseOverBoxText(in: H.pageView(paginator, page: page)), [], "\(label): page at \(page.range.location)")
+            }
+        }
+    }
+
+    /// A paragraph after a forced break keeps the margin above it too, and the plan has its lines
+    /// below that margin. TextKit proposes the first line there, and the container took that
+    /// place for where the margin starts: it wrapped the lines a margin higher than they are
+    /// drawn, beside the narrow float, and drew them across the wide one under it (#362).
+    func testAParagraphAtAForcedBreakWrapsWhereItsLinesAreDrawn() throws {
+        let wide = "Wide float words, enough of them to fill three of its lines."
+        let (section, view) = try layout("<figure class='n'>Narrow.</figure><figure class='w'>\(wide)</figure><p class='f'>Forced paragraph. \(H.prose)</p>",
+            css: ".n { float:left; width:60px; height:40px } .w { float:left; width:250px; height:100px } .f { margin-top:30px; break-before:page }")
+        let regions = try ["Narrow.", wide].map { try XCTUnwrap(H.region($0, in: section, view: view)) }
+        let lines = H.lines(in: view, intersecting: H.range("Forced paragraph.", in: section))
+        let first = try XCTUnwrap(lines.first).frame
+        XCTAssertEqual(first.minY, 30, accuracy: 0.5, "the paragraph keeps its margin")
+        XCTAssertGreaterThanOrEqual(first.minX, regions[1].frame.maxX - 0.5, "its first line is beside the wide float it is drawn beside")
+        XCTAssertFalse(H.overlaps(H.ink("Forced paragraph. " + H.prose, in: section, view: view), regions.map(\.frame)))
+        XCTAssertEqual(Self.proseOverBoxText(in: view), [])
+        let (paginator, pages) = H.pages(section, size: size)
+        for page in pages {
+            XCTAssertEqual(Self.proseOverBoxText(in: H.pageView(paginator, page: page)), [], "page at \(page.range.location)")
+        }
+    }
+
+    /// A forced break before a float changes where pages break and nothing else: the margin above
+    /// the float is in the flow before it, as before a paragraph (#192), and the section is laid
+    /// out as it is with the break unforced, where that margin ends the paragraph before.
+    func testAForcedBreakBeforeAFloatLeavesTheSectionsLayoutAsItIsWithoutIt() throws {
+        func arrangement(forced: Bool) throws -> (regions: [CGRect], lines: [CGRect]) {
+            let (section, view) = try layout("<p>Lead words.</p><figure class='b'>Broken.</figure><p>Prose follows. \(H.prose)</p>",
+                css: ".b { float:right; width:80px; height:40px; margin-top:60px\(forced ? "; break-before:page" : "") }")
+            return (view.readerContainer.boxRegions.filter { !$0.reserved }.map(\.frame), H.lines(in: view).map(\.frame))
+        }
+        let unforced = try arrangement(forced: false), forced = try arrangement(forced: true)
+        XCTAssertEqual(forced.regions.count, 1)
+        XCTAssertEqual(forced.regions.map(\.minY), unforced.regions.map(\.minY))
+        XCTAssertEqual(forced.lines.count, unforced.lines.count)
+        for (line, other) in zip(forced.lines, unforced.lines) {
+            XCTAssertEqual(line.minY, other.minY, accuracy: 0.01)
+            XCTAssertEqual(line.minX, other.minX, accuracy: 0.01)
+        }
+    }
+
+    /// Lines of text outside every box that `view` draws over a box's text, by their source ranges.
+    private static func proseOverBoxText(in view: ReaderTextView) -> [NSRange] {
+        guard let page = view.readerContainer.boxPage else { return [] }
+        let regions = page.geometry.regions.filter { !$0.reserved }
+        guard let text = view.contentStorage.textStorage?.string as NSString? else { return [] }
+        var boxes: [CGRect] = [], prose: [(NSRange, [CGRect])] = []
+        for line in H.lines(in: view) {
+            var part = line.range
+            while part.length > 0, let scalar = UnicodeScalar(text.character(at: part.location)), CharacterSet.whitespacesAndNewlines.contains(scalar) { part.location += 1; part.length -= 1 }
+            while part.length > 0, let scalar = UnicodeScalar(text.character(at: part.upperBound - 1)), CharacterSet.whitespacesAndNewlines.contains(scalar) { part.length -= 1 }
+            guard part.length > 0 else { continue }
+            let ink = view.segmentFrames(for: part)
+            let source = NSRange(location: line.range.location + page.offset, length: line.range.length)
+            if regions.contains(where: { NSIntersectionRange($0.range, source).length > 0 }) { boxes += ink } else { prose.append((source, ink)) }
+        }
+        return prose.filter { H.overlaps($0.1, boxes) }.map(\.0)
+    }
+
     // MARK: Containing block
 
     /// CSS 2.2 9.5 and 10.1: a float moves to the edge of its containing block, the content box
@@ -386,7 +484,6 @@ import UIKit
     /// CSS Logical Properties 1, 3.1: `inline-start` and `inline-end` map to left and right by
     /// the containing block's direction.
     func testFloatInlineStartAndInlineEndFollowTheWritingDirection() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/124")
         let css = "figure { width:100px; height:40px } .s { float:inline-start } .e { float:inline-end }"
         let (ltr, ltrView) = try layout("<figure class='s'>Start box.</figure><figure class='e'>End box.</figure><p>\(H.prose)</p>", css: css)
         XCTAssertEqual(try XCTUnwrap(H.region("Start box.", in: ltr, view: ltrView)).frame.minX, 0, accuracy: 0.5)
@@ -417,21 +514,26 @@ import UIKit
     /// CSS 2.2 10.3.5: an auto-width float is shrink-to-fit, its widest content. The reader's
     /// centred `figcaption` contributes its text width rather than the measuring column's width.
     func testAnAutoWidthFloatedFigureWithACaptionShrinksToItsContent() throws {
-        let (section, view) = try layout("<figure><img src='picture.png' alt='Pic'/><figcaption>Caption text.</figcaption></figure><p>\(H.prose)</p>",
+        let (section, view) = try layout("<figure><img id='image' src='picture.png' alt='Pic'/><figcaption>Caption text.</figcaption></figure><p>\(H.prose)</p>",
                                          css: "figure { float:left } img { width:120px; height:80px }",
                                          files: ["picture.png": RichFixture.image(width: 240, height: 160)])
         let region = try XCTUnwrap(H.region("Caption text.", in: section, view: view))
         XCTAssertLessThan(H.frame("Caption text.", in: section, view: view).width, 119, "the image is the widest content")
         XCTAssertEqual(region.frame.width, 120, accuracy: 2, "the figure is as wide as its 120-point image")
+        let imageOffset = try XCTUnwrap(section.anchors["image"])
+        let image = try XCTUnwrap(view.segmentFrames(for: NSRange(location: imageOffset, length: 1)).first)
+        XCTAssertEqual(image.width, 120, accuracy: 1)
+        XCTAssertEqual(image.height, 80, accuracy: 1)
+        XCTAssertGreaterThanOrEqual(image.minX, region.frame.minX - 0.5)
+        XCTAssertLessThanOrEqual(image.maxX, region.frame.maxX + 0.5)
         let lines = proseLines(H.prose, around: region, in: section, view: view)
         XCTAssertFalse(lines.beside.isEmpty, "prose wraps beside the figure")
         XCTAssertTrue(lines.beside.allSatisfy { $0.minX >= 119 }, "\(lines.beside)")
     }
 
     /// CSS 2.2 10.2: a percentage width refers to the containing block, here the float's 160-point
-    /// content box. The image is sized against the whole column instead and leaves the float.
+    /// content box, including the preliminary attachment proposal before its line is clipped.
     func testAPercentageWidthImageInsideASizedFloatIsSizedByTheFloat() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/148")
         let column = CGSize(width: 400, height: 600)
         for declaration in ["width:100%", "max-width:100%"] {
             let (section, view) = try layout("<figure><img id='image' src='picture.png' alt='Pic'/><figcaption>Caption text.</figcaption></figure><p>\(H.prose)</p>",
@@ -445,6 +547,65 @@ import UIKit
             let region = try XCTUnwrap(H.region("Caption text.", in: section, view: view), declaration)
             XCTAssertEqual(region.frame.minX, 240, accuracy: 1, declaration)
             XCTAssertLessThanOrEqual(region.frame.maxX, 400.5, declaration)
+        }
+    }
+
+    func testPreliminaryAttachmentProposalUsesContentWidthAndRetainsViewportUnits() {
+        let viewport = CGSize(width: 400, height: 600)
+        let container = ReaderTextContainer(size: viewport)
+        container.viewportSize = viewport
+        container.boxOverride = CGRect(x: 240, y: 0, width: 160, height: 200)
+        let line = ReaderAttachment.Line(container: container, fragment: CGRect(origin: .zero, size: viewport),
+                                         position: .zero, font: nil, characterIndex: 0)
+        XCTAssertEqual(line.width, 160)
+        XCTAssertEqual(line.viewport, viewport)
+        var sizing = ImageSizing(intrinsic: CGSize(width: 600, height: 400))
+        sizing.width = .percent(100)
+        XCTAssertEqual(sizing.size(lineWidth: line.available, viewport: line.viewport, heightLimit: line.viewport.height).width, 160)
+        sizing.width = .viewportWidth(10)
+        XCTAssertEqual(sizing.size(lineWidth: line.available, viewport: line.viewport, heightLimit: line.viewport.height).width, 40,
+                       "viewport units retain the 400-point page, rather than the 160-point figure")
+    }
+
+    func testPercentageImagesResolveInsidePositionedAndInlineBlockFigures() throws {
+        let column = CGSize(width: 400, height: 600)
+        for box in ["position:absolute; left:30px; top:0; width:40%", "display:inline-block; width:40%"] {
+            for declaration in ["width:100%", "max-width:100%", "width:50%", "max-width:50%"] {
+                let expected: CGFloat = declaration.contains("50%") ? 80 : 160
+                let (section, view) = try layout("<figure><img id='image' src='picture.png' alt='Pic'/><figcaption>Caption.</figcaption></figure><p>\(H.prose)</p>",
+                    css: "figure { \(box) } img { \(declaration) }", size: column,
+                    files: ["picture.png": RichFixture.image(width: 600, height: 400)])
+                let offset = try XCTUnwrap(section.anchors["image"])
+                let image = try XCTUnwrap(view.segmentFrames(for: NSRange(location: offset, length: 1)).first)
+                let region = try XCTUnwrap(H.region("Caption.", in: section, view: view))
+                XCTAssertEqual(image.width, expected, accuracy: 1.5, "\(box); \(declaration)")
+                XCTAssertEqual(image.height, expected * 2 / 3, accuracy: 2)
+                XCTAssertGreaterThanOrEqual(image.minX, region.frame.minX - 1)
+                XCTAssertLessThanOrEqual(image.maxX, region.frame.maxX + 1)
+                XCTAssertEqual(region.contentFrame?.width ?? region.frame.width, 160, accuracy: 1.5)
+            }
+        }
+    }
+
+    func testAutoWidthFiguresUseNaturalImagesAndAlignedCaptionAdvances() throws {
+        for alignment in ["left", "center", "right"] {
+            for declaration in ["", "width:100%", "max-width:100%"] {
+                let (section, view) = try layout("<figure><img id='image' src='picture.png' alt='Pic'/><figcaption>Cap.</figcaption></figure><p>\(H.prose)</p>",
+                    css: "figure { float:left } figcaption { text-align:\(alignment) } img { \(declaration) }",
+                    files: ["picture.png": RichFixture.image(width: 120, height: 80)])
+                let region = try XCTUnwrap(H.region("Cap.", in: section, view: view))
+                let offset = try XCTUnwrap(section.anchors["image"])
+                let image = try XCTUnwrap(view.segmentFrames(for: NSRange(location: offset, length: 1)).first)
+                XCTAssertEqual(region.frame.width, 120, accuracy: 2, "\(alignment); \(declaration)")
+                XCTAssertEqual(image.width, 120, accuracy: 1.5)
+                XCTAssertEqual(image.height, 80, accuracy: 1.5)
+                let caption = H.frame("Cap.", in: section, view: view)
+                XCTAssertGreaterThanOrEqual(caption.minX, region.frame.minX - 1)
+                XCTAssertLessThanOrEqual(caption.maxX, region.frame.maxX + 1)
+                let lines = proseLines(H.prose, around: region, in: section, view: view)
+                XCTAssertFalse(lines.beside.isEmpty)
+                XCTAssertTrue(lines.beside.allSatisfy { $0.minX >= 119 })
+            }
         }
     }
 

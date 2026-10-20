@@ -373,6 +373,7 @@ final class CSSCascadeTextCoverageTests: XCTestCase {
         XCTAssertEqual(style.textAlign, .center)
         let sheet = CSSStyleSheet.parse(css, path: "OPS/a.css")
         XCTAssertFalse(sheet.truncated)
-        XCTAssertEqual(sheet.rules.first?.declarations.map(\.property), [.color, .marginLeft, .textIndent, .fontWeight, .textAlign])
+        // `quotes` and `content` are in it now: they generate content (#131).
+        XCTAssertEqual(sheet.rules.first?.declarations.map(\.property), [.color, .marginLeft, .textIndent, .fontWeight, .quotes, .content, .textAlign])
     }
 }

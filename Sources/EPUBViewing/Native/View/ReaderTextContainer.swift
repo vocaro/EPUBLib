@@ -32,11 +32,18 @@ final class ReaderTextContainer: NSTextContainer {
     /// are from this container's at its first line (`lineFragmentRect`).
     private var planned: (paragraph: Int, shift: CGFloat)?
     var hasNonlinearGeometry: Bool { boxPage != nil || !boxRegions.isEmpty }
+    /// The box plan measures its paragraphs in this container (`ReaderBoxLayout.measure`), and
+    /// must measure them as the planned text is laid out: by this container, never on TextKit's
+    /// rectangular path, even before the text's first box. That path applies a paragraph's
+    /// indents itself, and its tabs, list markers and attachments land elsewhere and its lines
+    /// break elsewhere, so a plan measured there is out from the layout below such a paragraph
+    /// by the difference, as far as pushing a page's lines below its foot (#377).
+    var measuresBoxPlan = false
 
     // The default becomes false merely because lineFragmentRect is overridden. Ordinary
     // sections remain rectangular and must retain TextKit's fast viewport/paragraph layout.
     override var isSimpleRectangularTextContainer: Bool {
-        !hasNonlinearGeometry && !needsIndentClamping && boxOverride == nil && boxColumn == nil
+        !hasNonlinearGeometry && !measuresBoxPlan && !needsIndentClamping && boxOverride == nil && boxColumn == nil
             && exclusionPaths.isEmpty && maximumNumberOfLines == 0
     }
 
@@ -63,7 +70,48 @@ final class ReaderTextContainer: NSTextContainer {
         let font = layoutText.flatMap { text in
             index >= 0 && index < text.length ? text.attribute(.font, at: index, effectiveRange: nil) as? PlatformFont : nil
         }
-        return min(width, max(1, (font?.pointSize ?? 16) * 2))
+        return Self.minimumLineWidth(font: font, width: width)
+    }
+
+    private static func minimumLineWidth(font: PlatformFont?, width: CGFloat) -> CGFloat {
+        min(width, max(1, (font?.pointSize ?? 16) * 2))
+    }
+
+    /// The text a table cell lays out with TextKit 1 in a column `width` wide
+    /// (`TableCellLayout`, and `TableCellTextView` over the same text). TextKit 1 applies a
+    /// paragraph's indents itself, so where they consume the column it set each glyph on a line
+    /// of its own past the column's edge, with no used rect: the cell measured its first line
+    /// alone, and the rest were on no page once its row was split (#569). Such a paragraph keeps
+    /// the glyph-wide column `lineInsets` leaves it in TextKit 2, keeping its left indent first
+    /// as that does, with its tab stops inside the column as
+    /// `textContentStorage(_:textParagraphWith:)` keeps them.
+    static func clampingExhaustedIndents(in text: NSAttributedString, width: CGFloat) -> NSAttributedString {
+        var result: NSMutableAttributedString?
+        text.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: text.length)) { value, range, _ in
+            guard let style = value as? NSParagraphStyle else { return }
+            var first = max(0, style.firstLineHeadIndent), head = max(0, style.headIndent)
+            var tail = max(0, style.tailIndent <= 0 ? -style.tailIndent : width - style.tailIndent)
+            guard max(first, head) + tail >= width else { return }
+            let font = text.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont
+            let available = max(0, width - minimumLineWidth(font: font, width: width))
+            if style.baseWritingDirection == .rightToLeft {
+                tail = min(tail, available)
+                first = min(first, available - tail); head = min(head, available - tail)
+            } else {
+                first = min(first, available); head = min(head, available)
+                tail = min(tail, available - max(first, head))
+            }
+            let clamped = style.mutableCopy() as! NSMutableParagraphStyle
+            clamped.firstLineHeadIndent = first; clamped.headIndent = head; clamped.tailIndent = -tail
+            let lastStop = max(1, available)
+            clamped.tabStops = style.tabStops.map {
+                NSTextTab(textAlignment: $0.alignment, location: min($0.location, lastStop), options: $0.options)
+            }
+            clamped.defaultTabInterval = min(style.defaultTabInterval, lastStop)
+            if result == nil { result = NSMutableAttributedString(attributedString: text) }
+            result?.addAttribute(.paragraphStyle, value: clamped, range: range)
+        }
+        return result ?? text
     }
 
     private func visibleRect(_ rect: CGRect, within bounds: CGRect, at index: Int) -> CGRect {
@@ -120,8 +168,42 @@ final class ReaderTextContainer: NSTextContainer {
         return insets
     }
 
+    /// How many times running TextKit may ask for a line at one character (#288). It asks a
+    /// container that is not a plain rectangle for the next line down for as long as it has set
+    /// nothing on the line, and text it can set on no line keeps it asking without end: a tab
+    /// with neither a stop after it nor a default tab interval did (#227), and nothing shows that
+    /// it is the only such text. In the reader's layouts of the fixture books and the corpora it
+    /// asks for one character at most four times running, so a thousand is text it will never set.
+    static let askLimit = 1_000
+    /// The character TextKit last asked a line for, and how many times running.
+    private var asking = (index: -1, count: 0)
+    /// The paragraphs TextKit was refused a line in (`askLimit`), each time one was laid out.
+    private(set) var unplacedParagraphs = 0
+
+    /// Whether `lines` are those of a paragraph TextKit was refused a line in: below the lines
+    /// it set, the empty lines it asked for, close to `askLimit` of them.
+    static func holdsRefusedLines(_ lines: [NSTextLineFragment]) -> Bool {
+        lines.count >= askLimit / 2 && lines.lazy.filter { $0.characterRange.length <= 0 }.count >= askLimit / 2
+    }
+
     override func lineFragmentRect(forProposedRect proposed: CGRect, at index: Int,
                                    writingDirection: NSWritingDirection, remaining: UnsafeMutablePointer<CGRect>?) -> CGRect {
+        if asking.index == index { asking.count += 1 } else { asking = (index, 1) }
+        guard asking.count <= Self.askLimit else {
+            // An empty rectangle is a full container to TextKit, which ends the paragraph there
+            // with the empty lines it asked for and goes on with the next one. A layout of the
+            // same paragraph again asks afresh: refused at its first line, TextKit would end the
+            // whole layout there instead.
+            asking = (-1, 0)
+            unplacedParagraphs += 1
+            // TextKit 1 lays a table cell out, from its layout manager's storage.
+            let text = layoutText ?? (textLayoutManager == nil ? layoutManager?.textStorage : nil)
+            if let text, index >= 0, index < text.length {
+                (text.attribute(.readerSectionLayout, at: index, effectiveRange: nil) as? SectionLayoutRecord)?.recordUnplacedText()
+            }
+            remaining?.pointee = .zero
+            return .zero
+        }
         let correction = proposalCorrection?(boxPage?.geometry.paragraph(at: index + boxSourceOffset).map { $0.range.location - boxSourceOffset } ?? index) ?? 0
         let result = lineRect(forProposedRect: proposed.offsetBy(dx: 0, dy: -correction), at: index, writingDirection: writingDirection, remaining: remaining)
         if correction != 0, let remaining, remaining.pointee != .zero { remaining.pointee.origin.y += correction }
@@ -191,14 +273,23 @@ final class ReaderTextContainer: NSTextContainer {
         // are nowhere near. So a planned paragraph's lines are taken to the plan from where its
         // own first line was proposed, and text past the plan's end is below every box. The
         // paragraph this container opens with keeps the container's own origin: a page's is
-        // its first line's place, wherever a box above the page pushed that line.
+        // its first line's place, wherever a box above the page pushed that line. TextKit
+        // proposes a paragraph's first line below the spacing before the paragraph (a forced
+        // break's retained margin, a heading's), which the paragraph's flow start leaves out (#362).
         var origin = boxOrigin
         if let page = boxPage {
             guard let paragraph = page.geometry.paragraph(at: sourceIndex) else { return rect }
             if index > 0, sourceIndex == paragraph.range.location {
-                planned = (sourceIndex, paragraph.flowStart + paragraph.topAdjustment - proposed.minY - (proposalCorrection?(paragraph.range.location - boxSourceOffset) ?? 0))
+                let spacing = max(0, paragraphStyle(at: index)?.paragraphSpacingBefore ?? 0)
+                planned = (sourceIndex, paragraph.flowStart + paragraph.topAdjustment + spacing - proposed.minY
+                    - (proposalCorrection?(paragraph.range.location - boxSourceOffset) ?? 0))
             }
             if let planned, planned.paragraph == paragraph.range.location { origin = planned.shift }
+            else if boxSourceOffset > 0, paragraph.range.location == boxSourceOffset {
+                // A page that opens a paragraph has its origin that paragraph's spacing before
+                // above its first line (`ReaderPage.layoutSpacing`), and TextKit drops the spacing.
+                origin += max(0, paragraphStyle(at: 0)?.paragraphSpacingBefore ?? 0)
+            }
         }
         while true {
             let global = rect.offsetBy(dx: 0, dy: origin)
@@ -237,6 +328,19 @@ final class ReaderTextContainer: NSTextContainer {
     /// indents itself wherever it has box geometry (`lineFragmentRect`).
     func deliverIndents(for storage: NSTextContentStorage) { storage.delegate = self }
 
+    /// The attachment's containing content column, even when TextKit's preliminary proposal
+    /// still spans the viewport. Measurement uses boxOverride; actual page layout uses the
+    /// region containing this source character, retaining the original viewport for vw/vh.
+    func attachmentColumn(at index: Int?) -> CGRect? {
+        if let boxOverride { return boxOverride }
+        guard let index, index >= 0 else { return boxColumn }
+        let sourceIndex = index + boxSourceOffset
+        if let region = boxPage?.geometry.regions.first(where: { !$0.reserved && NSLocationInRange(sourceIndex, $0.range) }) {
+            return region.contentFrame ?? region.frame
+        }
+        return boxColumn ?? boxPage?.geometry.paragraph(at: sourceIndex)?.column
+    }
+
     /// The size an attachment may use: the proposed line width, and the viewport height (or a
     /// generous default before layout knows it).
     static func available(in container: NSTextContainer?, lineWidth: CGFloat) -> CGSize {
@@ -247,15 +351,43 @@ final class ReaderTextContainer: NSTextContainer {
 }
 
 extension ReaderTextContainer: NSTextContentStorageDelegate {
+    /// `style` as TextKit 2 is shown it where it applies the paragraph's indents itself, so that
+    /// its tab stops are where the style puts them; nil when that is `style`. A stop is a
+    /// distance from the paragraph's leading edge, the right one in right-to-left text, as
+    /// TextKit 1 places it in either direction and TextKit 2 left to right. TextKit 2 measures a
+    /// right-to-left paragraph's stops from its first line's start instead, less its tail
+    /// indent, so a list marker's stop set the item's first line a first-line indent further
+    /// along than its wrapped lines (#276). Paragraphs without indents (`lineFragmentRect`'s)
+    /// have their stops measured from each line's start, which is what they are given.
+    static func rightToLeftStops(_ style: NSParagraphStyle, width: CGFloat) -> NSParagraphStyle? {
+        guard style.baseWritingDirection == .rightToLeft, !style.tabStops.isEmpty else { return nil }
+        let first = max(0, style.firstLineHeadIndent)
+        let tail = max(0, style.tailIndent <= 0 ? -style.tailIndent : width - style.tailIndent)
+        guard first != tail else { return nil }
+        let shown = style.mutableCopy() as! NSMutableParagraphStyle
+        shown.tabStops = style.tabStops.map {
+            NSTextTab(textAlignment: $0.alignment, location: max(0, $0.location - first + tail), options: $0.options)
+        }
+        return shown
+    }
+
     /// A paragraph as TextKit lays it out in a container with box geometry: without the head,
     /// first-line and tail indents that `lineFragmentRect` gives each of its lines. The stored
     /// text keeps them. Tab stops are measured from a line's start, which the first-line indent
-    /// has now moved, so they move back by it.
+    /// has now moved, so they move back by it. In a plain rectangle TextKit applies the indents
+    /// itself, and a right-to-left paragraph's stops are moved to where it measures them from
+    /// (`rightToLeftStops`).
     func textContentStorage(_ textContentStorage: NSTextContentStorage, textParagraphWith range: NSRange) -> NSTextParagraph? {
-        guard !isSimpleRectangularTextContainer, range.length > 0,
+        guard range.length > 0,
               let text = textContentStorage.textStorage ?? textContentStorage.attributedString, range.upperBound <= text.length,
-              let style = text.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle,
-              style.headIndent != 0 || style.firstLineHeadIndent != 0 || style.tailIndent != 0 else { return nil }
+              let style = text.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle else { return nil }
+        guard !isSimpleRectangularTextContainer else {
+            guard let shown = Self.rightToLeftStops(style, width: size.width) else { return nil }
+            let paragraph = NSMutableAttributedString(attributedString: text.attributedSubstring(from: range))
+            paragraph.addAttribute(.paragraphStyle, value: shown, range: NSRange(location: 0, length: paragraph.length))
+            return NSTextParagraph(attributedString: paragraph)
+        }
+        guard style.headIndent != 0 || style.firstLineHeadIndent != 0 || style.tailIndent != 0 else { return nil }
         let flat = style.mutableCopy() as! NSMutableParagraphStyle
         let origin = max(0, style.firstLineHeadIndent)
         flat.headIndent = 0; flat.firstLineHeadIndent = 0; flat.tailIndent = 0

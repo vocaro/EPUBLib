@@ -486,16 +486,28 @@ enum SVGReferenceScreen {
             var declarations: [(name: String, value: String)] = []
         }
 
+        /// A declaration that parser reads as `filter`: its bytes, from where it began to read it to
+        /// where it began to read the next, and whether one it reads as anything else comes before
+        /// it in its list.
+        struct FilterDeclaration {
+            let range: Range<Int>
+            let follows: Bool
+        }
+
         private let text: [UInt8]
         private var position = 0
         private var selectorLimit = Int.max
         private var copyLimit = Int.max
+        /// Set while `filter` declarations are looked for, and a rule's declarations are then read
+        /// for nothing else.
+        private var filters: [FilterDeclaration]?
 
         private init(_ text: String) { self.text = Array(text.utf8) }
+        private init(bytes: [UInt8]) { text = bytes }
 
         private var current: UInt8? { position < text.count ? text[position] : nil }
         private var following: UInt8? { position + 1 < text.count ? text[position + 1] : nil }
-        private func at(_ character: Character) -> Bool { current == character.asciiValue }
+        private func at(_ character: Unicode.Scalar) -> Bool { current == UInt8(ascii: character) }
         private func string(_ range: Range<Int>) -> String { String(decoding: text[range], as: UTF8.self) }
 
         /// The rules of a stylesheet that assign a reference.
@@ -532,6 +544,64 @@ enum SVGReferenceScreen {
                 _ = reader.skipSpacesAndComments()
                 guard reader.current != nil, let declaration = reader.declaration() else { return found }
                 if !referencesOnly || reader.mayReference(declaration.name) { found.append((reader.string(declaration.name), reader.string(declaration.value))) }
+            }
+        }
+
+        /// CSS without the declarations that parser reads as `filter`, in any case, in a `style`
+        /// attribute or, for `sheet`, in a stylesheet; nil when it reads none. It reads one that
+        /// another reading would not, straight after `!important` or a `*` (#253).
+        ///
+        /// Each is cut from where it began to read it to where it began to read the next, which
+        /// is past its `;`, and so the text from there is read as it was. What is read before it
+        /// is read as it was too where a `;` is put in its place, and the declaration before it,
+        /// which ended at a `*`, at `!important` or after the `;` that it read last, reads that
+        /// `;` as one more. But the first in a list is cut with nothing in its place, since a list
+        /// that begins with a `;` is not read at all.
+        static func omittingFilters(_ text: [UInt8], sheet: Bool) -> [UInt8]? {
+            var reader = CSSReader(bytes: text)
+            reader.filters = []
+            if sheet {
+                guard reader.skipSpacesAndComments() else { return nil }
+                while reader.current != nil {
+                    guard reader.skipSpacesAndComments() else { break }
+                    let start = reader.position
+                    if reader.at("@") {
+                        reader.position += 1
+                        reader.atRule()
+                    } else {
+                        _ = reader.ruleSet()
+                    }
+                    if reader.position == start { break }
+                }
+            } else {
+                var follows = false
+                while true {
+                    _ = reader.skipSpacesAndComments()
+                    let start = reader.position
+                    guard reader.current != nil, let declaration = reader.declaration() else { break }
+                    reader.note(declaration.name, from: start, follows: &follows)
+                }
+            }
+            guard let filters = reader.filters, !filters.isEmpty else { return nil }
+            var output: [UInt8] = []
+            output.reserveCapacity(text.count)
+            var kept = 0
+            for filter in filters {
+                output += text[kept..<filter.range.lowerBound]
+                if filter.follows { output.append(UInt8(ascii: ";")) }
+                kept = filter.range.upperBound
+            }
+            output += text[kept...]
+            return output
+        }
+
+        /// Notes a declaration read from `start` to here when it is a `filter` declaration, and
+        /// that the next follows one when it is not.
+        private mutating func note(_ name: Range<Int>, from start: Int, follows: inout Bool) {
+            if name.count == 6, zip(text[name], "filter".utf8).allSatisfy({ $0 | 0x20 == $1 }) {
+                filters?.append(FilterDeclaration(range: start..<position, follows: follows))
+            } else {
+                follows = true
             }
         }
 
@@ -582,10 +652,16 @@ enum SVGReferenceScreen {
             var declarationBytes = 0
             var copiedBytes = 0
             var declarations: [(name: String, value: String)] = []
+            var follows = false
             while current != nil, !at("}") {
+                let start = position
                 guard let declaration = declaration() else {
                     skipBlock()
                     break
+                }
+                if filters != nil {
+                    note(declaration.name, from: start, follows: &follows)
+                    continue
                 }
                 let name = string(declaration.name)
                 declarations.append((name, string(declaration.value)))
@@ -635,20 +711,20 @@ enum SVGReferenceScreen {
             }
             while true {
                 guard !finished, let byte = current else { return expectsSelector ? nil : subject.map { ($0, descendants, attributes) } }
-                switch Character(Unicode.Scalar(byte)) {
-                case "*":
+                switch byte {
+                case UInt8(ascii: "*"):
                     guard expectsSelector else { return nil }
                     expectsSelector = false
                     position += 1
                     subject = .any
                     combined = false
-                case "#", ".":
+                case UInt8(ascii: "#"), UInt8(ascii: "."):
                     expectsSelector = false
                     position += 1
                     guard let name = identifier() else { return nil }
                     attributes[byte == UInt8(ascii: "#") ? "id" : "class", default: 0] += 1
                     condition(byte == UInt8(ascii: "#") ? .id(string(name)) : .class(string(name)))
-                case "[":
+                case UInt8(ascii: "["):
                     expectsSelector = false
                     position += 1
                     guard let attributeName = identifier(), current != nil else { return nil }
@@ -667,7 +743,7 @@ enum SVGReferenceScreen {
                     guard at("]") else { return nil }
                     position += 1
                     condition(.any)
-                case ":":
+                case UInt8(ascii: ":"):
                     expectsSelector = false
                     position += 1
                     guard let name = identifier() else { return nil }
@@ -685,12 +761,12 @@ enum SVGReferenceScreen {
                         return nil
                     }
                     condition(.any)
-                case ">", "+":
+                case UInt8(ascii: ">"), UInt8(ascii: "+"):
                     guard !expectsSelector else { return nil }
                     position += 1
                     expectsSelector = true
                     combined = true
-                case " ", "\t", "\n", "\r", "\u{C}":
+                case UInt8(ascii: " "), UInt8(ascii: "\t"), UInt8(ascii: "\n"), UInt8(ascii: "\r"), 0x0C:
                     skipSpaces()
                     if expectsSelector { continue }
                     while at("/") {
@@ -701,13 +777,13 @@ enum SVGReferenceScreen {
                     expectsSelector = true
                     combined = true
                     descendants += 1
-                case "/":
+                case UInt8(ascii: "/"):
                     if following == UInt8(ascii: "*") {
                         guard skipComment() else { return nil }
                     } else {
                         finished = true
                     }
-                case ",", "{":
+                case UInt8(ascii: ","), UInt8(ascii: "{"):
                     finished = true
                 default:
                     guard let name = identifier(), expectsSelector else { return nil }
@@ -752,13 +828,13 @@ enum SVGReferenceScreen {
         /// One term of a value. A failure may still have moved on, as that parser's does.
         private mutating func term() -> Bool {
             guard let byte = current else { return false }
-            switch Character(Unicode.Scalar(byte)) {
-            case "#":
+            switch byte {
+            case UInt8(ascii: "#"):
                 position += 1
                 if identifier() == nil {
-                    while let digit = current, Character(Unicode.Scalar(digit)).isHexDigit { position += 1 }
+                    while let digit = current, (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(digit) || (UInt8(ascii: "a")...UInt8(ascii: "f")).contains(digit | 0x20) { position += 1 }
                 }
-            case "+", "-", ".", "0"..."9":
+            case UInt8(ascii: "+"), UInt8(ascii: "-"), UInt8(ascii: "."), UInt8(ascii: "0")...UInt8(ascii: "9"):
                 position += 1
                 skipDigits()
                 if at(".") {
@@ -766,9 +842,9 @@ enum SVGReferenceScreen {
                     skipDigits()
                 }
                 if at("%") { position += 1 } else { _ = identifier() }
-            case "'", "\"":
+            case UInt8(ascii: "'"), UInt8(ascii: "\""):
                 return quoted()
-            case ",":
+            case UInt8(ascii: ","):
                 position += 1
             default:
                 guard identifier() != nil else { return false }

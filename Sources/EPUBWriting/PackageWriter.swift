@@ -50,6 +50,23 @@ public enum EPUBPackageWriter {
                 throw EPUBWritingError.invalidPublication("duplicate or invalid resource: \(resource.path)")
             }
         }
+        for resource in resources {
+            if let fallback = resource.fallbackID, !ids.contains(fallback) {
+                throw EPUBWritingError.invalidPublication("fallback references an undeclared resource: \(fallback)")
+            }
+        }
+        let byID = Dictionary(uniqueKeysWithValues: resources.map { ($0.id, $0) })
+        var checked: Set<String> = []
+        for resource in resources {
+            var next: EPUBResource? = resource, current: Set<String> = []
+            while let item = next, !checked.contains(item.id) {
+                guard current.insert(item.id).inserted else {
+                    throw EPUBWritingError.invalidPublication("cyclic manifest fallback: \(item.id)")
+                }
+                next = item.fallbackID.flatMap { byID[$0] }
+            }
+            checked.formUnion(current)
+        }
         guard spine.allSatisfy({ resources.contains($0.resource) }) else {
             throw EPUBWritingError.invalidPublication("spine references an undeclared resource")
         }
@@ -58,10 +75,18 @@ public enum EPUBPackageWriter {
         func href(_ value: String) throws -> String {
             let resolved = try ResourceReference.resolve(value, relativeTo: "root.opf", strict: true)
             let path = String(resolved.split(separator: "#", maxSplits: 1)[0]).removingPercentEncoding ?? ""
-            guard inPackage(value), paths.contains(path), inPackage(path) else {
+            // A `Set` finds a path by canonical equivalence; the member it finds is the path declared.
+            guard inPackage(value), inPackage(path), let declared = paths.firstIndex(of: path).map({ paths[$0] }),
+                  inPackage(declared) else {
                 throw EPUBWritingError.invalidPublication("navigation references an undeclared resource: \(value)")
             }
-            return String(decoding: value.utf8.dropFirst(5), as: UTF8.self)
+            // The link checked: the declared path from EPUB/nav.xhtml, encoded as its manifest href
+            // is, and not the text given after "EPUB/". With an empty or dot segment in it, that
+            // text is another link ("/x" names the container root, "//x" a host, "c:x/../x" a
+            // scheme), and with a decomposed "é" for a declared composed one, it names by its bytes
+            // no entry the archive holds.
+            let fragment = resolved.utf8.firstIndex(of: 0x23).map { String(decoding: resolved.utf8[$0...], as: UTF8.self) } ?? "" // #
+            return String(decoding: ResourceReference.encoded(path: declared).utf8.dropFirst(5), as: UTF8.self) + fragment
         }
         func items(_ entries: [EPUBNavigationItem]) throws -> String {
             try entries.map { entry in
@@ -108,6 +133,7 @@ public enum EPUBPackageWriter {
         } ?? ""
         let manifest = resources.map { resource in
             "<item id=\"\(xml(resource.id))\" href=\"\(xml(String(resource.href.dropFirst(5))))\" media-type=\"\(xml(resource.mediaType))\""
+                + (resource.fallbackID.map { " fallback=\"\(xml($0))\"" } ?? "")
                 + (resource.properties.isEmpty ? "/>" : " properties=\"\(xml(resource.properties.sorted().joined(separator: " ")))\"/>")
         }.joined()
         let spineMarkup = spine.map {

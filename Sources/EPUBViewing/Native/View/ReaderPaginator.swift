@@ -16,8 +16,10 @@ struct ReaderPage: Equatable {
     /// a lone last word down), so the page's last lines break as in the section only with what
     /// follows them: a few lines, or up to a line break. Justified text needs more, because
     /// CoreText justifies a paragraph of up to 8,192 characters as a whole and a longer one line
-    /// by line: a short paragraph's whole rest, or enough of a long one to stay long. A short
-    /// continuation tail is measured independently in this exact display context.
+    /// by line: a short paragraph's rest up to the next line break that ends a line of text (its
+    /// whole rest in a section with a box plan, or when no such break follows), and enough of a
+    /// long one to stay long. The page is then measured in this exact display context before its
+    /// boundary is committed.
     var layoutEnd: Int
     /// Space kept above the first line: its paragraph's spacing before, at the section's start
     /// or a forced break (CSS truncates margins only at unforced breaks).
@@ -35,13 +37,16 @@ struct ReaderPage: Equatable {
     /// spacing before, which TextKit lays out everywhere but at the section's start. The page's
     /// box geometry begins that far above `layoutTop`; `topSpacing` is where the column goes.
     var layoutSpacing: CGFloat = 0
-    /// A long paragraph's tail can use a different CoreText algorithm in the page slice.
-    /// These exceptional pages keep their measured source line lengths, independent of the
-    /// released section layout. Ordinary pages need no additional line metadata.
+    /// The source line lengths of the page's own layout, which can break differently from the
+    /// released section layout. Nil for a page committed without a measurement: the one page
+    /// of a section with no lines, or a page whose clip can show no fitted glyph.
     var measuredLineLengths: [Int]? = nil
-    /// A planned page whose positioned content cannot fit in its clip retains its source
-    /// as native in-flow text, just as an oversized box does during section preflight.
+    /// A page whose first line cannot fit its clip, or whose positioned content cannot, retains
+    /// its source as native in-flow text, just as an oversized box does during section preflight.
     var usesFlowFallback = false
+    /// The height that fallback fits each run to, as a share of its clip: below 1 when the
+    /// line those runs make together was still taller than the clip.
+    var fallbackScale: CGFloat = 1
 }
 
 struct ReaderTableFragment: Equatable {
@@ -59,7 +64,8 @@ struct ReaderTableFragment: Equatable {
 /// Layout is lazy and in order, so every position it reports is exact: opening a section lays
 /// out only as far as the pages asked for, and the whole section only for its end or page count.
 /// Box geometry preflights the source needed for wrapping/positioning, leaving the ordinary tail
-/// lazy; supported box groups are kept within a page as one visual envelope.
+/// lazy; supported box groups are kept within a page as one visual envelope. Each page is laid
+/// out again as it is shown before its boundary is committed (`measuredDisplayPage`).
 /// Once every page is known the layout is released (about 60 bytes per character), keeping only
 /// the pages.
 @MainActor final class ReaderPaginator {
@@ -72,6 +78,8 @@ struct ReaderTableFragment: Equatable {
     // drawing inset as well; a smaller clip cannot display fallback typography safely.
     private static let minimumFallbackLineHeight: CGFloat = 1
     private static let fallbackClipInset: CGFloat = 1
+    /// How many smaller targets the fallback tries after its first when its line is too tall.
+    private static let fallbackRefits = 8
 
     private func fallbackHeight(for page: ReaderPage) -> CGFloat? {
         let height = size.height - page.topSpacing - Self.fallbackClipInset
@@ -100,7 +108,6 @@ struct ReaderTableFragment: Equatable {
         var paragraph: NSRange
         var isJustified: Bool
         var tableFragment: ReaderTableFragment? = nil
-        var requiresPageMeasurement = false
         /// Space flex or grid alignment put above the paragraph (`.readerAlignmentLead`).
         var alignmentLead: CGFloat = 0
     }
@@ -229,7 +236,8 @@ struct ReaderTableFragment: Equatable {
             // must not be replanned through leftover scoped-flow metadata on each page.
             slice.removeAttribute(.readerParagraphFlow, range: NSRange(location: 0, length: slice.length))
         }
-        if page.usesFlowFallback, let height = fallbackHeight(for: page) {
+        if page.usesFlowFallback, let clipHeight = fallbackHeight(for: page) {
+            let height = max(Self.minimumFallbackLineHeight, clipHeight * page.fallbackScale)
             let full = NSRange(location: 0, length: slice.length)
             slice.removeAttribute(.readerBoxPage, range: full)
             // Resolved indents/fonts and all source/semantic attributes remain. Relative-flow
@@ -275,7 +283,8 @@ struct ReaderTableFragment: Equatable {
                         style.invertsColors = image.invertsColors
                         slice.addAttribute(.attachment, value: ReaderImageAttachment(source: image.source, sizing: sizing,
                             alternative: image.alternative, style: style, contentRect: image.contentRect,
-                            isDark: image.isDark, cache: image.cache), range: run)
+                            isDark: image.isDark, isHiddenFromAssistiveTechnology: image.isHiddenFromAssistiveTechnology,
+                            cache: image.cache), range: run)
                     }
                 }
                 if let original = attributes[.paragraphStyle] as? NSParagraphStyle {
@@ -396,38 +405,30 @@ struct ReaderTableFragment: Equatable {
             continuesParagraph: !first.startsParagraph,
             tableFragments: lines[firstIndex..<end].compactMap(\.tableFragment), layoutTop: pageTop,
             layoutSpacing: first.startsParagraph && first.range.location > 0 ? max(0, first.spacingBefore) : 0)
-        // The full-section native origin of the next row or prose can overlap the end
-        // of manufactured table continuations. Measure only the bounded page that packs
-        // another row or ordinary line beside them; a lone continuation needs no retry.
-        let packedTablePage = !page.tableFragments.isEmpty
-            && (page.tableFragments.count > 1 || lines[firstIndex..<end].contains { $0.tableFragment == nil })
-        if packedTablePage || page.height > available + 0.5 || boxGeometry != nil || first.requiresPageMeasurement || (first.isJustified && !first.startsParagraph &&
-           first.paragraph.length > Self.wholeParagraphJustification &&
-           first.paragraph.upperBound - first.range.location <= Self.wholeParagraphJustification) {
-            // Box margins and a long justified paragraph's short tail can differ in the
-            // displayed slice. Measure that exact bounded context before committing a clip
-            // or advancing its characters. Keep layoutEnd fixed so changing the visible range
-            // cannot itself change the final line breaks.
-            let originalEnd = page.range.upperBound
-            page = measuredDisplayPage(page)
-            while end > firstIndex, lines[end - 1].range.upperBound > page.range.upperBound { end -= 1 }
-            while layOutLines(through: end), lines[end].range.location >= originalEnd,
-                  lines[end].range.upperBound <= page.range.upperBound { end += 1 }
-            // A frozen row ending the displayed page has fixed glyph metrics. Following
-            // rows or prose do not supply layout context for it, and belong to the next page.
-            // Ordinary paragraph and box context keeps its original measured extent.
-            if boxGeometry == nil, end > firstIndex, lines[end - 1].tableFragment != nil {
-                page.layoutEnd = page.range.upperBound
-            }
-            if layOutLines(through: end), lines[end].tableFragment == nil,
-               lines[end].range.location < page.range.upperBound {
-                // The next column starts at the displayed layout's line boundary, which can
-                // lie inside a line of the section layout. Never repeat that line's prefix.
-                lines[end].range.length = lines[end].range.upperBound - page.range.upperBound
-                lines[end].range.location = page.range.upperBound
-                lines[end].startsParagraph = false
-                lines[end].requiresPageMeasurement = true
-            }
+        // The page's own layout of its slice can break differently from the section's: box
+        // margins, a justified paragraph, a paragraph it continues, a line of glyphs from a
+        // fallback font, the end of manufactured table continuations. Measure that exact
+        // bounded context before committing a clip or advancing its characters. Keep
+        // layoutEnd fixed so changing the visible range cannot itself change the final line
+        // breaks.
+        let originalEnd = page.range.upperBound
+        page = measuredDisplayPage(page)
+        while end > firstIndex, lines[end - 1].range.upperBound > page.range.upperBound { end -= 1 }
+        while layOutLines(through: end), lines[end].range.location >= originalEnd,
+              lines[end].range.upperBound <= page.range.upperBound { end += 1 }
+        // A frozen row ending the displayed page has fixed glyph metrics. Following
+        // rows or prose do not supply layout context for it, and belong to the next page.
+        // Ordinary paragraph and box context keeps its original measured extent.
+        if boxGeometry == nil, end > firstIndex, lines[end - 1].tableFragment != nil {
+            page.layoutEnd = page.range.upperBound
+        }
+        if layOutLines(through: end), lines[end].tableFragment == nil,
+           lines[end].range.location < page.range.upperBound {
+            // The next column starts at the displayed layout's line boundary, which can
+            // lie inside a line of the section layout. Never repeat that line's prefix.
+            lines[end].range.length = lines[end].range.upperBound - page.range.upperBound
+            lines[end].range.location = page.range.upperBound
+            lines[end].startsParagraph = false
         }
         pages.append(page)
         nextLine = end
@@ -439,6 +440,48 @@ struct ReaderTableFragment: Equatable {
     /// Overflow carries to the next page. A positioned line outside the clip, or a first line
     /// too tall to fit, uses native in-flow text with bounded typography for this slice.
     private func measuredDisplayPage(_ page: ReaderPage) -> ReaderPage {
+        switch layOutAsShown(page) {
+        case .fits(let measured): return measured
+        case .empty: return page
+        case .overflows: break
+        }
+        // An impossibly small viewport still advances one original source line. Do not
+        // change its font or partition while claiming that a fitted glyph is visible.
+        guard let clipHeight = fallbackHeight(for: page) else { return page }
+        var fallback = page
+        fallback.usesFlowFallback = true
+        for _ in 0...Self.fallbackRefits {
+            let shown = layOutAsShown(fallback)
+            if case .fits(let measured) = shown { return measured }
+            guard case .overflows(let line?) = shown else { return page }
+            // Each run fits the target on its own, but the line they make together is still
+            // taller than the clip: a small run's line height applied to a large run's font,
+            // text on one line with a row or an image. Lower the target by the line's
+            // overshoot, or in proportion if that is lower, and lay the slice out again. A
+            // fit that fails preserves the original page.
+            let clip = size.height - page.topSpacing
+            let target = clipHeight * fallback.fallbackScale
+            let next = min(target * clip / max(line.bottom - min(line.top, 0), clip + 1),
+                           target - max(line.bottom - clip, -line.top, 0) - 1)
+            guard next >= Self.minimumFallbackLineHeight, next < target else { return page }
+            fallback.fallbackScale = next / clipHeight
+        }
+        return page
+    }
+
+    /// How a page's slice lays out as it is shown.
+    private enum ShownLayout {
+        /// The lines that fit the clip, as the page to commit.
+        case fits(ReaderPage)
+        /// A line outside the clip that cannot carry to the next page: the first line, whose
+        /// top and bottom are given, or a positioned line above the column.
+        case overflows(firstLine: (top: CGFloat, bottom: CGFloat)?)
+        /// No line of the page's characters.
+        case empty
+    }
+
+    /// Lays out the page's slice alone, as its column will.
+    private func layOutAsShown(_ page: ReaderPage) -> ShownLayout {
         let storage = NSTextContentStorage()
         let manager = ReaderBoxLayoutManager()
         storage.addTextLayoutManager(manager)
@@ -453,11 +496,11 @@ struct ReaderTableFragment: Equatable {
         storage.attributedString = pageText
         // A page is a bounded slice. Finish that slice before inspecting its frames: later
         // fragment requests can replace estimates used by earlier box-margin fragments.
-        let defendsClip = boxGeometry != nil || page.usesFlowFallback || !page.tableFragments.isEmpty
+        let positionsLines = boxGeometry != nil || page.usesFlowFallback || !page.tableFragments.isEmpty
             || page.height > size.height - page.topSpacing + 0.5
-        if defendsClip { manager.ensureLayout(for: storage.documentRange) }
+        if positionsLines { manager.ensureLayout(for: storage.documentRange) }
         var visibleEnd = 0
-        var needsFlowFallback = false
+        var overflow: (top: CGFloat, bottom: CGFloat)??
         var visibleBottom: CGFloat = 0
         var lineLengths: [Int] = []
         var lineBottoms: [CGFloat] = []
@@ -470,8 +513,12 @@ struct ReaderTableFragment: Equatable {
                     ? fragment.layoutFragmentFrame.minY : fragment.layoutFragmentFrame.origin.y
                 let bottom = originY + line.typographicBounds.maxY
                 let top = originY + line.typographicBounds.minY
-                if defendsClip && (top < -0.5 || (visibleEnd == 0 && bottom > size.height - page.topSpacing + 0.5)) {
-                    needsFlowFallback = true
+                // Every page's first line must fit. Committed taller than the clip, its
+                // characters would be on no visible line, and a table row laid out beside
+                // them would lose its continuation pages.
+                if (positionsLines && top < -0.5) || (visibleEnd == 0 && bottom > size.height - page.topSpacing + 0.5) {
+                    // The fallback's later lines carry forward like any page's.
+                    if visibleEnd == 0 || !page.usesFlowFallback { overflow = .some(visibleEnd == 0 ? (top, bottom) : nil) }
                     return false
                 }
                 if visibleEnd > 0, bottom > size.height - page.topSpacing + 0.5 { return false }
@@ -483,20 +530,8 @@ struct ReaderTableFragment: Equatable {
             }
             return true
         }
-        if needsFlowFallback, !page.usesFlowFallback {
-            // An impossibly small viewport still advances one original source line. Do not
-            // change its font or partition while claiming that a fitted glyph is visible.
-            guard fallbackHeight(for: page) != nil else { return page }
-            var fallback = page
-            fallback.usesFlowFallback = true
-            let measured = measuredDisplayPage(fallback)
-            return measured.usesFlowFallback ? measured : page
-        }
-        guard visibleEnd > 0 else {
-            var unfit = page
-            unfit.usesFlowFallback = false
-            return unfit
-        }
+        if let overflow { return .overflows(firstLine: overflow) }
+        guard visibleEnd > 0 else { return .empty }
         // A tail's changed line count must not strand a heading or cut a visual box group
         // that the section paginator already kept together.
         var boundary = page.range.location + visibleEnd
@@ -525,7 +560,7 @@ struct ReaderTableFragment: Equatable {
             ? max(visibleBottom, min(page.height, size.height - page.topSpacing)) : visibleBottom
         measured.measuredLineLengths = lineLengths
         measured.tableFragments = page.tableFragments.filter { NSLocationInRange($0.offset, measured.range) }
-        return measured
+        return .fits(measured)
     }
 
     /// The layout context after a page's last line (`ReaderPage.layoutEnd`).
@@ -540,8 +575,14 @@ struct ReaderTableFragment: Equatable {
                 : min(NSMaxRange(paragraph), max(start + limit + 1, lineEnd(after: index, lines: Self.contextLines)))
         }
         guard !last.endsParagraph else { return last.range.upperBound }
-        // A short justified paragraph is justified as a whole: its whole rest.
-        if last.isJustified { return NSMaxRange(paragraph) }
+        // A short justified paragraph is justified as a whole, but not across a line break:
+        // CoreText sets the lines before a U+2028 (`<br>`) the same whatever follows it. Its
+        // rest up to the first break that ends a line of text, or its whole rest. A box plan
+        // can place those lines by what follows the break, so a planned section keeps it all.
+        if last.isJustified {
+            guard boxGeometry == nil else { return NSMaxRange(paragraph) }
+            return textLineBreakEnd(from: last.range.upperBound - 1, in: paragraph) ?? NSMaxRange(paragraph)
+        }
         var end = last.range.upperBound
         var context = index
         while !lines[context].endsParagraph, !endsWithLineBreak(lines[context]),
@@ -557,6 +598,21 @@ struct ReaderTableFragment: Equatable {
         var context = index
         while !lines[context].endsParagraph, context - index < count, layOutLines(through: context + 1) { context += 1 }
         return lines[context].range.upperBound
+    }
+
+    /// The end of the first line separator at or after `location` in `paragraph` that ends a line
+    /// of text. One that ends a blank line is passed over: laid out last, a lone separator takes
+    /// another position, and sometimes another height, than it has with text after it.
+    private func textLineBreakEnd(from location: Int, in paragraph: NSRange) -> Int? {
+        var search = NSRange(location: location, length: NSMaxRange(paragraph) - location)
+        while search.length > 0 {
+            let found = characters.range(of: "\u{2028}", options: .literal, range: search)
+            guard found.location != NSNotFound else { return nil }
+            let previous = found.location > paragraph.location ? characters.character(at: found.location - 1) : 0x2028
+            if previous != 0x2028 && previous != 0x0A { return NSMaxRange(found) }
+            search = NSRange(location: NSMaxRange(found), length: NSMaxRange(paragraph) - NSMaxRange(found))
+        }
+        return nil
     }
 
     /// A line ending in a line separator (`<br>`): nothing after it changes how it breaks.

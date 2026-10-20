@@ -25,6 +25,19 @@ final class TableWidthStackTests: XCTestCase {
         XCTAssertEqual(TableMeasure.maximumWidth(content), ceil(drawn.width))
     }
 
+    func testIntrinsicWidthExcludesSpaceReservedByParagraphAlignment() {
+        let reference = NSAttributedString(string: "Caption text.", attributes: [.font: PlatformFont.systemFont(ofSize: 16)])
+        let width = TableMeasure.maximumWidth(reference)
+        for alignment in [NSTextAlignment.center, .right, .justified, .natural] {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = alignment
+            let caption = NSAttributedString(string: reference.string,
+                attributes: [.font: PlatformFont.systemFont(ofSize: 16), .paragraphStyle: paragraph])
+            XCTAssertEqual(TableMeasure.maximumWidth(caption), width, "\(alignment)")
+            XCTAssertEqual(paragraph.alignment, alignment, "measurement does not mutate the authored style")
+        }
+    }
+
     func testMaximumWidthVisitsEachAttachmentOnceAcrossParagraphs() {
         for count in [500, 1_000, 2_000, 4_000] {
             let attachment = CountedWidthAttachment()

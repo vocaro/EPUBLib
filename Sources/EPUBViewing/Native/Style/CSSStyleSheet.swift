@@ -97,7 +97,9 @@ extension CSSStyleSheet {
         let path: String
         var sheet = CSSStyleSheet()
         var namespaces = CSSNamespaces()
-        /// `@import` is honoured only before any other rule.
+        /// `@import` is honoured only before any other valid rule (CSS Cascade 4 §2: "Any @import
+        /// rules must precede all other valid at-rules and style rules"). A rule the parser drops,
+        /// an unknown at-rule or a style rule whose selector is invalid, leaves it set.
         var importsAllowed = true
 
         init(path: String) { self.path = path }
@@ -106,29 +108,61 @@ extension CSSStyleSheet {
             for rule in rules {
                 switch rule {
                 case .qualified(let prelude, let block):
-                    importsAllowed = false
+                    // Under media that never match nothing is imported, so the rule need not be read.
                     guard !media.isEmpty else { continue }
-                    styleRule(prelude, block, media: media)
+                    if styleRule(prelude, block, media: media) { importsAllowed = false }
                 case .at(let name, let prelude, let block):
                     atRule(name, prelude, block, media: media, topLevel: topLevel, depth: depth)
                 }
             }
         }
 
-        private mutating func styleRule(_ prelude: [CSSComponent], _ block: [CSSComponent], media: CSSMediaMask) {
-            guard sheet.rules.count < CSSStyleSheet.maximumRules else { sheet.truncated = true; return }
+        /// Adds what applies of a style rule, and returns whether the rule is valid: whether its
+        /// selector list is, whatever the rule then sets or matches.
+        private mutating func styleRule(_ prelude: [CSSComponent], _ block: [CSSComponent], media: CSSMediaMask) -> Bool {
+            guard sheet.rules.count < CSSStyleSheet.maximumRules else { sheet.truncated = true; return true }
             let selectors: [CSSComplexSelector]
             do { selectors = try CSSSelectorParser(namespaces: namespaces).parseList(prelude.trimmingWhitespace) }
-            catch .tooComplex { sheet.truncated = true; return }
-            catch { return }
-            let matching = selectors.filter { !$0.hasPseudoElement }
-            guard !matching.isEmpty else { return }
+            catch .tooComplex { sheet.truncated = true; return true }
+            catch { return false }
+            // Of the pseudo-elements only `::before` and `::after` are rendered.
+            let matching = selectors.filter { $0.pseudoElement == nil || $0.pseudoElement == .before || $0.pseudoElement == .after }
+            guard !matching.isEmpty else { return true }
             let declarations = CSSParser.declarations(block).flatMap {
                 CSSPropertyParser.parse(name: $0.name, value: $0.value, important: $0.important) ?? []
             }
-            guard !declarations.isEmpty else { return }
-            sheet.rules.append(CSSStyleRule(selectors: matching, declarations: declarations, media: media))
+            guard !declarations.isEmpty else { return true }
+            guard media != .all else {
+                sheet.rules.append(CSSStyleRule(selectors: matching, declarations: declarations, media: media))
+                return true
+            }
+            // In a rule for one appearance, what decides generated characters
+            // (`CSSProperty.generatedText`, `generatedBox`) is resolved as in the light
+            // appearance: from a rule for light it applies in both, and from one for dark in
+            // neither. So a section's characters are the same in light and dark, as for what
+            // else such a rule sets that does not paint (#130).
+            for generated in [false, true] {
+                let selectors = matching.filter { $0.hasPseudoElement == generated }
+                guard !selectors.isEmpty else { continue }
+                let decides = generated ? CSSProperty.generatedBox : CSSProperty.generatedText
+                let follows = declarations.filter { !decides.contains($0.property) }
+                let light = declarations.filter { decides.contains($0.property) }
+                if !follows.isEmpty { sheet.rules.append(CSSStyleRule(selectors: selectors, declarations: follows, media: media)) }
+                if media.contains(.light), !light.isEmpty {
+                    sheet.rules.append(CSSStyleRule(selectors: selectors, declarations: light, media: .all))
+                }
+            }
+            return true
         }
+
+        /// At-rules other than `@charset`, `@import`, `@namespace` and `@layer` statements that are
+        /// valid at the top level of a sheet, those Chromium keeps. Each takes a block: an unknown
+        /// at-rule, or one of these written as a statement, is invalid.
+        private static let blockAtRules: Set<String> = [
+            "media", "supports", "layer", "font-face",
+            "page", "keyframes", "-webkit-keyframes", "container", "counter-style", "font-feature-values",
+            "font-palette-values", "property", "scope", "starting-style", "position-try", "view-transition", "function",
+        ]
 
         private mutating func atRule(_ name: String, _ prelude: [CSSComponent], _ block: [CSSComponent]?,
                                      media: CSSMediaMask, topLevel: Bool, depth: Int) {
@@ -148,8 +182,8 @@ extension CSSStyleSheet {
             default:
                 break
             }
-            importsAllowed = false
             guard let block else { return }
+            if Self.blockAtRules.contains(name) { importsAllowed = false }
             guard depth < CSSStyleSheet.maximumConditionalNesting else { sheet.truncated = true; return }
             switch name {
             case "media":

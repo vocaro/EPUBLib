@@ -28,9 +28,31 @@ final class ReaderBoxLayoutFragment: NSTextLayoutFragment {
     /// planned fragment returns precisely the distance held back through its top margin.
     override var layoutFragmentFrame: CGRect {
         var frame = super.layoutFragmentFrame
+        if let height = unplacedHeight(frame.size.height) { frame.size.height = height }
         let end = frame.origin.y + frame.size.height
         if end < 0, repairsPageFlow || end > -Self.roundingLimit { frame.size.height = -frame.origin.y }
         return frame
+    }
+
+    /// A paragraph TextKit was refused a line in (`ReaderTextContainer.askLimit`) holds the
+    /// empty lines it asked for, close to a thousand, under the lines it set, and its frame reaches
+    /// down past the paragraphs after it, which TextKit sets where it takes this one to end
+    /// (#288). The view finds the fragment at a point by its frame, and the extent of the
+    /// text by them all, so the frame ends with the lines that hold text, or with the first line
+    /// when none does. The height is kept for the frame it was found for.
+    private var unplaced: (frameHeight: CGFloat, height: CGFloat?)?
+
+    private func unplacedHeight(_ frameHeight: CGFloat) -> CGFloat? {
+        guard let container = textLayoutManager?.textContainer as? ReaderTextContainer, container.unplacedParagraphs > 0 else { return nil }
+        if let unplaced, unplaced.frameHeight == frameHeight { return unplaced.height }
+        let lines = textLineFragments
+        var height: CGFloat?
+        if ReaderTextContainer.holdsRefusedLines(lines) {
+            let set = lines.filter { $0.characterRange.length > 0 }
+            height = min(frameHeight, (set.isEmpty ? lines.prefix(1) : set[...]).map(\.typographicBounds.maxY).max() ?? 0)
+        }
+        unplaced = (frameHeight, height)
+        return height
     }
 }
 
@@ -53,7 +75,10 @@ final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDele
             // the page start, exclusions must see where that margin actually puts it.
             return -(index == 0 ? fragment.topAdjustment : 0)
         }
-        delegate = container?.boxPage != nil || (container?.alignmentLead ?? 0) > 0 ? self : nil
+        // A container that is not a plain rectangle can refuse TextKit a line, and its fragments
+        // are then this manager's, to keep their frames to their text.
+        delegate = container?.boxPage != nil || (container?.alignmentLead ?? 0) > 0
+            || container?.isSimpleRectangularTextContainer == false ? self : nil
     }
 
     func textLayoutManager(_ manager: NSTextLayoutManager, textLayoutFragmentFor location: any NSTextLocation,
@@ -62,10 +87,10 @@ final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDele
               let content = textContentManager else { return NSTextLayoutFragment(textElement: element, range: nil) }
         let offset = content.offset(from: content.documentRange.location, to: location)
         guard let page = container.boxPage else {
-            // An aligned box opening the text: its lead above the first line.
-            guard offset == 0, container.alignmentLead > 0 else { return NSTextLayoutFragment(textElement: element, range: nil) }
             let fragment = ReaderBoxLayoutFragment(textElement: element, range: nil)
-            fragment.topAdjustment = container.alignmentLead
+            // An aligned box opening the text: its lead above the first line.
+            if offset == 0, container.alignmentLead > 0 { fragment.topAdjustment = container.alignmentLead }
+            else if container.isSimpleRectangularTextContainer { return NSTextLayoutFragment(textElement: element, range: nil) }
             return fragment
         }
         guard let paragraph = page.geometry.paragraph(at: offset + page.offset) else {
@@ -97,8 +122,9 @@ final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDele
             // A positioned first box can stand above the flow cursor (bottom positioning).
             // Its glyphs start at the page top, but the following paragraph still begins at
             // that cursor, so keep the positive remainder in its advance.
-            if repairsPageFlow, paragraph.isBox, paragraph.topAdjustment < 0, shift > 0 {
-                fragment.bottomAdjustment += min(shift, -paragraph.topAdjustment)
+            let displacement = paragraph.topAdjustment + paragraph.spacingAbove
+            if repairsPageFlow, paragraph.isBox, displacement < 0, shift > 0 {
+                fragment.bottomAdjustment += min(shift, -displacement)
             }
         }
         return fragment

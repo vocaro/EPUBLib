@@ -28,6 +28,15 @@ final class ReaderTextView: NSTextView {
     private var followingHeadingElement: ReaderHeadingAccessibilityElement?
     /// The accessibility elements of the text's tables of data (`ReaderDataTables+AppKit.swift`).
     private(set) lazy var dataTables = ReaderDataTables(view: self)
+    /// The elements of the table rows a page column showed before its text was last replaced,
+    /// kept among its children until the text is replaced again (`exposeTextualAttachments`).
+    private(set) var departedRows: [NSAccessibilityElement] = []
+    /// Where VoiceOver enters the page a column shows: its first line, or the start of the line
+    /// of a place shown (`ReaderCanvasView.enterPage`). The insertion point starts there, and
+    /// the rows of the page before stand there (`departedRowFrame`). While every column's
+    /// insertion point is still at it, a relayout enters the place again
+    /// (`ReaderCanvasView.placeStillEntered`).
+    var entryLocation = 0
     private var menuImage: ReaderImageAttachment?
     /// The headings of the text in the view, found once for each text it is given.
     private var headingCache: [(heading: ReaderHeading, range: NSRange)]?
@@ -212,16 +221,42 @@ final class ReaderTextView: NSTextView {
 
     // VoiceOver reads the page, not the clipped context after it. The characters stay as they
     // are (attachments as U+FFFC) so every accessibility range matches the text. A table row
-    // that has nothing to say is a space, and so is the break after it (`silentRows`).
+    // that has nothing to say is a space, and so is the break after it, and the same for a rule
+    // the book keeps from assistive technology (`silentRows`) or a character that
+    // `visibility: hidden` hides (`blankingHiddenText`).
     override func accessibilityValue() -> String? {
         guard !isPageColumn else { return plainCharacters(in: shownCharacters) }
-        return super.accessibilityValue().map { passingOverSilentRows($0, from: 0) }
+        return super.accessibilityValue().map { passingOverSilentRows(blankingHiddenText($0, from: 0), from: 0) }
     }
 
     private func plainCharacters(in range: NSRange) -> String {
         guard let storage = contentStorage.textStorage else { return "" }
         let bounded = NSIntersectionRange(range, NSRange(location: 0, length: storage.length))
-        return passingOverSilentRows((storage.string as NSString).substring(with: bounded), from: bounded.location)
+        return passingOverSilentRows(blankingHiddenText((storage.string as NSString).substring(with: bounded), from: bounded.location),
+                                     from: bounded.location)
+    }
+
+    // MARK: Hidden text
+
+    /// `characters`, which begin at `location` of the text, with each character that
+    /// `visibility: hidden` hides in the flow given as a space, but the breaks that end its
+    /// lines (`NSAttributedString.readerBlankingHidden`). A browser keeps the room such text
+    /// takes and gives an assistive client none of it. AppKit reads a text view's characters
+    /// one for one with every range it asks for, the lines' and the frames' included, so they
+    /// stay as many: VoiceOver says nothing for a space, and passes over the room as it does
+    /// over the space between words.
+    private func blankingHiddenText(_ characters: String, from location: Int) -> String {
+        contentStorage.textStorage?.readerBlankingHidden(characters, from: location) ?? characters
+    }
+
+    /// Whether every character of `range` but its breaks is one that `visibility: hidden` hides.
+    private func holdsHiddenTextAlone(_ range: NSRange) -> Bool {
+        guard let storage = contentStorage.textStorage, range.length > 0 else { return false }
+        let hidden = storage.readerHiddenCharacters(in: range).reduce(0) { $0 + $1.length }
+        guard hidden > 0 else { return false }
+        let text = storage.string as NSString
+        let breaks = (range.location..<NSMaxRange(range)).filter { NSAttributedString.isReaderBreak(text.character(at: $0)) }.count
+        return hidden + breaks >= range.length
     }
 
     // MARK: Table rows that have nothing to say
@@ -229,9 +264,12 @@ final class ReaderTextView: NSTextView {
     /// Where the table rows that have nothing to say stand in the view's text, in order
     /// (`TableRowAttachment.saysNothing`): rows of empty cells and of decoration alone, which
     /// space out a table used for layout. VoiceOver is given nothing to stop on there, as
-    /// iPhone and iPad list no element for such a row. It takes four things, and what
-    /// VoiceOver does without each was heard (doc/testing.md#voiceover-testing, the entry of
-    /// 2026-10-13 on rows that have nothing to say):
+    /// iPhone and iPad list no element for such a row. A rule the book keeps from assistive
+    /// technology, outside a link, is one character on a line of its own as such a row is,
+    /// and is passed over the same way, where iPhone and iPad give it no stop. It takes four
+    /// things, and what VoiceOver does without each was heard
+    /// (doc/testing.md#voiceover-testing, the entry of 2026-10-13 on rows that have nothing
+    /// to say):
     ///
     /// - The text gives no element at the row's character. With a group there VoiceOver said
     ///   "text text group" of two cells of decoration, and with a table of data's table a
@@ -248,9 +286,11 @@ final class ReaderTextView: NSTextView {
     private var silentRows: [Int] {
         if let silentRowCache { return silentRowCache }
         var found: [Int] = []
-        if containsTableRows, let storage = contentStorage.textStorage {
+        if let storage = contentStorage.textStorage {
             storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, run, _ in
                 if let row = value as? TableRowAttachment, row.saysNothing { found.append(run.location) }
+                else if let rule = value as? ReaderRuleAttachment, rule.isHiddenFromAssistiveTechnology,
+                        storage.attribute(.link, at: run.location, effectiveRange: nil) == nil { found.append(run.location) }
             }
         }
         silentRowCache = found
@@ -358,28 +398,40 @@ final class ReaderTextView: NSTextView {
     /// a row of any other table a group that holds its cells' text areas. A row that has
     /// nothing to say gets nothing, and its character and its break are spaces (`silentRows`).
     /// An image without words is an image element without a label, and one the book marks as
-    /// decoration is left with nothing, for VoiceOver to pass over. A rule has no words, and
-    /// its element carries the reader's word for one, for VoiceOver to say that a break is
-    /// there. A heading's characters carry its level, shown or hidden.
+    /// decoration is left with nothing, for VoiceOver to pass over, as is an image or a rule
+    /// the book keeps from assistive technology, whatever words it has. A rule has no words,
+    /// and its element carries the reader's word for one, for VoiceOver to say that a break is
+    /// there. A heading's characters carry its level, shown or a hidden label, unless
+    /// `visibility: hidden` hides all of its words: those characters are spaces, as every
+    /// character it hides is (`blankingHiddenText`).
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard !isPageColumn || validPageAccessibilityRange(range),
               let base = super.accessibilityAttributedString(for: range) else { return nil }
         let silent = silentRows(in: range), spaces = silentRowCharacters(in: range)
+        let hidden = contentStorage.textStorage?.readerHiddenCharacters(in: range) ?? []
         let tableRows = dataTableRows(in: range).filter { !silent.contains($0.range.location) }
-        let attachments = textualAttachments(in: range).filter { entry in
-            !silent.contains(entry.range.location) && !tableRows.contains { $0.range == entry.range }
+        // What each is given is its spoken words, which an image the book keeps from
+        // assistive technology has none of.
+        let attachments = textualAttachments(in: range).compactMap { entry -> (attachment: NSTextAttachment, text: String, range: NSRange)? in
+            guard !silent.contains(entry.range.location), !tableRows.contains(where: { $0.range == entry.range }),
+                  let words = (entry.attachment as? ReaderTextualAttachment)?.spokenEquivalent, !words.isEmpty else { return nil }
+            return (entry.attachment, words, entry.range)
         }
         let images = announcedImages(in: range)
         let rules = rules(in: range)
         let headings = contentStorage.textStorage?.readerHeadings(in: range) ?? []
         let links = accessibilityLinks(in: range)
         guard !attachments.isEmpty || !images.isEmpty || !rules.isEmpty || !headings.isEmpty || !links.isEmpty || !tableRows.isEmpty
-                || !spaces.isEmpty else { return base }
+                || !spaces.isEmpty || !hidden.isEmpty else { return base }
         let result = NSMutableAttributedString(attributedString: base)
         for place in spaces where place - range.location < result.length {
             let local = NSRange(location: place - range.location, length: 1)
             result.replaceCharacters(in: local, with: " ")
             result.removeAttribute(.attachment, range: local)
+        }
+        for run in hidden where NSMaxRange(run) - range.location <= result.length {
+            result.replaceCharacters(in: NSRange(location: run.location - range.location, length: run.length),
+                                     with: String(repeating: " ", count: run.length))
         }
         // A row of a table of data is given its table, named by the row's words.
         for (row, run) in tableRows {
@@ -389,7 +441,7 @@ final class ReaderTextView: NSTextView {
         }
         for (heading, run) in headings where heading.level > 0 {
             let local = NSRange(location: run.location - range.location, length: run.length)
-            guard NSMaxRange(local) <= result.length else { continue }
+            guard NSMaxRange(local) <= result.length, !holdsHiddenTextAlone(run) else { continue }
             result.addAttribute(.accessibilityHeadingLevel, value: heading.level, range: local)
         }
         for (attachment, text, run) in attachments {
@@ -408,8 +460,8 @@ final class ReaderTextView: NSTextView {
             let local = NSRange(location: run.location - range.location, length: run.length)
             guard NSMaxRange(local) <= result.length else { continue }
             // The role says that it is an image, in VoiceOver's own language: no name is made up.
-            let label = image.source.hasFailedSVGRendering ? image.alt
-                : (attachments.first { $0.range == run }?.text ?? image.alt)
+            let label = image.source.hasFailedSVGRendering ? image.spokenAlt
+                : (attachments.first { $0.range == run }?.text ?? image.spokenAlt)
             let element = accessibilityElement(at: run, label: label)
             // VoiceOver reads the help of an element without a label as its name, in the line.
             // A row's group has a label when its cells have words, which is not when the
@@ -417,7 +469,7 @@ final class ReaderTextView: NSTextView {
             let isNamed = element is ReaderTableRowGroupElement ? !tableRowLabel(at: run.location).isEmpty : !label.isEmpty
             element.setAccessibilityHelp(isNamed ? ReaderImageInspection.accessibilityHelp : nil)
             let actions = images.filter { $0.range == run }.map { entry in
-                NSAccessibilityCustomAction(name: entry.image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(entry.image.alt)") {
+                NSAccessibilityCustomAction(name: entry.image.spokenAlt.isEmpty ? "Inspect Image" : "Inspect Image: \(entry.image.spokenAlt)") {
                     [weak self] in
                     self?.canvas?.inspectImage(entry.image)
                     return self?.canvas != nil
@@ -448,19 +500,21 @@ final class ReaderTextView: NSTextView {
         return result
     }
 
-    /// The character of each rule in `range`.
+    /// The character of each rule in `range` that VoiceOver is told of: not one the book keeps
+    /// from assistive technology, unless it is all its link holds.
     private func rules(in range: NSRange) -> [NSRange] {
         guard let storage = contentStorage.textStorage else { return [] }
         var result: [NSRange] = []
         storage.enumerateAttribute(.attachment, in: NSIntersectionRange(range, NSRange(location: 0, length: storage.length))) { value, run, _ in
-            if value is ReaderRuleAttachment { result.append(run) }
+            if let rule = value as? ReaderRuleAttachment, !storage.passesOver(rule, at: run) { result.append(run) }
         }
         return result
     }
 
     /// AppKit lists a text view's links as its children and nothing else: the reader's own
     /// elements take their place, with those of the table cells on screen among them, and its
-    /// headings stand among them, each where it is in the text (`headingChildren`).
+    /// headings stand among them, each where it is in the text (`headingChildren`). The rows of
+    /// a page before come last (`departedRows`).
     override func accessibilityChildren() -> [Any]? {
         guard canvas != nil else { return super.accessibilityChildren() }
         holdScrollPlace()
@@ -468,7 +522,17 @@ final class ReaderTextView: NSTextView {
         let headings = headingChildren().map { (place: $0.range.location, element: $0 as NSAccessibilityElement) }
         // A heading comes before a link that begins where it does, which is a link inside it.
         let own = (headings + links).enumerated().sorted { ($0.element.place, $0.offset) < ($1.element.place, $1.offset) }
-        return (super.accessibilityChildren() ?? []).filter { $0 is NSView } + own.map(\.element.element)
+        return (super.accessibilityChildren() ?? []).filter { $0 is NSView } + own.map(\.element.element) + departedRows
+    }
+
+    /// Where the rows of a page before stand once the column shows another: at the line the
+    /// page is entered at (`entryLocation`), its first unless a place was shown on it, which is
+    /// where VoiceOver's next move by line or by word goes from one of them. In this view's
+    /// coordinates.
+    var departedRowFrame: CGRect {
+        let origin = containerOrigin
+        let line = lineFrame(containing: entryLocation) ?? CGRect(x: 0, y: 0, width: bounds.width, height: 1)
+        return line.offsetBy(dx: origin.x, dy: origin.y)
     }
 
     private func accessibilityElement(at range: NSRange, label: String, isText: Bool = false) -> NSAccessibilityElement {
@@ -512,20 +576,33 @@ final class ReaderTextView: NSTextView {
 
     func exposeTextualAttachments() {
         // A client can keep a row's group after the text it was given in has gone.
-        for case let row as ReaderTableRowGroupElement in attachmentElements.values { row.view = nil }
+        let groups = attachmentElements.values.compactMap { $0 as? ReaderTableRowGroupElement }
+        for row in groups { row.view = nil }
         attachmentElements.removeAll()
         silentRowCache = nil
         linkElements = ReaderLinkElements()
         headingElements.removeAll()
         followingHeadingElement = nil
-        dataTables.reset()
+        let tables = dataTables.reset()
+        // VoiceOver keeps its cursor on an element only while the element is among the children
+        // of the text it is in, and it is on a row's element once it has gone into the row and
+        // come back out. A row's element of a page turned under it was no longer a child:
+        // VoiceOver went to the text area, out of the text, and needed a step in to read on.
+        // Kept among the children, saying nothing and standing at the new page's first line,
+        // such an element keeps VoiceOver in the text, and its next move by line or by word
+        // reads the new page from its top, as after a turn made from a line (#485). Notices
+        // did not do it: a layout change naming the column, posted by the element, by the
+        // column or later, and the insertion point told of again left VoiceOver where it went.
+        departedRows = isPageColumn ? groups + tables : []
         headingCache = nil
         // Replacing NSTextStorage moves its native caret to the new storage's end, which
         // can be hidden paragraph context, or the end of the book. VoiceOver uses that
         // caret's line when entering a text view. Start newly installed text at its first
         // line; the canvas reapplies any intentional carried selection after all columns
         // have been installed, and keeps the scroll view's caret on screen
-        // (`placeScrollInsertionPoint`).
+        // (`placeScrollInsertionPoint`), and after a place is shown puts it on the place's
+        // line (`enterPage`).
+        entryLocation = 0
         selectedRange = NSRange(location: 0, length: 0)
         if isPageColumn {
             // The page exposes a custom bounded AXValue. TextKit's storage replacement
@@ -552,13 +629,27 @@ final class ReaderTextView: NSTextView {
     }
 
     override func accessibilityString(for range: NSRange) -> String? {
-        guard isPageColumn else { return super.accessibilityString(for: range).map { passingOverSilentRows($0, from: range.location) } }
+        guard isPageColumn else {
+            return super.accessibilityString(for: range).map {
+                passingOverSilentRows(blankingHiddenText($0, from: range.location), from: range.location)
+            }
+        }
         return validPageAccessibilityRange(range) ? plainCharacters(in: range) : nil
     }
 
     override func accessibilityRTF(for range: NSRange) -> Data? {
         guard !isPageColumn || validPageAccessibilityRange(range) else { return nil }
-        return super.accessibilityRTF(for: range)
+        // The rich text of a range that holds hidden characters has spaces in their place.
+        guard let storage = contentStorage.textStorage, !storage.readerHiddenCharacters(in: range).isEmpty else {
+            return super.accessibilityRTF(for: range)
+        }
+        let bounded = NSIntersectionRange(range, NSRange(location: 0, length: storage.length))
+        let text = NSMutableAttributedString(attributedString: storage.attributedSubstring(from: bounded))
+        for run in storage.readerHiddenCharacters(in: bounded) {
+            text.replaceCharacters(in: NSRange(location: run.location - bounded.location, length: run.length),
+                                   with: String(repeating: " ", count: run.length))
+        }
+        return text.rtf(from: NSRange(location: 0, length: text.length), documentAttributes: [:])
     }
 
     override func accessibilityFrame(for range: NSRange) -> NSRect {
@@ -624,7 +715,9 @@ final class ReaderTextView: NSTextView {
     }
 
     override func accessibilitySelectedText() -> String? {
-        isPageColumn ? plainCharacters(in: accessibilitySelectedTextRange()) : super.accessibilitySelectedText()
+        guard !isPageColumn else { return plainCharacters(in: accessibilitySelectedTextRange()) }
+        let range = super.accessibilitySelectedTextRange()
+        return super.accessibilitySelectedText().map { range.location == NSNotFound ? $0 : blankingHiddenText($0, from: range.location) }
     }
 
     override func setAccessibilitySelectedTextRange(_ range: NSRange) {
@@ -698,7 +791,7 @@ final class ReaderTextView: NSTextView {
         return all.compactMap { heading, range in
             let shown = NSIntersectionRange(range, reach)
             guard shown.length > 0 else { return nil }
-            guard let label = Self.headingLabel(plainText(in: shown), level: heading.level) else { return nil }
+            guard let label = Self.headingLabel(spokenText(in: shown), level: heading.level) else { return nil }
             return (heading, shown, label)
         }
     }
@@ -795,7 +888,7 @@ extension ReaderTextView {
         element.range = range
         element.elsewhere = nil
         element.setAccessibilityParent(self)
-        element.setAccessibilityLabel(plainText(in: range).split(whereSeparator: \.isWhitespace).joined(separator: " "))
+        element.setAccessibilityLabel(spokenText(in: range).split(whereSeparator: \.isWhitespace).joined(separator: " "))
         // VoiceOver says the level it finds as the element's value: "heading level 2".
         element.setAccessibilityValue(heading.level > 0 ? heading.level : nil)
         return element
@@ -878,13 +971,20 @@ extension ReaderTextView {
 /// beyond the screen before the view shows it, and keeps what it was given: a row made from
 /// what was on screen then was an image called by its words, with nothing in it to go into
 /// once it was shown.
+///
+/// Once the view shows other text the row has departed: it says nothing, holds nothing and
+/// stands at the first line of the page shown, where VoiceOver goes on from it
+/// (`ReaderTextView.departedRows`).
 final class ReaderTableRowGroupElement: NSAccessibilityElement {
     /// The view, while it shows the text the row was given in.
     weak var view: ReaderTextView?
+    /// The view, whatever it shows: what holds the row.
+    private weak var host: ReaderTextView?
     let location: Int
 
     init(view: ReaderTextView, location: Int) {
         self.view = view
+        host = view
         self.location = location
         super.init()
         // AppKit tells a client of an attribute the element has been given a value for.
@@ -892,7 +992,14 @@ final class ReaderTableRowGroupElement: NSAccessibilityElement {
         setAccessibilityChildren([])
     }
 
-    override func accessibilityRole() -> NSAccessibility.Role? { .group }
+    /// A departed row is an empty static text, which VoiceOver calls "text", as it calls the
+    /// text area it is in. As an empty group it said "group" each time a page turned under it.
+    override func accessibilityRole() -> NSAccessibility.Role? { view == nil ? .staticText : .group }
+
+    override func accessibilityFrame() -> NSRect {
+        guard view == nil, let host else { return super.accessibilityFrame() }
+        return MainActor.assumeIsolated { NSAccessibility.screenRect(fromView: host, rect: host.departedRowFrame) }
+    }
 
     // AppKit asks on the main thread. A row without words has no label, and not an empty one.
     override func accessibilityLabel() -> String? {

@@ -3,8 +3,8 @@ import Foundation
 
 /// Turns one built section's matches into the public result model: where each rendered
 /// occurrence is, what section it belongs to and the text around it. Matches in content that
-/// renders nothing are left out, exactly as they are left undrawn, so result `n` of a section
-/// is its `n`th drawn search highlight.
+/// renders nothing, or that takes in text `visibility: hidden` hides, are left out, exactly as
+/// they are left undrawn, so result `n` of a section is its `n`th drawn search highlight.
 enum SearchResultBuilder {
     /// UTF-16 units of rendered text read on each side of an occurrence, before trimming to
     /// whole words: about a line, enough to tell neighbouring occurrences apart.
@@ -42,6 +42,13 @@ enum SearchResultBuilder {
     /// the next rendered character and its end after the previous one.
     static func isRendered(_ range: ReaderTextRange) -> Bool { range.start < range.end }
 
+    /// Whether a match's range is a result: it holds rendered characters, and none that
+    /// `visibility: hidden` hides in the flow (`SectionText.holdsHiddenText`), which a browser
+    /// does not find either.
+    static func isListed(_ range: ReaderTextRange, in text: SectionText) -> Bool {
+        isRendered(range) && !text.holdsHiddenText(range)
+    }
+
     private static func rebased(_ match: TextSearch.Match, in document: ContentDocument) -> TextSearch.Match {
         func rebased(_ position: DOMPosition) -> DOMPosition {
             guard document.nodes.indices.contains(position.node.order) else { return position }
@@ -62,7 +69,7 @@ enum SearchResultBuilder {
         for found in matches {
             let match = rebased(found, in: document)
             let range = ReaderTextRange(start: text.renderedPosition(match.start), end: text.renderedPosition(match.end, isEnd: true))
-            guard isRendered(range) else { continue }
+            guard isListed(range, in: text) else { continue }
             guard batch.results.count < limit else { batch.hasMore = true; break }
             let matched = listed(TextSearch.text(of: match, in: document).unicodeScalars).trimmingCharacters(in: .whitespaces)
             let cfi = section.spine.cfi(spineIndex: text.spineIndex, start: match.start, end: match.end, in: document, indices: indices)

@@ -16,11 +16,15 @@ public struct EPUBPublication: Sendable {
     /// run of ASCII whitespace read as one space and none left at either end, so one its
     /// authoring tool wrapped and indented is one line; other white space, a no-break space
     /// among it, is kept inside and at the ends of a value that holds anything else, and an
-    /// element that holds nothing but white space of any kind has no value.
+    /// element that holds nothing but white space of any kind has no value. An element inside the
+    /// deprecated `dc-metadata` element, which EPUB 2 packages may have, is read where it stands.
     public let metadata: EPUBMetadata
     /// The manifest's items whose files the archive holds. A remote item is never fetched and is
     /// left out, as is a font obfuscated with a key the package does not give.
     public let resources: [EPUBResource]
+    /// Entries the archive's directory lists that could not be read, which the book was opened
+    /// without; nil when every entry it lists was read.
+    public let lostEntries: EPUBLostEntries?
     public let spine: [EPUBSpineItem]
     /// The navigation document's `toc` or, without that document, the NCX's `navMap`. An entry
     /// whose href does not resolve inside the archive keeps its title and children, without an href.
@@ -42,6 +46,27 @@ public struct EPUBPublication: Sendable {
     /// Original EPUB bytes, for engines with their own container implementation.
     public let archiveData: Data
     private let contents: [String: Data]
+    /// All declared IDs, including missing and remote hops. They are never fetched.
+    private let manifestByID: [String: EPUBResource]
+
+    /// The designated manifest chain, starting with `resource`, stopping at a missing ID or
+    /// before repeating an ID. Missing/remote files remain in the chain so a host can continue
+    /// to a later available fallback; the host chooses which media types it supports.
+    public func fallbackChain(for resource: EPUBResource) -> [EPUBResource] {
+        var chain: [EPUBResource] = [], seen: Set<String> = []
+        var next: EPUBResource? = manifestByID[resource.id] ?? resource
+        while let item = next, seen.insert(item.id).inserted {
+            chain.append(item)
+            next = item.fallbackID.flatMap { manifestByID[$0] }
+        }
+        return chain
+    }
+
+    /// A declared local or remote resource, including one whose bytes the archive lacks.
+    /// Lookup uses the resolved archive path; this does not load or fetch anything.
+    public func manifestResource(at path: String) -> EPUBResource? {
+        resources.first { $0.path == path } ?? manifestByID.values.filter { $0.path == path }.min { $0.id < $1.id }
+    }
 
     public func data(for resource: EPUBResource) throws -> Data {
         try data(at: resource.path)
@@ -88,12 +113,12 @@ public struct EPUBPublication: Sendable {
         }
         catch { throw EPUBPublicationError.invalidArchive(String(describing: error)) }
         // The bytes this archive reads, whatever it was made from.
-        try ArchiveBounds.check(archive.data ?? data, archive: archive)
+        let directory = try ArchiveBounds.check(archive.data ?? data, archive: archive, names: limits.entryCount)
         var contents: [String: Data] = [:]
         var paths = Set<String>()
         var total = 0
         var inputWork = ArchiveInputWork(archiveBytes: (archive.data ?? data).count)
-        for entry in archive {
+        for (index, entry) in archive.enumerated() {
             try Task.checkCancellation()
             let path = EntryName.path(of: entry)
             guard ResourceReference.isReadablePath(path, directory: entry.type == .directory), entry.type != .symlink else {
@@ -109,24 +134,36 @@ public struct EPUBPublication: Sendable {
             // unless it is compressed. A compressed entry is not read by its declared size,
             // which may be wrong either way with its data whole: a deflated one is held to the
             // limits below, by what it inflates to, and one in any other method is not read.
-            guard entry.isCompressed || (entry.uncompressedSize <= UInt64(limits.resourceBytes)
-                                         && entry.uncompressedSize <= UInt64(limits.expandedBytes - total)) else {
+            // A data descriptor's size is read by the form of the descriptor's own bytes, not the
+            // one ZIPFoundation takes from the entry's version and ZIP64 field (`DataDescriptor`).
+            let declared = directory.describedSizes[index] ?? entry.uncompressedSize
+            guard entry.isCompressed || (declared <= UInt64(limits.resourceBytes)
+                                         && declared <= UInt64(limits.expandedBytes - total)) else {
                 throw EPUBPublicationError.limitExceeded(path)
             }
             var bytes = Data()
             inputWork.beginEntry()
-            let crc = try archive.extract(entry, bufferSize: ArchiveInputWork.chunkSize) { chunk in
-                try Task.checkCancellation()
-                guard chunk.count <= limits.resourceBytes - bytes.count,
-                      chunk.count <= limits.expandedBytes - total else {
-                    throw EPUBPublicationError.limitExceeded(path)
+            let crc: CRC32
+            do {
+                crc = try archive.extract(entry, bufferSize: ArchiveInputWork.chunkSize) { chunk in
+                    try Task.checkCancellation()
+                    guard chunk.count <= limits.resourceBytes - bytes.count,
+                          chunk.count <= limits.expandedBytes - total else {
+                        throw EPUBPublicationError.limitExceeded(path)
+                    }
+                    try inputWork.consume(outputBytes: chunk.count)
+                    bytes.append(chunk)
+                    total += chunk.count
+                    onProgress?(total)
+                    try Task.checkCancellation()
                 }
-                try inputWork.consume(outputBytes: chunk.count)
-                bytes.append(chunk)
-                total += chunk.count
-                onProgress?(total)
-                try Task.checkCancellation()
             }
+            catch let error as EPUBPublicationError { throw error }
+            catch let error as CancellationError { throw error }
+            // A method other than stored and Deflate, or a stream that does not inflate, is
+            // damage in the archive however much the entry declares: what it declares is not
+            // trusted, and a limit is exceeded only by bytes it inflates to (#74).
+            catch { throw EPUBPublicationError.invalidArchive("\(path): \(error)") }
             guard crc == entry.checksum else { throw EPUBPublicationError.invalidArchive("CRC: \(path)") }
             contents[path] = bytes
         }
@@ -156,9 +193,15 @@ public struct EPUBPublication: Sendable {
               let spineNode = opf.children.first(where: { $0.name == "spine" }) else {
             throw EPUBPublicationError.invalidXML("OPF package, manifest or spine")
         }
-        let metadataNode = opf.children.first { $0.name == "metadata" }
+        // The children of `metadata`, with those of a `dc-metadata` or `x-metadata` element in its
+        // place. OEBPS 1.2 wrapped a package's Dublin Core elements in the first and its `meta`
+        // elements in the second, and OPF 2.0.1 §2.2, which deprecates both, has a reading system
+        // allow them. They are read in a package of any version, as the rest of it is (#85).
+        let metadataElements = (opf.children.first { $0.name == "metadata" }?.children ?? []).flatMap {
+            $0.name == "dc-metadata" || $0.name == "x-metadata" ? $0.children : [$0]
+        }
         func values(_ name: String) -> [String] {
-            metadataNode?.children.filter { $0.name == name }.map(\.text).filter { !$0.isEmpty } ?? []
+            metadataElements.filter { $0.name == name }.map(\.text).filter { !$0.isEmpty }
         }
         // Paths obfuscated as fonts with a key the package does not give. A font is left out, as
         // a file the archive lacks is, rather than refusing a book over a typeface. Anything else
@@ -167,7 +210,7 @@ public struct EPUBPublication: Sendable {
         var undecoded: Set<String> = [], unproven: Set<String> = []
         if contents["META-INF/encryption.xml"] != nil {
             let encryption = try xml("META-INF/encryption.xml")
-            let identifiers = metadataNode?.children.filter { $0.name == "identifier" } ?? []
+            let identifiers = metadataElements.filter { $0.name == "identifier" }
             let unique = identifiers.first { $0.attribute("id") == opf.attribute("unique-identifier") }
             let identifier = unique?.keyText ?? ""
             for encrypted in encryption.descendants("EncryptedData") {
@@ -238,7 +281,8 @@ public struct EPUBPublication: Sendable {
                 }
             }
             let resource = EPUBResource(id: id, path: path, mediaType: type,
-                properties: Set((item.attribute("properties") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)))
+                properties: Set((item.attribute("properties") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)),
+                fallbackID: item.attribute("fallback").flatMap { $0.isEmpty ? nil : $0 })
             // Some converters write an item more than once; a verbatim repeat adds nothing, but one
             // id naming two different resources is ambiguous.
             if let earlier = declared[id] {
@@ -256,9 +300,9 @@ public struct EPUBPublication: Sendable {
             byID[id] = resource
         }
         guard unproven.isEmpty else { throw EPUBPublicationError.unsupportedEncryption }
-        let fixedLayout = metadataNode?.children.contains {
+        let fixedLayout = metadataElements.contains {
             $0.name == "meta" && $0.attribute("property") == "rendition:layout" && $0.text == "pre-paginated"
-        } ?? false
+        }
         let spine = try spineNode.children.filter { $0.name == "itemref" }.map { item in
             guard let ref = item.attribute("idref"), let named = declared[ref] else {
                 throw EPUBPublicationError.invalidXML("Spine idref")
@@ -353,17 +397,17 @@ public struct EPUBPublication: Sendable {
                 return EPUBLandmark(types: types, title: reference.attribute("title") ?? "", href: resolved)
             }
         }
-        let coverID = metadataNode?.children.first {
+        let coverID = metadataElements.first {
             $0.name == "meta" && $0.attribute("name") == "cover"
         }?.attribute("content")
         return Self(id: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
             metadata: EPUBMetadata(title: values("title").first ?? "", authors: values("creator"),
                                    languages: values("language"), identifiers: values("identifier")),
-            resources: resources, spine: spine, tableOfContents: toc, landmarks: landmarks,
+            resources: resources, lostEntries: directory.lostEntries, spine: spine, tableOfContents: toc, landmarks: landmarks,
             pageList: pages.isEmpty ? nil : pages,
             cover: resources.first { $0.properties.contains("cover-image") } ?? coverID.flatMap { byID[$0] },
             pageProgression: EPUBPageProgression(rawValue: spineNode.attribute("page-progression-direction") ?? "") ?? .default,
-            archiveData: data, contents: contents)
+            archiveData: data, contents: contents, manifestByID: declared)
     }
 
     /// Whether the `mimetype` entry names an EPUB. White space around the media type and a
@@ -499,7 +543,9 @@ private final class XMLTree: NSObject, XMLParserDelegate {
         parser.shouldResolveExternalEntities = false
         parser.externalEntityResolvingPolicy = .never
         parser.delegate = delegate
-        return parser.parse() ? delegate.root : nil
+        // Foundation's parser gives this thread libxml2 handlers of its own for the parse and
+        // clears them after it, which would leave a host's own messages to standard error.
+        return LibXML2Messages.silenced { parser.parse() } ? delegate.root : nil
     }
     func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?,
                 qualifiedName: String?, attributes: [String: String]) {

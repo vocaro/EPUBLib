@@ -1,4 +1,5 @@
 import EPUBCore
+import CryptoKit
 import Foundation
 import libxml2
 
@@ -118,21 +119,47 @@ enum ContentDocumentError: Error, Equatable, Sendable {
 /// whitespace and namespace rules. Other repairs remain readable, but cannot issue or resolve
 /// CFIs: libxml2's HTML 4 tree is not a safe substitute for WebKit's HTML 5 tree.
 final class ContentDocument: @unchecked Sendable {
+    enum Origin: Equatable, Sendable { case authored, syntheticRaster }
     let path: String
+    /// Explicitly distinguishes the raster loader's wrapper from parsed authored markup.
+    let origin: Origin
     let root: ContentNode
     /// Every node in preorder; `nodes[n.order] === n`.
     let nodes: [ContentNode]
     let recoveredAsHTML: Bool
     let canResolveCFIs: Bool
+    /// A fallback XHTML DOM requires a resource assertion so its positions cannot be confused
+    /// with positions in the original document under the same package spine itemref.
+    let cfiResource: String?
     private let ids: [String: ContentNode]
 
     private init(path: String, root: ContentNode, nodes: [ContentNode], recovered: Bool,
-                 canResolveCFIs: Bool = true) {
+                 canResolveCFIs: Bool = true, cfiResource: String? = nil, origin: Origin = .authored) {
         self.path = path; self.root = root; self.nodes = nodes; recoveredAsHTML = recovered
+        self.origin = origin
         self.canResolveCFIs = canResolveCFIs
+        self.cfiResource = cfiResource
         var ids: [String: ContentNode] = [:]
         for node in nodes where node.isElement { if let id = node.id, ids[id] == nil { ids[id] = node } }
         self.ids = ids
+    }
+
+    /// A substituted/synthesized document can keep its own text map without accepting CFIs
+    /// issued against the original spine resource's DOM.
+    func withoutCFIs() -> ContentDocument {
+        ContentDocument(path: path, root: root, nodes: nodes, recovered: recoveredAsHTML,
+                        canResolveCFIs: false, cfiResource: cfiResource, origin: origin)
+    }
+
+    func asSyntheticRaster() -> ContentDocument {
+        ContentDocument(path: path, root: root, nodes: nodes, recovered: recoveredAsHTML,
+                        canResolveCFIs: false, origin: .syntheticRaster)
+    }
+
+    func withCFIResource(_ resource: String) -> ContentDocument {
+        ContentDocument(path: path, root: root, nodes: nodes, recovered: recoveredAsHTML,
+                        canResolveCFIs: canResolveCFIs, cfiResource: SHA256.hash(data: Data(resource.utf8))
+                            .map { String(format: "%02x", $0) }.joined(), origin: origin)
     }
 
     /// First element with this `id` in document order (`getElementById`).
@@ -201,8 +228,11 @@ final class ContentDocument: @unchecked Sendable {
             let parser = raw.assumingMemoryBound(to: xmlParserCtxt.self)
             parser.pointee._private?.assumingMemoryBound(to: Bool.self).pointee = true
         }
-        let doc = data.withUnsafeBytes { buffer in
-            xmlCtxtReadMemory(context, buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, nil, xmlOptions)
+        // The handler above takes what libxml2 raises about this parse, but not a decoder's error.
+        let doc = LibXML2Messages.silenced {
+            data.withUnsafeBytes { buffer in
+                xmlCtxtReadMemory(context, buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, nil, xmlOptions)
+            }
         }
         guard let doc else { return nil }
         defer { xmlFreeDoc(doc) }
@@ -220,14 +250,16 @@ final class ContentDocument: @unchecked Sendable {
     private static func parseHTML(_ data: Data, rewritten: Data, path: String, limits: ContentLimits) throws -> ContentDocument {
         let source = try htmlSource(data, rewritten: rewritten, path: path, limits: limits)
         guard XMLSafety.hasBoundedAttributes(source.data, asHTML: true) else { throw ContentDocumentError.limitExceeded("attributesPerElement") }
-        let doc = source.data.withUnsafeBytes { buffer in
-            htmlReadMemory(buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, "UTF-8", htmlOptions)
+        let doc = LibXML2Messages.silenced {
+            source.data.withUnsafeBytes { buffer in
+                htmlReadMemory(buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, "UTF-8", htmlOptions)
+            }
         }
         guard let doc else { throw ContentDocumentError.malformed(path) }
         defer { xmlFreeDoc(doc) }
         retainHTMLTrailingContent(doc)
         guard let document = try convert(doc, path: path, limits: limits, recovered: true, html: true,
-                                         signPlaceholder: source.placeholder) else {
+                                         signPlaceholder: source.placeholder, ampPlaceholder: source.ampPlaceholder) else {
             throw ContentDocumentError.malformed(path)
         }
         return document
@@ -272,29 +304,36 @@ final class ContentDocument: @unchecked Sendable {
     /// the text after a `<` that opens no markup and end the document at a NUL. What it is
     /// given stays within the byte limit decoded, after CDATA recovery, and
     /// again with those signs and NULs replaced.
-    static func htmlSource(_ data: Data, rewritten: Data, path: String, limits: ContentLimits) throws -> (data: Data, placeholder: Unicode.Scalar?) {
+    static func htmlSource(_ data: Data, rewritten: Data, path: String, limits: ContentLimits) throws -> (data: Data, placeholder: Unicode.Scalar?, ampPlaceholder: String?) {
         let limit = min(limits.bytes, Int(Int32.max))
         let text = try HTMLSourceEncoding.utf8(data, path: path, limit: limit).map { HTMLEntities.numericReferences(in: $0) } ?? rewritten
-        let recoveredText = try HTMLRecoveryText.prepared(text, path: path, limit: limit)
+        guard let ampersands = HTMLLiteralAmpersands.prepared(text, limit: limit) else { throw ContentDocumentError.limitExceeded("bytes") }
+        let recoveredText = try HTMLRecoveryText.prepared(ampersands.data, path: path, limit: limit)
         guard let signs = HTMLStraySigns.replaced(in: recoveredText, limit: limit),
               let source = HTMLNullCharacters.replaced(in: signs.data, limit: limit) else {
             throw ContentDocumentError.limitExceeded("bytes")
         }
-        return (source, signs.placeholder)
+        return (source, signs.placeholder, ampersands.placeholder)
     }
 
     /// `signPlaceholder` is what `HTMLStraySigns` gave the parser in place of a stray `<`.
     private static func convert(_ doc: xmlDocPtr, path: String, limits: ContentLimits,
-                                recovered: Bool, html: Bool, signPlaceholder: Unicode.Scalar? = nil) throws -> ContentDocument? {
+                                recovered: Bool, html: Bool, signPlaceholder: Unicode.Scalar? = nil,
+                                ampPlaceholder: String? = nil) throws -> ContentDocument? {
         guard let rootElement = xmlDocGetRootElement(doc) else { return nil }
         var nodes: [ContentNode] = []
         func string(_ value: UnsafePointer<xmlChar>?) -> String { value.map { String(cString: $0) } ?? "" }
-        func restored(_ text: String) -> String { signPlaceholder.map { HTMLStraySigns.restored(text, from: $0) } ?? text }
-        func build(_ xml: xmlNodePtr, depth: Int) throws -> ContentNode {
+        func restored(_ text: String) -> String {
+            let signs = signPlaceholder.map { HTMLStraySigns.restored(text, from: $0) } ?? text
+            return HTMLLiteralAmpersands.restored(signs, placeholder: ampPlaceholder)
+        }
+        func build(_ xml: xmlNodePtr, depth: Int, insideSVG: Bool = false) throws -> ContentNode {
             guard depth < limits.depth else { throw ContentDocumentError.limitExceeded("depth") }
-            let namespace = html ? "" : string(xml.pointee.ns?.pointee.href)
             let rawName = string(xml.pointee.name)
-            let name = namespace == ContentNamespace.xhtml || html ? rawName.lowercased() : rawName
+            let recoveredSVG = html && (insideSVG || rawName.lowercased() == "svg")
+            let namespace = html ? (recoveredSVG ? ContentNamespace.svg : "") : string(xml.pointee.ns?.pointee.href)
+            let name = recoveredSVG ? HTMLSVGNames.element(rawName.lowercased())
+                : namespace == ContentNamespace.xhtml || html ? rawName.lowercased() : rawName
             var attributes: [ContentAttribute] = []
             var attribute = xml.pointee.properties
             while let current = attribute {
@@ -308,8 +347,9 @@ final class ContentDocument: @unchecked Sendable {
                 }
                 let attributeNamespace = html ? "" : string(current.pointee.ns?.pointee.href)
                 let local = string(current.pointee.name)
-                attributes.append(ContentAttribute(name: html ? local.lowercased() : local,
-                                                   namespace: attributeNamespace, value: restored(value)))
+                attributes.append(recoveredSVG ? HTMLSVGNames.attribute(local.lowercased(), value: restored(value))
+                    : ContentAttribute(name: html ? local.lowercased() : local,
+                                       namespace: attributeNamespace, value: restored(value)))
                 attribute = current.pointee.next
             }
             let node = ContentNode(element: name, namespace: namespace, attributes: attributes)
@@ -331,7 +371,8 @@ final class ContentDocument: @unchecked Sendable {
                 switch current.pointee.type {
                 case XML_ELEMENT_NODE:
                     flushText()
-                    let element = try build(current, depth: depth + 1)
+                    let element = try build(current, depth: depth + 1,
+                                            insideSVG: recoveredSVG && !HTMLSVGNames.integrationPoints.contains(name))
                     element.parent = node; element.indexInParent = node.children.count
                     node.children.append(element)
                 case XML_TEXT_NODE, XML_CDATA_SECTION_NODE:
@@ -397,7 +438,7 @@ final class ContentDocument: @unchecked Sendable {
         }
         let root = clone(document.root)
         guard nodes.count <= limits.nodes else { throw ContentDocumentError.limitExceeded("nodes") }
-        return ContentDocument(path: document.path, root: root, nodes: nodes, recovered: true)
+        return ContentDocument(path: document.path, root: root, nodes: nodes, recovered: true, origin: document.origin)
     }
 }
 

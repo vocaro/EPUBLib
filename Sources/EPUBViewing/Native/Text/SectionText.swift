@@ -29,7 +29,58 @@ struct SectionText: @unchecked Sendable {
     let notes: [String: NSAttributedString]
     /// `<head><title>`, whitespace-normalized; nil when absent or empty.
     let title: String?
-    let report: SectionReport
+    /// What the build withheld or simplified, and what laying the text out has found since.
+    var report: SectionReport {
+        var report = builtReport
+        report.textNotLaidOut = layout.hasUnplacedText
+        return report
+    }
+    private let builtReport: SectionReport
+    /// What the layouts of `string` find (`.readerSectionLayout`).
+    let layout: SectionLayoutRecord
+
+    init(spineIndex: Int, href: String, document: ContentDocument, string: NSAttributedString, map: TextMap,
+         anchors: [String: Int], notes: [String: NSAttributedString], title: String?, report: SectionReport,
+         layout: SectionLayoutRecord = SectionLayoutRecord()) {
+        self.spineIndex = spineIndex; self.href = href; self.document = document; self.string = string
+        self.map = map; self.anchors = anchors; self.notes = notes; self.title = title
+        builtReport = report; self.layout = layout
+    }
+}
+
+/// What the layouts of a section's text find that its build could not know: text TextKit could
+/// set on no line, which the reader's text container stopped laying out
+/// (`ReaderTextContainer.askLimit`). The builder covers the section's text, its notes and its
+/// table cells with the record (`.readerSectionLayout`), so that a layout of any slice of them,
+/// in any view or in the box plan, reaches it.
+///
+/// A record is equal only to itself. CoreFoundation shares attribute dictionaries that compare
+/// equal between strings, so records that compared equal would let a section's text carry
+/// another section's record: of two builds of one section, the second's text carried the first's (#288).
+final class SectionLayoutRecord: NSObject, @unchecked Sendable {
+    private let lock = NSLock()
+    private var unplaced = false
+    private var observer: (@MainActor @Sendable () -> Void)?
+
+    var hasUnplacedText: Bool { lock.withLock { unplaced } }
+
+    /// Calls `body` on the main actor once text is found that could not be laid out, or soon
+    /// after this when some already was.
+    func observe(_ body: @escaping @MainActor @Sendable () -> Void) {
+        let found = lock.withLock { observer = body; return unplaced }
+        if found { Task { @MainActor in body() } }
+    }
+
+    /// Called by a layout, on whatever thread it runs, inside TextKit's layout: the observer is
+    /// told later, on the main actor.
+    func recordUnplacedText() {
+        let observer = lock.withLock { () -> (@MainActor @Sendable () -> Void)? in
+            guard !unplaced else { return nil }
+            unplaced = true
+            return self.observer
+        }
+        if let observer { Task { @MainActor in observer() } }
+    }
 }
 
 /// What a section withheld or could not render faithfully. Aggregated into `.disclosure` text.
@@ -69,6 +120,13 @@ struct SectionReport: Equatable, Sendable {
     var flexGridSimplified = false
     /// CSS rules, declarations or selectors dropped by parser or sibling-search bounds.
     var stylesTruncated = false
+    /// Content a `::before` or `::after` asks for that is not shown: an image or another item
+    /// the reader does not generate (`ComputedStyle.ContentItem.unsupported`), that of a table
+    /// laid out as a grid or of its rows, or characters past the section's bound.
+    var generatedContentOmitted = false
+    /// Text that TextKit could set on no line at the size it was laid out at, and that is not
+    /// shown (`SectionLayoutRecord`). Found by laying the section out, never by building it.
+    var textNotLaidOut = false
 
     mutating func formUnion(_ other: SectionReport) {
         scriptsRefused += other.scriptsRefused
@@ -86,6 +144,8 @@ struct SectionReport: Equatable, Sendable {
         stylesTruncated = stylesTruncated || other.stylesTruncated
         flowBoxesReflowed = flowBoxesReflowed || other.flowBoxesReflowed
         flexGridSimplified = flexGridSimplified || other.flexGridSimplified
+        generatedContentOmitted = generatedContentOmitted || other.generatedContentOmitted
+        textNotLaidOut = textNotLaidOut || other.textNotLaidOut
     }
 }
 
@@ -96,7 +156,8 @@ struct SectionReport: Equatable, Sendable {
 /// run, a transformed run, or an element rendered as a unit such as an image, table or formula)
 /// every rendered character maps to the span's source start, and every source position in
 /// `offset..<offset + sourceLength` maps to the span's first rendered character. Generated text
-/// (list markers, bidi isolates, separators) has no span. Spans are sorted by `location` and,
+/// (list markers, `::before` and `::after` content with `q` marks, bidi isolates, separators)
+/// has no span. Spans are sorted by `location` and,
 /// because rendering preserves document order, by source position too.
 struct TextMap: Equatable, Sendable {
     struct Span: Equatable, Sendable {
@@ -109,23 +170,32 @@ struct TextMap: Equatable, Sendable {
         /// UTF-16 length of source covered; 0 for an element.
         var sourceLength: Int
         var isExact: Bool
+        /// Authored copy text when typography substitutes characters. Exact spans slice this
+        /// by their rendered UTF-16 offsets; a length-changing grapheme is copied as one unit.
+        var authoredText: String?
         /// An element rendered as a whole (an image, table, formula or SVG).
         var isUnit: Bool { !isExact && sourceLength == 0 }
-        init(location: Int, length: Int, node: Int, offset: Int, sourceLength: Int, isExact: Bool) {
+        init(location: Int, length: Int, node: Int, offset: Int, sourceLength: Int, isExact: Bool, authoredText: String? = nil) {
             self.location = location; self.length = length; self.node = node
             self.offset = offset; self.sourceLength = sourceLength; self.isExact = isExact
+            self.authoredText = authoredText
         }
     }
     private(set) var spans: [Span] = []
     /// The rendered string's length.
     var length = 0
+    /// Paragraph separators introduced only to lay out inline flow boxes. Copy replaces them
+    /// with the collapsed authored space, if any, rather than inventing a block break.
+    private(set) var layoutSeparators: [Int: String] = [:]
 
     init(spans: [Span] = [], length: Int = 0) { self.spans = spans; self.length = length }
+
+    mutating func layoutSeparator(at location: Int, copyText: String) { layoutSeparators[location] = copyText }
 
     /// Appends a span, merging it into the previous one when both are exact and contiguous.
     mutating func append(_ span: Span) {
         guard span.length > 0 else { return }
-        if var last = spans.last, last.isExact, span.isExact, last.node == span.node,
+        if var last = spans.last, last.isExact, span.isExact, last.authoredText == nil, span.authoredText == nil, last.node == span.node,
            last.location + last.length == span.location, last.offset + last.sourceLength == span.offset {
             last.length += span.length; last.sourceLength += span.sourceLength
             spans[spans.count - 1] = last
@@ -273,39 +343,86 @@ extension NSAttributedString.Key {
     static let readerPageBreakBefore = NSAttributedString.Key("org.epublib.pageBreakBefore")
     /// `true` on a paragraph's first character when CSS asks to avoid a break after it (headings).
     static let readerKeepWithNext = NSAttributedString.Key("org.epublib.keepWithNext")
+    /// The `SectionLayoutRecord` of the section, over all of its text.
+    static let readerSectionLayout = NSAttributedString.Key("org.epublib.sectionLayout")
 }
 
 extension SectionText {
+    /// Whether a rendered range takes in text that `visibility: hidden` hides in the flow
+    /// (`.readerHidden`): in the section's string, or in the table cells its ends are in.
+    func holdsHiddenText(_ range: ReaderTextRange) -> Bool {
+        func hidden(_ text: NSAttributedString, _ lower: Int, _ upper: Int) -> Bool {
+            let lower = max(0, lower), upper = min(text.length, upper)
+            guard upper > lower else { return false }
+            var found = false
+            text.enumerateAttribute(.readerHidden, in: NSRange(location: lower, length: upper - lower)) { value, _, stop in
+                if value != nil { found = true; stop.pointee = true }
+            }
+            return found
+        }
+        let first = range.start.tableCell.flatMap { endpoint in tableCell(range.start).map { (endpoint, $0) } }
+        let last = range.end.tableCell.flatMap { endpoint in tableCell(range.end).map { (endpoint, $0) } }
+        if let first, let last, first.0.table == last.0.table, first.0.cell == last.0.cell {
+            return hidden(first.1.content, first.0.offset, last.0.offset)
+        }
+        if let first, hidden(first.1.content, first.0.offset, first.1.content.length) { return true }
+        if let last, hidden(last.1.content, 0, last.0.offset) { return true }
+        return hidden(string, range.start.offset, range.end.offset)
+    }
+
     /// The text of a rendered range from the book's own characters: mapped text (attachments as
-    /// their text equivalents) and the line breaks between blocks, but no other generated text.
-    func mappedText(in range: Range<Int>) -> String {
+    /// their text equivalents) and authored line/block breaks, but no layout-only separators.
+    func mappedText(in range: Range<Int>) -> String { map.mappedText(in: range, from: string) }
+}
+
+extension TextMap {
+    /// Also used for a detached table cell's passage: its map retains the same authored
+    /// substitutions and layout separators as the section map.
+    func mappedText(in range: Range<Int>, from string: NSAttributedString, generatedBreaks: String = "\n") -> String {
         let characters = string.string as NSString
-        let range = max(0, range.lowerBound)..<min(string.length, max(range.lowerBound, range.upperBound))
+        let lower = max(0, min(string.length, range.lowerBound))
+        let upper = max(lower, min(string.length, range.upperBound))
+        let range = lower..<upper
         var text = ""
         func generated(_ gap: Range<Int>) {
             guard !gap.isEmpty else { return }
-            for scalar in characters.substring(with: NSRange(location: gap.lowerBound, length: gap.count)).unicodeScalars
-            where scalar == "\n" || scalar == "\u{2028}" || scalar == "\u{2029}" { text += "\n" }
-        }
-        let spans = map.spans
-        var low = 0, high = spans.count
-        while low < high { // first span ending after the range's start
-            let mid = (low + high) / 2
-            if spans[mid].location + spans[mid].length <= range.lowerBound { low = mid + 1 } else { high = mid }
-        }
-        var cursor = range.lowerBound
-        while low < spans.count, spans[low].location < range.upperBound, cursor < range.upperBound {
-            let span = spans[low]
-            if span.location > cursor { generated(cursor..<span.location); cursor = span.location }
-            let end = min(range.upperBound, span.location + span.length)
-            if end > cursor {
-                text += string.readerPlainText(in: NSRange(location: cursor, length: end - cursor))
-                cursor = end
+            var location = gap.lowerBound
+            for scalar in characters.substring(with: NSRange(location: gap.lowerBound, length: gap.count)).unicodeScalars {
+                if let replacement = layoutSeparators[location] { text += replacement }
+                else if scalar == "\n" || scalar == "\u{2028}" || scalar == "\u{2029}" { text += generatedBreaks }
+                location += scalar.utf16.count
             }
-            low += 1
         }
-        generated(cursor..<range.upperBound)
+        func shown(_ part: Range<Int>) {
+            var low = 0, high = spans.count
+            while low < high { // first span ending after this visible part's start
+                let mid = (low + high) / 2
+                if spans[mid].location + spans[mid].length <= part.lowerBound { low = mid + 1 } else { high = mid }
+            }
+            var cursor = part.lowerBound
+            while low < spans.count, spans[low].location < part.upperBound, cursor < part.upperBound {
+                let span = spans[low]
+                if span.location > cursor { generated(cursor..<span.location); cursor = span.location }
+                let end = min(part.upperBound, span.location + span.length)
+                if end > cursor {
+                    if let authored = span.authoredText {
+                        if span.isExact {
+                            text += (authored as NSString).substring(with: NSRange(location: cursor - span.location, length: end - cursor))
+                        } else { text += authored }
+                    } else { text += string.readerCopyPlainText(in: NSRange(location: cursor, length: end - cursor)) }
+                    cursor = end
+                }
+                low += 1
+            }
+            generated(cursor..<part.upperBound)
+        }
+        // Visibility belongs to the rendered source range, before any authored spelling is
+        // substituted. Enumerate it across spans so one hidden run split by inline markup or
+        // a ß expansion still contributes the same separator as the full attributed string.
+        string.enumerateAttribute(.readerHidden, in: NSRange(location: range.lowerBound, length: range.count)) { hidden, part, _ in
+            if hidden != nil { text += string.readerHiddenText(part) }
+            else { shown(part.location..<NSMaxRange(part)) }
+        }
         return text
     }
 }
-

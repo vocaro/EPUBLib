@@ -464,6 +464,29 @@ final class ContainerDocumentCoverageTests: XCTestCase {
         XCTAssertEqual(try EPUBPublication.open(data: data).data(at: "OPS/font.otf"), original)
     }
 
+    func testTheKeyIsMadeFromAnIdentifierInsideTheDeprecatedDCMetadataElement() throws {
+        // OPF 2.0.1 §2.2 has a reading system allow `dc-metadata`, which OEBPS 1.2 packages wrapped
+        // their Dublin Core elements in, the unique identifier among them (#85). Read without it,
+        // the identifier was empty: IDPF's key could not be made and the book was refused, and
+        // Adobe's, from the first identifier that is a UUID, left its font out.
+        let uuid = "urn:uuid:00112233-4455-6677-8899-aabbccddeeff"
+        let original = font(1_100)
+        // A book for each algorithm, so that neither stops the other being checked.
+        func check(_ algorithm: String, key: [UInt8], prefix: Int) throws {
+            let data = try Fixture.packageVariant(epub2: true, opf: {
+                $0.replacingOccurrences(of: "<metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">",
+                                        with: "<metadata><dc-metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">")
+                    .replacingOccurrences(of: "</metadata>", with: "</dc-metadata></metadata>").replacingOccurrences(of: ">test-book<", with: ">\(uuid)<")
+            }, adding: ["META-INF/encryption.xml": encryption([(algorithm, "OPS/font.otf")]),
+                        "OPS/font.otf": obfuscated(original, key: key, prefix: prefix)])
+            let book = try EPUBPublication.open(data: data)
+            XCTAssertEqual(book.metadata.identifiers, [uuid], algorithm)
+            XCTAssertEqual(try book.data(at: "OPS/font.otf"), original, algorithm)
+        }
+        XCTAssertNoThrow(try check(Self.idpf, key: sha1(uuid), prefix: 1040), "IDPF")
+        XCTAssertNoThrow(try check(Self.adobe, key: Array(stride(from: UInt8(0x00), through: UInt8(0xff), by: 0x11)), prefix: 1024), "Adobe")
+    }
+
     func testTheIDPFKeyKeepsOtherSpaceCharactersOfTheIdentifier() throws {
         XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/82")
         // EPUB 3.3 §4.4.3 removes "specifically, the Unicode code points U+0020, U+0009, U+000D

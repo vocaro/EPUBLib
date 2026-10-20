@@ -167,6 +167,7 @@ private final class XHTMLTextReader {
     private struct Frame {
         var namespaces: [String: String]
         var body: Bool
+        var root: Bool
         var title: Bool
         var suppressed: Bool
         var block: Bool
@@ -175,10 +176,17 @@ private final class XHTMLTextReader {
         var math: MathTextNode?
         var startsMath: Bool
     }
+    /// The elements in a body that the HTML Standard's Rendering section gives `display: block`
+    /// (flow content, sections and headings, lists, fieldset and legend, details and summary, and
+    /// a `select`'s `optgroup` and `option`), with list items, table rows and cells and `br` (#90).
+    /// Not `html` and `body`, which hold the section's text; not `marquee`, which HTML makes
+    /// `inline-block`; not `frameset` or `frame`, which hold no text.
     private static let blocks: Set<String> = [
-        "address", "article", "aside", "blockquote", "br", "dd", "div", "dl", "dt", "figcaption",
-        "figure", "footer", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main",
-        "nav", "ol", "p", "pre", "section", "table", "td", "th", "tr", "ul",
+        "address", "article", "aside", "blockquote", "br", "center", "dd", "details", "dialog",
+        "dir", "div", "dl", "dt", "fieldset", "figcaption", "figure", "footer", "form", "h1", "h2",
+        "h3", "h4", "h5", "h6", "header", "hgroup", "hr", "legend", "li", "listing", "main", "menu",
+        "nav", "ol", "optgroup", "option", "p", "plaintext", "pre", "search", "section", "summary",
+        "table", "td", "th", "tr", "ul", "xmp",
     ]
     private let limits: EPUBTextExtractionLimits
     private var stack: [Frame] = []
@@ -198,7 +206,8 @@ private final class XHTMLTextReader {
 
     static func read(_ data: Data, path: String, limits: EPUBTextExtractionLimits) throws -> XHTMLTextReader {
         guard data.count <= Int(Int32.max) else { throw EPUBTextExtractionError.limitExceeded("inputBytes") }
-        return try data.withUnsafeBytes { buffer in
+        // The reader parses as it is read, and writes a validity or decoder error to standard error.
+        return try LibXML2Messages.silenced { try data.withUnsafeBytes { buffer in
             // libxml2 ships in Apple's SDKs. Its pull reader preserves U+FEFF, including numeric
             // references; Foundation XMLParser drops that character in its String callbacks.
             let options = Int32(XML_PARSE_NONET.rawValue | XML_PARSE_NOERROR.rawValue | XML_PARSE_NOWARNING.rawValue)
@@ -238,7 +247,7 @@ private final class XHTMLTextReader {
             guard result.hasHTMLRoot, result.bodyCount == 1 else { throw EPUBTextExtractionError.malformedContent(path) }
             result.body.finish()
             return result
-        }
+        } }
     }
 
     /// Reads markup that is not well-formed XML with libxml2's HTML parser, as the native viewer
@@ -247,7 +256,9 @@ private final class XHTMLTextReader {
     /// `HTMLRecoverySource` refuses declaration syntax anywhere in the bytes it parses.
     /// Input must be UTF-8 or a detectable UTF-16/32, as EPUB requires.
     static func recover(_ data: Data, path: String, limits: EPUBTextExtractionLimits) throws -> XHTMLTextReader {
-        guard let utf8 = SourceEncoding.utf8(data), let source = HTMLRecoverySource.prepare(utf8) else {
+        guard let utf8 = SourceEncoding.utf8(data),
+              let ampersands = HTMLLiteralAmpersands.prepared(utf8, limit: Int(Int32.max)),
+              let source = HTMLRecoverySource.prepare(ampersands.data) else {
             throw EPUBTextExtractionError.malformedContent(path)
         }
         guard source.count <= Int(Int32.max) else { throw EPUBTextExtractionError.limitExceeded("inputBytes") }
@@ -256,8 +267,10 @@ private final class XHTMLTextReader {
             | HTML_PARSE_RECOVER.rawValue | HTML_PARSE_NODEFDTD.rawValue)
         guard let context = htmlNewParserCtxt() else { throw EPUBTextExtractionError.malformedContent(path) }
         defer { htmlFreeParserCtxt(context) }
-        let document = source.withUnsafeBytes { buffer in
-            htmlCtxtReadMemory(context, buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, "UTF-8", options)
+        let document = LibXML2Messages.silenced {
+            source.withUnsafeBytes { buffer in
+                htmlCtxtReadMemory(context, buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, "UTF-8", options)
+            }
         }
         guard let document else { throw EPUBTextExtractionError.malformedContent(path) }
         defer { xmlFreeDoc(document) }
@@ -270,7 +283,9 @@ private final class XHTMLTextReader {
         }
         let result = XHTMLTextReader(limits: limits)
         result.recovered = true
-        func string(_ value: UnsafePointer<xmlChar>?) -> String { value.map { String(cString: $0) } ?? "" }
+        func string(_ value: UnsafePointer<xmlChar>?) -> String {
+            HTMLLiteralAmpersands.restored(value.map { String(cString: $0) } ?? "", placeholder: ampersands.placeholder)
+        }
         func qualified(_ name: UnsafePointer<xmlChar>?, _ namespace: xmlNsPtr?) -> String {
             guard let prefix = namespace?.pointee.prefix else { return string(name) }
             return string(prefix) + ":" + string(name)
@@ -288,7 +303,7 @@ private final class XHTMLTextReader {
                     var value = ""
                     var part = property.pointee.children
                     while let text = part {
-                        if let content = text.pointee.content { value += String(cString: content) }
+                        if let content = text.pointee.content { value += string(content) }
                         part = text.pointee.next
                     }
                     attributes[qualified(property.pointee.name, property.pointee.ns)] = value
@@ -298,7 +313,7 @@ private final class XHTMLTextReader {
                 descends = node.pointee.children != nil
                 if !descends { try result.end() }
             case XML_TEXT_NODE, XML_CDATA_SECTION_NODE:
-                if let content = node.pointee.content { try result.characters(String(cString: content)) }
+                if let content = node.pointee.content { try result.characters(string(content)) }
             default: break // Comments, processing instructions and the DOCTYPE.
             }
             if descends { current = node.pointee.children; continue }
@@ -357,11 +372,27 @@ private final class XHTMLTextReader {
         }
         let html = uri.isEmpty || uri == "http://www.w3.org/1999/xhtml"
         if stack.isEmpty { hasHTMLRoot = html && local == "html" }
-        let startsBody = html && local == "body" && stack.count == 1 && stack.last?.name == "html"
-        if startsBody { bodyCount += 1 }
-        let inBody = startsBody || stack.last?.body == true
+        // The root; and in a recovered tree, an `html` element that libxml2 builds in a root:
+        // once an out-of-place `<html/>` has closed the root it had open, it opens another
+        // there, or beside the first after a DOCTYPE or a comment, for what follows (#292).
+        let root = html && local == "html" && (stack.isEmpty || (recovered && stack.last?.root == true))
+        let startsBody = html && local == "body" && stack.last?.root == true
+        // In a recovered tree a second body goes on with the first: HTML gives a later `<body>`
+        // tag's attributes to the body and reads on in it, where libxml2 builds a second one
+        // after an out-of-place `<body/>` has closed the first (#292).
+        if startsBody, bodyCount == 0 || !recovered { bodyCount += 1 }
+        // Well-formed XML may put content after </body>, still inside the root. The native
+        // writer walks those authored siblings too; retain their characters/marks without
+        // rewriting the strict XML document or changing its source positions.
+        let afterBody = bodyCount == 1 && stack.last?.root == true
+        let inBody = startsBody || stack.last?.body == true || afterBody
         let suppressed = stack.last?.suppressed == true || ["script", "style", "template"].contains(local)
-        let startsTitle = html && local == "title" && stack.count == 2 && stack.last?.name == "head" && !capturedTitle
+        // The head's title; and in a recovered tree, a title libxml2 builds in the root before
+        // the body, after an out-of-place `<head/>` or `<html/>` has closed the head. HTML
+        // builds it in the head.
+        let startsTitle = html && local == "title" && !capturedTitle
+            && ((stack.count >= 2 && stack.last?.name == "head" && stack[stack.count - 2].root)
+                || (recovered && stack.last?.root == true && bodyCount == 0))
         if startsTitle { capturedTitle = true }
         let startsMath = uri == MathTextNode.namespace && local == "math" && inBody && !suppressed && stack.last?.math == nil
         let capturesMath = startsMath || stack.last?.math != nil
@@ -387,7 +418,7 @@ private final class XHTMLTextReader {
             math = MathTextNode(name: local, namespace: uri, attributes: attributes)
             if let parent = stack.last?.math, let math { parent.children.append(.element(math)) }
         }
-        stack.append(Frame(namespaces: namespaces, body: inBody,
+        stack.append(Frame(namespaces: namespaces, body: inBody, root: root,
             title: startsTitle || stack.last?.title == true, suppressed: suppressed, block: block, name: local, heading: heading, math: math, startsMath: startsMath))
         // Treat an authored image alternative as inline character data. Use the same normalizer
         // after registering this element's marks so image IDs, enclosing headings and later
@@ -405,7 +436,9 @@ private final class XHTMLTextReader {
             math.children.append(.text(string))
             return
         }
-        if frame.body { try body.append(string, limit: limits.outputBytes) }
+        if frame.body || (frame.root && bodyCount == 1) {
+            try body.append(string, limit: limits.outputBytes)
+        }
         if frame.title { try title.append(string, limit: limits.outputBytes) }
     }
 
@@ -462,16 +495,21 @@ private enum SourceEncoding {
 ///   before an ASCII letter, `/`, `!` or `?` and nowhere else: `_`, `:` and `.` start a name
 ///   for libxml2, and prose such as `a <_< b` would open an element. A `<` that ends the input
 ///   stays the cut-off tag it may be.
-/// - End tags that libxml2 reads as `</body>` or `</html>` are given another name (`</.body>`),
-///   and libxml2 passes over them as over any end tag that closes nothing. In HTML they close
-///   nothing and later content stays in the body; libxml2 pops the element and builds that
-///   content outside the body, where the walk does not read it. Every byte of the tag stays:
-///   one with no `>` of its own runs to the next, which may be that of a script's end tag, and
-///   a declaration keyword inside one is still refused. The same is done in script and style
-///   content, where it changes nothing unless libxml2 has left the script and reads an end tag.
-///   Nothing the scan reads as a start tag has such a name, as a `<.` in text is escaped.
-///   libxml2 can still read one out of what was copied as a script or a quoted value, and the
-///   end tag then closes that element, not the body.
+/// - End tags that libxml2 reads as `</body>` or `</html>` are given another name, their last
+///   letter written as its numeric character reference (`</bod&#121;>`), and libxml2 passes over
+///   them as over any end tag that closes nothing. In HTML they close nothing and later content
+///   stays in the body; libxml2 pops the element and builds that content outside the body.
+///   Every byte of the tag stays or is a reference to itself: one with no `>` of its own runs to
+///   the next, which may be that of a script's end tag, and a declaration keyword inside one is
+///   still refused. The same is done in script and style content, where it changes nothing
+///   unless libxml2 has left the script and reads an end tag. Where libxml2 reads the tag as
+///   part of a quoted value instead, the value decodes the reference to the letter (#255).
+/// - Script and style raw text is read where the HTML Standard reads it (`HTMLRawTextMap`, #255):
+///   a `<script` or `<style` that libxml2 would take for such a start tag where the Standard
+///   does not (`<script"q>`, a `<script>` in a title, a comment or an attribute value) is renamed
+///   the same way, so that libxml2 reads it as an element it does not know and shows what
+///   follows, and the scan does not copy that as raw text. A `</scriptx` that would take the
+///   script's end tag with it is renamed too.
 /// - `<!-->` and `<!--->` become `<!---->` where a `<` kept as text brings them into view.
 ///   HTML closes the comment there and libxml2 reads on to the next `-->`, but libxml2 used to
 ///   skip from such a sign through the next `>`, the comment's own, and showed what follows.
@@ -488,18 +526,19 @@ private enum SourceEncoding {
 private enum HTMLRecoverySource {
     static func prepare(_ data: Data) -> Data? {
         let bytes = [UInt8](data)
-        var scanned = scan(bytes, closingAbruptComments: true)
-        if scanned.output == nil, scanned.closedComment { scanned = scan(bytes, closingAbruptComments: false) }
+        let map = HTMLRawTextMap(bytes)
+        var scanned = scan(bytes, map, closingAbruptComments: true)
+        if scanned.output == nil, scanned.closedComment { scanned = scan(bytes, map, closingAbruptComments: false) }
         guard let output = scanned.output else { return nil }
         return hasDeclarations(output) ? nil : Data(output)
     }
 
     /// The rewritten bytes, or `nil` for a CDATA section or a start tag's quoted value that never
     /// ends, and whether a `<!-->` or `<!--->` was closed on the way.
-    private static func scan(_ bytes: [UInt8], closingAbruptComments: Bool) -> (output: [UInt8]?, closedComment: Bool) {
+    private static func scan(_ bytes: [UInt8], _ map: HTMLRawTextMap, closingAbruptComments: Bool) -> (output: [UInt8]?, closedComment: Bool) {
         var output = [UInt8](); output.reserveCapacity(bytes.count)
         let cdataOpen = Array("<![CDATA[".utf8), cdataClose = Array("]]>".utf8)
-        let commentOpen = Array("<!--".utf8), commentClose = Array("-->".utf8)
+        let commentOpen = Array("<!--".utf8)
         let replacement: [UInt8] = [0xEF, 0xBF, 0xBD] // U+FFFD
         var closedComment = false
         // From a `<` copied as is (`<!`, `</`, `<?`) to the next `>`, libxml2 may be in a
@@ -508,12 +547,27 @@ private enum HTMLRecoverySource {
         // Whether only text has followed the last `<` kept as text, so that libxml2 used to
         // skip this far.
         var exposed = false
-        func copyMarkup(_ range: Range<Int>) {
-            inMarkup = false; exposed = false
-            guard bytes[range].contains(0) else { output.append(contentsOf: bytes[range]); return }
-            for byte in bytes[range] {
-                if byte == 0 { output.append(contentsOf: replacement) } else { output.append(byte) }
+        // The map's letters to rename, in order; the scan only moves forward.
+        var nextRenamed = 0
+        func renamed(from position: Int) -> Int {
+            while nextRenamed < map.renamed.count, map.renamed[nextRenamed] < position { nextRenamed += 1 }
+            return nextRenamed < map.renamed.count ? map.renamed[nextRenamed] : Int.max
+        }
+        /// Copies `range` with each renamed letter (the map's, and `own`) written as its numeric
+        /// character reference and U+0000 as U+FFFD.
+        func copy(_ range: Range<Int>, renaming own: Int? = nil) {
+            if own == nil, renamed(from: range.lowerBound) >= range.upperBound, !bytes[range].contains(0) {
+                output.append(contentsOf: bytes[range]); return
             }
+            for index in range {
+                if index == own || renamed(from: index) == index { output.append(contentsOf: reference(bytes[index])) }
+                else if bytes[index] == 0 { output.append(contentsOf: replacement) }
+                else { output.append(bytes[index]) }
+            }
+        }
+        func copyMarkup(_ range: Range<Int>, renaming own: Int? = nil) {
+            inMarkup = false; exposed = false
+            copy(range, renaming: own)
         }
         var index = 0
         while index < bytes.count {
@@ -521,29 +575,35 @@ private enum HTMLRecoverySource {
                 inMarkup = false; exposed = false; closedComment = true
                 output.append(contentsOf: emptyComment); index += abrupt.count
             } else if bytes[index] == 0x3C, starts(bytes, commentOpen, at: index) {
-                guard let end = find(bytes, commentClose, from: index + commentOpen.count) else {
-                    copyMarkup(index..<bytes.count); break
-                }
-                copyMarkup(index..<end + commentClose.count); index = end + commentClose.count
+                let end = HTMLRecoveryComments.end(in: bytes, from: index + commentOpen.count)
+                copyMarkup(index..<end); index = end
             } else if bytes[index] == 0x3C, let tag = tag(bytes, at: index) {
                 guard let end = tag.end else { return (nil, closedComment) }
-                if tag.endsBody {
-                    output.append(contentsOf: Array("</.".utf8)); copyMarkup(index + 2..<end)
-                } else {
-                    copyMarkup(index..<end)
-                }
+                let start = index
+                // `</body` or `</html` as libxml2 reads it: its last letter is renamed.
+                copyMarkup(index..<end, renaming: tag.endsBody ? index + 5 : nil)
                 index = end
-                guard let raw = tag.rawText else { continue }
-                // Script and style content, to the first end tag of that name in any spelling.
+                // Script and style content, to the first end tag of that name in any spelling that
+                // the map has not renamed. It opens where the Standard opens it (the map), or
+                // where the map cannot tell, at a start tag of that name it has not renamed.
                 // libxml2 may leave it sooner, at an end tag directly after the start tag, and
                 // then acts on a `</body>` here, so that is renamed here as it is in text.
+                let raw = map.rawText.contains(start)
+                    ? HTMLRawTextMap.libxml2RawText(bytes, at: start).map { String(decoding: $0.name, as: UTF8.self).uppercased() }
+                    : tag.rawText.flatMap { map.renames(start + $0.count) ? nil : $0 }
+                guard let raw else { continue }
                 let close = Array("</\(raw)".utf8) // Uppercase, for case-insensitive `matches`.
-                while index < bytes.count, !matches(bytes, close, at: index) {
+                var own: Int?
+                while index < bytes.count, !matches(bytes, close, at: index) || map.renames(index + close.count - 1) {
                     if bytes[index] == 0 {
                         output.append(contentsOf: replacement)
-                    } else if bytes[index] == 0x2F, bytes[index - 1] == 0x3C, names(bytes, body, at: index + 1) || names(bytes, root, at: index + 1) {
-                        output.append(contentsOf: Array("/.".utf8)) // </
+                    } else if index == own || renamed(from: index) == index {
+                        output.append(contentsOf: reference(bytes[index]))
                     } else {
+                        if bytes[index] == 0x3C, index + 1 < bytes.count, bytes[index + 1] == 0x2F,
+                           names(bytes, body, at: index + 2) || names(bytes, root, at: index + 2) {
+                            own = index + 5 // </body or </html
+                        }
                         output.append(bytes[index])
                     }
                     index += 1
@@ -568,13 +628,19 @@ private enum HTMLRecoverySource {
                 case 0: if inMarkup { output.append(contentsOf: replacement) }
                 case 0x3C: inMarkup = true; output.append(0x3C)
                 case 0x3E: inMarkup = false; exposed = false; output.append(0x3E)
-                default: output.append(bytes[index])
+                default:
+                    if renamed(from: index) == index { output.append(contentsOf: reference(bytes[index])) } else { output.append(bytes[index]) }
                 }
                 index += 1
             }
         }
         return (output, closedComment)
     }
+
+    /// A byte as its numeric character reference: libxml2 decodes it in text and in attribute
+    /// values, shows nothing of it in comments, processing instructions, DOCTYPEs and raw text,
+    /// and ends a tag name at its `&`.
+    private static func reference(_ byte: UInt8) -> [UInt8] { Array("&#\(byte);".utf8) }
 
     /// An HTML start or end tag at `position` (`<` then an ASCII letter, or `</` then a letter).
     /// `end` is the index after its `>` (or the input end), `nil` for an unterminated quoted value.

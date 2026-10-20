@@ -231,18 +231,25 @@ struct WriterArchiveCoverageTests {
 
     // EPUB 3.3, 4.3.3: "The mimetype file MUST NOT contain any leading or trailing padding or
     // whitespace." doc/writing.md: the writer "stores the exact mimetype". A trailing newline is
-    // the usual way to get it wrong (echo, an editor), and the reader refuses such an archive.
+    // the usual way to get it wrong (echo, an editor); the reader reads past it
+    // (https://github.com/vocaro/EPUBLib/issues/216), but EPUBCheck reports it (PKG-007).
+    // Any byte after the mimetype is refused, however long the file, before an archive is
+    // created or a source consumed (https://github.com/vocaro/EPUBLib/issues/97).
     @Test func aMimetypeFileWithTrailingBytesIsRefused() async throws {
-        try await withKnownIssue("https://github.com/vocaro/EPUBLib/issues/97") {
-            let directory = try WriterCoverage.directory()
-            defer { try? FileManager.default.removeItem(at: directory) }
-            let mime = try WriterCoverage.file("mimetype", Data("application/epub+zip\n".utf8), in: directory)
-            let output = directory.appendingPathComponent("book.epub")
-            await #expect(throws: EPUBWritingError.invalidPublication("invalid mimetype")) {
-                try await EPUBArchiveWriter.write(entries: [.init(path: "mimetype", fileURL: mime)], to: output, maximumContentBytes: 1_000,
-                                                 modificationDate: date)
+        let directory = try WriterCoverage.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mimetype = Data("application/epub+zip".utf8)
+        let tails = [Data("\n".utf8), Data("\r\n".utf8), Data(" ".utf8), Data([0]), Data("XYZ and more".utf8), Data(repeating: 0x0A, count: 1 << 20)]
+        for (index, tail) in tails.enumerated() {
+            let mime = try WriterCoverage.file("mimetype-\(index)", mimetype + tail, in: directory)
+            let asset = try WriterCoverage.file("asset-\(index)", Data([1, 2, 3]), in: directory)
+            let output = directory.appendingPathComponent("book-\(index).epub")
+            await #expect(throws: EPUBWritingError.invalidPublication("invalid mimetype"), "\(mimetype.count + tail.count) bytes") {
+                try await EPUBArchiveWriter.write(entries: [.init(path: "mimetype", fileURL: mime, consume: true),
+                    .init(path: "EPUB/asset", fileURL: asset, consume: true)], to: output, maximumContentBytes: 1 << 30, modificationDate: date)
             }
-            #expect(!exists(output))
+            #expect(!exists(output), "\(mimetype.count + tail.count) bytes")
+            #expect(exists(mime) && exists(asset), "\(mimetype.count + tail.count) bytes")
         }
     }
 

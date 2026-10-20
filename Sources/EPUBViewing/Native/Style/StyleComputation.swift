@@ -182,6 +182,7 @@ extension StyleResolver {
         style.hyphens = parent.hyphens; style.isHidden = parent.isHidden
         style.borderCollapse = parent.borderCollapse; style.borderSpacing = parent.borderSpacing
         style.captionSide = parent.captionSide
+        if parent.generatedContent != nil { style.quotes = parent.quotes }
         // `medium`, zeroed below unless a border style shows it.
         for side in Side.allCases { style[border: side].width = 3 }
 
@@ -321,6 +322,11 @@ extension StyleResolver {
         case .borderSpacing: style.borderSpacing = source.borderSpacing
         case .captionSide: style.captionSide = source.captionSide
         case .filter: style.invertsColors = source.invertsColors
+        case .content: style.content = source.content
+        case .quotes: style.quotes = source.quotes
+        case .counterReset: style.counterReset = source.counterReset
+        case .counterIncrement: style.counterIncrement = source.counterIncrement
+        case .counterSet: style.counterSet = source.counterSet
         case .boxSizing, .flexDirection, .flexWrap, .justifyContent, .alignContent, .alignItems, .justifyItems,
              .alignSelf, .justifySelf, .order, .flexGrow, .rowGap, .gridColumns, .gridAreas, .gridAutoFlow, .gridPlacement:
             style.boxAlignment.copy(property, from: source.boxAlignment)
@@ -361,6 +367,9 @@ extension StyleResolver {
             style.display = display; style.blockifiesChildren = blockifies; style.boxAlignment.isGrid = grid
         case (.float, .float(let float)): style.float = float
         case (.clear, .clear(let clear)): style.clear = clear
+        // A float's sides by flow are its containing block's, whose direction is the parent's.
+        case (.float, .inlineSide(let side)): style.float = side.isLeft(in: parent.direction) ? .left : .right
+        case (.clear, .inlineSide(let side)): style.clear = side.isLeft(in: parent.direction) ? .left : .right
         case (.position, .position(let position)): style.position = position
         case (.top, _), (.right, _), (.bottom, _), (.left, _):
             let length: ComputedStyle.Length = if case .length(let l) = value { computed(l, own, points: StyleLimits.offset) } else { .auto }
@@ -433,6 +442,11 @@ extension StyleResolver {
         case (.borderCollapse, .flag(let collapse)): style.borderCollapse = collapse
         case (.captionSide, .flag(let bottom)): style.captionSide = bottom ? .bottom : .top
         case (.filter, .flag(let inverts)): style.invertsColors = inverts
+        case (.content, .content(let items)): style.content = items
+        case (.quotes, .quotes(let quotes)): style.quotes = quotes
+        case (.counterReset, .counterChanges(let changes)): style.counterReset = changes
+        case (.counterIncrement, .counterChanges(let changes)): style.counterIncrement = changes
+        case (.counterSet, .counterChanges(let changes)): style.counterSet = changes
         case (.borderSpacing, .spacing(let h, let v)):
             func clamp(_ x: CGFloat) -> CGFloat { min(max(x, StyleLimits.borderSpacing.lowerBound), StyleLimits.borderSpacing.upperBound) }
             style.borderSpacing = CGSize(width: clamp(points(h, own)), height: clamp(points(v, own)))

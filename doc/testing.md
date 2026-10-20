@@ -32,6 +32,23 @@ before starting a run. The idle-CPU recipe [reported in #62](https://github.com/
 is a heuristic from one session, not a gate requirement or an acceptance cutoff. Host activity
 alone does not invalidate a passing run.
 
+The Mac suites need the screen unlocked and the display awake. AppKit runs a scroll view's
+animation from the display's refresh, so while the display sleeps it does not advance, and
+`ScrolledAccessibilityReadTests.testWheelAndTrackpadAfterAReadKeepTheTextOnScreen` times out
+waiting for a wheel event to move the text. On 2026-10-14 it failed that way on branches that
+had passed it an hour before, and on `main`, until the owner unlocked the Mac
+([#561](https://github.com/vocaro/EPUBLib/pull/561#issuecomment-6179173544)). Look before a
+gate and before blaming a change for that failure:
+
+```sh
+ioreg -n Root -d1 | grep -o '"CGSSessionScreenIsLocked"=[A-Za-z]*'   # no output: unlocked
+swift -e 'import CoreGraphics; print(CGDisplayIsAsleep(CGMainDisplayID()) != 0)'   # false: awake
+```
+
+The display sleeps after the Mac's idle time, which can fall inside a gate's Mac suites. Do not
+keep it awake with `caffeinate` on the owner's Mac unasked: a screen kept unlocked is the
+owner's call.
+
 `scripts/test-ios.sh` reports `Passed` or `Failed` for each device, continues to the second
 after a creation, boot or test failure, and exits nonzero if either failed. Each first boot has
 a 600-second limit (`EPUB_SIM_BOOT_TIMEOUT` overrides it with a positive number of seconds).
@@ -199,9 +216,15 @@ invalidation by clear, a replaced, rejected, superseded or cancelled query, `.lo
 close, the bounded list, and ten thousand results in one flat section. Control tests cover the
 indicator, button and result wording for every state, engines that only highlight, the FIFO
 match commands beside page turns, and mount the supplied views in each state: on their own, at
-a large accessibility text size and in a navigation toolbar. They do not establish toolbar
-overflow, popover or VoiceOver behaviour on a device: SwiftUI builds no accessibility tree for
-an in-process query. Set `EPUB_SNAPSHOT_DIR` for `swift test`, or
+a large accessibility text size and in a navigation toolbar. They hold the announcement after a
+step or a chosen result, and that a presentation covers the reader only in a window of compact
+width, which is read from a view the test mounts rather than by choosing a row. They do not
+establish toolbar overflow, popover or VoiceOver behaviour on a device: SwiftUI builds no
+accessibility tree for an in-process query, so a row cannot be activated there either. The
+package's iOS test host has no window scene and brings up no keyboard, so the canvas test of
+pages kept under a keyboard posts UIKit's keyboard notification itself and makes the canvas
+shorter, as a host's stack does
+([#49](https://github.com/vocaro/EPUBLib/issues/49#issuecomment-6279333375)). Set `EPUB_SNAPSHOT_DIR` for `swift test`, or
 `TEST_RUNNER_EPUB_SNAPSHOT_DIR` for `scripts/test-ios.sh`, to keep a PNG of each mounted state.
 These are layer renders from a test host, not screen captures, so system bar materials and
 presentations are absent from them.
@@ -401,7 +424,13 @@ elements through
 AppKit's own accessibility methods. The older informal ones (`accessibilityAttributeNames()`,
 `accessibilityAttributeValue(_:)`) do not show what a client is given: called on these
 elements in a test they listed five attributes, gave nil for every value, and the test
-process then ended with "freed pointer was not the last allocation". That a client of the
+process then ended with "freed pointer was not the last allocation". The test process
+answers no client either: the accessibility API asked of its own process id gives
+`kAXErrorNotImplemented`. To see what a client is given on this Mac without VoiceOver, build
+the verification reader, launch it with `open -g -n -a` and its `-SampleHref` arguments, so
+that it takes no keyboard, and ask it from another process with `AXUIElementCopyAttributeNames`
+and their values, as the client in
+[#485](https://github.com/vocaro/EPUBLib/issues/485#issuecomment-6270877949) does. That a client of the
 accessibility API is given each attribute, and what VoiceOver says, is recorded with the
 [VoiceOver testing process](#tables-on-mac).
 
@@ -475,7 +504,9 @@ platform. A test whose input kills the test process is disabled by name (`disabl
 with its issue above it. A test of input that TextKit might never finish laying out runs the
 layout under `BoundedLayout` (`BoxLayoutTerminationCoverageTests`), which stops the reader's
 text container answering after a set number of calls, so the test fails instead of hanging
-the suite. Three [corpus runs](#corpus-runs) are opt-in: `EPUBLIB_W3C_EPUB_TESTS` (the `tests`
+the suite. The container also has a bound of its own, 1,000 calls running for one character
+([#288](https://github.com/vocaro/EPUBLib/issues/288)); `UnplacedTextLayoutTests` puts back text
+it ends, under a cap a hundred times that. Three [corpus runs](#corpus-runs) are opt-in: `EPUBLIB_W3C_EPUB_TESTS` (the `tests`
 directory of w3c/epub-tests) holds each W3C reading-system test to an expected outcome,
 `EPUBLIB_EPUBCHECK_FIXTURES` (`src/test/resources` of w3c/epubcheck) takes every EPUBCheck
 fixture through opening, text extraction and a native build, and `EPUBLIB_EPUBCHECK_CLI` (the
@@ -521,16 +552,113 @@ The script fetches each corpus at a pinned commit into `~/Library/Caches/EPUBLib
 `Tests/EPUBTestSupport/SpecConformanceCorpus.swift`; a new pin goes in the script together
 with that table.
 
-`NativeCorpusQualificationTests` builds every book under `EPUBLIB_CORPUS`, a list of
-directories of EPUB files. The variable names no collection and is not part of verifying a
-change. The [first qualification](native-viewer.md#qualification) ran it on books that belong
-to another project; EPUBLib does not depend on that project or its files, and they are not to
-be used to test it.
+### Books
+
+Two public collections of books are standard corpora as well, chosen on 2026-10-14. Each is a
+manifest in `scripts/corpora` that pins 50 EPUB files by URL and SHA-256, with the rule that
+chose them in its header. The books stay outside the repository, beside the W3C corpora.
+
+- **Project Gutenberg** (`scripts/corpora/gutenberg.tsv`): 50 English books, the EPUB 3
+  "with images" build of each. `scripts/fetch-corpora.sh` fetches the missing ones, verifies
+  all of them and prints `EPUBLIB_GUTENBERG`. Gutenberg's
+  [robot-access policy](https://www.gutenberg.org/policy/robot_access.html) allows automated
+  access only to the offline catalog, `robot/harvest` and the mirrors, so the URLs are on the
+  mirror `robot/harvest` names (`aleph.gutenberg.org`, whose certificate names
+  `aleph.pglaf.org`). Agents may fetch it through the script.
+- **Standard Ebooks** (`scripts/corpora/standard-ebooks.tsv`): 50 books, the ordinary
+  "compatible" EPUB of each. Its URLs end in `?source=download`. The plain URL answers with the
+  site's "Your Download Has Started!" page, which sends a browser on to that URL; the owner
+  chose it on 2026-10-14. Its robots.txt disallows `/ebooks/*/downloads/*` for AI agents'
+  user agents (`claude-user`, `chatgpt-user` and others), so only the owner fetches it, with
+  `bash scripts/fetch-standard-ebooks.sh --pin`. `scripts/fetch-corpora.sh` never downloads it;
+  when its books are present and match the manifest, it prints `EPUBLIB_STANDARD_EBOOKS`.
+
+Both fetchers read robots.txt first, make one request at a time at least 2 s apart, and run
+one fetch at a time across sessions (`scripts/corpora/fetch_books.py`).
+
+Neither collection versions its URLs: Gutenberg rebuilds its files monthly, and Standard Ebooks
+republishes a book at the same URL whenever it changes. A book fetched after that fails its
+SHA-256. The script keeps it beside the corpus as `NAME.mismatch-SHA12` and does not set the
+variable. To re-pin:
+
+1. Fetch every book afresh into a directory named for today, and write the new hashes and the
+   date into the manifest. For Gutenberg, run
+   `python3 -I scripts/corpora/fetch_books.py pin scripts/corpora/gutenberg.tsv ~/Library/Caches/EPUBLib/corpora`.
+   For Standard Ebooks, the owner runs `bash scripts/fetch-standard-ebooks.sh --pin`.
+2. Run the corpus tests on the new directory.
+3. Commit the manifest, with the reason and the tests' results.
+
+The old directory stays until someone removes it.
+
+`BookCorpusPageTextTests` pages every chapter of the Project Gutenberg and Standard Ebooks
+books in `EPUBLIB_GUTENBERG` and `EPUBLIB_STANDARD_EBOOKS` at six reader sizes, and checks
+that every character is on a visible line of some page
+([#570](https://github.com/vocaro/EPUBLib/issues/570)). It is skipped unless one of them is
+set. It lays out every page twice, so run it in release, one process per size:
+
+```sh
+swift test -c release --enable-testable-imports --filter BookCorpusPageTextTests  # builds; skips
+eval "$(bash scripts/fetch-corpora.sh)"
+EPUBLIB_PAGE_TEXT_CASES=phone xcrun xctest -XCTest EPUBViewingTests.BookCorpusPageTextTests \
+  .build/release/EPUBViewingTests.xctest
+```
+
+The cases are `phone`, `phone-landscape`, `tablet`, `mac`, `small` and `phone-40pt`;
+`EPUBLIB_PAGE_TEXT_BOOKS` names books by file name. The test's comment gives how long each
+corpus takes.
+
+`NativeCorpusQualificationTests` builds every book under `EPUBLIB_CORPUS`, a colon-separated
+list of directories of EPUB files, and checks each section's text map:
+
+```sh
+eval "$(bash scripts/fetch-corpora.sh)"
+EPUBLIB_CORPUS="$EPUBLIB_GUTENBERG${EPUBLIB_STANDARD_EBOOKS:+:$EPUBLIB_STANDARD_EBOOKS}" \
+  swift test --filter NativeCorpusQualificationTests
+```
+
+The [first qualification](native-viewer.md#qualification) ran it on books that belong to
+another project; EPUBLib does not depend on that project or its files, and they are not to be
+used to test it.
 
 ## Probes and recorded inputs
 
 What a measurement or a comparison found is on its issue. These are the scripts, variables
 and inputs that repeat one.
+
+### UIKit note presentation in an app-hosted test bundle
+
+On Xcode 27, the package XCTest host used here does not complete generic UIKit modal
+presentations, even for a plain view controller. Its note tests still verify routing, content, and activation order.
+The app-hosted lane verifies the actual animated presentation, attachment, and dismissal.
+
+The portable reproduction patch and its applicable commit are recorded on
+[issue #257](https://github.com/vocaro/EPUBLib/issues/257#issuecomment-6174234834). Save that patch as
+`note-apphost-reproduction.patch` and apply it from the repository root. The generated
+project and all run output stay under the ignored `.build/verification/note-apphost/`.
+
+```sh
+git fetch origin
+git show origin/main:AGENTS.md
+git apply --check note-apphost-reproduction.patch
+git apply note-apphost-reproduction.patch
+bash .build/verification/note-apphost/run-note-apphosted.sh
+```
+
+This needs Xcode 27 with the iOS 27 simulator runtime, XcodeGen, Python 3, and Perl. The
+runner creates and deletes its own iPhone 17 Pro and iPad Air 13-inch M4 simulators, always
+addresses their UUIDs, and stops only children it started when interrupted. It disables
+the debugger and code signing. `DEVELOPER_DIR`, `EPUB_SIM_RUNTIME`, and
+`EPUB_SIM_BOOT_TIMEOUT` override the Xcode location, runtime, and boot timeout;
+`NOTE_SIM_KIND=iPhone-17-Pro` selects just that device type when a narrower rerun is needed.
+
+The scheme sets `EPUBLIB_NOTE_APP_HOSTED=YES`. Both devices must execute five
+`NoteLinkSessionTests` and two `NoteUIKitPresentationControlTests`: seven passes, no failures
+or skips. The runner holds filters in an array and checks the actual test-case pass counts
+and `Executed 7 tests` summary, rather than accepting an empty filtered success. Optional
+arguments select either of those two classes; the required counts remain five and two.
+
+Each run prints its unique output directory. It records the tested commit, device-creation
+output, boot logs, and test transcripts there.
 
 ### Search collation vectors
 
@@ -738,6 +866,32 @@ The release measurements of 2026-10-13, without the bound and with it, are on
 [#199](https://github.com/vocaro/EPUBLib/issues/199#issuecomment-6159294787);
 [architecture](architecture.md#publication-model) has the bound.
 
+### Archive mutation probe
+
+`Issue74MutationProbe` opens seeded mutations of the repository's own fixture and counts what
+`EPUBPublication.open(data:)` returns: an open, each `EPUBPublicationError` case, or an error of
+any other type. Half of the mutants come from `Fixture.epub()`, which is deflated, and half
+from the same files stored. They are spread evenly over five kinds: random bytes, a size field,
+a method field, bytes in an entry's data, and bytes in an entry's data with its directory
+declaring 32 MiB to 2 GiB. The patch is on
+[#74](https://github.com/vocaro/EPUBLib/issues/74#issuecomment-6270962133), with the commit it
+applies to and its run comparing `main` with that issue's fix. Save the patch as
+`issue74-probe.patch`, apply it from the repository root, and remove the file it adds
+before committing:
+
+```sh
+git apply --check issue74-probe.patch
+git apply issue74-probe.patch
+EPUBLIB_ISSUE74_MUTANTS=100000 swift test --filter Issue74MutationProbe/testProbe
+```
+
+`EPUBLIB_ISSUE74_OUT=<file>` writes one line per mutant, for comparing two builds mutant by
+mutant. `EPUBLIB_ISSUE74_REPLAY=<index,…>`, with `--filter Issue74MutationProbe/testReplay`,
+opens the listed mutants 20 times each in one process. `Fixture.epub()` writes the current
+time into each header, so its mutants are the same bytes only within one process. The stored
+mutants are the same bytes in every run. Even so, some damaged Deflate streams do not give the
+same result on every open ([#583](https://github.com/vocaro/EPUBLib/issues/583)).
+
 ### Generated page text
 
 `PageTextGeometryTests` and `PageTextPreservationTests` lay out generated sections and hold
@@ -788,6 +942,78 @@ source partitions and boundary/interior/end page lookups remain checked.
 
 The qualification of 2026-10-13 against a frozen `main`, with its paired UIKit data, is on
 [#242](https://github.com/vocaro/EPUBLib/issues/242#issuecomment-6159295037).
+
+`BoxPlanAgreementTests` holds the box plan to the section's layout: every planned line starts
+where the layout's line at the same character does, within 0.75 points, in generated sections
+whose indented tabs, tabbed table rows, tables with margins, captions, empty paragraphs,
+right-to-left text, drop caps and list markers stand above, between and below floats and
+positioned boxes, and every page of
+those sections passes `PageTextGeometryTests.assertVisiblePages`
+([#377](https://github.com/vocaro/EPUBLib/issues/377)). Sections whose boxes are all left in
+flow have no plan and are skipped. It defaults to 24 sections:
+
+```sh
+BOX_PLAN_SECTIONS=300 BOX_PLAN_SEED=377 swift test --jobs 1 --filter BoxPlanAgreementTests
+```
+
+`BOX_PLAN_ONLY=12,20` checks only those sections, and `BOX_PLAN_DIAGNOSTICS=1` prints each
+section's markup.
+
+`TableNarrowCellTests` generates tables whose cells hold lists with markers of any width,
+padding, negative and positive text indents and nested tables, in either direction. At widths
+from 24 to 120 points and page heights from 24 to 240, every cell, nested ones included, is as
+tall as its last line reaches and each of its lines is in exactly one slice of its rows; paged
+at small viewports, every page passes `PageTextGeometryTests.assertVisiblePages`. It also holds
+#569's reproductions and #377's nested cell to their words in each page's Copy text and in what
+VoiceOver reads there ([#569](https://github.com/vocaro/EPUBLib/issues/569)). It defaults to 24
+tables; `TABLE_NARROW_SECTIONS` and `TABLE_NARROW_SEED` (default 569) choose them:
+
+```sh
+TABLE_NARROW_SECTIONS=400 swift test --jobs 1 --filter TableNarrowCellTests
+```
+
+`PageMeasurementTests` holds the sections that lost characters before every page was measured
+([#570](https://github.com/vocaro/EPUBLib/issues/570)), each by its whole-page character rule:
+`PageTextGeometryTests`' seed 22 section 443, small justified and Chinese-text paragraphs, lines
+taller than their page that mix large and small runs or text and a table row, and a page whose
+own first line holds a tall row. It also holds a justified paragraph of verse, a `<br>` after
+each line: a page inside it lays out the paragraph only up to the next line break that ends a
+line of text, with the same lines and character positions as with the paragraph's whole rest. Its generated sections have no box plan and pages ending
+inside justified, tabbed and indented paragraphs; `PAGE_MEASUREMENT_SECTIONS` (default 120)
+and `PAGE_MEASUREMENT_SEED` (default 570) choose them.
+
+### Layout ask-run probe
+
+`AskRunProbeTests` wraps `ReaderTextContainer`'s answer to TextKit, as `BoundedLayout` does, and
+records for every run of requests for a line at one character how many requests it reached.
+Its run is in its test; the bound it measures is `askLimit`
+([#288](https://github.com/vocaro/EPUBLib/issues/288)). It lays out every section of each
+publication as `BookCorpusPageTextTests` does, paged at the reader's column size for each of its
+cases with every page laid out again as its column shows it, and adds the whole section in one
+scrolling column. It also counts the characters on no visible line and the sections whose report
+has `textNotLaidOut`. A self-check first puts a paragraph with no tab interval beside a float and
+must see the bound end it. `RecordCostProbeTests`, in the same patch, times the record's
+attribute added over each section of a directory of books.
+
+The patch, and what it measured on the fixture books and every corpus, is on
+[#288](https://github.com/vocaro/EPUBLib/issues/288#issuecomment-6273856806). Save it as
+`ask-run-probe.patch`, apply it from the repository root, and remove the files it adds before
+committing:
+
+```sh
+git apply --check ask-run-probe.patch
+git apply ask-run-probe.patch
+eval "$(bash scripts/fetch-corpora.sh)"
+EPUBLIB_ASK_PROBE=fixtures,w3c,epubcheck swift test --filter AskRunProbeTests
+```
+
+`EPUBLIB_ASK_PROBE` names any of `fixtures`, `w3c`, `epubcheck`, `gutenberg` and `standard`, and
+`EPUBLIB_PAGE_TEXT_CASES` narrows the sizes. The book corpora take 9 to 61 minutes a size in a
+release build, so run them one process per size, as for `BookCorpusPageTextTests`. The probe
+prints one `ASK-PROBE` line, and with its output going to a file that line is written only when
+the process exits. The process can go on for an hour after its test
+([#589](https://github.com/vocaro/EPUBLib/issues/589)), so run it under `script -q <log>`, which
+writes each line as it comes, or wait for it to exit.
 
 ### Reader controls probe
 
@@ -921,6 +1147,25 @@ What the probe saw, what was fixed and what is still unverified is on
 [#51](https://github.com/vocaro/EPUBLib/issues/51#issuecomment-6159295619) ([second
 part](https://github.com/vocaro/EPUBLib/issues/51#issuecomment-6159295950)).
 
+### VoiceOver's own code on Mac
+
+What VoiceOver does with an element can be read in its own code, without running it or
+attaching to it ([notes for agents](../AGENTS.md#debuggers)). Its classes are in
+`ScreenReader.framework`, which is only in the dyld shared cache, and `dyld_info
+-disassemble /System/Library/PrivateFrameworks/ScreenReader.framework/Versions/A/ScreenReader`
+prints its code under its method names, `-[SCRTable statusDescription]` among them. What it
+reads of an element goes through `AXFUIElement`, in `AccessibilityFoundation.framework`
+under `AccessibilitySupport.framework`'s `Frameworks`. A call in that output goes to a stub
+and a string is an address, so neither is named. The reader on
+[#485](https://github.com/vocaro/EPUBLib/issues/485#issuecomment-6272726811),
+`cacheread.c` and `annotate.py`, names both: it reads the shared cache as its own process
+maps it, and writes each stub's selector or function and each string's characters beside
+the line that uses it. VoiceOver's words are in the `.loctable` files of
+`ScreenReader.framework/Versions/A/Resources`, property lists by language, so a word heard
+leads to its key and the key to the code: "empty" is `SCRGeneral`'s `empty`. Read so on
+macOS 27.0, the code is what made a departed table of data say "empty" on 27.0.1
+([the native viewer](native-viewer.md), "Data tables", "Pages").
+
 ## Adapter contract tests
 
 The internal **EPUBViewingTestSupport** target exercises adapter contracts with
@@ -1021,11 +1266,22 @@ fourth, **Pictures and their words** (`OPS/pictures.xhtml`), holds what a book c
 picture: nothing, that it is decoration (an empty `alt`), or words. Each stands in a line of
 text; a decorative one is also all that a link holds, and stands beside words in a link; and
 two come from a file that has a title of its own, one with an empty `alt` and one with none.
+After them come pictures the book keeps from assistive technology, each in a line of text:
+"Ornament" with words and `role="presentation"`, "Plain ornament" with no `alt` and
+`role="none"`, "Kept square" with words and `aria-hidden="true"`, "Drawn square" an inline
+SVG with a title and `aria-hidden="true"`, "Quiet jump:" before a link that such a picture
+with words is all of, and "Jump with an ornament", a link whose picture has
+`role="presentation"`. Every word the book gives those pictures begins with "Unspoken", and
+none is to be heard. Two it does not keep from it close the section: "Square shown to all",
+with `aria-hidden="false"`, and "Square with a note", whose `role="presentation"` ARIA
+ignores for its `aria-describedby`.
 None of the section's words is one VoiceOver uses for a picture or a link, so those in a
 transcript are VoiceOver's own. A fifth, **Scenes set apart** (`OPS/scenes.xhtml`), holds
-rules: an `<hr>` between two paragraphs, one the book gives `role="presentation"`, and one
-alone on a page of its own, with a last paragraph on the page after it. None of its words is
-one a screen reader uses for a rule either. A sixth, **What each line offers**
+rules: an `<hr>` between two paragraphs; three the book keeps from assistive technology as
+ornament, before "Words after an ornament." with `role="presentation"`, before "Words after
+a plain ornament." with `role="none"` and before "Words after a kept ornament." with
+`aria-hidden="true"`; and one alone on a page of its own, with a last paragraph on the page
+after it. None of its words is one a screen reader uses for a rule either. A sixth, **What each line offers**
 (`OPS/offers.xhtml`), shows every kind of item at once, on one page and one
 screen, for what VoiceOver's rotor offers on each: its heading, lines of words ("Plain words
 above." and "Plain words below."), a link inside a line (**Lone jump**), a picture with words
@@ -1091,8 +1347,8 @@ the target `crests`, and "Words after the crests." stand round it, and sixty mor
 lines follow. The section
 has no heading and no link, so the book's last heading and its last link are still those
 of the section before it, and none of its words is one VoiceOver uses for a table, a
-picture or a group. A fifteenth, **Gaps inside grids** (`OPS/gaps.xhtml`), the book's
-last, holds rows that have nothing to say, as the rows that space out a table used for
+picture or a group. A fifteenth, **Gaps inside grids** (`OPS/gaps.xhtml`),
+holds rows that have nothing to say, as the rows that space out a table used for
 layout have: a row of two cells that hold nothing, a row of two that hold decoration alone
 (a picture with an empty `alt`), and a row of one cell that holds nothing and spans both
 columns. Its first table is given `role="presentation"` and has one of each, in that
@@ -1103,7 +1359,19 @@ rows between "Oak", "Nine"; "Elm", "Four"; "Ash", "Six"; and "Yew", "Two". "Word
 the gaps." and "Words after the gaps." stand round the first table, "Words before the
 tally." and "Words after the tally." round the second, and sixty numbered lines follow.
 It has no heading and no link either, and none of its words is one VoiceOver uses for a
-table, a picture or a group, or for a place with nothing in it. A second bundled book, opened with
+table, a picture or a group, or for a place with nothing in it. A sixteenth, **Words hidden
+in the flow** (`OPS/veiled.xhtml`), the book's last, holds words that `visibility: hidden`
+hides in the flow, which keep their room on the page and are read by nobody
+([Hidden text](native-viewer.md#hidden-text)): "Shown words before" and "shown words after."
+round "concealed words in the line" in one paragraph; a hidden paragraph, "Concealed
+paragraph words." and "Concealed again.", round "Revealed words inside.", which sets
+`visibility: visible` again; and "Shown words around" and "the last gap." round "collapsed
+concealment", which `visibility: collapse` hides. "Words before the hidden ones." and "Words
+after the hidden ones." stand round them, and sixty numbered lines follow. It has no heading
+and no link, no word of it is one VoiceOver uses, and no shown word holds a hidden one, so
+"concealed", "Concealed" or "collapsed" in a transcript is a hidden word read. Open it with
+`--href OPS/veiled.xhtml` on a simulator and `"launch=-SampleHref OPS/veiled.xhtml"` in a
+hosted session. A second bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
 twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
@@ -1115,7 +1383,8 @@ after the numbered paragraph, the two parked ones (level 1), each opening its se
 section, and "Second part opens" (level 3) and "Third part opens" (level 4) inside the
 section of parts below a jump; the sections of entries and of jumps inside a grid, between
 "What each line offers" and "Tables of data", have none, and neither has the section of
-jumps at a grid's edges nor the last two, of squares and of gaps inside grids. The second book's are "Chapter one", "Chapter two"
+jumps at a grid's edges nor the last three, of squares and of gaps inside grids and of words
+hidden in the flow. The second book's are "Chapter one", "Chapter two"
 and "Chapter three", screens apart.
 Do not import private books for this check.
 
@@ -1289,7 +1558,9 @@ transcript against the visible text, starting with its first phrases and any `OT
 lines, which name unit-test hosts of other sessions.
 
 VoiceOver enters a column at its insertion point, and a page turn resets that to the first
-line. Start a case with a turn and `ax:focus`, never a click. Eight `left` steps from the
+line. A place shown, as a link followed, puts it at the start of the place's line instead
+([A link's target in pages](#a-links-target-in-pages)). Start a case with a turn and
+`ax:focus`, never a click. Eight `left` steps from the
 left column, nine from the right, reach **Next Page** in the sample's control strip; eight
 `right` steps return from it to the left column. **Previous Page** is one step further.
 
@@ -1374,6 +1645,12 @@ selection and the numbered-word span of its value:
   `in` then starts on that line and `right` reads the word.
 - `follow=WORDS`: press the link that names the words or holds them, in a column or in a
   cell, by its own action and without VoiceOver.
+- `focused`: print what holds the keyboard focus, which VoiceOver follows while its cursor
+  tracking is on: `FOCUSED AXTextArea COLUMN` for a column, `FOCUSED AXTextArea CELL` for a
+  table cell's text area, a control, or `FOCUSED AXWindow` where the window itself holds it.
+  VoiceOver gives the focus to each text area it moves to, a cell's among them. A cell
+  that is one link holds its text area inside the link, and the observer calls that text
+  area a column: `FOCUSED AXTextArea COLUMN VALUE Reopened 1978` is the cell's.
 - `wait=SECONDS`: only observe. Without steps the observer only observes; a single step of
   `-` reads steps from standard input.
 
@@ -1612,6 +1889,59 @@ Utility's own window and refuses to run anywhere but on a hosted runner. Do not 
 setting with `defaults`: a `com.apple.VoiceOver4/default` domain written before VoiceOver had
 ever run left it silent for the whole run, `ERROR 3` after every key.
 
+#### A link's target in pages
+
+The fixture's **Verification link** goes to "Link target reached", the first section's last
+heading, before one short paragraph, on its last page and below that page's first line. A followed
+link is how a session goes to a place in the middle of a page: the observer cannot type into
+the search field, and `press=LABEL` presses buttons only. Where the heading is depends on the
+window and the text size, so take it from the `LINE` lines of `ax:lines` after the link. On
+the runner, at 600 points and 17 it is the third line of a page of four; at 1100 and 23 the
+sixth of seven in the left column, the right one empty; and at 1100 and 28 the fifth of seven
+in the right column, which is the case of a place in the column beside the one VoiceOver is
+in. Each way in is a session:
+
+```text
+width=600 text_size=17 "ax:caret=Verification link" ax:focus=search ax:focus=0 in line "activate=Verification link" ax:lines line nextline
+width=600 text_size=17 ax:focus=search "ax:follow=Verification link" ax:lines ax:focus=0 in line nextline
+width=1100 text_size=28 ax:focus=search ax:focus=0 "ax:follow=Verification link" ax:lines ax:focused in line nextline
+```
+
+The first follows the link with VoiceOver's own Control-Option-Space from inside the text,
+the second presses it with VoiceOver on the search field, away from the reader, and the third
+with VoiceOver resting on the left column without interacting with it. `ax:focused` says which
+column then has the keyboard focus, and `STATE` gives each column's `SELECTION` and `ENTRY`.
+Since [#383](https://github.com/vocaro/EPUBLib/issues/383) `line` reads "Link target
+reached" after each of them, and `in`, where there is one, says "In text Link target
+reached"; before, both read the page's first line. With the heading in the right column the
+keyboard focus goes to that column, and VoiceOver is on the column and out of the text it was
+in: `line` reads the heading there, but `nextline` does not move by line until `in`. From
+the start of the heading's line the first `nextline` records nothing and the second reads
+"This is the end of the numbered paragraph.": VoiceOver's moves by line leave its insertion
+point at a line's end, so one from a line's start reads that line again, and the probe
+records a phrase only when it differs from the one before. The sessions on `main` and on the
+change are [on the issue](https://github.com/vocaro/EPUBLib/issues/383#issuecomment-6277358412).
+
+The reader opened at the heading is a session of its own:
+`"launch=-SampleHref OPS/body.xhtml#link-target"` shows it, and the session's resize to its
+width is a relayout straight after the place is shown. `ax:larger` builds the text again at
+a larger size, another relayout, and `nextline` before it is VoiceOver moving the insertion
+point from the place:
+
+```text
+width=600 text_size=17 "launch=-SampleHref OPS/body.xhtml#link-target" ax:lines ax:focus=search ax:focus=0 in line
+width=600 text_size=17 "launch=-SampleHref OPS/body.xhtml#link-target" ax:focus=search ax:focus=0 in line nextline ax:larger ax:lines ax:focus=search ax:focus=0 in line
+```
+
+Since [#594](https://github.com/vocaro/EPUBLib/issues/594) the first session's `in` says "In
+text Link target reached" and `STATE` gives `SELECTION 126,0`. Before, the resize put the
+page's first line back, and `in` read it. In the second, `nextline` moves the insertion point
+to the end of the heading's line, and a relayout after that enters at the first line. On the
+runner at 600 points, though, the size `ax:larger` gives starts a page with the heading, so
+that page's first line is the heading, and the session cannot tell the two rules apart: take
+the heading's line from `ax:lines` before reading anything into it. The sessions are
+[on the issue](https://github.com/vocaro/EPUBLib/issues/594#issuecomment-6278967907).
+
 ### Tables on Mac
 
 On a Mac a table of data is a table at each of its rows: the text gives AppKit's table as
@@ -1678,6 +2008,31 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
   `out` of a group reached by moving forward, `right` says the next row. Of one reached by
   moving back, the first `right` says that row again and the second the next row, which
   was heard without "group": "Third cell, Fourth cell".
+- A page turned straight after `out`, with VoiceOver's cursor on the row's element, by
+  `ax:next`, `pagedown` or `"ax:action=Next Page"`: VoiceOver says "text", from a row group
+  with the new page's first line after it, and `describe` says "text is in the VoiceOver
+  cursor". From either, `line` and `right` read the new page's first line and that line's
+  first word, or a row's words twice. That is VoiceOver in the text, on the row's element
+  of the page before ([the native viewer](native-viewer.md), "Data tables", "Pages"). In a
+  spread the turn says "2 updated items", from a row group with the first line after it,
+  and from a table of data with the new first row's words before it. A turn that says
+  "empty", with `describe` "empty  text is in the VoiceOver cursor", is a departed table
+  of data that gives no rows, and `describe` "text 3 columns, 41 rows" is one that gives a
+  row and a column. Set it beside the two others: on the text area and not in it `describe` says "text is in
+  the VoiceOver cursor Line 1" and `right` goes to the next item of the window, and on a
+  line of the text "Line 1  word: …", with `right` reading on in the page. A turn from a
+  line reads the new page's first line itself, "text  word: …". Before
+  [#485](https://github.com/vocaro/EPUBLib/issues/485) a row group's turn left the text
+  for the window's first button, "Open EPUB… button is in the VoiceOver cursor", and a
+  table's left VoiceOver on the text area, and then said "empty" until a departed table
+  gave one row of nothing. `ax:focused` before the turn shows where the keyboard focus
+  is: VoiceOver gave it to a row group's cell, `FOCUSED AXTextArea CELL`,
+  and to no cell of a table of data, whose text areas it goes into only from the cell.
+  After the turn it is the column's, `FOCUSED AXTextArea COLUMN`, where it was `FOCUSED
+  AXWindow`. The sessions, what was tried against the table's "empty", and the VoiceOver
+  code that made it, are on
+  [the issue](https://github.com/vocaro/EPUBLib/issues/485#issuecomment-6270877949) and
+  [after it](https://github.com/vocaro/EPUBLib/issues/485#issuecomment-6272726811).
 - The probe records a phrase once: a second row that says what the row before said leaves
   no line in a transcript. Every row of a table that is not data did while it was called
   "Table row"; now only two rows of the same words do.
@@ -2202,6 +2557,13 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 - `listen=SECONDS`: every phrase VoiceOver speaks in that time, each as a `heard` line, where
   another step records the one phrase standing when it ends. Use it after a step that makes
   VoiceOver speak by itself, as a page turn under its cursor does.
+- `readall`: VoiceOver reading on by itself from the item under its cursor, as two fingers
+  swiped down start it on the glass, by its Read All key, Control-Option-A; `readall=top` is
+  Control-Option-B, from the top of the screen. XCTest has no two-finger swipe. A
+  simulator's VoiceOver takes the key ("Read All From Current Item" in its log); on an iPad
+  XCTest's VoiceOver keys did not reach VoiceOver (below), so on a device the step is not
+  known to do anything. Nothing is recorded at the step: put a `listen=` after it, long
+  enough for what is to be read, and no touch or move, which stops the reading.
 - `state`: the sample's own line of what the reader reports as selected and what its
   selection action was last given, "Selected: nothing. Used: nothing.", which
   `TEST_RUNNER_VOICEOVER_LAUNCH='-SampleSelectionLine YES'` puts under the reader. XCTest
@@ -2230,6 +2592,19 @@ before it into the delay (a touch costs about five and a half seconds) and put a
 across the moment. `-SampleDarkAfter 18` has the reader turn dark by itself in the same
 way, as a host does that follows the time of day: the page is shown again in place, with
 the same lines and new items for them, all but the one under VoiceOver's cursor.
+`-SampleControls none` shows the reader with none of the host's controls above it, as a
+host does that hides them while a book is read: VoiceOver reading on by itself does
+differently after a page turn with and without them
+([#554](https://github.com/vocaro/EPUBLib/issues/554)).
+`-SampleSearch word00` submits that search once the book is ready, as the strip's field does,
+so that its match row has 99 results to step through, and `-SampleSearchAfter 6` submits it
+that many seconds later: after the text built again for `-SampleFontSize`, which on a Mac
+moves the view under a search result in continuous scroll and takes VoiceOver's entry back to
+the first line on screen. `touch=Next Match,doubletap=Next Match,listen=6` on a simulator,
+and on the Mac eleven `right` from `ax:focus=search` and `activate=Next\ Matc`, step through
+them under VoiceOver. The Mac's VoiceOver reads the button's value before its name, and the
+runner checks the name in the phrase's first 64 characters, so the name is given cut short
+([#49](https://github.com/vocaro/EPUBLib/issues/49)).
 `TEST_RUNNER_VOICEOVER_OFF=1`
 leaves VoiceOver off, so the same steps are plain touches: use it to tell a VoiceOver failure
 from one of the reader's own. The probe stops when the reader is no longer in the foreground.
@@ -2285,8 +2660,13 @@ Four things went wrong in the first runs, and the runner and probe now allow for
   default `--timeout` of 300 seconds then passed before the probe had finished. Until
   VoiceOver is up, touches reach the reader as plain touches and every move fails with
   "Failed to send moveForward command". The probe waits for VoiceOver's first phrase, three
-  minutes at most; the `voiceOver` line then says `silent for its first 44 s`. Switching
-  VoiceOver off and on again did not help: one session stayed silent through three starts.
+  minutes at most, or as long as `--start-limit` says; the `voiceOver` line then says
+  `silent for its first 44 s`. Switching VoiceOver off and on again did not help: one
+  session stayed silent through three starts. On 2026-10-14, with five sessions' runs on
+  the Mac, five sessions in thirteen were stopped silent at three minutes and one at seven,
+  and those that spoke took 75 to 292 seconds; `--start-limit 600` with `--timeout 1200`
+  saw five in a row through. VoiceOver's log stops for minutes after its assets are
+  fetched, while it is silent.
 - **An xcodebuild that does not end.** After a test that recorded any issue, a warning
   included, xcodebuild runs `simctl diagnose --timeout=600` and waits for it. A rotated iPad
   logs such a warning in a probe that passes ("Support for all orientations will soon be
@@ -2360,6 +2740,10 @@ transcript says only what it read. Stream it for the length of a session:
 ```sh
 xcrun simctl spawn DEVICE log stream --level debug --style compact --predicate 'process == "vot"'
 ```
+
+The runner does so for each of its simulators with `--vot-log`, into
+`simulator-TYPE-STAMP.vot.log` beside the transcript, from the moment the simulator is muted
+until the probe has ended.
 
 - `VOTElement` has each move: the command and the item it started from (`ElementMovement
   decision`), the items VoiceOver holds each side of its cursor (`Cache:`), which of them it
@@ -2541,6 +2925,28 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    "Previous Page" at the second flick, then "Opened 1901 Column 2" and "Depth Twelve
    metres Column 3". That cell read without "Column 3" is a failure too: its table has a
    new item and the cell an old one.
+   On an iPhone and iPad also have VoiceOver read on by itself across pages, with
+   `readall` and a `listen=` long enough for a page or two, at 40 points (`--font-size 40`),
+   where a page holds a few lines: `touch=word,readall,listen=170,visible` on an iPhone,
+   and on an iPad `rotate=landscape,visible,touch=word,readall,listen=200,visible,rotate=portrait`.
+   It reads each line of the page to its last, and VoiceOver's log (`--vot-log`) then has
+   "Element Scrolled by Page" with "Page 2" and no speech of it; the next page is read from
+   its first line, and in a spread the left-hand page runs on into the right-hand one with
+   no turn between them. A line read twice or left out, or a turn after the left-hand
+   page, is the failure. What VoiceOver reads between the turn and the new page's first
+   line is the host's and VoiceOver's
+   ([#554](https://github.com/vocaro/EPUBLib/issues/554)): in the sample it reads the
+   control strip, and with `--launch '-SampleControls none'` it stops after the turn. With
+   no controls and pages of a line or two (`--font-size 60`, on an iPhone
+   `rotate=landscape,visible,readall=top,listen=100,visible,rotate=portrait`) it reads the
+   heading's three pages of one line each, "Page bound", "ary verifica" and "tion", and
+   stops at the first page of two. A page's last line read without its first is the
+   failure: VoiceOver read nothing else of each page when every last line turned the page
+   ([#468](https://github.com/vocaro/EPUBLib/issues/468)). And on the book's last page,
+   the last of `OPS/veiled.xhtml` (`--href OPS/gaps.xhtml --font-size 12`, `activate=Next
+   Page` until VoiceOver says the button is dimmed, at the twelfth, then
+   `readall,listen=80`), it reads "Line 60 after the hidden words.", the book's title
+   under the reader, and stops; the log has no page scrolled.
 4. Confirm heading order, the link's label/action and the image's spoken label.
 5. Resize or change typography, wait for the new layout, and repeat the boundary and ordering
    checks. On Mac verify corresponding value-change notifications and fresh text values.
@@ -2671,22 +3077,35 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    name, and activating it goes to "Link target reached". It reads "Jump with decoration"
    and "Described jump" as links, the second also as an image, and "Square with a title of
    its own" as an image between "Titled picture" and "stands here.". It never says "Book
-   image", and says "Square with a title of its own" once.
+   image", and says "Square with a title of its own" once. It says no word that begins with
+   "Unspoken", on iPhone, iPad and Mac. It reads "Ornament", "Plain ornament", "Kept square"
+   and "Drawn square" and "passed over." with nothing between them, and after "Quiet jump:"
+   stops on a link that is an image without a name, as after "Bare jump:". It reads "Jump
+   with an ornament" as a link and nothing more, and "Square shown to all" and "Square with
+   a note" as images between their lines' words. On a Mac Find Next Link names the first of
+   those links "image" and the second "Jump with an ornament". The first sessions are on
+   [#408](https://github.com/vocaro/EPUBLib/issues/408#issuecomment-6164176609) (Mac) and
+   [#408](https://github.com/vocaro/EPUBLib/issues/408#issuecomment-6165265644) (iPhone and
+   iPad), with their steps.
 8. On the section of scenes, on an iPhone and iPad, in pages and in continuous scroll.
    VoiceOver stops between "First scene ends." and "Second scene starts." and says
-   "Separator", and never "Image". It says the same before "Words after an ornament.",
-   where the rule has `role="presentation"`, which the reader does not read. On the page
+   "Separator", and never "Image". From "Second scene starts." it goes to "Words after an
+   ornament.", "Words after a plain ornament." and "Words after a kept ornament." with no
+   stop between them: the book keeps those three rules from assistive technology
+   ([#408](https://github.com/vocaro/EPUBLib/issues/408)). On the page
    that holds a rule alone it says "Separator" and nothing else in the text, and Next Page
    from there shows "Last words of the scenes.". On a Mac, in a window 600 points wide at
    17 points, open the reader at the section (`"launch=-SampleHref OPS/scenes.xhtml"`).
    Moving by line VoiceOver says "Separator" between "First scene ends." and "Second scene
-   starts." and again before "Words after an ornament."; moving by word a rule is one stop
-   that says the same; and `readall` from the page's first word says it in both places. On
-   the page that holds a rule alone, one `ax:next` step on, it says "In text Separator" on
-   entering and "end of text" on the next line. In continuous scroll, where thirty
-   `ax:next` steps from the start of the book and `lastword` put VoiceOver on "scenes.", it
-   says "Separator" on each of the three lines between "Last words of the scenes." and
-   "First scene ends.". No transcript has "splitter", "collapsed" or "image" at a rule.
+   starts." and nowhere else on the page, and reads "Words after an ornament." and "Words
+   after a plain ornament." with the spaces that stand for the rule before each; the rule
+   that ends the page, before "Words after a kept ornament." on the next, is a line of
+   spaces where it stops once and says nothing. Moving by word a rule it is told of is one
+   stop that says "Separator"; and `readall` from the page's first word says it once. On the page that holds a rule alone, one `ax:next` step on, it says "In text
+   Separator" on entering and "end of text" on the next line. In continuous scroll it says
+   "Separator" on the line between "First scene ends." and "Second scene starts." and on
+   the line of the rule alone, before "Last words of the scenes.", and on no other. No
+   transcript has "splitter", "collapsed" or "image" at a rule.
 9. Headings. On an iPhone or iPad VoiceOver says "Heading" after a heading's words, shown or
    hidden, and reads a heading that takes several lines as one item. With the rotor on
    Headings (`rotor=Headings`, turned after the touch that places the cursor), `flick=down`

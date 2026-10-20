@@ -945,7 +945,8 @@ import XCTest
     }
 
     /// A page turn gives the column other text: a row's group that a client kept from the
-    /// page before says nothing of the new page, whose rows are other elements.
+    /// page before says nothing of the new page, whose rows are other elements. It has
+    /// departed, and is an empty static text (`testThePageBeforesRowElementsStayTheColumnsChildrenAfterATurn`).
     func testAnotherPageGivesOtherRowGroups() async throws {
         let rows = (1...60).map { "<tr><td>Left \($0)</td><td>Right \($0)</td></tr>" }.joined()
         let book = try book("<p>Words before.</p><table role='presentation'>" + rows + "</table><p>Words after.</p>")
@@ -960,7 +961,8 @@ import XCTest
         XCTAssertNotEqual(second.element.accessibilityLabel(), "Left 1, Right 1")
         XCTAssertNil(first.element.accessibilityLabel())
         XCTAssertEqual((first.element.accessibilityChildren() ?? []).count, 0)
-        XCTAssertEqual(first.element.accessibilityRole(), .group)
+        XCTAssertEqual(second.element.accessibilityRole(), .group)
+        XCTAssertEqual(first.element.accessibilityRole(), .staticText)
     }
 
     private static let services = """
@@ -1191,7 +1193,11 @@ import XCTest
         let second = try XCTUnwrap(try tables(in: column).first)
         XCTAssertFalse(second === first)
         XCTAssertGreaterThan(try XCTUnwrap(try rows(of: second).first?.accessibilityIndex()), 0)
-        XCTAssertEqual(first.accessibilityRows()?.count, 0)
+        // One row that holds nothing, none of a page's (testThePageBeforesRowElementsStayTheColumnsChildrenAfterATurn).
+        let departed = try XCTUnwrap(first.accessibilityRows() as? [NSAccessibilityElement])
+        XCTAssertEqual(departed.count, 1)
+        XCTAssertFalse(departed.first is ReaderTableRowElement)
+        XCTAssertEqual(departed.first?.accessibilityChildren()?.count ?? 0, 0)
         XCTAssertTrue(first.accessibilityParent() as AnyObject === view, "still the column's")
         XCTAssertNil(first.accessibilityLabel())
         XCTAssertEqual(first.accessibilitySelectedRows()?.count, 0)
@@ -1199,6 +1205,138 @@ import XCTest
         XCTAssertNil(first.accessibilityCell(forColumn: 0, row: 0))
         XCTAssertEqual(kept.accessibilityChildren()?.count, 0)
         XCTAssertEqual(kept.accessibilityFrame(), .zero)
+    }
+
+    // MARK: A page turned under a row's element (#485)
+
+    /// A table of each kind, longer than a page, for the page turns below.
+    private static let longTables = [
+        "<p>Words before.</p><table role='presentation'>"
+            + (1...60).map { "<tr><td>Left \($0)</td><td>Right \($0)</td></tr>" }.joined() + "</table><p>Words after.</p>",
+        "<p>Words before the ledger.</p>" + ledger(rows: 60) + "<p>Words after the ledger.</p>",
+    ]
+
+    /// The ways a page is turned from where VoiceOver is: the host's own turn, as its Next Page
+    /// button makes, the text area's Next Page action, and a page key wherever the keyboard
+    /// focus is in the reader.
+    private func turns(_ canvas: ReaderCanvasView, _ window: NSWindow) -> [(name: String, turn: () throws -> Void)] {
+        [("the host's turn", { XCTAssertEqual(canvas.turnPage(forward: true), .turned) }),
+         ("the text area's action", {
+            let column = try XCTUnwrap(canvas.textViews.first)
+            let action = try XCTUnwrap(column.accessibilityCustomActions()?.first { $0.name == "Next Page" })
+            XCTAssertTrue(try XCTUnwrap(action.handler)())
+         }),
+         ("a page key", {
+            let key = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.function], timestamp: 0,
+                                                     windowNumber: window.windowNumber, context: nil, characters: "\u{F72D}",
+                                                     charactersIgnoringModifiers: "\u{F72D}", isARepeat: false, keyCode: 121))
+            XCTAssertTrue(window.performKeyEquivalent(with: key), "the reader takes a page key from where the focus is")
+         })]
+    }
+
+    /// VoiceOver keeps its cursor on an element only while the element is among the children
+    /// of the text it is in, and once it has gone into a row and come back out its cursor is
+    /// on the row's element. After a page turn the elements of the page before stay among the
+    /// column's children, so that VoiceOver stays in the text and reads the new page from its
+    /// first line. Each says nothing and holds nothing, as an empty static text at that line,
+    /// a table of data with one row of nothing and no columns, and the next page's turn takes
+    /// them away. What VoiceOver did with each shape is in doc/testing.md#tables-on-mac.
+    func testThePageBeforesRowElementsStayTheColumnsChildrenAfterATurn() async throws {
+        for body in Self.longTables {
+            let (reader, canvas, view) = try await reader(try book(body), scrolled: false)
+            let window = try XCTUnwrap(view.window)
+            var before = try attachments(in: view).map(\.element)
+            XCTAssertGreaterThan(before.count, 1, body)
+            XCTAssertFalse((view.accessibilityChildren() ?? []).contains { ($0 as AnyObject) is ReaderTableRowGroupElement || ($0 as AnyObject) is ReaderTableElement },
+                           "a page's own rows are given in its text, not among its children")
+            for (name, turn) in turns(canvas, window) {
+                try turn()
+                try await reader.settle()
+                let column = try XCTUnwrap(canvas.textViews.first)
+                XCTAssertTrue(column === view, "a page column holds every page")
+                let children = (column.accessibilityChildren() ?? []).map { $0 as AnyObject }
+                let now = try attachments(in: column).map(\.element)
+                XCTAssertFalse(now.contains { element in before.contains { $0 === element } }, "\(name): the new page's rows are other elements")
+                let firstLine = column.accessibilityFrame(for: column.accessibilityRange(forLine: 0))
+                for element in before {
+                    XCTAssertTrue(children.contains { $0 === element }, "\(name): \(element) is among the column's children")
+                    XCTAssertTrue(element.accessibilityParent() as AnyObject === column, name)
+                    XCTAssertEqual(element.accessibilityRole(), .staticText, name)
+                    XCTAssertNil(element.accessibilityLabel(), name)
+                    XCTAssertEqual(element.accessibilityChildren()?.count ?? 0, 0, name)
+                    let frame = element.accessibilityFrame()
+                    XCTAssertFalse(frame.isEmpty, name)
+                    XCTAssertEqual(frame.midY, firstLine.midY, accuracy: 1, "\(name): it stands at the new page's first line")
+                    if let table = element as? ReaderTableElement {
+                        // VoiceOver still takes it for a table, one that says "empty" with no
+                        // rows and its columns and rows when asked with a column.
+                        XCTAssertEqual(table.accessibilityRowCount(), 1, name)
+                        let rows = try XCTUnwrap(table.accessibilityRows(), name)
+                        XCTAssertEqual(rows.count, 1, name)
+                        let row = try XCTUnwrap(rows.first as? NSAccessibilityElement, name)
+                        XCTAssertEqual(row.accessibilityRole(), .row, name)
+                        XCTAssertEqual(row.accessibilityChildren()?.count ?? 0, 0, "\(name): the row holds nothing")
+                        XCTAssertTrue(row.accessibilityParent() as AnyObject === table, name)
+                        XCTAssertEqual(table.accessibilityColumnCount(), 0, name)
+                        XCTAssertEqual(table.accessibilityColumns()?.count, 0, name)
+                        for selector in [#selector(NSAccessibilityElement.accessibilityRows), #selector(NSAccessibilityElement.accessibilityRowCount)] {
+                            XCTAssertTrue(table.isAccessibilitySelectorAllowed(selector), "\(name): \(selector)")
+                        }
+                        // A client is not told of a table's other attributes, but for the cell
+                        // at a slot of the grid, which AppKit does not ask about.
+                        for selector in [#selector(NSAccessibilityElement.accessibilityColumns), #selector(NSAccessibilityElement.accessibilityColumnCount),
+                                         #selector(NSAccessibilityElement.accessibilitySelectedRows), #selector(NSAccessibilityElement.accessibilityColumnHeaderUIElements)] {
+                            XCTAssertFalse(table.isAccessibilitySelectorAllowed(selector), "\(name): \(selector)")
+                        }
+                    }
+                }
+                // The new page's own rows are still what its text gives.
+                for element in now {
+                    XCTAssertFalse(children.contains { $0 === element }, name)
+                    XCTAssertNotEqual(element.accessibilityRole(), .staticText, name)
+                    if let table = element as? ReaderTableElement {
+                        XCTAssertTrue(table.isAccessibilitySelectorAllowed(#selector(NSAccessibilityElement.accessibilityRows)), name)
+                    }
+                }
+                // Those of two pages back are gone.
+                XCTAssertEqual(children.filter { $0 is ReaderTableRowGroupElement || $0 is ReaderTableElement }.count, before.count, name)
+                before = now
+            }
+        }
+    }
+
+    /// In continuous scroll the text is the whole book, and nothing is kept from text before.
+    func testContinuousScrollKeepsNoRowElementsOfTextBefore() async throws {
+        let (_, canvas, view) = try await reader(try book(Self.longTables[1]), scrolled: true)
+        XCTAssertGreaterThan(try tables(in: view).count, 1)
+        XCTAssertEqual(canvas.turnPage(forward: true), .turned)
+        canvas.reloadContent(keeping: canvas.visibleRange?.start)
+        XCTAssertTrue(view.departedRows.isEmpty)
+        XCTAssertFalse((view.accessibilityChildren() ?? []).contains { ($0 as AnyObject) is ReaderTableElement })
+    }
+
+    /// VoiceOver gives the keyboard focus to each text area it moves to, a cell's among them,
+    /// and leaves it there when it comes back out to the row. A page turn takes the page's
+    /// cells away, and the column that showed the cell takes the focus. The window had it,
+    /// and VoiceOver, which follows the focus, went to the window's first control.
+    func testKeyboardFocusInACellsTextAreaStaysInTheColumnAfterATurn() async throws {
+        for body in Self.longTables {
+            let (reader, canvas, view) = try await reader(try book(body), scrolled: false)
+            let window = try XCTUnwrap(view.window)
+            for (name, turn) in turns(canvas, window) {
+                try await reader.wait("the cells' text views") { view.tableInteraction?.cells.isEmpty == false }
+                let cell = try XCTUnwrap(view.tableInteraction?.accessibilityCellsInOrder.first?.cell)
+                XCTAssertTrue(window.makeFirstResponder(cell), name)
+                XCTAssertTrue(window.firstResponder === cell, name)
+                try turn()
+                XCTAssertNil(cell.superview, "\(name): the cell's text area went with its page")
+                XCTAssertTrue(window.firstResponder === view, "\(name): \(String(describing: window.firstResponder)) has the focus")
+            }
+            // Focus elsewhere is left where it is.
+            XCTAssertTrue(window.makeFirstResponder(canvas))
+            XCTAssertEqual(canvas.turnPage(forward: false), .turned)
+            XCTAssertTrue(window.firstResponder === canvas)
+        }
     }
 }
 #endif

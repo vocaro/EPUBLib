@@ -43,25 +43,30 @@ final class SectionContentStylingCoverageTests: XCTestCase {
         XCTAssertEqual(try H.build("<p class='l'>ΌΣΟΣ ΣΟΦΟΣ</p>", rules: lower).string.string, "όσος σοφος")
     }
 
-    func testATransformThatChangesLengthMapsItsRunAsAWholeAndLeavesNeighboursExact() throws {
+    func testATransformThatChangesLengthMapsOnlyItsExpandedGraphemeAndLeavesNeighboursExact() throws {
         let text = try H.build("<p>ab <span class='u'>straße</span> cd</p>", rules: upper)
         XCTAssertEqual(text.string.string, "ab STRASSE cd")
+        XCTAssertEqual(text.mappedText(in: 0..<text.string.length), "ab straße cd")
         let source = try XCTUnwrap(S.textNode("straße", in: text))
-        let span = try XCTUnwrap(text.map.spans.first { $0.node == source.order })
-        XCTAssertEqual([span.location, span.length, span.offset, span.sourceLength], [3, 7, 0, 6])
-        XCTAssertFalse(span.isExact)
-        // Every source offset inside the run is the run's start; its end is the run's end.
-        for offset in 0..<6 { XCTAssertEqual(text.map.location(of: DOMPosition(source, offset)), 3, "offset \(offset)") }
+        let spans = text.map.spans.filter { $0.node == source.order }
+        XCTAssertEqual(spans.map { [$0.location, $0.length, $0.offset, $0.sourceLength] }, [[3, 4, 0, 4], [7, 2, 4, 1], [9, 1, 5, 1]])
+        XCTAssertEqual(spans.map(\.isExact), [true, false, true])
+        for offset in 0...4 { XCTAssertEqual(text.map.location(of: DOMPosition(source, offset)), 3 + offset, "offset \(offset)") }
+        XCTAssertEqual(text.map.location(of: DOMPosition(source, 5)), 9)
         XCTAssertEqual(text.map.location(of: DOMPosition(source, 6), isEnd: true), 10)
-        XCTAssertEqual(text.map.endPosition(at: 6, in: text.document), DOMPosition(source, 6))
-        XCTAssertEqual(text.map.spans.filter(\.isExact).count, text.map.spans.count - 1)
-        S.assertTextMapContracts(text)
+        XCTAssertEqual(text.map.position(at: 8, in: text.document), DOMPosition(source, 4))
+        XCTAssertEqual(text.map.endPosition(at: 8, in: text.document), DOMPosition(source, 5))
+        XCTAssertEqual(text.mappedText(in: 7..<8), "ß")
+        XCTAssertEqual(text.mappedText(in: 8..<9), "ß")
+        XCTAssertEqual(text.mappedText(in: 7..<9), "ß")
+        XCTAssertEqual(text.mappedText(in: 6..<10), "aße")
+        S.assertTextMapContracts(text, sameCharacters: false)
     }
 
     func testFullCaseMappingsOfLigaturesAndSpecialLetters() throws {
         let text = try H.build("<p class='u'>ﬁn ŉ ǰ ß ﬃ</p><p>after</p>", rules: upper)
         XCTAssertEqual(S.paragraphs(text), ["FIN ʼN J\u{30C} SS FFI", "after"])
-        S.assertTextMapContracts(text)
+        S.assertTextMapContracts(text, sameCharacters: false)
         let after = try XCTUnwrap(S.textNode("after", in: text))
         XCTAssertEqual(text.map.location(of: DOMPosition(after, 2)), H.location(of: "after", in: text) + 2)
     }
@@ -95,7 +100,6 @@ final class SectionContentStylingCoverageTests: XCTestCase {
     }
 
     func testSynthesizedSmallCapitalsLeaveThePassageTextInTheBooksOwnCase() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/128")
         // A font without small capitals shows lower-case letters as smaller capitals. That is how they are drawn;
         // the passage text (Copy, `EPUBSelection.text`) is "the book's own characters", as a browser's is.
         let style = ComputedStyle(fontFamilies: ["georgia"], fontSize: 16, isSmallCaps: true)
@@ -168,5 +172,32 @@ final class SectionContentStylingCoverageTests: XCTestCase {
             XCTAssertNil(H.attribute(.underlineStyle, of: word, in: text), word)
             XCTAssertNil(H.attribute(.link, of: word, in: text), word)
         }
+    }
+
+    func testSyntheticSmallCapsExpansionKeepsAuthoredCopyOffsetsAndSmallerCapitalGlyphs() throws {
+        let style = ComputedStyle(fontFamilies: ["georgia"], fontSize: 16, isSmallCaps: true)
+        guard FontRegistry(publication: H.publication).needsSyntheticSmallCaps(for: style) else {
+            throw XCTSkip("needs an installed family without small capitals (Georgia)")
+        }
+        let text = try H.build("<p><span class='sc'>It was Straße.</span> After.</p>",
+                               rules: [(".sc", { $0.fontFamilies = ["georgia"]; $0.isSmallCaps = true })])
+        XCTAssertEqual(text.string.string, "IT WAS STRASSE. After.")
+        XCTAssertEqual(text.mappedText(in: 0..<text.string.length), "It was Straße. After.")
+        let small = try XCTUnwrap(S.font("T", in: text)), capital = try XCTUnwrap(S.font("I", in: text))
+        XCTAssertLessThan(small.pointSize, capital.pointSize, "synthesized small-cap styling is retained")
+        let ss = H.location(of: "SS", in: text)
+        let source = try XCTUnwrap(S.textNode("It was Straße.", in: text))
+        XCTAssertEqual(text.map.position(at: ss + 1, in: text.document), DOMPosition(source, 11))
+        XCTAssertEqual(text.map.endPosition(at: ss + 1, in: text.document), DOMPosition(source, 12))
+        XCTAssertEqual(text.mappedText(in: ss..<(ss + 2)), "ß")
+        XCTAssertEqual(text.mappedText(in: 1..<6), "t was")
+        let start = try XCTUnwrap(text.map.position(at: ss, in: text.document))
+        let end = try XCTUnwrap(text.map.endPosition(at: ss + 2, in: text.document))
+        let cfi = EPUBCFI.localPath(from: start, to: end, in: text.document)
+        let resolved = try XCTUnwrap(EPUBCFI.resolve(localPath: cfi, in: text.document))
+        XCTAssertEqual(resolved.start, start); XCTAssertEqual(resolved.end, end)
+        XCTAssertEqual(text.mappedText(in: text.map.location(of: resolved.start)..<text.map.location(of: resolved.end, isEnd: true)), "ß")
+        XCTAssertEqual(TextSearch.matches(of: "Straße", in: text.document, locale: "en").count, 1)
+        S.assertTextMapContracts(text, sameCharacters: false)
     }
 }
