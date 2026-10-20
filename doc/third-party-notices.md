@@ -7,10 +7,15 @@
   `Sources/EPUBViewing/Native/Position/` ports its `epubcfi.js`, `search.js` and
   `text-walker.js` to Swift, and the native viewer's column arithmetic follows its
   `paginator.js`. The license follows. No foliate-js file ships in the package.
-- **MathMLLayout 0.1.1** — MIT — Copyright (c) 2026 Vocaro Technologies LLC.
+- **MathMLLayout 0.3.1** — MIT — Copyright (c) 2026 Vocaro Technologies LLC.
   https://github.com/vocaro/MathMLLayout. Its Swift package includes its MIT license. It draws
   with the copy of STIX Two Math (SIL Open Font License 1.1, Copyright 2001-2021 The STIX Fonts
   Project Authors) that macOS and iOS install; neither package distributes the font.
+  Its speech vocabulary includes material adapted from MathCAT (MIT) and Speech Rule Engine
+  (Apache-2.0). Readable copies of all required licenses and notices are retained unchanged in
+  [Vendor/MathMLLayout](../Vendor/MathMLLayout), from tag `0.3.1`; the sample apps bundle that
+  folder. Applications distributing EPUBViewing must include these copies in their own
+  acknowledgments or accompanying documentation; SwiftPM does not bundle them automatically.
 - **resvg 0.48.1** — MIT/Apache-2.0 — https://github.com/linebender/resvg.
   The native viewer bundles static Apple libraries in `Vendor/Resvg/Resvg.xcframework`.
   [Build provenance and redistribution details](../Vendor/Resvg/README.md), the locked

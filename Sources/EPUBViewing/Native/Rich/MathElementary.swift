@@ -3,7 +3,7 @@ import MathMLLayout
 
 /// Elementary math (`mstack`, `mlongdiv` and their rows) as markup MathMLLayout can lay out.
 ///
-/// The engine has no elementary-math layout, so a stack becomes an `mtable` with one column for
+/// The reader retains its original table approximation: a stack becomes an `mtable` with one column for
 /// each digit: place values stay in their columns, carries sit small above their digits and a
 /// line rules off the rows above it. A long division keeps its divisor and result around that
 /// table. This is an approximation, counted in `SectionReport.mathApproximations`:
@@ -13,7 +13,7 @@ import MathMLLayout
 /// - `longdivstyle` is `lefttop`, `left/\right`, `left)(right` or `:right=right`; the other six
 ///   styles are drawn as `lefttop`.
 enum MathElementary {
-    /// The elements of elementary math, all of which the engine refuses.
+    /// The elements handled by the reader's elementary-math approximation.
     static let elements: Set<String> = ["mstack", "mlongdiv", "msgroup", "msrow", "mscarries", "mscarry", "msline"]
     private static let maximumDepth = 64
 
@@ -58,10 +58,14 @@ enum MathElementary {
                     switch item.name {
                     case "mn":
                         let text = item.text.filter { !$0.isWhitespace }
+                        var glyphs = item.children.filter { $0.name == "mglyph" }.makeIterator()
                         for character in text.prefix(Self.maximumColumns + 1) {
                             if character == decimalPoint, decimal == nil { decimal = cells.count }
                             var digit = item
                             digit.text = String(character)
+                            // Each object marker carries only its own glyph into the column;
+                            // copying every glyph to every digit would repeat the images.
+                            digit.children = character == "\u{FFFC}" ? glyphs.next().map { [$0] } ?? [] : []
                             cells.append(digit)
                         }
                         if firstNumberEnd == nil, !text.isEmpty { firstNumberEnd = cells.count }

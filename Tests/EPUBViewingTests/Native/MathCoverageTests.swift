@@ -4,8 +4,7 @@ import EPUBTestSupport
 import MathMLLayout
 import XCTest
 
-/// The MathML the layout engine refuses, and what the reader shows in its place: an `mglyph`
-/// as its alternative text, elementary math as a table of digit columns.
+/// Engine element coverage, preserved glyphs and the reader's elementary-table policy.
 final class MathCoverageTests: XCTestCase {
     private typealias F = MathFixtures
     private let style = MathStyle(fontSize: 17, color: CGColor(gray: 0, alpha: 1))
@@ -14,7 +13,7 @@ final class MathCoverageTests: XCTestCase {
         let section = try MathHarness.section("<p>\(F.math(body))</p>")
         var conversion = MathConversion(keepsColors: true)
         let node = try conversion.convert(try XCTUnwrap(section.formulas.first), depth: 0)
-        return (node, conversion.replacedGlyphs)
+        return (node, conversion.glyphs.count)
     }
 
     /// The token text of each table row, cell by cell (nil: an empty cell).
@@ -32,10 +31,9 @@ final class MathCoverageTests: XCTestCase {
 
     // MARK: What the engine covers
 
-    /// The engine lays out every MathML 3 presentation element but `mglyph` and the seven of
-    /// elementary math: those are the coverage gap, apart from any fallback policy.
-    func testEngineRefusesOnlyGlyphsAndElementaryMath() {
-        let arity = ["mfrac": 2, "mroot": 2, "msub": 2, "msup": 2, "msubsup": 3, "munder": 2, "mover": 2, "munderover": 3]
+    /// The upgraded engine covers glyphs and elementary math as well as the other elements.
+    func testUpgradedEngineSupportsGlyphsAndElementaryMath() {
+        let arity = ["mfrac": 2, "mroot": 2, "msub": 2, "msup": 2, "msubsup": 3, "munder": 2, "mover": 2, "munderover": 3, "mlongdiv": 3]
         let presentation = ["mi", "mn", "mo", "mtext", "ms", "mspace", "mglyph", "mrow", "mfrac", "msqrt", "mroot", "mstyle", "merror",
                             "mpadded", "mphantom", "mfenced", "menclose", "msub", "msup", "msubsup", "munder", "mover", "munderover",
                             "mmultiscripts", "mtable", "mlabeledtr", "mtr", "mtd", "maligngroup", "malignmark", "mstack", "mlongdiv",
@@ -46,28 +44,27 @@ final class MathCoverageTests: XCTestCase {
             let node = MathMLNode(name: "math", children: [MathMLNode(name: name, children: children)])
             do { _ = try MathLayout(node, style: style) } catch { refused.insert(name) }
         }
-        XCTAssertEqual(refused, MathElementary.elements.union(["mglyph"]))
-        let glyph = MathMLNode(name: "math", children: [MathMLNode(name: "mi", children: [MathMLNode(name: "mglyph")])])
-        XCTAssertThrowsError(try MathLayout(glyph, style: style)) { XCTAssertEqual($0 as? MathLayoutError, .unsupported("mglyph")) }
+        XCTAssertEqual(refused, [])
     }
 
     // MARK: mglyph
 
-    func testGlyphShowsItsAlternativeTextWhereItStands() throws {
+    func testGlyphKeepsItsImageAttributesAndPlaceInTokenText() throws {
         let token = try converted(F.glyphInToken)
         XCTAssertEqual(token.glyphs, 1)
         XCTAssertEqual(token.node.children.map(\.name), ["mi", "mo", "mi"])
-        XCTAssertEqual(token.node.children[0].text, "braid 23")
-        XCTAssertTrue(token.node.children[0].children.isEmpty, "no mglyph is left for the engine to refuse")
+        XCTAssertEqual(token.node.children[0].text, "\u{FFFC}")
+        XCTAssertEqual(token.node.children[0].children.first?.attributes["src"], "braid.png")
+        XCTAssertEqual(token.node.children[0].children.first?.attributes["alt"], "braid 23")
         // Between a token's own characters.
-        XCTAssertEqual(try converted(F.glyphInText).node.children[0].text, "the rune ansuz sign")
+        XCTAssertEqual(try converted(F.glyphInText).node.children[0].text, "the \u{FFFC} sign")
         // Without an `alt` a box marks the place; outside a token (MathML 2) it is text.
         let bare = try converted(F.glyphWithoutAlt)
-        XCTAssertEqual(bare.node.children.map(\.text), ["a", MathConversion.missingGlyph, "b"])
+        XCTAssertEqual(bare.node.children.map(\.text), ["a", "\u{FFFC}", "b"])
         XCTAssertEqual(bare.node.children[1].name, "mo")
         let alone = try converted(F.glyphAlone).node.children[0]
-        XCTAssertEqual(alone.children.map(\.name), ["mi", "mtext"])
-        XCTAssertEqual(alone.children[1].text, "star")
+        XCTAssertEqual(alone.children.map(\.name), ["mi", "mglyph"])
+        XCTAssertEqual(alone.children[1].attributes["alt"], "star")
         // A formula without glyphs converts as before.
         XCTAssertEqual(try converted("<mi>x</mi>").glyphs, 0)
     }
@@ -178,7 +175,7 @@ final class MathCoverageTests: XCTestCase {
         XCTAssertEqual(nested.report.mathApproximations, 1)
     }
 
-    func testOversizedStacksAreLeftToTheFallback() throws {
+    func testStacksBeyondTheReadersTablePolicyUseTheEnginesBounds() throws {
         // More columns or rows than arithmetic set by hand has, or rows shifted out of reach.
         let digits = String(repeating: "7", count: 5000)
         let rows = String(repeating: "<mn>1</mn>", count: 400)
@@ -189,8 +186,16 @@ final class MathCoverageTests: XCTestCase {
             XCTAssertEqual(MathElementary.rewrite(source, isApproximated: &approximated), source)
             XCTAssertFalse(approximated)
             let made = try MathHarness.make("<p>\(F.math(body, attributes: "alttext=\"a large sum\""))</p>")
-            XCTAssertEqual(made.string?.string, "a large sum")
-            XCTAssertEqual(made.report.mathFallbacks, 1)
+            if let attachment = made.attachment {
+                XCTAssertEqual(attachment.label, "a large sum")
+                XCTAssertTrue(attachment.layout.width.isFinite)
+                XCTAssertTrue(attachment.layout.ascent.isFinite)
+                XCTAssertTrue(attachment.layout.descent.isFinite)
+                XCTAssertEqual(made.report.mathFallbacks, 0)
+            } else {
+                XCTAssertEqual(made.string?.string, "a large sum")
+                XCTAssertEqual(made.report.mathFallbacks, 1)
+            }
         }
     }
 

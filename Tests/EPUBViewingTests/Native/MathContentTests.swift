@@ -228,8 +228,7 @@ final class MathContentTests: XCTestCase {
     }
 
     func testUnsupportedMarkupFallsBackToAlttext() throws {
-        // A long division without its dividend is not one the reader can set as a table.
-        let (result, report) = try make("<mlongdiv><mn>3</mn><mn>12</mn></mlongdiv>", attributes: "alttext=\"12 ÷ 3\"")
+        let (result, report) = try make("<mwidget><mn>12</mn></mwidget>", attributes: "alttext=\"12 ÷ 3\"")
         XCTAssertEqual(result?.string, "12 ÷ 3")
         XCTAssertNil(result?.attribute(.attachment, at: 0, effectiveRange: nil))
         let font = try XCTUnwrap(result?.attribute(.font, at: 0, effectiveRange: nil) as? PlatformFont)
@@ -241,14 +240,17 @@ final class MathContentTests: XCTestCase {
         XCTAssertEqual(report.mathFallbacks, 1)
         XCTAssertEqual(report.mathApproximations, 0)
         // An element MathML does not have, and a fraction with one part.
-        for body in ["<mwidget><mn>12</mn></mwidget>", "<mfrac><mn>12</mn></mfrac>", "<msrow><mn>12</mn></msrow>"] {
+        for body in ["<mwidget><mn>12</mn></mwidget>", "<mfrac><mn>12</mn></mfrac>"] {
             let (text, textReport) = try make(body)
             XCTAssertEqual(text?.string, "12", "without alttext the text content stands in: \(body)")
             XCTAssertNil(text?.attribute(.attachment, at: 0, effectiveRange: nil))
             XCTAssertEqual(textReport.mathFallbacks, 1, body)
         }
         let (empty, _) = try make("<mstack/>")
-        XCTAssertNil(empty)
+        XCTAssertEqual(try attachment(empty).layout.width, 0)
+        let (row, rowReport) = try make("<msrow><mn>12</mn></msrow>")
+        XCTAssertGreaterThan(try attachment(row).layout.width, 0)
+        XCTAssertEqual(rowReport.mathFallbacks, 0, "the upgraded engine supports elementary rows directly")
         // Markup from another namespace inside math is not MathML the engine knows.
         let section = try section("<p>\(math("<mi>x</mi><span>y</span>", attributes: "alttext=\"x y\""))</p>")
         XCTAssertEqual(MathContent.make(section.formulas[0], style: ComputedStyle(fontSize: 17), context: section.context)?.string, "x y")

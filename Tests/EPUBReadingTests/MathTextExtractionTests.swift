@@ -18,6 +18,56 @@ final class MathTextExtractionTests: XCTestCase {
         try book(math(content, attributes: attributes)).textSection(at: 0).text
     }
 
+    func testGlyphAlternativesInTokensAndRows() throws {
+        for token in ["mi", "mn", "mo", "mtext", "ms"] {
+            XCTAssertEqual(try extract("<\(token)>a<mglyph src='symbol.png' alt='  α &#xA; β  '/>b</\(token)>"),
+                           #"math("aα βb")"#, token)
+            XCTAssertEqual(try extract("<\(token)>a<mglyph src='symbol.png'/>b<mglyph alt=' '/></\(token)>"),
+                           #"math("ab")"#, token)
+        }
+        XCTAssertEqual(try extract("<mrow><mi>x</mi><mglyph src='star.png' alt=' star '/><mi>y</mi></mrow>"),
+                       #"math(row("x", "star", "y"))"#)
+        XCTAssertEqual(try extract("<mglyph/><mi>x</mi><mglyph alt=' '/>"), #"math("x")"#)
+        XCTAssertEqual(try extract("<mtext>the <mglyph alt='  star  '/> sign</mtext>"), #"math("the star sign")"#)
+        XCTAssertEqual(try extract("<mglyph alt='star'/>", attributes: "alttext='whole formula'"), "whole formula")
+        XCTAssertEqual(try extract("<mglyph alt='star'/>", attributes: "alttext='  '"), #"math("star")"#)
+        XCTAssertEqual(try extract(#"<mglyph alt='&quot; \ )'/><mi>x</mi>"#), #"math("\" \\ )", "x")"#)
+        // A foreign element with the same name retains its actual structure.
+        XCTAssertEqual(try extract("<mglyph xmlns='urn:other' alt='foreign'/>"),
+                       #"math(element("urn:other", "mglyph"; attributes(alt="foreign")))"#)
+    }
+
+    func testGlyphUTF8AnchorsAndOutputBudget() throws {
+        let publication = try book("<p>Pré " + math("<mtext>a<mglyph id='glyph' alt='é★'/>b</mtext><mglyph id='row' alt='α'/>",
+                                                           attributes: "id='formula'") + "</p><p id='later'>Next</p>")
+        let section = try publication.textSection(at: 0)
+        let expected = "Pré " + #"math("aé★b", "α")"# + "\nNext"
+        XCTAssertEqual(section.text, expected)
+        XCTAssertEqual(section.anchors["glyph"], EPUBTextMark(offset: ("Pré " + #"math("a"#).utf8.count, separator: 0))
+        XCTAssertEqual(section.anchors["row"], EPUBTextMark(offset: ("Pré " + #"math("aé★b", "#).utf8.count, separator: 1))
+        XCTAssertEqual(section.anchors["later"], EPUBTextMark(offset: expected.utf8.count - 4, separator: 1))
+        var limits = EPUBTextExtractionLimits()
+        limits.outputBytes = expected.utf8.count
+        XCTAssertEqual(try publication.textSection(at: 0, limits: limits).text, expected)
+        limits.outputBytes -= 1
+        XCTAssertThrowsError(try publication.textSection(at: 0, limits: limits)) {
+            XCTAssertEqual($0 as? EPUBTextExtractionError, .limitExceeded("outputBytes"))
+        }
+    }
+
+    func testUndescribedGlyphAnchorsStayAtTheirPosition() throws {
+        let section = try book(math("<mrow><mi>a</mi><mglyph id='row-empty'/><mi>b</mi></mrow><mtext>x<mglyph id='token-empty'/>y</mtext>")).textSection(at: 0)
+        XCTAssertEqual(section.text, #"math(row("a", "b"), "xy")"#)
+        XCTAssertEqual(section.anchors["row-empty"], EPUBTextMark(offset: "math(row(\"a\"".utf8.count, separator: 0))
+        XCTAssertEqual(section.anchors["token-empty"], EPUBTextMark(offset: "math(row(\"a\", \"b\"), \"x".utf8.count, separator: 0))
+        let empty = try book(math("<mglyph id='only' alt=' '/>")).textSection(at: 0)
+        XCTAssertEqual(empty.text, "math()")
+        XCTAssertEqual(empty.anchors["only"], EPUBTextMark(offset: "math(".utf8.count, separator: 0))
+        let semantics = try book(math("<semantics><mglyph id='silent'/><mi>x</mi></semantics>")).textSection(at: 0)
+        XCTAssertEqual(semantics.text, #"math("x")"#)
+        XCTAssertEqual(semantics.anchors["silent"], EPUBTextMark(offset: "math(".utf8.count, separator: 0))
+    }
+
     func testNestedFractionsPowersIndicesAndFencesHaveExplicitScope() throws {
         let text = try extract("""
         <mfrac><msubsup><mi>x</mi><mi>i</mi><mn>2</mn></msubsup>

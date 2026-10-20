@@ -114,7 +114,7 @@ struct NativeRichContent: RichContentFactory {
     }
 
     func math(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
-        MathContent.make(element, style: style, context: context)
+        MathContent.make(element, style: style, context: context, images: images)
     }
 
     func horizontalRule(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString {
@@ -132,7 +132,7 @@ struct NativeRichContent: RichContentFactory {
     /// Decode the first usable supported image in the designated manifest chain. A missing,
     /// remote, foreign, or corrupt hop does not prevent trying a later one. Failed attempts
     /// produce no image-loss disclosure when another resource supplies the image.
-    private func resolvedImage(at path: String, style: ComputedStyle, context: RichContentContext)
+    func resolvedImage(at path: String, style: ComputedStyle, context: RichContentContext)
         -> (source: ReaderImageSource, intrinsic: CGSize, svg: ContentNode?)? {
         let candidates: [String]
         if let original = context.publication.manifestResource(at: path) {

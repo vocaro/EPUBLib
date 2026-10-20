@@ -21,7 +21,9 @@ bookmark format `epublib-cfi-v1` (`EPUBReader.identifier`, `EPUBReader.bookmarkF
 the library, not a renderer. The WebKit reader's `org.epubreaderlib.foliate`/`epubcfi-v1`
 bookmarks are another engine's and are refused, but their CFI values name the same positions:
 a host migrates one by re-tagging it with the reader's identifier and format. The sample EPUB
-remains byte-for-byte unchanged.
+is generated deterministically by `scripts/make-sample.py`; adding the required modification
+timestamp changes its bytes and publication fingerprint, so positions saved against the older
+sample do not carry over ([#168](https://github.com/vocaro/EPUBLib/issues/168)).
 
 ## Publication model
 
