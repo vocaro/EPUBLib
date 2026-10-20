@@ -9,15 +9,29 @@ Set `DEVELOPER_DIR` when more than one Xcode is installed. From the repository r
 bash scripts/check-all.sh
 ```
 
-The gate verifies module boundaries, compares documentation snippets with compiled Swift
-sources, runs the Mac tests and the full test suite on dedicated iPhone 17 Pro and iPad Air
-13-inch (M4) simulators, and builds both sample app targets. Test devices are created by UUID and
+The gate checks the hosted-run and VoiceOver session scripts, verifies module boundaries,
+compares documentation snippets with compiled Swift sources, runs the Mac tests and the full
+test suite on dedicated iPhone 17 Pro and iPad Air 13-inch (M4) simulators, and builds both
+sample app targets. Test devices are created by UUID and
 deleted on exit; existing devices are never selected or shut down. Agents working in the
 repository drive simulators the same way, headlessly ([notes for agents](../AGENTS.md)). iOS logs live in
 `.build/validation/`. `EPUB_SIM_RUNTIME` selects a different installed runtime by identifier.
 None of this runs on a hosted runner, and nothing starts by itself for a pull request or for
 `main`: GitHub's runner is for [Mac VoiceOver sessions](#hosted-mac-sessions)
 only ([notes for agents](../AGENTS.md#the-hosted-runner)).
+
+The script checks use Python's standard `unittest` library and run independently with:
+
+```sh
+python3 -m unittest discover -s scripts/tests -v
+```
+
+They run copies of the scripts in temporary directories with fake `gh` and `git` commands,
+or stub application and probe calls in process; they need no network, GitHub login, build or
+running app, and never start VoiceOver or a hosted job. They cover queue refusals and dispatch
+arguments, per-session settings and Safari restrictions, session deadlines and reports, and
+the list state used when restoring VoiceOver ([#433](https://github.com/vocaro/EPUBLib/issues/433)).
+They do not establish what VoiceOver reads or does; that uses the speech lanes below.
 
 Run one gate at a time on this shared Mac, with its Mac and iOS suites one after the other.
 Coordinate full test runs between worktrees and keep build and test worker counts bounded.
