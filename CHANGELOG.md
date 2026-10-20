@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Keep an `@import` that follows an invalid rule, such as an unknown at-rule or a style rule with an invalid selector, where it was ignored ([#113](https://github.com/vocaro/EPUBLib/issues/113)).
 - Refuse a `mimetype` source with any byte after `application/epub+zip`, a trailing line end included, which the archive writer wrote into an invalid EPUB when it compared only the first 20 bytes ([#97](https://github.com/vocaro/EPUBLib/issues/97)).
 - Have VoiceOver say the match, its place and the text after it when Next Match, Previous Match or a chosen search result shows it ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
 - Keep the toolbar's search popover open on iPad when a result is chosen in it, and close the search pane or result list only where it is a sheet ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
