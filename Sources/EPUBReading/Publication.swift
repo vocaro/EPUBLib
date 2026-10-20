@@ -16,7 +16,8 @@ public struct EPUBPublication: Sendable {
     /// run of ASCII whitespace read as one space and none left at either end, so one its
     /// authoring tool wrapped and indented is one line; other white space, a no-break space
     /// among it, is kept inside and at the ends of a value that holds anything else, and an
-    /// element that holds nothing but white space of any kind has no value.
+    /// element that holds nothing but white space of any kind has no value. An element inside the
+    /// deprecated `dc-metadata` element, which EPUB 2 packages may have, is read where it stands.
     public let metadata: EPUBMetadata
     /// The manifest's items whose files the archive holds. A remote item is never fetched and is
     /// left out, as is a font obfuscated with a key the package does not give.
@@ -192,9 +193,15 @@ public struct EPUBPublication: Sendable {
               let spineNode = opf.children.first(where: { $0.name == "spine" }) else {
             throw EPUBPublicationError.invalidXML("OPF package, manifest or spine")
         }
-        let metadataNode = opf.children.first { $0.name == "metadata" }
+        // The children of `metadata`, with those of a `dc-metadata` or `x-metadata` element in its
+        // place. OEBPS 1.2 wrapped a package's Dublin Core elements in the first and its `meta`
+        // elements in the second, and OPF 2.0.1 §2.2, which deprecates both, has a reading system
+        // allow them. They are read in a package of any version, as the rest of it is (#85).
+        let metadataElements = (opf.children.first { $0.name == "metadata" }?.children ?? []).flatMap {
+            $0.name == "dc-metadata" || $0.name == "x-metadata" ? $0.children : [$0]
+        }
         func values(_ name: String) -> [String] {
-            metadataNode?.children.filter { $0.name == name }.map(\.text).filter { !$0.isEmpty } ?? []
+            metadataElements.filter { $0.name == name }.map(\.text).filter { !$0.isEmpty }
         }
         // Paths obfuscated as fonts with a key the package does not give. A font is left out, as
         // a file the archive lacks is, rather than refusing a book over a typeface. Anything else
@@ -203,7 +210,7 @@ public struct EPUBPublication: Sendable {
         var undecoded: Set<String> = [], unproven: Set<String> = []
         if contents["META-INF/encryption.xml"] != nil {
             let encryption = try xml("META-INF/encryption.xml")
-            let identifiers = metadataNode?.children.filter { $0.name == "identifier" } ?? []
+            let identifiers = metadataElements.filter { $0.name == "identifier" }
             let unique = identifiers.first { $0.attribute("id") == opf.attribute("unique-identifier") }
             let identifier = unique?.keyText ?? ""
             for encrypted in encryption.descendants("EncryptedData") {
@@ -293,9 +300,9 @@ public struct EPUBPublication: Sendable {
             byID[id] = resource
         }
         guard unproven.isEmpty else { throw EPUBPublicationError.unsupportedEncryption }
-        let fixedLayout = metadataNode?.children.contains {
+        let fixedLayout = metadataElements.contains {
             $0.name == "meta" && $0.attribute("property") == "rendition:layout" && $0.text == "pre-paginated"
-        } ?? false
+        }
         let spine = try spineNode.children.filter { $0.name == "itemref" }.map { item in
             guard let ref = item.attribute("idref"), let named = declared[ref] else {
                 throw EPUBPublicationError.invalidXML("Spine idref")
@@ -390,7 +397,7 @@ public struct EPUBPublication: Sendable {
                 return EPUBLandmark(types: types, title: reference.attribute("title") ?? "", href: resolved)
             }
         }
-        let coverID = metadataNode?.children.first {
+        let coverID = metadataElements.first {
             $0.name == "meta" && $0.attribute("name") == "cover"
         }?.attribute("content")
         return Self(id: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
