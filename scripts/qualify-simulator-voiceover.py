@@ -15,7 +15,10 @@ import simulator_voiceover_activation as activation
 
 
 def workflows(size):
-    steps = []
+    # Start with the link before any page turn/fresh workflow can change VoiceOver's
+    # layout-speech state; Pro Max exposed this separately from the original matrix.
+    steps = ['touch=Verification link', 'doublepoint=0.5:0.2', 'expect=Link target reached',
+             'forward=1', 'expect=This is the end', 'backward=1', 'expect=Link target reached']
     for orientation in ('portrait', 'landscape'):
         steps += [f'rotate={orientation}', f'fresh=paginated:{size}:OPS/body.xhtml:none',
                   'touch=Page boundary', 'keyrotor=Actions', 'chooseup=Next Page',
@@ -91,6 +94,8 @@ def main():
                        {'reader': workflows, 'cache': cache_workflow, 'menu': menu_workflow}[workflow](size)]
             for kind in kinds:
                 command += ['--device', kind]
+            if workflow == 'reader':
+                command += ['--href', 'OPS/body.xhtml#activation-link']
             if workflow == 'reader' and 'iPad-Air-13-inch-M4' in kinds:
                 command += ['--device-steps', 'iPad-Air-13-inch-M4=' + workflows(size).replace('keyrotor=', 'rotor=')]
             if workflow in ('cache', 'menu'):
