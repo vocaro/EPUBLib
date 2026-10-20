@@ -60,8 +60,9 @@ struct ComputedStyle: Equatable, Sendable {
         case points(CGFloat)
         /// 0–100 of the containing block's width (height for `height`/`max-height`).
         case percent(CGFloat)
-        /// 0–100 of the reading viewport.
-        case viewportWidth(CGFloat), viewportHeight(CGFloat)
+        /// 0–100 of the reading viewport: its width, its height, and the smaller and the larger
+        /// of the two (`vmin`, `vmax`; CSS Values 3, 5.1.2).
+        case viewportWidth(CGFloat), viewportHeight(CGFloat), viewportMin(CGFloat), viewportMax(CGFloat)
         case auto
         static let zero = Length.points(0)
         /// Resolves against a reference length; `auto` resolves to nil.
@@ -71,6 +72,8 @@ struct ComputedStyle: Equatable, Sendable {
             case .percent(let value): reference * value / 100
             case .viewportWidth(let value): viewport.width * value / 100
             case .viewportHeight(let value): viewport.height * value / 100
+            case .viewportMin(let value): min(viewport.width, viewport.height) * value / 100
+            case .viewportMax(let value): max(viewport.width, viewport.height) * value / 100
             case .auto: nil
             }
         }

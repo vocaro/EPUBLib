@@ -58,6 +58,30 @@ final class CSSCascadeValueCoverageTests: XCTestCase {
         XCTAssertEqual(style.maxWidth, .viewportWidth(80))
     }
 
+    /// CSS Values 3, 5.1.2: `vmin` is the smaller of `vw` and `vh`, `vmax` the larger. Which side
+    /// that is only layout knows, so they stay symbolic as themselves, not as `vw` and `vh`.
+    func testViewportMinimumAndMaximumUnitsStaySymbolicAndResolveAgainstTheSmallerAndLargerSide() throws {
+        let style = try CSSCascadeSupport.paragraph("""
+            width: 50vmin; height: 25VMAX; margin-left: 10svmin; margin-top: 5dvmax; padding-left: 2cqmin;
+            max-width: calc(40vmin + 40vmin); min-height: calc(10vmax * 2)
+            """)
+        XCTAssertEqual(style.width, .viewportMin(50))
+        XCTAssertEqual(style.height, .viewportMax(25))
+        XCTAssertEqual(style.margin.left, .viewportMin(10))
+        XCTAssertEqual(style.margin.top, .viewportMax(5))
+        XCTAssertEqual(style.padding.left, .viewportMin(2), "A container unit with no container is the small viewport's")
+        XCTAssertEqual(style.maxWidth, .viewportMin(80))
+        XCTAssertEqual(style.minHeight, .viewportMax(20))
+        for (viewport, smaller, larger) in [(CGSize(width: 300, height: 500), 300.0, 500.0), (CGSize(width: 700, height: 400), 400.0, 700.0)] {
+            XCTAssertEqual(style.width.resolve(reference: 0, viewport: viewport), smaller / 2, "\(viewport)")
+            XCTAssertEqual(style.height.resolve(reference: 0, viewport: viewport), larger / 4, "\(viewport)")
+        }
+        // Font sizes resolve when they are computed, against the nominal 600 × 800 media-query
+        // viewport, as `vw` and `vh` do.
+        let fonts = try paragraphs(["font-size: 5vmin", "font-size: 5vmax", "font-size: calc(2vmin + 2vmax)"])
+        XCTAssertEqual(fonts.map(\.fontSize), [30, 40, 28])
+    }
+
     func testPercentagesStaySymbolicForLayout() throws {
         let style = try CSSCascadeSupport.paragraph("""
             width: 50%; margin-left: -10%; text-indent: 5%; padding-left: 7.5%; max-width: 80%; min-height: 20%; position: relative; left: 3%

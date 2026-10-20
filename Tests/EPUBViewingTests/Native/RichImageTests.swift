@@ -36,6 +36,17 @@ final class RichImageTests: XCTestCase {
         sizing = ImageSizing(intrinsic: CGSize(width: 100, height: 50))
         sizing.width = .viewportWidth(50)
         XCTAssertEqual(size(sizing), CGSize(width: 200, height: 100))
+        // `vmin` and `vmax` are of the smaller and the larger side, whichever that is.
+        let landscape = CGSize(width: 700, height: 400)
+        sizing.width = .viewportMin(50)
+        XCTAssertEqual(size(sizing, line: 700, viewport: landscape), CGSize(width: 200, height: 100))
+        XCTAssertEqual(size(sizing), CGSize(width: 200, height: 100))
+        sizing.width = .viewportMax(50)
+        XCTAssertEqual(size(sizing, line: 700, viewport: landscape), CGSize(width: 350, height: 175))
+        XCTAssertEqual(size(sizing), CGSize(width: 300, height: 150))
+        // As an SVG size attribute, as `vw` and `vh` are read there.
+        XCTAssertEqual(ImageSizing.length("50vmin", fontSize: 16), .viewportMin(50))
+        XCTAssertEqual(ImageSizing.length("25VMAX", fontSize: 16), .viewportMax(25))
     }
 
     func testMaximumsScaleDownWithTheAspectKept() {

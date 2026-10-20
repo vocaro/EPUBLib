@@ -79,6 +79,8 @@ struct ImageSizing: Equatable, Sendable {
         if unit == "%" { return .percent(points) }
         if unit == "vw" { return .viewportWidth(points) }
         if unit == "vh" { return .viewportHeight(points) }
+        if unit == "vmin" { return .viewportMin(points) }
+        if unit == "vmax" { return .viewportMax(points) }
         return factors[unit].map { .points(points * $0) }
     }
 }

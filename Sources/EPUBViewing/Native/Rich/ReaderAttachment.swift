@@ -194,9 +194,10 @@ final class ReaderRuleAttachment: ReaderAttachment {
 
     override func contentWidths() -> (min: CGFloat, max: CGFloat) { (0, 0) }
 
-    /// The rule's rect inside an attachment of `size` (top-left origin).
-    func ruleRect(in size: CGSize) -> CGRect {
-        let length = min(size.width, width.resolve(reference: size.width, viewport: size) ?? size.width)
+    /// The rule's rect inside an attachment of `size` (top-left origin). Viewport units are of
+    /// `viewport`, the reading viewport, and of `size` when there is none yet.
+    func ruleRect(in size: CGSize, viewport: CGSize? = nil) -> CGRect {
+        let length = min(size.width, width.resolve(reference: size.width, viewport: viewport ?? size) ?? size.width)
         let x: CGFloat = switch alignment {
         case .leading: 0
         case .center: (size.width - length) / 2
@@ -207,16 +208,22 @@ final class ReaderRuleAttachment: ReaderAttachment {
 
     override func image(for bounds: CGRect, attributes: [NSAttributedString.Key: Any], location: any NSTextLocation,
                         textContainer: NSTextContainer?) -> PlatformImage? {
-        render(bounds.size)
+        render(bounds.size, viewport: Self.viewport(textContainer))
     }
 
     override func image(forBounds imageBounds: CGRect, textContainer: NSTextContainer?, characterIndex charIndex: Int) -> PlatformImage? {
-        render(imageBounds.size)
+        render(imageBounds.size, viewport: Self.viewport(textContainer))
     }
 
-    private func render(_ size: CGSize) -> PlatformImage? {
+    /// The reading viewport of `container`; nil until it has a size.
+    private static func viewport(_ container: NSTextContainer?) -> CGSize? {
+        guard let size = (container as? ReaderTextContainer)?.viewportSize, size.width > 0, size.height > 0 else { return nil }
+        return size
+    }
+
+    private func render(_ size: CGSize, viewport: CGSize?) -> PlatformImage? {
         guard size.width > 0, size.height > 0 else { return nil }
-        let rect = ruleRect(in: size)
+        let rect = ruleRect(in: size, viewport: viewport)
         #if os(iOS)
         return UIGraphicsImageRenderer(size: size).image { context in
             color.setFill()
