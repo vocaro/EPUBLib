@@ -281,7 +281,7 @@ def main():
             run("xcrun", "simctl", "bootstatus", session.udid, "-b", timeout=600)
             if library:
                 run("xcrun", "simctl", "spawn", session.udid, "launchctl", "setenv", "DYLD_INSERT_LIBRARIES", str(library))
-                session.transcript.append(f"{now()} ACTIVATION cursor v1, build {activation.BUILD}, vot SHA-256 {activation.VOT_SHA256}; marker and startup self-test required")
+                session.transcript.append(f"{now()} ACTIVATION cursor v2, build {activation.BUILD}, vot SHA-256 {activation.VOT_SHA256}; marker and startup self-test required")
                 session.transcript.append(f"{now()} LIMITATION {activation.LIMITATION}")
             else:
                 session.transcript.append(f"{now()} ACTIVATION stock (unmodified)")
