@@ -24,6 +24,7 @@ from types import SimpleNamespace
 DEVICE_TYPE = "com.apple.CoreSimulator.SimDeviceType."
 TEST = "VoiceOverProbeIOS/VoiceOverProbe/testCaptureNavigation"
 STEPS = "visible,touch=Page boundary,read,activate=Next Page,visible,touch=word,read"
+BUILD_REVISION_FILE = "voiceover-build-revision.txt"
 # What xcodebuild prints when the probe's test has ended, and for each failure in it.
 TEST_ENDED = re.compile(r"^Test Case '.*testCaptureNavigation\]' (passed|failed) \(([\d.]+) seconds\)", re.M)
 FAILURES = re.compile(r"^.* error: (?:-\[.*?\] : )?(.*)$", re.M)
@@ -99,7 +100,11 @@ def staged(bundle):
 def build(root, derived, log_path, timeout, skip):
     """The fixture and project if they are missing or stale, then one build for every simulator."""
     products = derived / "Build/Products"
+    revision_path = derived / BUILD_REVISION_FILE
     if not skip:
+        # A failed or interrupted rebuild must not leave the old build's revision behind.
+        revision_path.unlink(missing_ok=True)
+        revision = run("git", "-C", str(root), "describe", "--always", "--dirty").strip()
         example = root / "Examples/VoiceOverVerification"
         generator = root / "scripts/make-voiceover-fixture.py"
         fixture = example / "Resources/sample.epub"
@@ -122,7 +127,13 @@ def build(root, derived, log_path, timeout, skip):
     runs = sorted(products.glob("VoiceOverProbeIOS_*.xctestrun"), key=lambda path: path.stat().st_mtime)
     if not runs:
         raise RuntimeError(f"No built probe in {products}; run without --skip-build")
-    return runs[-1]
+    if not skip:
+        revision_path.write_text(revision + "\n")
+    try:
+        revision = revision_path.read_text().strip() or "unknown"
+    except FileNotFoundError:
+        revision = "unknown"
+    return runs[-1], revision
 
 
 def report(session):
@@ -216,10 +227,10 @@ def main():
     sessions = []
     status = 0
     try:
-        xctestrun = build(root, args.derived_data, args.results / f"simulator-{stamp}.build.log",
-                          args.build_timeout, args.skip_build)
+        xctestrun, revision = build(root, args.derived_data, args.results / f"simulator-{stamp}.build.log",
+                                    args.build_timeout, args.skip_build)
         built = time.monotonic()
-        revision = run("git", "-C", str(root), "describe", "--always", "--dirty").strip()
+        checkout = run("git", "-C", str(root), "describe", "--always", "--dirty").strip()
         xcode = " ".join(run("xcodebuild", "-version").split())
         print(f"Probe built in {built - began:.0f} s; load averages {' '.join(f'{load:.0f}' for load in os.getloadavg())}.")
         for kind in args.device or ["iPhone-17-Pro", "iPad-Air-13-inch-M4"]:
@@ -230,7 +241,8 @@ def main():
                 note=None, late=False, recovered=[], unmuted=[], unread=[],
                 log=args.results / f"simulator-{kind}-{stamp}.log", bundle=args.results / f"simulator-{kind}-{stamp}.xcresult",
                 vot=args.results / f"simulator-{kind}-{stamp}.vot.log",
-                transcript=[f"{now()} SIMULATOR {kind}, {args.runtime}, {udid}", f"{now()} BUILD {revision}, {xcode}"]))
+                transcript=[f"{now()} SIMULATOR {kind}, {args.runtime}, {udid}",
+                            f"{now()} BUILD {revision}, {xcode}", f"{now()} CHECKOUT {checkout}"]))
         for session in sessions:
             run("xcrun", "simctl", "boot", session.udid, timeout=120)
         for session in sessions:

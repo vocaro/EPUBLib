@@ -20,6 +20,9 @@ targets:
       - Shared
       - ReaderSampleApp.swift
       - Resources
+      - path: ../../Vendor/MathMLLayout
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.epubreaderlib.sample
@@ -42,6 +45,9 @@ targets:
       - Shared
       - ReaderSampleApp.swift
       - Resources
+      - path: ../../Vendor/MathMLLayout
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.epubreaderlib.sample.mac

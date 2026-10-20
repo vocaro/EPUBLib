@@ -97,8 +97,8 @@ struct SectionReport: Equatable, Sendable {
     var unreadableResources = 0
     /// MathML expressions shown as their `alttext` because they used unsupported elements.
     var mathFallbacks = 0
-    /// MathML expressions laid out with a part the engine lacks approximated: an `mglyph` shown
-    /// as its alternative text, or elementary math (`mstack`, `mlongdiv`) set as a table.
+    /// MathML expressions with an unavailable glyph image shown as alternative text, or
+    /// elementary math (`mstack`, `mlongdiv`) set as a table by the reader's retained policy.
     var mathApproximations = 0
     /// MathML expressions that no row breaking keeps at a readable size in a narrow column
     /// (`MathFormula.narrowColumn`): they shrink to the line rather than lose content.

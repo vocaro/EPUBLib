@@ -137,12 +137,19 @@ continues to describe the authored spine resource.
   package (CoreText and the OpenType MATH table), draws each `<math>` as an attachment,
   baseline-aligned inline and centred for `display="block"`. The corpus uses `mi`, `mn`, `mo`,
   `mrow`, `mfrac`, `msup`, `msub`, `msqrt` and `mstyle` (1,798 formulas, all with `alttext`);
-  the engine also lays out every other MathML 3 presentation element except `mglyph` and
-  elementary math. The reader covers those two around it, each disclosed as a simplified
-  layout: an `mglyph` shows its `alt` where it stands (a box when it has none), and `mstack`
-  and `mlongdiv` are set as a table with a column for each digit, carries small above their
-  digits, crossed-out digits struck through, a rule under the rows it follows, and a division's
-  divisor and result around its working. Anything else the engine cannot lay out shows its
+  MathMLLayout 0.3.1 also supports `mglyph` images. The reader resolves their `src` through
+  its archive image pipeline, including manifest fallbacks and sanitized SVG, and supplies
+  images with their intrinsic size to the engine, which honors `width`, `height` and `valign`.
+  Missing, refused or undecodable images show `alt` (a box when it has none), disclosed as a
+  simplified layout; their descriptions remain available for speech, copy and search even
+  when the images draw. Decodes are capped at 1024 pixels on the long side and 16 MiB per
+  formula; exceeding that retained-image budget also uses the text fallback. The reader
+  retains its elementary-math policy: `mstack` and `mlongdiv` are disclosed tables with a column
+  for each digit, carries small above their digits, crossed-out digits struck through, a rule
+  under the rows it follows, and a division's
+  divisor and result around its working. Elementary expressions beyond the reader's table
+  bounds are passed to the engine, which can render cases the older dependency refused.
+  Anything else the engine cannot lay out shows its
   `alttext` and is disclosed. No WebKit.
 - **Wide formulas.** A formula wider than its line shrinks to fit, to no less than three
   quarters of the text's size. Past that it breaks into rows at full size: before a relation
@@ -162,9 +169,9 @@ continues to describe the authored spine resource.
 - **Spoken math.** Assistive technologies read a formula's `alttext` verbatim, in the content's
   language: the nearest `xml:lang` or `lang` on the `math` element or an ancestor, else the
   publication's. Without `alttext` the reading is generated from the markup, and elementary
-  math is read row by row. MathMLLayout 0.1.1 generates English only, so a generated reading is
-  tagged English whatever the book's language, for an English voice to read, rather than
-  handed to the book's voice as if it were its language. On Mac a formula's character carries
+  math is read row by row. The reader retains English generated readings, tagged English
+  whatever the book's language; adopting the engine's localized speech is separate from glyph
+  image support. On Mac a formula's character carries
   an image element named by the reading, in a page's text and in a table cell's, and
   VoiceOver says the reading and then its own word for an image: "y cubed image".
 - **SVG.** Inline and archive SVG illustrations render through the bundled resvg static
@@ -3030,8 +3037,8 @@ Go: the native viewer is the bundled engine.
   past its bounds that follow it, are located as the table, not by their characters. A table
   that holds only cells written outside rows flows as text, a paragraph for each cell, rather
   than as the one anonymous row CSS gives them.
-- MathML is laid out by MathMLLayout 0.1.1, which has no line breaking, `mglyph`, elementary
-  math or localized speech; the reader works around each as far as the engine's API allows
+- MathML is laid out by MathMLLayout 0.3.1 with glyph images supplied by the reader. The
+  reader retains its earlier wrapping, elementary-math and English-speech policies
   ([#25](https://github.com/vocaro/EPUBLib/issues/25)):
   - A formula breaks only along its own rows (`math`, `mrow`, `mstyle`, `semantics`). A
     fraction, root, script, table, `mfenced` or enclosure wider than the line shrinks instead,
@@ -3040,7 +3047,8 @@ Go: the native viewer is the bundled engine.
     reader's own lists decide what is a relation, a binary operator or a bracket; `indentalign`,
     `indentshift`, `lineleading` and `linebreakmultchar` are not read, table cells and long
     `mtext` do not wrap, and brackets split across rows stretch to their own row.
-  - `mglyph` images are not drawn: the `alt` stands in, in the token's own style.
+  - `mglyph` images that cannot be resolved or decoded within the limits above use `alt`
+    in the token's own style; without a description they show a box and have no spoken name.
   - Elementary math is an approximation in the engine's tables: an `msline` spans the whole
     stack whatever its `length`, `position` and overhangs; carries are a row above their digits
     whatever their `location`; `charalign`, `charspacing` and `mslinethickness` are not read;
@@ -3050,26 +3058,24 @@ Go: the native viewer is the bundled engine.
     their content's language, for VoiceOver to choose a voice by: AppKit reports each run's
     language, and on iPhone and iPad each item names the language of its words ("Language"
     under Input and accessibility).
-  - One engine defect shows in these fixtures: an operator whose row has only `mtext` operands
-    (`future value = principal`) is drawn without its spaces.
 
-  Closing them needs these MathMLLayout changes:
+  The remaining policies predate the newer engine. Adopting its corresponding APIs is
+  separate work; the original integration requirements were:
   1. Line breaking: a layout bounded by a line width (`MathLayout(_:style:maximumWidth:)` with
      its rows' boxes and baselines exposed), following MathML 3 section 3.1.7 with the engine's
      own operator dictionary, breaking inside nested rows with matched bracket sizes and the
      `indent*`, `lineleading` and `linebreakmultchar` attributes; and, for inline formulas,
      the same rows as separately drawable fragments a host can place on consecutive text lines.
      Wrapping for `mtext` and table cells. The font's axis height on `MathLayout`.
-  2. `mglyph`: attributes kept on a token's element children in `MathMLNode`, a box from
-     `width`, `height` and `valign`, and an image provider on `MathStyle` (`src` to `CGImage`),
-     with `alt` drawn and read when it returns none.
+  2. `mglyph` integration is complete: token positions and attributes are preserved and
+     `MathStyle.imageProvider` supplies archive images, with `alt` as the fallback.
   3. Elementary math: `mstack`, `mlongdiv`, `msgroup`, `msrow`, `mscarries`, `mscarry` and
      `msline` as in MathML 3 section 3.6, including line lengths and overhangs, carry
      locations, character alignment and spacing, every `longdivstyle`, and spoken readings.
   4. Speech: `accessibilityDescription(locale:)` returning the reading and the language it is
      written in, English when the locale has no vocabulary.
-  5. Operator spacing for a row that is an embellished operator only because its other
-     children are space-like.
+  The operator-spacing defect between `mtext` operands was fixed upstream in the newer
+  engine; it no longer requires an EPUBLib workaround.
 
   The real-book corpus, whose formulas use neither `mglyph` nor elementary math, was not
   rebuilt for this change, so how many of them now break into rows is not measured. Neither

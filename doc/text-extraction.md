@@ -71,7 +71,10 @@ quoted and escaped as child values. Without an alternative, formulas use bounded
 structural notation: for example, `math(frac("x", "y"))` and `math(sup("x", "2"))` retain division
 and exponent structure. Rows, roots, indices and fences remain explicit; fences retain their opening,
 closing and separator attributes. Tokens are quoted, with escaped quotes, backslashes and invisible
-math operators. Other elements, presentation attributes and malformed argument counts retain their
+math operators. An `mglyph` contributes its whitespace-collapsed `alt` at its position inside a
+token, or as a quoted value at row level; a missing or blank `alt` contributes nothing. Glyph
+image paths and sizing attributes do not enter the extracted text, and a whole-formula
+`alttext` still takes precedence. Other elements, presentation attributes and malformed argument counts retain their
 tag structure instead of losing grouping. Literal `display="block"` formulas separate surrounding
 text with line breaks. No math script, image or external resource is evaluated.
 

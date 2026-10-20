@@ -9,15 +9,31 @@ Set `DEVELOPER_DIR` when more than one Xcode is installed. From the repository r
 bash scripts/check-all.sh
 ```
 
-The gate verifies module boundaries, compares documentation snippets with compiled Swift
-sources, runs the Mac tests and the full test suite on dedicated iPhone 17 Pro and iPad Air
-13-inch (M4) simulators, and builds both sample app targets. Test devices are created by UUID and
+The gate checks the hosted-run and VoiceOver session scripts, verifies module boundaries,
+compares documentation snippets with compiled Swift sources, runs the Mac tests and the full
+test suite on dedicated iPhone 17 Pro and iPad Air 13-inch (M4) simulators, and builds both
+sample app targets. Test devices are created by UUID and
 deleted on exit; existing devices are never selected or shut down. Agents working in the
 repository drive simulators the same way, headlessly ([notes for agents](../AGENTS.md)). iOS logs live in
 `.build/validation/`. `EPUB_SIM_RUNTIME` selects a different installed runtime by identifier.
 None of this runs on a hosted runner, and nothing starts by itself for a pull request or for
 `main`: GitHub's runner is for [Mac VoiceOver sessions](#hosted-mac-sessions)
 only ([notes for agents](../AGENTS.md#the-hosted-runner)).
+
+The script checks use Python's standard `unittest` library and run independently with:
+
+```sh
+python3 -m unittest discover -s scripts/tests -v
+```
+
+They run copies of the scripts in temporary directories with fake tool commands,
+or stub application and probe calls in process; the simulator revision checks use real local
+Git repositories in those temporary directories. They need no network, GitHub login, build or
+running app, and never start VoiceOver or a hosted job. They cover queue refusals and dispatch
+arguments, per-session settings and Safari restrictions, session deadlines and reports, and
+the list state used when restoring VoiceOver ([#433](https://github.com/vocaro/EPUBLib/issues/433)),
+and simulator build revisions ([#504](https://github.com/vocaro/EPUBLib/issues/504)).
+They do not establish what VoiceOver reads or does; that uses the speech lanes below.
 
 Run one gate at a time on this shared Mac, with its Mac and iOS suites one after the other.
 Coordinate full test runs between worktrees and keep build and test worker counts bounded.
@@ -599,13 +615,27 @@ set. It lays out every page twice, so run it in release, one process per size:
 ```sh
 swift test -c release --enable-testable-imports --filter BookCorpusPageTextTests  # builds; skips
 eval "$(bash scripts/fetch-corpora.sh)"
-EPUBLIB_PAGE_TEXT_CASES=phone xcrun xctest -XCTest EPUBViewingTests.BookCorpusPageTextTests \
+NSUnbufferedIO=YES EPUBLIB_PAGE_TEXT_CASES=phone xcrun xctest -XCTest EPUBViewingTests.BookCorpusPageTextTests \
   .build/release/EPUBViewingTests.xctest
 ```
 
 The cases are `phone`, `phone-landscape`, `tablet`, `mac`, `small` and `phone-40pt`;
 `EPUBLIB_PAGE_TEXT_BOOKS` names books by file name. The test's comment gives how long each
 corpus takes.
+
+On macOS, let a corpus layout process exit after its last test passes. A synchronous run
+can leave native text views retained by AppKit's run-loop blocks even though each page was
+made inside an autorelease pool; turning the run loop releases the views and their TextKit
+layouts. The [investigation of #589](https://github.com/vocaro/EPUBLib/issues/589#issuecomment-6283724393) records
+the reader's callback counts and a comparison using plain AppKit views. The original
+100-book ask-run probe continued for 1.8 to 32 minutes after passing at five sizes, and was
+still running after 80 minutes at `phone-40pt`; these observations are not time limits.
+Do not stop a process merely because it has printed `Test Suite 'Selected tests' passed`.
+
+Use `NSUnbufferedIO=YES`, as above, when redirecting a run to a file, or run it under
+`script -q <log>`. Otherwise the final summary can remain buffered until the process exits,
+and stopping it can lose that output. An unbuffered summary confirms that the test body
+finished; wait for the process's exit status as well.
 
 `NativeCorpusQualificationTests` builds every book under `EPUBLIB_CORPUS`, a colon-separated
 list of directories of EPUB files, and checks each section's text map:
@@ -624,6 +654,15 @@ used to test it.
 
 What a measurement or a comparison found is on its issue. These are the scripts, variables
 and inputs that repeat one.
+
+### Corpus teardown
+
+The [reproduction on #589](https://github.com/vocaro/EPUBLib/issues/589#issuecomment-6283724393)
+holds the reader instrumentation patch and standalone corpus and plain AppKit drivers, with
+the commit the patch applies to and the commands to run them. The corpus driver lays out
+every page column, optionally adds a whole-section scrolling view, then counts callbacks and
+view releases while draining the run loop. The native comparison uses weak references to
+count views retained after their autorelease pools end.
 
 ### UIKit note presentation in an app-hosted test bundle
 
@@ -1012,8 +1051,9 @@ EPUBLIB_ASK_PROBE=fixtures,w3c,epubcheck swift test --filter AskRunProbeTests
 release build, so run them one process per size, as for `BookCorpusPageTextTests`. The probe
 prints one `ASK-PROBE` line, and with its output going to a file that line is written only when
 the process exits. The process can go on for an hour after its test
-([#589](https://github.com/vocaro/EPUBLib/issues/589)), so run it under `script -q <log>`, which
-writes each line as it comes, or wait for it to exit.
+([#589](https://github.com/vocaro/EPUBLib/issues/589)); use `NSUnbufferedIO=YES` or
+`script -q <log>` to see each line as it comes, and let it exit
+([Corpus runs](#corpus-runs)).
 
 ### Reader controls probe
 
@@ -2639,10 +2679,23 @@ test-without-building` for each at the same time, under `--timeout`. It deletes 
 however the run ends, also when it is terminated, and never boots, changes or deletes one it
 did not create. `--steps`, `--font-size`, `--flow scrolled`, `--href OPS/labels.xhtml`,
 `--launch '-SampleSelectionLine YES'` and `--voiceover-off` are the probe's settings above. Each simulator gets `simulator-TYPE-STAMP.transcript.txt` beside its
-log and result bundle in `.build/voiceover/results/`: the device, revision and steps, the
+log and result bundle in `.build/voiceover/results/`: the device, build revision and steps, the
 probe's lines, then the result, with VoiceOver's state and the volume as `devicectl` reports
 them. The exit status is 0 only when every probe ran all its steps and passed, VoiceOver is
 off again and no simulator lost its mute.
+
+The `BUILD` line gives `git describe --always --dirty` from before the probe was built, saved
+after a successful build in `voiceover-build-revision.txt` in the derived data folder
+(`--derived-data` chooses it). `--skip-build` reads that file, so later commits or edits in
+the checkout do not change the build's revision. A build this runner did not record, including
+one built elsewhere, has `BUILD unknown`; the separate `CHECKOUT` line gives the checkout's
+current revision. A failed or interrupted rebuild removes the old revision record. The
+`-dirty` suffix says there were uncommitted tracked edits at build time; it does not identify
+those edits. `python3 -m unittest discover -s scripts/tests -p test_voiceover_simulator.py`
+checks this bookkeeping with temporary Git repositories and fake tools, without building or
+starting a simulator; it also runs in the local gate's offline script checks.
+The build-revision checks are recorded on
+[#504](https://github.com/vocaro/EPUBLib/issues/504#issuecomment-6283694583).
 
 Four things went wrong in the first runs, and the runner and probe now allow for each:
 

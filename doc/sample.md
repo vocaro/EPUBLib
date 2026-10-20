@@ -48,7 +48,8 @@ was last given ("Selected: nothing. Used: nothing.").
 the app. `python3 scripts/check-docs.py` checks the marked examples in the documentation against
 them.
 Run `python3 scripts/check-docs.py --write` after editing an example, and
-`python3 scripts/make-sample.py` to regenerate the bundled book.
+`python3 scripts/make-sample.py` to regenerate the bundled book; validate it with
+`epubcheck Examples/ReaderSample/Resources/sample.epub` (no errors or warnings).
 
 The Mac target enables the sandbox and user-selected read access only; the reader needs no
 network access and refuses remote book resources and external links.

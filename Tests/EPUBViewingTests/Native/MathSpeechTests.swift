@@ -62,7 +62,7 @@ final class MathSpeechTests: XCTestCase {
         XCTAssertNil(try language("<p lang=\"mul-Latn\">\(math)</p>", publication: "fr"))
     }
 
-    /// MathMLLayout 0.1.1 generates English and takes no locale: the reading is tagged with the
+    /// The reader uses the engine's default English vocabulary: the reading is tagged with the
     /// language it is in, so a French book's formula is not read as French words.
     func testGeneratedReadingIsTaggedWithTheLanguageItIsWrittenIn() throws {
         for (language, root) in [("fr", ""), ("de", ""), ("en", "xml:lang=\"ja\"")] {
