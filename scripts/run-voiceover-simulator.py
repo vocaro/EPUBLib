@@ -280,7 +280,7 @@ def main():
             run("xcrun", "simctl", "bootstatus", session.udid, "-b", timeout=600)
             if library:
                 run("xcrun", "simctl", "spawn", session.udid, "launchctl", "setenv", "DYLD_INSERT_LIBRARIES", str(library))
-                session.transcript.append(f"{now()} ACTIVATION cursor v2, build {activation.BUILD}, vot SHA-256 {activation.VOT_SHA256}; marker and startup self-test required")
+                session.transcript.append(f"{now()} ACTIVATION cursor v3, build {activation.BUILD}, vot SHA-256 {activation.VOT_SHA256}; marker and startup self-test required")
             else:
                 session.transcript.append(f"{now()} ACTIVATION stock (unmodified)")
             # VoiceOver speaks through the Mac's own output device, so nothing runs before this holds.
