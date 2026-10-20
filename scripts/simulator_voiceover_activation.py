@@ -9,13 +9,11 @@ RUNTIME = 'com.apple.CoreSimulator.SimRuntime.iOS-27-2'
 BUILD = '24B5110a'
 VOT_SHA256 = 'eff48aa54691d86f352370f71dce32fcbec847b34967b9446bebce17a4f360fd'
 MARKER = 'EPUB495: cursor activation v2 enabled build ' + BUILD
-LIMITATION = ('Immediate link-target announcements can be missing after activation; '
-              'full qualification still fails (#495).')
 
 
 def default_mode(runtime):
     # Adoption is limited to this runtime; prepare() still checks its build and binary.
-    # Default use does not imply that the announcement qualification has passed.
+    # Other runtime implementations require their own guards and qualification.
     return 'cursor' if runtime == RUNTIME else 'stock'
 
 

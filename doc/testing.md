@@ -2717,8 +2717,8 @@ log and result bundle in `.build/voiceover/results/`: the device, build revision
 probe's lines, then the result, with VoiceOver's state and the volume as `devicectl` reports
 them. The exit status is 0 only when every probe ran all its steps and passed, VoiceOver is
 off again and no simulator lost its mute.
-The default cursor-activation mode has a 600-second timeout and the guards and known
-announcement limitation described under [Investigating cursor activation](#investigating-cursor-activation).
+The default cursor-activation mode has a 600-second timeout and the guards described under
+[Investigating cursor activation](#investigating-cursor-activation).
 Stock mode defaults to 300 seconds.
 
 The `BUILD` line gives `git describe --always --dirty` from before the probe was built, saved
@@ -2903,9 +2903,9 @@ When that returns true it sends a plain touch at the gesture's point and returns
 activation has no touch point. The gate reads an internal testing flag; the issue records
 the runtime comparisons and a diagnostic patch that makes this one method return false,
 letting VoiceOver itself dispatch the cursor item's default action or the rotor action.
-The guarded bypass is the runner's default on pinned iOS 27.2, with the announcement
-limitation below. It changes no installed runtime file or reader implementation; physical
-acceptance requirements remain as described below.
+The guarded bypass is the runner's default on pinned iOS 27.2, together with the targeted
+layout-ordering repair below. It changes no installed runtime file or reader implementation;
+physical acceptance requirements remain as described below.
 
 Compare the stock simulator with an off-target double tap and with the keyboard command:
 
@@ -2941,13 +2941,14 @@ python3 scripts/run-voiceover-simulator.py --activation cursor \
 
 This lane currently permits only arm64 iOS 27.2 build `24B5110a`. Before creating a simulator
 it checks the runtime build and the SHA-256 of its entire `vot` executable. In that process,
-the library checks the method's Objective-C type encoding and original instructions before
-replacing it. An unknown build or binary is refused; `--activation stock` explicitly chooses
+the library checks the Objective-C type encodings and original instructions of the activation
+gate, screen handler and called layout-timer entry before installing either override.
+An unknown build or binary is refused; `--activation stock` explicitly chooses
 an unmodified recording. The library is injected only inside this run's disposable simulators,
 ignores processes other than `vot`, and cannot be compiled for a device or Mac target. Nothing
 sets the Mac's injection environment or modifies an installed runtime.
 
-Every cursor run requires both `EPUB495: cursor activation v1 enabled build 24B5110a` in its
+Every cursor run requires both `EPUB495: cursor activation v2 enabled build 24B5110a` in its
 VoiceOver log and a startup canary in a separate verification view. The canary focuses a
 counter button, activates it with Control-Option-Space and then double-taps elsewhere. Each
 must increment the counter exactly once. The canary then chooses a named custom action in
@@ -2995,21 +2996,31 @@ canary separately checks keyboard activation. Repeated synthetic rotor keys on a
 can be interrupted by UIKit's “Keyboard visible” announcements. `--device-steps TYPE=STEPS`
 on the ordinary runner records and sends an explicit step override for one requested device;
 the qualification runner uses that for the two input paths. The small Python suite checks that unknown builds, altered binaries and missing
-hook/canary evidence cannot pass. Qualification results and device comparisons are recorded on
-[#495](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6296767191), with the revision tested.
-Default adoption does not mean that the full qualification passes. In the 23-point portrait
-iPhone link workflow, activation reaches the destination but the guarded simulator can
-retain the link's old announcement instead of immediately announcing “Link target reached”.
-The following forward move reads the sentence after the heading, and the backward move
-reads the heading. The physical iPhone announces the heading immediately, including with
-the matching source, app SDK, model and OS build. The remaining discrepancy's cause is
-unassigned. Verify the affected immediate announcement on a physical device.
+hook/canary evidence cannot pass, including an older v1 marker that does not confirm the
+layout repair. [Qualification results](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6298467117)
+and [device comparisons](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6296467408)
+are recorded on #495 with the revisions tested.
 
-Cursor runs print this known limitation and retain it in their transcripts. The matrix
-keeps `expect=Link target reached` immediately after link activation and exits nonzero when
-it fails; there is no skip, expected-failure conversion or relaxed assertion. This leaves
-the qualification failure visible while allowing the guarded technique to be used for
-activation tests on the pinned runtime.
+The v1 default retained a simulator announcement mismatch: a link reached its destination,
+but VoiceOver could keep the source link as its latest speech. The paired native iPhone
+announced the heading immediately. The [original failed qualification](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6296767191)
+remains recorded; default adoption did not waive that failure.
+
+The [v2 investigation and source patch](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6297469108)
+fix the notification ordering behind it. A targeted Layout Changed notification can carry
+a renamed item with the same accessibility identity as the current cursor item. The following
+generic Screen Changed update could consume that pending target before the layout timer
+built its announcement. If the pending target equals the current item and their non-nil
+labels differ, the hook lets VoiceOver's existing layout-timer handler finish first, then
+calls the original screen handler. It supplies no announcement text and changes no global
+testing mode; the layout handler keeps its own cursor and rotor behavior. A repair logs
+`EPUB495: processed renamed target before screen update v2`.
+
+The matrix retains `expect=Link target reached` immediately after link activation, plus the
+forward/backward reading checks. No assertion or timeout was relaxed, and no skip or
+expected-failure conversion was added. The obsolete active limitation notice was removed
+after the v2 qualification passed. Other runtime implementations still require their own
+guards and qualification; physical acceptance requirements remain below.
 
 To separate a navigation announcement from activation, the sample's existing
 `-SampleStepAfter SECONDS` timer accepts `-SampleStepHref HREF`: it navigates to that

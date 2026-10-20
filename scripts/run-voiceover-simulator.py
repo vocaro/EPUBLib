@@ -257,7 +257,6 @@ def main():
         library = activation.prepare(root, args.derived_data, args.runtime, run) if args.activation == "cursor" and not args.voiceover_off else None
         if library:
             args.vot_log = True
-            print("LIMITATION " + activation.LIMITATION, flush=True)
         xctestrun, revision = build(root, args.derived_data, args.results / f"simulator-{stamp}.build.log",
                                     args.build_timeout, args.skip_build)
         built = time.monotonic()
@@ -282,7 +281,6 @@ def main():
             if library:
                 run("xcrun", "simctl", "spawn", session.udid, "launchctl", "setenv", "DYLD_INSERT_LIBRARIES", str(library))
                 session.transcript.append(f"{now()} ACTIVATION cursor v2, build {activation.BUILD}, vot SHA-256 {activation.VOT_SHA256}; marker and startup self-test required")
-                session.transcript.append(f"{now()} LIMITATION {activation.LIMITATION}")
             else:
                 session.transcript.append(f"{now()} ACTIVATION stock (unmodified)")
             # VoiceOver speaks through the Mac's own output device, so nothing runs before this holds.
