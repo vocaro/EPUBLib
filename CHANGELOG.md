@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Record the simulator VoiceOver probe's build revision in its transcript when reusing a build, and mark an unrecorded build's revision unknown with the checkout revision separate ([#504](https://github.com/vocaro/EPUBLib/issues/504)).
+- Check the hosted-run and VoiceOver session scripts offline as part of the local gate ([#433](https://github.com/vocaro/EPUBLib/issues/433)).
+- Add the required modification timestamp to the reader sample's generated EPUB so it passes EPUBCheck ([#168](https://github.com/vocaro/EPUBLib/issues/168)).
 - Separate in text extraction the text of `details`, `summary`, `fieldset`, `legend`, `center`, `form`, `hgroup`, `option` and eight other elements HTML renders as blocks, where it ran into the text beside it ([#90](https://github.com/vocaro/EPUBLib/issues/90)).
 - Write a navigation or stylesheet link as the path the writer checked, so a target spelled with an empty or dot segment, such as `EPUB//one.xhtml`, is no longer written as a link to the container root, a host or a scheme ([#240](https://github.com/vocaro/EPUBLib/issues/240)).
 - Read the title, creators, languages, identifiers and cover of an EPUB 2 package that wraps them in the deprecated `dc-metadata` and `x-metadata` elements, where it opened with none and refused a book with an IDPF-obfuscated font ([#85](https://github.com/vocaro/EPUBLib/issues/85)).
