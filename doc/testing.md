@@ -599,13 +599,27 @@ set. It lays out every page twice, so run it in release, one process per size:
 ```sh
 swift test -c release --enable-testable-imports --filter BookCorpusPageTextTests  # builds; skips
 eval "$(bash scripts/fetch-corpora.sh)"
-EPUBLIB_PAGE_TEXT_CASES=phone xcrun xctest -XCTest EPUBViewingTests.BookCorpusPageTextTests \
+NSUnbufferedIO=YES EPUBLIB_PAGE_TEXT_CASES=phone xcrun xctest -XCTest EPUBViewingTests.BookCorpusPageTextTests \
   .build/release/EPUBViewingTests.xctest
 ```
 
 The cases are `phone`, `phone-landscape`, `tablet`, `mac`, `small` and `phone-40pt`;
 `EPUBLIB_PAGE_TEXT_BOOKS` names books by file name. The test's comment gives how long each
 corpus takes.
+
+On macOS, let a corpus layout process exit after its last test passes. A synchronous run
+can leave native text views retained by AppKit's run-loop blocks even though each page was
+made inside an autorelease pool; turning the run loop releases the views and their TextKit
+layouts. The [investigation of #589](https://github.com/vocaro/EPUBLib/issues/589#issuecomment-6283724393) records
+the reader's callback counts and a comparison using plain AppKit views. The original
+100-book ask-run probe continued for 1.8 to 32 minutes after passing at five sizes, and was
+still running after 80 minutes at `phone-40pt`; these observations are not time limits.
+Do not stop a process merely because it has printed `Test Suite 'Selected tests' passed`.
+
+Use `NSUnbufferedIO=YES`, as above, when redirecting a run to a file, or run it under
+`script -q <log>`. Otherwise the final summary can remain buffered until the process exits,
+and stopping it can lose that output. An unbuffered summary confirms that the test body
+finished; wait for the process's exit status as well.
 
 `NativeCorpusQualificationTests` builds every book under `EPUBLIB_CORPUS`, a colon-separated
 list of directories of EPUB files, and checks each section's text map:
@@ -624,6 +638,15 @@ used to test it.
 
 What a measurement or a comparison found is on its issue. These are the scripts, variables
 and inputs that repeat one.
+
+### Corpus teardown
+
+The [reproduction on #589](https://github.com/vocaro/EPUBLib/issues/589#issuecomment-6283724393)
+holds the reader instrumentation patch and standalone corpus and plain AppKit drivers, with
+the commit the patch applies to and the commands to run them. The corpus driver lays out
+every page column, optionally adds a whole-section scrolling view, then counts callbacks and
+view releases while draining the run loop. The native comparison uses weak references to
+count views retained after their autorelease pools end.
 
 ### UIKit note presentation in an app-hosted test bundle
 
@@ -1012,8 +1035,9 @@ EPUBLIB_ASK_PROBE=fixtures,w3c,epubcheck swift test --filter AskRunProbeTests
 release build, so run them one process per size, as for `BookCorpusPageTextTests`. The probe
 prints one `ASK-PROBE` line, and with its output going to a file that line is written only when
 the process exits. The process can go on for an hour after its test
-([#589](https://github.com/vocaro/EPUBLib/issues/589)), so run it under `script -q <log>`, which
-writes each line as it comes, or wait for it to exit.
+([#589](https://github.com/vocaro/EPUBLib/issues/589)); use `NSUnbufferedIO=YES` or
+`script -q <log>` to see each line as it comes, and let it exit
+([Corpus runs](#corpus-runs)).
 
 ### Reader controls probe
 

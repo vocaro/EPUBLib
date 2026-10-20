@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Document the native teardown that can keep a Mac corpus layout process running after its test passes, and how to keep its output visible ([#589](https://github.com/vocaro/EPUBLib/issues/589)).
 - Separate in text extraction the text of `details`, `summary`, `fieldset`, `legend`, `center`, `form`, `hgroup`, `option` and eight other elements HTML renders as blocks, where it ran into the text beside it ([#90](https://github.com/vocaro/EPUBLib/issues/90)).
 - Write a navigation or stylesheet link as the path the writer checked, so a target spelled with an empty or dot segment, such as `EPUB//one.xhtml`, is no longer written as a link to the container root, a host or a scheme ([#240](https://github.com/vocaro/EPUBLib/issues/240)).
 - Read the title, creators, languages, identifiers and cover of an EPUB 2 package that wraps them in the deprecated `dc-metadata` and `x-metadata` elements, where it opened with none and refused a book with an IDPF-obfuscated font ([#85](https://github.com/vocaro/EPUBLib/issues/85)).
