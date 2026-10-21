@@ -172,7 +172,7 @@ final class SearchResultBuilderTests: XCTestCase {
 
     func testSectionMarksAnswerAsTheTitleAndPageLookupsDo() throws {
         let progress = NativeProgress(publication: try EPUBPublication.open(data: Fixture.pageList()))
-        let anchors = [0: ["page-i": 1_000], 1: ["page-1": 0, "page-2": 2_000, "page-3": 4_000, "page-4": 4_010], 2: ["page-5": 2_000]]
+        let anchors: [Int: [EPUBElementID: Int]] = [0: ["page-i": 1_000], 1: ["page-1": 0, "page-2": 2_000, "page-3": 4_000, "page-4": 4_010], 2: ["page-5": 2_000]]
         for section in 0...2 {
             let marks = progress.marks(inSection: section, anchors: anchors[section] ?? [:])
             for offset in [0, 1, 999, 1_000, 1_001, 1_999, 2_000, 2_001, 3_999, 4_000, 4_005, 4_010, 4_011, 9_000] {

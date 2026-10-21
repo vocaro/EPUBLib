@@ -105,7 +105,7 @@ import XCTest
         let publication = try titledBook(toc: Self.nestedContents)
         XCTAssertEqual(publication.tableOfContents.count, 5)
         let progress = NativeProgress(publication: publication)
-        let anchors = [2: ["a": 100, "b": 500, "c": 900]]
+        let anchors: [Int: [EPUBElementID: Int]] = [2: ["a": 100, "b": 500, "c": 900]]
         func title(_ section: Int, _ offset: Int) -> String? {
             progress.title(at: ReaderTextPosition(section: section, offset: offset)) { anchors[$0]?[$1] }
         }
@@ -153,7 +153,7 @@ import XCTest
         ], toc: Self.nestedContents, pageList: pages))
         XCTAssertEqual(publication.pageList?.count, 6)
         let progress = NativeProgress(publication: publication)
-        let anchors = [2: ["a": 100, "b": 500, "c": 900]]
+        let anchors: [Int: [EPUBElementID: Int]] = [2: ["a": 100, "b": 500, "c": 900]]
         for section in publication.spine.indices {
             let marks = progress.marks(inSection: section, anchors: anchors[section] ?? [:])
             for offset in [0, 1, 99, 100, 101, 499, 500, 899, 900, 901, 40_000] {
