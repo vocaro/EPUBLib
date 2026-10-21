@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Lay out as one column the consecutive columns of a table that the same cells span and no `col` declares, so a title row's `colspan="100"` over two columns adds one border spacing, where each of the 98 columns no cell starts in added its own and made the table about 200 points too wide ([#140](https://github.com/vocaro/EPUBLib/issues/140)).
 - Refuse an empty title, identifier, contents or navigation label, a contents entry with neither a target nor entries, and a resource ID that is not an XML name, and leave out an empty author, language, summary or keyword, where the writer wrote each into a package EPUBCheck rejects or dropped the entry without a word ([#96](https://github.com/vocaro/EPUBLib/issues/96)).
 - Refuse in strict text extraction a name that Namespaces in XML forbids, such as `<:p>` or `script:`, and read it in recovery as the native reader does, where it was read as `p` or `script` and its text restructured or dropped ([#178](https://github.com/vocaro/EPUBLib/issues/178)).
 - Match CFI ID assertions by their exact code units, and leave out an ID assertion that would make an issued bookmark one `restore` refuses ([#105](https://github.com/vocaro/EPUBLib/issues/105)).
