@@ -19,6 +19,8 @@ EPUBCheck refuses.
 A navigation or stylesheet href is written as the declared path it resolves to, relative to the
 navigation document and percent-encoded as that path's manifest href is, not as it was spelled:
 `EPUB//one.xhtml`, `EPUB/./one.xhtml` and `EPUB/c:x/../one.xhtml` are each written `one.xhtml`.
+A `..` after a doubled slash removes the empty segment, as URL parsing and the reader read it, so
+`EPUB/a//../one.xhtml` is written `a/one.xhtml` ([#605](https://github.com/vocaro/EPUBLib/issues/605)).
 A target is matched to a declared path by canonical equivalence, so one spelled with a decomposed
 `é` for a path declared with a composed one is written as the manifest writes the declared path;
 its fragment is percent-encoded and otherwise kept as given ([#240](https://github.com/vocaro/EPUBLib/issues/240)).
