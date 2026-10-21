@@ -374,6 +374,31 @@ final class RichImageTests: XCTestCase {
         }
     }
 
+    /// A tab or line end is read back from the serialized bytes as the book gives it, where one in
+    /// an attribute value would be read as a space and a carriage return in text as a line feed
+    /// ([#249](https://github.com/vocaro/EPUBLib/issues/249)).
+    func testSerializedSVGKeepsTabsAndLineEndsAsWritten() throws {
+        let fixture = try RichFixture("""
+        <svg xmlns="http://www.w3.org/2000/svg" id="s" width="10" height="10">\
+        <rect class="a&#9;b&#13;d" data-x="&#9;x&#10;y&#13;&#10;z" width="5" height="5"/>\
+        <text x="1" y="5">a&#13;b&#9;c&#13;&#10;d</text><style>rect{fill:red}&#13;circle{fill:blue}</style></svg>
+        """)
+        let data = try XCTUnwrap(SVGContent.serialize(fixture.element("s"), resolve: fixture.context.resolve, publication: fixture.publication))
+        let reread = try ContentDocument.parse(data, path: "s.svg", asContent: false)
+        let values: [(String, (ContentNode) -> String?, String)] = [
+            ("rect", { $0.attribute("class") }, "a\tb\rd"),
+            ("rect", { $0.attribute("data-x") }, "\tx\ny\r\nz"),
+            ("text", { $0.textContent }, "a\rb\tc\r\nd"),
+            ("style", { $0.textContent }, "rect{fill:red}\rcircle{fill:blue}"),
+        ]
+        for (name, value, expected) in values {
+            let written = fixture.first(name)
+            let serialized = try XCTUnwrap(reread.nodes.first { $0.isElement && $0.name == name }, name)
+            XCTAssertEqual(value(written), expected, "as written: \(name)")
+            XCTAssertEqual(value(serialized), expected, "serialized: \(name)")
+        }
+    }
+
     func testSVGWithHugeDimensionsIsClampedNotTrapped() throws {
         let drawing = "<svg xmlns='http://www.w3.org/2000/svg' width='1e39' height='10'><rect width='5' height='5'/></svg>"
         guard let source = ReaderImageSource.svg(Data(drawing.utf8), path: "", key: "huge") else { return } // Not decodable: nothing to draw.

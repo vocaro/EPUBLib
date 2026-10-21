@@ -103,6 +103,39 @@ final class TableCoverageLayoutTests: XCTestCase {
         XCTAssertEqual(equal.layout(available: 1000, viewportHeight: 600).columnWidths, [100, 100, 100])
     }
 
+    /// CSS Tables 3 §3.3.2: columns spanned by the same cells are one track unless a `col`
+    /// declares them, so a declared column past the body's keeps its width and its spacing.
+    func testAColumnAColDeclaresIsNeverMergedIntoTheOneBeforeIt() throws {
+        func table(_ columns: String) throws -> TableModel {
+            try TableCoverage.table("<table>\(columns)<tr>\(TableCoverage.box(20, "colspan='4'"))</tr><tr>\(TableCoverage.box(50))\(TableCoverage.box(30))</tr></table>",
+                                    css: "table { border-spacing: 10px; } td { padding: 0; }", files: Self.images)
+        }
+        let merged = try table("")
+        XCTAssertEqual(merged.constraints.track, [0, 1, 2, 2])
+        XCTAssertEqual(merged.layout(available: 1000, viewportHeight: 600).columnWidths, [50, 30, 0])
+        XCTAssertEqual(merged.layout(available: 1000, viewportHeight: 600).size.width, 120)
+        let declared = try table("<col/><col/><col/><col width='40'/>")
+        XCTAssertEqual(declared.constraints.track, [0, 1, 2, 3])
+        let layout = declared.layout(available: 1000, viewportHeight: 600)
+        XCTAssertEqual(layout.columnWidths, [50, 30, 0, 40])
+        XCTAssertEqual(layout.size.width, 170)
+        XCTAssertEqual(layout.cellFrames[0].maxX, 160, accuracy: 0.01, "the title spans the declared column")
+        XCTAssertEqual(try table("<col span='3'/>").constraints.track, [0, 1, 2, 2], "an undeclared column after declared ones is merged")
+    }
+
+    /// A cell spanning only columns that are merged into one track is that track's one cell: its
+    /// width is the track's, as a cell's in a column of its own is.
+    func testACellSpanningOneMergedTrackSizesItAsACellInOneColumnDoes() throws {
+        let table = try boxes("""
+        <table><tr>\(TableCoverage.box(50, "colspan='2' width='100'"))\(TableCoverage.box(50))</tr><tr>\(TableCoverage.box(30, "colspan='2'"))\(TableCoverage.box(20))</tr></table>
+        """)
+        XCTAssertEqual(table.columnCount, 3)
+        XCTAssertEqual(table.constraints.fixed, [100, nil])
+        let layout = table.layout(available: 1000, viewportHeight: 600)
+        XCTAssertEqual(layout.columnWidths, [100, 50])
+        XCTAssertEqual(layout.cellFrames.map(\.width), [100, 50, 100, 50])
+    }
+
     func testBorderSpacingInsideASpanCountsTowardsItsWidth() throws {
         let table = try TableCoverage.table("<table><tr>\(TableCoverage.box(100))\(TableCoverage.box(100))</tr><tr>\(TableCoverage.box(150, "colspan='2'"))</tr></table>",
                                             css: "table { border-spacing: 20px; } td { padding: 0; }", files: Self.images)

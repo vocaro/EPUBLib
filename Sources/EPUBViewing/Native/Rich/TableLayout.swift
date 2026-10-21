@@ -11,8 +11,14 @@ import AppKit
 /// widths, then the line's width distributed between them. Coordinates are the table's own,
 /// before `scale`; `originX` places the table in its line.
 struct TableLayout {
-    /// Column min/max-content widths including cell padding and borders, and specified widths.
+    /// Column min/max-content widths including cell padding and borders, and specified widths,
+    /// one for each column track.
     struct Constraints {
+        /// The track each of the table's columns is laid out in. CSS Tables 3 §3.3.2 (track
+        /// merging): a column spanned by exactly the cells that span the one before it, and
+        /// declared by no `col` or `colgroup`, shares that column's track, so the columns a
+        /// `colspan` runs past with no cell starting in them add no width or spacing.
+        var track: [Int]
         var minimum: [CGFloat]
         var maximum: [CGFloat]
         var fixed: [CGFloat?]
@@ -22,22 +28,37 @@ struct TableLayout {
         var minimumTableWidth: CGFloat { minimum.reduce(0, +) + outside }
         var maximumTableWidth: CGFloat { maximum.reduce(0, +) + outside }
 
+        /// The tracks a cell spans.
+        func tracks(of cell: TableModel.Cell) -> Range<Int> {
+            track[cell.column]..<(track[min(track.count, cell.column + cell.columnSpan) - 1] + 1)
+        }
+
         init(_ table: TableModel) {
-            let count = table.columnCount
+            // A track starts where a cell starts or ends, and at every column a `col` declares.
+            var boundary = [Bool](repeating: false, count: table.columnCount)
+            for cell in table.cells {
+                for edge in [cell.column, cell.column + cell.columnSpan] where edge < boundary.count { boundary[edge] = true }
+            }
+            track = []
+            for column in 0..<table.columnCount {
+                let starts = column == 0 || boundary[column] || column < table.columns.count
+                track.append((track.last ?? -1) + (starts ? 1 : 0))
+            }
+            let count = (track.last ?? -1) + 1
             minimum = Array(repeating: 0, count: count); maximum = minimum
             fixed = Array(repeating: nil, count: count); percent = fixed
             let gap = table.spacing.width
             let edges = table.borders.widths
             outside = table.collapse ? edges.horizontal / 2 : edges.horizontal + gap * CGFloat(count + 1)
-            for (index, length) in table.columns.enumerated() where index < count {
+            for (index, length) in table.columns.enumerated() where index < track.count {
                 switch length {
-                case .points(let value): fixed[index] = value
-                case .percent(let value): percent[index] = value
+                case .points(let value): fixed[track[index]] = value
+                case .percent(let value): percent[track[index]] = value
                 default: break
                 }
             }
-            for cell in table.cells where cell.columnSpan == 1 {
-                let column = cell.column
+            for cell in table.cells where tracks(of: cell).count == 1 {
+                let column = track[cell.column]
                 minimum[column] = max(minimum[column], cell.minContent + cell.chrome.horizontal)
                 maximum[column] = max(maximum[column], cell.maxContent + cell.chrome.horizontal)
                 switch cell.width {
@@ -50,8 +71,8 @@ struct TableLayout {
                 if let width = fixed[column] { maximum[column] = max(minimum[column], width) }
                 maximum[column] = max(maximum[column], minimum[column])
             }
-            for cell in table.cells.filter({ $0.columnSpan > 1 }).sorted(by: { $0.columnSpan < $1.columnSpan }) {
-                let range = cell.column..<min(count, cell.column + cell.columnSpan)
+            for cell in table.cells.filter({ tracks(of: $0).count > 1 }).sorted(by: { tracks(of: $0).count < tracks(of: $1).count }) {
+                let range = tracks(of: cell)
                 let gaps = gap * CGFloat(range.count - 1)
                 let weights = range.map { maximum[$0] }
                 Self.spread(cell.minContent + cell.chrome.horizontal - gaps, over: range, in: &minimum, weights: weights)
@@ -136,6 +157,7 @@ struct TableLayout {
     var lineWidth: CGFloat
     var size: CGSize
     var originX: CGFloat
+    /// The width of each column track (`Constraints.track`).
     var columnWidths: [CGFloat]
     var rowHeights: [CGFloat]
     /// Border boxes, in table coordinates.
@@ -173,7 +195,7 @@ struct TableLayout {
         let gap = table.spacing
         let edges = table.borders.widths
         func spanWidth(_ cell: TableModel.Cell) -> CGFloat {
-            let range = cell.column..<min(columns.count, cell.column + cell.columnSpan)
+            let range = constraints.tracks(of: cell)
             return range.reduce(0) { $0 + columns[$1] } + gap.width * CGFloat(max(0, range.count - 1))
         }
         let cellText = table.cells.map { cell in
@@ -202,7 +224,7 @@ struct TableLayout {
         var frames: [CGRect] = [], contents: [CGRect] = []
         for (index, cell) in table.cells.enumerated() {
             let range = cell.row..<min(rows.count, cell.row + cell.rowSpan)
-            var frame = CGRect(x: columnX[cell.column], y: rowY[cell.row], width: spanWidth(cell),
+            var frame = CGRect(x: columnX[constraints.track[cell.column]], y: rowY[cell.row], width: spanWidth(cell),
                                height: range.reduce(0) { $0 + rows[$1] } + gap.height * CGFloat(range.count - 1))
             if table.isRightToLeft { frame.origin.x = size.width - frame.maxX }
             frames.append(frame)

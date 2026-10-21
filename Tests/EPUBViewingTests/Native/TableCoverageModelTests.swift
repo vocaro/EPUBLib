@@ -97,9 +97,8 @@ final class TableCoverageModelTests: XCTestCase {
     /// cells" that no `col` declares "must be merged into one single track for the purpose of
     /// computing the layout", as browsers always did. So `colspan="100"` on a two-column table's
     /// title row (a common way to say "all columns") lays out like `colspan="3"`: at most one
-    /// more border spacing than `colspan="2"`. Here every phantom column adds its own.
+    /// more border spacing than `colspan="2"`.
     func testColumnsNoCellStartsInAddNoWidth() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/140")
         func width(_ span: Int) throws -> CGFloat {
             try TableCoverage.table("<table><tr><td colspan='\(span)'>T</td></tr><tr><td>North</td><td>South</td></tr></table>")
                 .constraints.minimumTableWidth
@@ -109,6 +108,53 @@ final class TableCoverageModelTests: XCTestCase {
         XCTAssertEqual(try width(3), exact, accuracy: 2.01)
         XCTAssertEqual(try width(100), exact, accuracy: 2.01)
         XCTAssertEqual(try width(200), exact, accuracy: 2.01)
+    }
+
+    /// The merged track is laid out as the one column it stands for: every cell, its text and
+    /// the surfaces that select it are where `colspan="3"` puts them, each row draws the same,
+    /// backgrounds and borders alike, and the table is one spacing wider than with
+    /// `colspan="2"`. The model keeps the columns HTML forms, as an assistive technology is
+    /// given them. With collapsed borders or no spacing the span makes no difference at all.
+    func testAMergedTrackPlacesAndDrawsEveryCellAsOneColumnWould() throws {
+        func table(_ span: Int, css: String = "") throws -> TableModel {
+            try TableCoverage.table("""
+            <table border="1" cellspacing="6"><tr><td colspan="\(span)" bgcolor="#ff0000">Totals</td></tr>
+            <tr><td>North</td><td bgcolor="#00ff00">South</td></tr></table>
+            """, css: css)
+        }
+        func pixels(_ row: TableRowAttachment, _ size: CGSize) throws -> Data {
+            let image = try XCTUnwrap(row.image(forBounds: CGRect(origin: .zero, size: size), textContainer: nil, characterIndex: 0))
+            return try XCTUnwrap(RichImageTests.draw(image, size: size, scale: 1)?.dataProvider?.data as Data?)
+        }
+        let two = try table(2), exact = try table(3), merged = try table(100)
+        XCTAssertEqual(merged.columnCount, 100)
+        XCTAssertEqual(merged.constraints.track, [0, 1] + Array(repeating: 2, count: 98))
+        for available: CGFloat in [90, 400] {
+            let expected = exact.layout(available: available, viewportHeight: 600)
+            let layout = merged.layout(available: available, viewportHeight: 600)
+            XCTAssertEqual(layout.scale, expected.scale, "\(available)")
+            XCTAssertEqual(layout.size, expected.size, "\(available)")
+            XCTAssertEqual(layout.columnWidths, expected.columnWidths, "\(available)")
+            XCTAssertEqual(layout.cellFrames, expected.cellFrames, "\(available)")
+            XCTAssertEqual(layout.contentFrames, expected.contentFrames, "\(available)")
+            for row in 0..<2 {
+                let shown = TableRowAttachment(table: merged, row: row), wanted = TableRowAttachment(table: exact, row: row)
+                let size = CGSize(width: available, height: wanted.height(width: available, viewportHeight: 600))
+                XCTAssertEqual(shown.height(width: available, viewportHeight: 600), size.height, "\(available) row \(row)")
+                XCTAssertEqual(shown.interactionCells(size: size, viewportHeight: 600).map(\.frame),
+                               wanted.interactionCells(size: size, viewportHeight: 600).map(\.frame), "\(available) row \(row)")
+                XCTAssertEqual(try pixels(shown, size), try pixels(wanted, size), "\(available) row \(row)")
+            }
+        }
+        let layout = merged.layout(available: 400, viewportHeight: 600), narrower = two.layout(available: 400, viewportHeight: 600)
+        XCTAssertEqual(layout.size.width, narrower.size.width + 6, accuracy: 0.01)
+        XCTAssertEqual(layout.cellFrames[0].minX, layout.cellFrames[1].minX, accuracy: 0.01, "the title starts with the first column")
+        XCTAssertEqual(layout.cellFrames[0].maxX, layout.size.width - 1 - 6, accuracy: 0.01, "and reaches the last")
+        for css in ["table { border-collapse: collapse; }", "table { border-spacing: 0; }"] {
+            let collapsed = try table(2, css: css).constraints, spanned = try table(100, css: css).constraints
+            XCTAssertEqual(spanned.minimumTableWidth, collapsed.minimumTableWidth, accuracy: 0.01, css)
+            XCTAssertEqual(spanned.maximumTableWidth, collapsed.maximumTableWidth, accuracy: 0.01, css)
+        }
     }
 
     /// HTML §4.9.12 caps `rowspan` at 65534; a row group ends its cells' spans (the algorithm for
