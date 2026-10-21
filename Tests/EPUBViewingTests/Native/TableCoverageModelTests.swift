@@ -625,7 +625,13 @@ final class TableCoverageModelTests: XCTestCase {
         ] {
             let section = try TableCoverage.section("<p>Before</p>\(body)<p>After</p>")
             XCTAssertEqual(section.string.readerPlainText(), "Before\n\(expected)\nAfter", name)
-            XCTAssertEqual(TableCoverage.tables(in: section.string).first?.columnCount, 1, name)
+            let table = try XCTUnwrap(TableCoverage.tables(in: section.string).first, name)
+            XCTAssertEqual(table.columnCount, 1, name)
+            for available: CGFloat in [40, 400] {
+                let layout = table.layout(available: available, viewportHeight: 300)
+                XCTAssertTrue(layout.size.width > 0 && layout.size.height > 0, "\(name) at \(available)")
+                XCTAssertLessThanOrEqual(layout.size.width * layout.scale, available + 0.5, "\(name) at \(available)")
+            }
             BuilderHarness.assertMapRoundTrips(section)
         }
         for (name, body, expected) in [
