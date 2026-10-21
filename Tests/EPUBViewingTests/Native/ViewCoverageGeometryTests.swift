@@ -347,6 +347,49 @@ final class ViewCoverageInputTests: XCTestCase {
         XCTAssertNil(turner.direction(deltaX: .nan, deltaY: .nan, isRightToLeft: false, at: 31))
     }
 
+    /// A line-based wheel's line is 40 points, WebKit's and Chromium's line step, so one notch
+    /// turned slowly, a tenth of a line, is the threshold. AppKit gives the tenth in 16.16 fixed
+    /// point, which has 6553/65536 or 6554/65536 for it (#163).
+    func testALineBasedWheelsLineIsFortyPointsAndANotchATick() {
+        XCTAssertEqual(ReaderWheelPageTurner.pointsPerLine, 40)
+        let below = CGFloat(6553) / 65536, above = CGFloat(6554) / 65536
+        XCTAssertEqual(ReaderWheelPageTurner.points(lines: below), 4)
+        XCTAssertEqual(ReaderWheelPageTurner.points(lines: -above), -4)
+        XCTAssertEqual(ReaderWheelPageTurner.points(lines: CGFloat(13107) / 65536), 8, "two tenths")
+        XCTAssertEqual(ReaderWheelPageTurner.points(lines: -1), -40)
+        XCTAssertEqual(ReaderWheelPageTurner.points(lines: 2.5), 100)
+        XCTAssertEqual(ReaderWheelPageTurner.points(lines: 0), 0)
+        XCTAssertLessThan(ReaderWheelPageTurner.points(lines: 0.04), ReaderWheelPageTurner.threshold, "less than half a notch")
+        XCTAssertTrue(ReaderWheelPageTurner.points(lines: .nan).isNaN)
+        var turner = ReaderWheelPageTurner()
+        XCTAssertEqual(turner.direction(deltaX: 0, deltaY: ReaderWheelPageTurner.points(lines: below), isRightToLeft: false, at: 0), true,
+                       "one notch down")
+        XCTAssertEqual(turner.direction(deltaX: ReaderWheelPageTurner.points(lines: -below), deltaY: 0, isRightToLeft: true, at: 1), true,
+                       "one notch left, right to left")
+    }
+
+    /// Counting a notch does not make a wheel turn faster: whether its notches come slowly or it
+    /// spins, a phaseless wheel turns a page, then nothing for the cooldown.
+    func testNotchesAndASpinTurnAPagePerCooldown() {
+        func turns(_ events: [(time: TimeInterval, lines: CGFloat)]) -> [TimeInterval] {
+            var turner = ReaderWheelPageTurner()
+            return events.filter {
+                turner.direction(deltaX: 0, deltaY: ReaderWheelPageTurner.points(lines: $0.lines), isRightToLeft: false, at: $0.time) != nil
+            }.map(\.time)
+        }
+        let tenth = CGFloat(6553) / 65536
+        XCTAssertEqual(turns([(0, tenth)]), [0], "one notch, one page")
+        let notches = (0...10).map { (time: Double($0) * 0.1, lines: tenth) }
+        XCTAssertEqual(turns(Array(notches.prefix(5))), [0], "notches inside the cooldown turn one page")
+        XCTAssertEqual(turns(notches), [0, 0.5, 1], "a notch every tenth of a second for a second")
+        // A second's spin, an event every 16 ms, speeding up from a notch to 6 lines and back.
+        let spin = (0..<63).map { step in
+            (time: Double(step) * 0.016, lines: max(tenth, CGFloat(6 * sin(Double(step) / 62 * .pi))))
+        }
+        XCTAssertEqual(turns(spin).count, 3, "a page at once and after each cooldown, however far it spins")
+        XCTAssertEqual(turns(spin).first, 0)
+    }
+
     func testOnlyHorizontalWheelMovementMirrorsRightToLeft() {
         for rtl in [false, true] {
             var turner = ReaderWheelPageTurner()
