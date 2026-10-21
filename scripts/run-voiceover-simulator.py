@@ -277,9 +277,11 @@ def main():
                       else f"Could not delete {session.name} ({session.udid}): {deleted.stderr.strip()}")
                 if deleted.returncode:
                     status = max(status, 125)
-            opened = "was already running" if window else "was started by something else" if simulator_app() else "did not run"
+            started = None if window else simulator_app()
+            opened = (f"{window} was already running" if window else
+                      f"{started} was started by something else" if started else "no simulator view ran")
             print(f"Finished in {time.monotonic() - began:.0f} s; load averages "
-                  f"{' '.join(f'{load:.0f}' for load in os.getloadavg())}; Simulator.app {opened}.")
+                  f"{' '.join(f'{load:.0f}' for load in os.getloadavg())}; {opened}.")
     return status
 
 
