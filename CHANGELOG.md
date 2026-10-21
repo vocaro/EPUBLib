@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Read an image, SVG drawing, formula or other embedded element in a contents, landmark or page-list label as its alternative text (its `alt`, else its `title`, else a drawing's `title` element or a formula's `alttext`), and an empty label as its link's or heading's `title`, where an image's label came out empty and an SVG's held its description and drawn text too ([#83](https://github.com/vocaro/EPUBLib/issues/83)).
 - Select the passage `.locate` finds where it renders over an earlier occurrence in content that renders nothing, wherever in its section that content sits, and refuse a highlight or saved range of such content between rendered text as one at a section's start or end is refused, where an occurrence hidden between rendered text was gone to and nothing was selected ([#158](https://github.com/vocaro/EPUBLib/issues/158)).
 - Remove the sample app, keeping its reader screen and the guide's compiled examples in the VoiceOver verification host ([#700](https://github.com/vocaro/EPUBLib/issues/700)).
 - Share engineering guidance and VoiceOver support tooling through the private apple-engineering toolkit ([#637](https://github.com/vocaro/EPUBLib/issues/637)).
