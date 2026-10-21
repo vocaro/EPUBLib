@@ -583,6 +583,9 @@ continues to describe the authored spine resource.
   columns HTML forms, and an assistive technology is given those. Oversized rows continue
   across pages using complete cell glyph lines;
   a line crossing a rowspan boundary is finished in its preceding row and never drawn twice.
+  That row, or a tall row's piece whose cut such a line crosses, is drawn on to the line's
+  foot: its cells' backgrounds and borders and the table's go through the band, and the next
+  row's cells are left to the next row ([#141](https://github.com/vocaro/EPUBLib/issues/141)).
   A continuation sharing a page with following rows or prose uses the displayed page’s exact
   bounds; overflowing content advances to the next page once, without laying out the whole
   section again ([#546](https://github.com/vocaro/EPUBLib/issues/546)).
