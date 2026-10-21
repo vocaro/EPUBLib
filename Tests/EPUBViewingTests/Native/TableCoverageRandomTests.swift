@@ -131,7 +131,14 @@ final class TableCoverageRandomTests: XCTestCase {
             let (cells, rows, columns) = expected(groups)
             let section = try TableCoverage.section(source)
             let wanted = merged(cells, rows: rows)
-            guard columns > 1 else {
+            // A table of one column flows as text, in document order, unless that is not the
+            // order its groups are shown in: then it is a grid, which shows them in that order.
+            var head: Int?, others: [Int] = [], feet: [Int] = []
+            for (index, group) in groups.enumerated() {
+                if group.tag == "thead", head == nil { head = index } else if group.tag == "tfoot" { feet.append(index) } else { others.append(index) }
+            }
+            let inDisplayOrder = (head.map { [$0] } ?? []) + others + feet == Array(groups.indices)
+            guard columns > 1 || (columns == 1 && !inDisplayOrder) else {
                 XCTAssertTrue(TableCoverage.tables(in: section.string).isEmpty, "round \(round): \(source)")
                 XCTAssertFalse(section.string.string.contains("\u{FFFC}"))
                 continue
@@ -139,6 +146,7 @@ final class TableCoverageRandomTests: XCTestCase {
             // Cells that all span the same columns make one column once merged: a table or a
             // callout, either way with every cell's text.
             guard wanted.tracks > 1 else {
+                if columns == 1 { XCTAssertEqual(TableCoverage.tables(in: section.string).count, 1, "round \(round): \(source)") }
                 let words = section.string.readerPlainText().split(whereSeparator: \.isWhitespace).map(String.init)
                 XCTAssertEqual(words, cells.map(\.name), "round \(round): \(source)")
                 continue
