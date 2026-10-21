@@ -114,11 +114,12 @@ public struct EPUBPublication: Sendable {
         }
         catch { throw EPUBPublicationError.invalidArchive(String(describing: error)) }
         // The bytes this archive reads, whatever it was made from.
-        let directory = try ArchiveBounds.check(archive.data ?? data, archive: archive, names: limits.entryCount)
+        let archiveBytes = archive.data ?? data
+        let directory = try ArchiveBounds.check(archiveBytes, archive: archive, names: limits.entryCount)
         var contents: [String: Data] = [:]
         var paths = Set<String>()
         var total = 0
-        var inputWork = ArchiveInputWork(archiveBytes: (archive.data ?? data).count)
+        var inputWork = ArchiveInputWork(archiveBytes: archiveBytes.count)
         for (index, entry) in archive.enumerated() {
             try Task.checkCancellation()
             let path = EntryName.path(of: entry)
@@ -146,7 +147,7 @@ public struct EPUBPublication: Sendable {
             inputWork.beginEntry()
             let crc: CRC32
             do {
-                crc = try archive.extract(entry, bufferSize: ArchiveInputWork.chunkSize) { chunk in
+                func consume(_ chunk: Data) throws {
                     try Task.checkCancellation()
                     guard chunk.count <= limits.resourceBytes - bytes.count,
                           chunk.count <= limits.expandedBytes - total else {
@@ -157,6 +158,16 @@ public struct EPUBPublication: Sendable {
                     total += chunk.count
                     onProgress?(total)
                     try Task.checkCancellation()
+                }
+                // A deflated entry is inflated with zlib, not by ZIPFoundation, whose decoder
+                // gives the same damaged stream different results on different opens (#583).
+                if let deflated = directory.deflatedData[index] {
+                    crc = try archiveBytes.withUnsafeBytes {
+                        try DeflateStream.inflate(UnsafeRawBufferPointer(rebasing: $0[deflated]),
+                                                  chunkSize: ArchiveInputWork.chunkSize, consumer: consume)
+                    }
+                } else {
+                    crc = try archive.extract(entry, bufferSize: ArchiveInputWork.chunkSize, consumer: consume)
                 }
             }
             catch let error as EPUBPublicationError { throw error }

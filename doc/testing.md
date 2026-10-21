@@ -944,8 +944,9 @@ EPUBLIB_ISSUE74_MUTANTS=100000 swift test --filter Issue74MutationProbe/testProb
 mutant. `EPUBLIB_ISSUE74_REPLAY=<index,…>`, with `--filter Issue74MutationProbe/testReplay`,
 opens the listed mutants 20 times each in one process. `Fixture.epub()` writes the current
 time into each header, so its mutants are the same bytes only within one process. The stored
-mutants are the same bytes in every run. Even so, some damaged Deflate streams do not give the
-same result on every open ([#583](https://github.com/vocaro/EPUBLib/issues/583)).
+mutants are the same bytes in every run. Before [#583](https://github.com/vocaro/EPUBLib/issues/583),
+some damaged Deflate streams did not give the same result on every open, because Apple's
+decoder read stack memory it had not set; deflated entries are now inflated with zlib.
 
 ### Generated page text
 
