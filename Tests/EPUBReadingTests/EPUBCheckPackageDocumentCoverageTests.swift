@@ -364,7 +364,12 @@ final class EPUBCheckPackageDocumentCoverageTests: XCTestCase {
         let book = try open(package(manifest: manifest))
         XCTAssertEqual(book.tableOfContents.first?.title, "First Chapter")
         XCTAssertEqual(book.tableOfContents.first?.children.first?.href, "OPS/two.xhtml")
-        let neither = try open(package(manifest: manifest, spine: "<spine><itemref idref=\"one\"/></spine>"))
-        XCTAssertTrue(neither.tableOfContents.isEmpty, "an NCX the spine does not name is not read")
+        // An NCX the spine does not name is found by its media type
+        // (https://github.com/vocaro/EPUBLib/issues/169); without one there are no contents.
+        let unnamed = try open(package(manifest: manifest, spine: "<spine><itemref idref=\"one\"/></spine>"))
+        XCTAssertEqual(unnamed.tableOfContents, book.tableOfContents, "an NCX the spine does not name")
+        let neither = try open(package(manifest: manifest.replacingOccurrences(of: "media-type=\"application/x-dtbncx+xml\"", with: "media-type=\"application/xml\""),
+                                       spine: "<spine><itemref idref=\"one\"/></spine>"))
+        XCTAssertTrue(neither.tableOfContents.isEmpty, "neither a navigation document nor an NCX")
     }
 }

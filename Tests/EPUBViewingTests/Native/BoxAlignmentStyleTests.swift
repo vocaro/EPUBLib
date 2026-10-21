@@ -109,7 +109,7 @@ final class BoxAlignmentStyleTests: XCTestCase {
             <div id="grid"><p id="cell">c</p></div><div id="block"><p id="child">d</p></div>
             """, css: """
             #flex { display: flex; flex-flow: column wrap; justify-content: center; align-items: center;
-                    gap: 1em; box-sizing: border-box; min-height: calc(98vh - 3em); height: 50% }
+                    gap: 1em; box-sizing: border-box; min-height: calc(98vh - 3em); height: 50%; max-height: calc(50vmin + 2em) }
             #item { align-self: flex-end; order: 2; flex: 1; justify-content: inherit }
             #grid { display: grid; grid-template-columns: 1fr 1fr; place-items: center; height: calc(10px + 2em) }
             #cell { grid-column: 2 }
@@ -128,7 +128,11 @@ final class BoxAlignmentStyleTests: XCTestCase {
         // The style's own length folds the 3em into the unit against the nominal 800-point page;
         // the box keeps the exact sum.
         XCTAssertEqual(result.style("flex").minHeight, .viewportHeight(92))
-        XCTAssertEqual(flex.minHeight, ComputedStyle.MixedLength(points: -48, percent: 0, viewportWidth: 0, viewportHeight: 98))
+        XCTAssertEqual(flex.minHeight, ComputedStyle.MixedLength(points: -48, percent: 0, viewportWidth: 0, viewportHeight: 98,
+                                                                 viewportMin: 0, viewportMax: 0))
+        XCTAssertEqual(flex.maxHeight, ComputedStyle.MixedLength(points: 32, percent: 0, viewportWidth: 0, viewportHeight: 0,
+                                                                 viewportMin: 50, viewportMax: 0), "vmin is kept as itself, not as vw")
+        XCTAssertEqual(flex.maxHeight?.resolve(viewport: CGSize(width: 700, height: 400)), 232, "half the smaller side and 2em")
         XCTAssertEqual(result.style("flex").height, .percent(50))
         XCTAssertNil(flex.height, "one unit alone is exact already")
         let item = result.style("item").boxAlignment

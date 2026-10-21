@@ -400,7 +400,6 @@ final class PositionCFIResolutionCoverageTests: XCTestCase {
     /// Unicode normalization form are different elements. An assertion naming the second must
     /// not resolve to the first.
     func testAnIDAssertionMatchesItsExactCodeUnits() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/105")
         let document = try page("<p id=\"caf&#xE9;\">composed</p><p id=\"cafe&#x301;\">decomposed</p>")
         let composed = try element("p", 0, in: document), decomposed = try element("p", 1, in: document)
         XCTAssertEqual(Array(try XCTUnwrap(composed.attribute("id")).unicodeScalars.map(\.value)), [0x63, 0x61, 0x66, 0xE9])
@@ -416,7 +415,6 @@ final class PositionCFIResolutionCoverageTests: XCTestCase {
     /// (`incompatibleLocation`), so every CFI the library itself writes must pass it. An element
     /// ID is written into the CFI verbatim, control characters and line separators included.
     func testEveryIssuedCFIPassesTheReadersOwnWellFormednessCheck() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/105")
         let document = try page("<p id=\"plain\">a</p><p id=\"tab&#9;bed\">b</p><p id=\"next&#x85;line\">c</p><p id=\"line&#x2028;separator\">d</p>")
         let spine = SpineCFIs(package: nil, spineCount: 1)
         for node in document.nodes where node.isText && node.parent?.name == "p" {
@@ -425,6 +423,51 @@ final class PositionCFIResolutionCoverageTests: XCTestCase {
             XCTAssertTrue(EPUBCFI.isWellFormed(cfi),
                           "the CFI issued inside the element with id \(id.debugDescription) is refused on restore: \(cfi.debugDescription)")
             XCTAssertEqual(cfi.components(separatedBy: "epubcfi(").count, 2, "wrapped exactly once: \(cfi.debugDescription)")
+        }
+    }
+
+    /// The document's own ID table, which link fragments use too, compares as the assertion does.
+    func testTheDocumentFindsAnElementByItsIDsExactCodeUnits() throws {
+        let document = try page("<p id=\"caf&#xE9;\">composed</p><p id=\"cafe&#x301;\">decomposed</p>")
+        XCTAssertEqual(document.element(id: "cafe\u{301}")?.textContent, "decomposed")
+        XCTAssertEqual(document.element(id: "caf\u{E9}")?.textContent, "composed")
+        XCTAssertNil(document.element(id: "cafe"))
+    }
+
+    /// The CFI grammar takes a control character or a line or paragraph separator in an ID only
+    /// as it is, and `isWellFormed` refuses it there, so such an ID is not asserted: the step's
+    /// index alone names its element. Every other ID is asserted as before.
+    func testAnIDTheWellFormednessCheckRefusesIsNotAsserted() throws {
+        let ids = ["tab&#9;bed", "line&#10;feed", "next&#x85;line", "c1&#x9F;control", "line&#x2028;separator", "paragraph&#x2029;separator"]
+        let document = try page("<p id=\"plain\">a</p>" + ids.map { "<p id=\"\($0)\">b</p>" }.joined())
+        let paragraphs = document.nodes.filter { $0.isElement && $0.name == "p" }
+        XCTAssertEqual(paragraphs.compactMap { $0.attribute("id") },
+                       ["plain", "tab\tbed", "line\nfeed", "next\u{85}line", "c1\u{9F}control", "line\u{2028}separator", "paragraph\u{2029}separator"])
+        XCTAssertEqual(path(DOMPosition(paragraphs[0]), in: document), "/4/2[plain]")
+        for (index, paragraph) in paragraphs.enumerated().dropFirst() {
+            let step = "/4/\(2 * index + 2)", text = try XCTUnwrap(paragraph.children.first)
+            XCTAssertEqual(path(DOMPosition(paragraph), in: document), step)
+            XCTAssertEqual(path(DOMPosition(text, 0), DOMPosition(text, 1), in: document), "\(step),/1:0,/1:1")
+            XCTAssertEqual(resolve("\(step),/1:0,/1:1", in: document), [DOMPosition(text, 0), DOMPosition(text, 1)])
+        }
+    }
+
+    /// ID assertions are the one unbounded part of a CFI. When they take an issued CFI past the
+    /// length `isWellFormed` allows, it is issued without any, and its indices name the range.
+    func testACFITooLongWithItsIDAssertionsIsIssuedWithoutThem() throws {
+        let long = String(repeating: "a", count: EPUBCFI.maximumLength)
+        let document = try page("<section id=\"s\"><p id=\"\(long)\">long</p><p id=\"short\">short</p></section>")
+        let longText = try text("long", in: document), shortText = try text("short", in: document)
+        let spine = SpineCFIs(package: nil, spineCount: 1)
+        let ranges = [(DOMPosition(shortText, 1), DOMPosition(shortText, 3), "epubcfi(/6/2!/4/2[s]/4[short],/1:1,/1:3)"),
+                      (DOMPosition(longText, 1), DOMPosition(longText, 3), "epubcfi(/6/2!/4/2/2,/1:1,/1:3)"),
+                      (DOMPosition(longText, 1), DOMPosition(shortText, 3), "epubcfi(/6/2!/4/2,/2/1:1,/4/1:3)")]
+        for (start, end, expected) in ranges {
+            let cfi = spine.cfi(spineIndex: 0, start: start, end: end, in: document)
+            XCTAssertEqual(cfi, expected)
+            XCTAssertTrue(EPUBCFI.isWellFormed(cfi), expected)
+            let target = try XCTUnwrap(spine.resolve(cfi), expected)
+            XCTAssertEqual(resolve(target.localPath, in: document), [start, end], expected)
         }
     }
 

@@ -156,6 +156,16 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
         XCTAssertEqual(try matched("[title=ALPHA]", in: titles), ["t6"])
     }
 
+    func testAnAttributeNameWithNonASCIICapitalsMatchesAsWritten() throws {
+        // XML names are case-sensitive and need not be ASCII: the rule index and the lookup of an
+        // element's candidate rules lowercase such a name alike.
+        let body = #"<p id="u" data-É="x y">u</p>"#
+        XCTAssertEqual(try matched("[data-É]", in: body), ["u"])
+        XCTAssertEqual(try matched(#"[data-É="x y"]"#, in: body), ["u"])
+        XCTAssertEqual(try matched("[data-É~=y]", in: body), ["u"])
+        XCTAssertEqual(try matched("p[data-É^=x]", in: body), ["u"])
+    }
+
     func testMalformedAttributeSelectorsAreInvalid() {
         for selector in ["[]", "[ ]", "[=x]", "[title=]", "[title==x]", "[title~x]", "[title!=x]", "[title=a b]", "[title=x y]", "[title=1]",
                          "[title=1a]", "[1a]", "[title=x i i]", "[title=x q]", "[title x]", "[title=x,]", "[title=#x]", "[title^x]",
@@ -188,6 +198,9 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
         XCTAssertEqual(try matched("[*|type=footnote]", in: body, prelude: epub), ["n", "t", "both"])
         XCTAssertEqual(try matched("[*|type=plain]", in: body, prelude: epub), ["both"])
         XCTAssertEqual(try matched(#"[epub\:type]"#, in: body, prelude: epub), [], "An XML attribute is never literally named epub:type")
+        XCTAssertEqual(try matched(#"[epub\:type~=footnote]"#, in: body, prelude: epub), [])
+        XCTAssertEqual(try matched(#"aside[epub\:type="footnote"]"#, in: body, prelude: epub), [])
+        XCTAssertEqual(try matched(#"[*|epub\:type]"#, in: body, prelude: epub), [])
         XCTAssertEqual(try matched("[lang=fr]", in: body, prelude: epub), [], "xml:lang is another attribute than lang")
         XCTAssertEqual(try matched("p[lang=en]", in: body, prelude: epub), ["l"])
         XCTAssertEqual(try matched("[xml|lang=fr]", in: body, prelude: epub), ["l"])
@@ -565,7 +578,7 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
         let section = """
             <html xmlns:epub="http://www.idpf.org/2007/ops"><head><title>T</title>\(style)</head><body>\
             <aside id="note" epub:type="footnote">n</aside><aside id="rear" epub:type="rearnote endnotes">r</aside><p id="p" class="Lead">p</p>\
-            </body></html>
+            <p id="t" type="footnote">t</p></body></html>
             """
         let result = try CSSSyntaxSupport.styled(section: section, files: linked ? ["notes.css": css] : [:])
         XCTAssertTrue(result.document.recoveredAsHTML)
@@ -583,7 +596,6 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
     }
 
     func testAnEscapedColonAttributeSelectorMatchesThePrefixedAttributeOfAnHTMLParsedDocument() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/111")
         // In an HTML DOM the attribute's name is literally `epub:type`, so `[epub\:type]` is the
         // selector that addresses it (Selectors 4 §6.1 with an escaped identifier).
         for linked in [true, false] {
@@ -595,6 +607,38 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
             XCTAssertEqual(try marked(#"[epub\:type~="footnote"], [epub\:type="rearnote endnotes"]"#), ["note", "rear"],
                            "Value selectors alone, linked: \(linked)")
             XCTAssertEqual(try marked(#"[epub\:type]"#), ["note", "rear"], "Presence selector, linked: \(linked)")
+        }
+    }
+
+    func testEveryOperatorOnAnEscapedColonNameMatchesInAnHTMLParsedDocumentAndKeepsTypeApart() throws {
+        // Alone, a rule is indexed under the attribute or the value it requires; behind `aside`,
+        // under the value for `=` and `~=` and under the type otherwise.
+        let cases: [(String, [String])] = [
+            (#"[epub\:type]"#, ["note", "rear"]),
+            (#"[epub\:type="footnote"]"#, ["note"]),
+            (#"[epub\:type~="endnotes"]"#, ["rear"]),
+            (#"[epub\:type|="footnote"]"#, ["note"]),
+            (#"[epub\:type^="rear"]"#, ["rear"]),
+            (#"[epub\:type$="notes"]"#, ["rear"]),
+            (#"[epub\:type*="note"]"#, ["note", "rear"]),
+            (#"[epub\:type="FOOTNOTE" i]"#, ["note"]),
+            (#"[epub\:type~="ENDNOTES" i]"#, ["rear"]),
+            (#"[EPUB\:Type~="footnote"]"#, ["note"]),
+            (#"[|epub\:type~="footnote"]"#, ["note"]),
+            (#"[*|epub\:type~="footnote"]"#, ["note"]),
+        ]
+        for linked in [true, false] {
+            func marked(_ selector: String) throws -> [String] {
+                CSSSyntaxSupport.marked(try recovered(css: "\(selector) { clear: both }", linked: linked))
+            }
+            for (selector, expected) in cases {
+                XCTAssertEqual(try marked(selector), expected, "\(selector), linked: \(linked)")
+                XCTAssertEqual(try marked("aside\(selector)"), expected, "aside\(selector), linked: \(linked)")
+            }
+            // `type` and `epub:type` are two attributes, though their rules share a bucket.
+            XCTAssertEqual(try marked("[type]"), ["t"], "linked: \(linked)")
+            XCTAssertEqual(try marked(#"[type~="footnote"]"#), ["t"], "linked: \(linked)")
+            XCTAssertEqual(try marked(#"[type^="rear"]"#), [], "linked: \(linked)")
         }
     }
 

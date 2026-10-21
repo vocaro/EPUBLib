@@ -281,6 +281,7 @@ struct ReaderTableFragment: Equatable {
                         style.verticalAlign = image.verticalAlign
                         style.fontSize = min(image.fontSize, (slice.attribute(.font, at: run.location, effectiveRange: nil) as? PlatformFont)?.pointSize ?? image.fontSize)
                         style.invertsColors = image.invertsColors
+                        style.isHidden = image.isHidden
                         slice.addAttribute(.attachment, value: ReaderImageAttachment(source: image.source, sizing: sizing,
                             alternative: image.alternative, style: style, contentRect: image.contentRect,
                             isDark: image.isDark, isHiddenFromAssistiveTechnology: image.isHiddenFromAssistiveTechnology,

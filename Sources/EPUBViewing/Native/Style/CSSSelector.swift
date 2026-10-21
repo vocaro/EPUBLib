@@ -127,10 +127,10 @@ struct CSSComplexSelector: Hashable, Sendable {
         for case .className(let name) in subject.simple { return .className(name) }
         for case .attribute(let attribute) in subject.simple where !attribute.caseInsensitive && !attribute.value.isEmpty
             && (attribute.operation == .equals || attribute.operation == .includes) {
-            return .attributeValue(attribute.lowercasedName, attribute.value)
+            return .attributeValue(CSSBucketKey.attributeName(attribute.lowercasedName), attribute.value)
         }
         if let name = subject.lowercasedName { return .type(name) }
-        for case .attribute(let attribute) in subject.simple { return .attribute(attribute.lowercasedName) }
+        for case .attribute(let attribute) in subject.simple { return .attribute(CSSBucketKey.attributeName(attribute.lowercasedName)) }
         return .universal
     }
 
@@ -240,6 +240,18 @@ enum CSSBucketKey: Hashable {
     /// An attribute's whole value (`=`) or one of its whitespace-separated tokens (`~=`).
     case attributeValue(String, String)
     case universal
+
+    /// The name that an attribute selector's rules are bucketed under and that an element's
+    /// attribute looks them up by: lowercased, from after its last colon. A document read as
+    /// HTML keeps `epub:type` as one name in no namespace, which `[epub\:type]` addresses and
+    /// `[epub|type]` reaches by its prefix; in XHTML it is `type` in the OPS namespace. Each of
+    /// them, and `[type]`, is bucketed as `type`, and the matcher tells them apart.
+    static func attributeName(_ name: String) -> String {
+        guard name.utf8.contains(where: { ($0 >= 0x41 && $0 <= 0x5A) || $0 == 0x3A || $0 >= 0x80 }) else { return name }
+        let lower = name.lowercased()
+        guard let colon = lower.lastIndex(of: ":") else { return lower }
+        return String(lower[lower.index(after: colon)...])
+    }
 }
 
 /// A Bloom filter of the ids, classes and types of an element's ancestors, as WebKit uses to

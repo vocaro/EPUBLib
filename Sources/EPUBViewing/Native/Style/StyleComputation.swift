@@ -39,15 +39,21 @@ extension StyleResolver {
     }
 
     private struct Linear {
-        var points: Double = 0, percent: Double = 0, vw: Double = 0, vh: Double = 0
+        var points: Double = 0, percent: Double = 0, vw: Double = 0, vh: Double = 0, vmin: Double = 0, vmax: Double = 0
         static func + (a: Linear, b: Linear) -> Linear {
-            Linear(points: a.points + b.points, percent: a.percent + b.percent, vw: a.vw + b.vw, vh: a.vh + b.vh)
+            Linear(points: a.points + b.points, percent: a.percent + b.percent, vw: a.vw + b.vw, vh: a.vh + b.vh,
+                   vmin: a.vmin + b.vmin, vmax: a.vmax + b.vmax)
         }
         static func * (a: Linear, f: Double) -> Linear {
-            Linear(points: a.points * f, percent: a.percent * f, vw: a.vw * f, vh: a.vh * f)
+            Linear(points: a.points * f, percent: a.percent * f, vw: a.vw * f, vh: a.vh * f, vmin: a.vmin * f, vmax: a.vmax * f)
         }
         var approximation: Double {
-            points + (percent + vw) * Double(StyleLimits.nominalViewport.width) / 100 + vh * Double(StyleLimits.nominalViewport.height) / 100
+            points + percent * Double(StyleLimits.nominalViewport.width) / 100 + viewport(StyleLimits.nominalViewport)
+        }
+        /// The viewport units in points in `size`: `vmin` of its smaller side, `vmax` of its larger.
+        func viewport(_ size: CGSize) -> Double {
+            let width = Double(size.width), height = Double(size.height)
+            return (vw * width + vh * height + vmin * min(width, height) + vmax * max(width, height)) / 100
         }
     }
 
@@ -81,14 +87,14 @@ extension StyleResolver {
         case .rlh: result.points = value * rem * 1.2
         case .percent:
             if let base = context.percentBase { result.points = value * Double(base) / 100 } else { result.percent = value }
-        case .vw, .vmin: result.vw = value
-        case .vh, .vmax: result.vh = value
+        case .vw: result.vw = value
+        case .vh: result.vh = value
+        case .vmin: result.vmin = value
+        case .vmax: result.vmax = value
         case .px, .pt, .pc, .inch, .cm, .mm, .q: result.points = value * unit.pixels! * Double(context.scale)
         }
         if context.resolvesViewport {
-            result.points += (result.vw * Double(StyleLimits.nominalViewport.width) + result.vh * Double(StyleLimits.nominalViewport.height))
-                / 100 * Double(context.scale)
-            result.vw = 0; result.vh = 0
+            return Linear(points: result.points + result.viewport(StyleLimits.nominalViewport) * Double(context.scale), percent: result.percent)
         }
         return result
     }
@@ -112,11 +118,13 @@ extension StyleResolver {
         func clamp(_ x: Double, _ range: ClosedRange<CGFloat>) -> CGFloat { x.isFinite ? min(max(CGFloat(x), range.lowerBound), range.upperBound) : 0 }
         let width = Double(StyleLimits.nominalViewport.width) / 100, height = Double(StyleLimits.nominalViewport.height) / 100
         let percentRange = max(StyleLimits.percent.lowerBound, range.lowerBound)...StyleLimits.percent.upperBound
-        switch (value.percent != 0, value.vw != 0, value.vh != 0) {
-        case (false, false, false): return .points(clamp(value.points, range))
-        case (true, false, false): return .percent(clamp(value.percent + value.points / width, percentRange))
-        case (false, true, false): return .viewportWidth(clamp(value.vw + value.points / width, percentRange))
-        case (false, false, true): return .viewportHeight(clamp(value.vh + value.points / height, percentRange))
+        switch (value.percent != 0, value.vw != 0, value.vh != 0, value.vmin != 0, value.vmax != 0) {
+        case (false, false, false, false, false): return .points(clamp(value.points, range))
+        case (true, false, false, false, false): return .percent(clamp(value.percent + value.points / width, percentRange))
+        case (false, true, false, false, false): return .viewportWidth(clamp(value.vw + value.points / width, percentRange))
+        case (false, false, true, false, false): return .viewportHeight(clamp(value.vh + value.points / height, percentRange))
+        case (false, false, false, true, false): return .viewportMin(clamp(value.vmin + value.points / min(width, height), percentRange))
+        case (false, false, false, false, true): return .viewportMax(clamp(value.vmax + value.points / max(width, height), percentRange))
         default: return .percent(clamp(value.approximation / width, percentRange))
         }
     }
@@ -125,13 +133,14 @@ extension StyleResolver {
     /// when one unit alone says it all.
     func mixed(_ length: CSSLength, _ context: LengthContext) -> ComputedStyle.MixedLength? {
         let value = linear(length, context)
-        let symbolic = [value.percent, value.vw, value.vh].filter { $0 != 0 }.count
+        let symbolic = [value.percent, value.vw, value.vh, value.vmin, value.vmax].filter { $0 != 0 }.count
         guard symbolic > 1 || (symbolic == 1 && value.points != 0),
-              [value.points, value.percent, value.vw, value.vh].allSatisfy(\.isFinite) else { return nil }
+              [value.points, value.percent, value.vw, value.vh, value.vmin, value.vmax].allSatisfy(\.isFinite) else { return nil }
         func bounded(_ x: Double, _ limit: CGFloat) -> CGFloat { min(max(CGFloat(x), -limit), limit) }
         return ComputedStyle.MixedLength(points: bounded(value.points, StyleLimits.extent.upperBound),
                                          percent: bounded(value.percent, 1_000), viewportWidth: bounded(value.vw, 1_000),
-                                         viewportHeight: bounded(value.vh, 1_000))
+                                         viewportHeight: bounded(value.vh, 1_000), viewportMin: bounded(value.vmin, 1_000),
+                                         viewportMax: bounded(value.vmax, 1_000))
     }
 
     /// A stable author-side decision: the specified length alone hides a conventional off-screen
