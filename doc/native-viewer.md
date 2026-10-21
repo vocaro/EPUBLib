@@ -107,7 +107,11 @@ continues to describe the authored spine resource.
   bookmarks are `epublib-cfi-v1` (`EPUBReader.bookmarkFormat`): names for the library, not a
   renderer, so they outlive any change of how pages are drawn. The value is an EPUB CFI in the
   form foliate-js produced, generated and resolved by a port of its code. A range contained
-  in one document carries its CFI in `bookmark`. A CFI into a spine item the spine repeats
+  in one document carries its CFI in `bookmark`. A range ending with an image, a rule or
+  another element drawn whole includes it, also when nothing follows it in the document: that
+  end, the document's, is written as the virtual `after` index of the element's parent, which
+  foliate-js read with `setEndAfter`, after the element
+  ([#129](https://github.com/vocaro/EPUBLib/issues/129)). A CFI into a spine item the spine repeats
   names the occurrence its package path lands on: each repeat keeps its own position, as EPUB
   Reading Systems 3.3 §5.5 has them "distinct items for user interface (UI) purposes". This
   departs from foliate-js, which resolved every repeat to the first; its CFIs still resolve, and
@@ -1510,7 +1514,9 @@ continues to describe the authored spine resource.
     the flow; one that a position or a clip hides from the page is not written.
   - **The text map.** Generated characters are not the book's: they have no place in the
     document, and the text map has no span for them, as it has none for a list marker or a
-    bidi isolate. A position among them is that of the book's next character, and a CFI names
+    bidi isolate. A position among them is that of the book's next character, and a range of
+    generated characters alone runs from the book's character before them to the one after,
+    the place they are generated at ([#129](https://github.com/vocaro/EPUBLib/issues/129)). A CFI names
     the book's characters alone, the same CFI with or without the styles that generate:
     a selection that takes in generated words is saved without them and comes back without
     them. Search reads the book's text, as foliate-js's did in WebKit, and finds nothing in
