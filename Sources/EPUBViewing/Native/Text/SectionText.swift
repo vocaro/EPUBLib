@@ -1,3 +1,4 @@
+import EPUBCore
 import Foundation
 #if os(iOS)
 import UIKit
@@ -19,14 +20,15 @@ struct SectionText: @unchecked Sendable {
     let string: NSAttributedString
     let map: TextMap
     /// Rendered location of each element `id`: the first rendered character at or after the
-    /// element's start (the section's end when nothing follows).
-    let anchors: [String: Int]
+    /// element's start (the section's end when nothing follows). By the id's code units, as a
+    /// fragment names it (`EPUBElementID`).
+    let anchors: [EPUBElementID: Int]
     /// Footnote and endnote content for showing a note in place, under every `id` that names the
     /// note: its own and those of its leading descendants and, for a footnote hidden from the
     /// flow and the notes inside one, those of every other element inside it, apart from the
     /// ones inside a note nested in it (`SectionBuildState.captureNote` has the rule, and its
     /// exception for a table part typed as a footnote).
-    let notes: [String: NSAttributedString]
+    let notes: [EPUBElementID: NSAttributedString]
     /// `<head><title>`, whitespace-normalized; nil when absent or empty.
     let title: String?
     /// What the build withheld or simplified, and what laying the text out has found since.
@@ -40,7 +42,7 @@ struct SectionText: @unchecked Sendable {
     let layout: SectionLayoutRecord
 
     init(spineIndex: Int, href: String, document: ContentDocument, string: NSAttributedString, map: TextMap,
-         anchors: [String: Int], notes: [String: NSAttributedString], title: String?, report: SectionReport,
+         anchors: [EPUBElementID: Int], notes: [EPUBElementID: NSAttributedString], title: String?, report: SectionReport,
          layout: SectionLayoutRecord = SectionLayoutRecord()) {
         self.spineIndex = spineIndex; self.href = href; self.document = document; self.string = string
         self.map = map; self.anchors = anchors; self.notes = notes; self.title = title
