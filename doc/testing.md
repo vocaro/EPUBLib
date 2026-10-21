@@ -37,6 +37,12 @@ They do not establish what VoiceOver reads or does; that uses the speech lanes b
 
 Run one gate at a time on this shared Mac, with its Mac and iOS suites one after the other.
 Coordinate full test runs between worktrees and keep build and test worker counts bounded.
+Look for every run, not only those under `.claude/worktrees`: other sessions test from
+checkouts elsewhere too, such as a share under `/private/tmp`, and on 2026-10-20 a check of the
+worktrees alone missed another session's Mac suite. This lists them all, and the brackets keep
+it from finding the shell that runs it:
+`ps -Ao args | grep -E '[E]PUBLib.*\.xctest|[c]heck-all\.sh|[t]est-ios\.sh'`. Other projects
+have a `check-all.sh` too; its path says whose it is.
 Synchronous performance assertions use thread CPU time, excluding scheduling delay while
 retaining their work bounds; asynchronous readiness waits still have wall-clock deadlines,
 and simulator startup and UI event delivery can stall under saturation.
