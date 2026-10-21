@@ -65,8 +65,32 @@ class ReaderAttachment: NSTextAttachment, ReaderTextualAttachment {
         }
     }
 
-    init() { super.init(data: nil, ofType: nil) }
+    /// `visibility: hidden` (or `collapse`) hides the attachment's element: it keeps its room
+    /// and draws nothing (CSS 2 section 11.2). An element that sets `visibility: visible`
+    /// inside a hidden box is shown, so this is the element's own computed value.
+    let isHidden: Bool
+
+    init() {
+        isHidden = false
+        super.init(data: nil, ofType: nil)
+    }
+    init(isHidden: Bool) {
+        self.isHidden = isHidden
+        super.init(data: nil, ofType: nil)
+    }
     required init?(coder: NSCoder) { nil }
+
+    /// What a hidden attachment draws in its bounds: an image of their `size` with nothing in it.
+    static func invisibleImage(size: CGSize) -> PlatformImage {
+        #if os(iOS)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in }
+        #else
+        return NSImage(size: size, flipped: false) { _ in true }
+        #endif
+    }
 
     /// The attachment's bounds on `line`. The origin's y is the offset of the bottom edge from
     /// the baseline.
@@ -181,7 +205,7 @@ final class ReaderRuleAttachment: ReaderAttachment {
         }
         color = ReaderPalette.rule(dark: isDark)
         fontSize = style.fontSize
-        super.init()
+        super.init(isHidden: style.isHidden)
     }
     required init?(coder: NSCoder) { nil }
 
@@ -194,9 +218,10 @@ final class ReaderRuleAttachment: ReaderAttachment {
 
     override func contentWidths() -> (min: CGFloat, max: CGFloat) { (0, 0) }
 
-    /// The rule's rect inside an attachment of `size` (top-left origin).
-    func ruleRect(in size: CGSize) -> CGRect {
-        let length = min(size.width, width.resolve(reference: size.width, viewport: size) ?? size.width)
+    /// The rule's rect inside an attachment of `size` (top-left origin). Viewport units are of
+    /// `viewport`, the reading viewport, and of `size` when there is none yet.
+    func ruleRect(in size: CGSize, viewport: CGSize? = nil) -> CGRect {
+        let length = min(size.width, width.resolve(reference: size.width, viewport: viewport ?? size) ?? size.width)
         let x: CGFloat = switch alignment {
         case .leading: 0
         case .center: (size.width - length) / 2
@@ -207,16 +232,23 @@ final class ReaderRuleAttachment: ReaderAttachment {
 
     override func image(for bounds: CGRect, attributes: [NSAttributedString.Key: Any], location: any NSTextLocation,
                         textContainer: NSTextContainer?) -> PlatformImage? {
-        render(bounds.size)
+        render(bounds.size, viewport: Self.viewport(textContainer))
     }
 
     override func image(forBounds imageBounds: CGRect, textContainer: NSTextContainer?, characterIndex charIndex: Int) -> PlatformImage? {
-        render(imageBounds.size)
+        render(imageBounds.size, viewport: Self.viewport(textContainer))
     }
 
-    private func render(_ size: CGSize) -> PlatformImage? {
+    /// The reading viewport of `container`; nil until it has a size.
+    private static func viewport(_ container: NSTextContainer?) -> CGSize? {
+        guard let size = (container as? ReaderTextContainer)?.viewportSize, size.width > 0, size.height > 0 else { return nil }
+        return size
+    }
+
+    private func render(_ size: CGSize, viewport: CGSize?) -> PlatformImage? {
         guard size.width > 0, size.height > 0 else { return nil }
-        let rect = ruleRect(in: size)
+        guard !isHidden else { return Self.invisibleImage(size: size) }
+        let rect = ruleRect(in: size, viewport: viewport)
         #if os(iOS)
         return UIGraphicsImageRenderer(size: size).image { context in
             color.setFill()

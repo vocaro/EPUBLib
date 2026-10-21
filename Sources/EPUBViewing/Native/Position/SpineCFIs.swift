@@ -27,7 +27,10 @@ struct SpineCFIs: Sendable {
         if let package, let itemrefs = Self.itemrefs(in: package), itemrefs.count == spineCount {
             let bases = EPUBCFI.fromElements(itemrefs)
             if bases.count == itemrefs.count {
-                self.bases = bases
+                // A base that its ID assertions make too long for `EPUBCFI.isWellFormed` is
+                // written without them, as `resolve` reads a package path: by its indices.
+                self.bases = bases.allSatisfy(EPUBCFI.isWellFormed) ? bases
+                    : zip(bases, EPUBCFI.fromElements(itemrefs, assertingIDs: false)).map { EPUBCFI.isWellFormed($0) ? $0 : $1 }
                 self.package = (package, itemrefs)
                 return
             }
@@ -74,11 +77,28 @@ struct SpineCFIs: Sendable {
 
     /// A full CFI for a range in spine item `index` (foliate `getCFI`). `indices` is for writing
     /// many CFIs into one document (`EPUBCFI.ChildIndexCache`).
+    ///
+    /// ID assertions are the one part of a CFI without a bound. When they take it past the
+    /// length `EPUBCFI.isWellFormed` allows, the CFI is written without them, its steps' indices
+    /// alone naming the range, so that every bookmark issued is one `restore` accepts.
     func cfi(spineIndex: Int, start: DOMPosition, end: DOMPosition, in document: ContentDocument,
              indices: EPUBCFI.ChildIndexCache? = nil) -> String {
         guard document.canResolveCFIs else { return "" }
-        let base = bases.indices.contains(spineIndex) ? bases[spineIndex] : Self.fakeBase(spineIndex)
-        return EPUBCFI.joinIndirections(base, EPUBCFI.wrap(EPUBCFI.localPath(from: start, to: end, in: document, indices: indices)))
+        // Joined unwrapped: foliate wrapped the local path first, and kept that wrapper inside
+        // the CFI wherever its `isCFI` missed it (a line separator in an ID).
+        func cfi(assertingIDs: Bool) -> String {
+            EPUBCFI.joinIndirections(base(spineIndex, assertingIDs: assertingIDs),
+                                     EPUBCFI.localPath(from: start, to: end, in: document, indices: indices, assertingIDs: assertingIDs))
+        }
+        let asserted = cfi(assertingIDs: true)
+        return EPUBCFI.isWellFormed(asserted) ? asserted : cfi(assertingIDs: false)
+    }
+
+    /// Spine item `index`'s base, written without its ID assertions unless `assertingIDs`.
+    private func base(_ index: Int, assertingIDs: Bool) -> String {
+        guard bases.indices.contains(index) else { return Self.fakeBase(index) }
+        guard !assertingIDs, let package else { return bases[index] }
+        return EPUBCFI.fromElements(package.itemrefs, assertingIDs: false)[index]
     }
 
     /// The spine index and local path a full CFI names (foliate `resolveCFI`), retrying without

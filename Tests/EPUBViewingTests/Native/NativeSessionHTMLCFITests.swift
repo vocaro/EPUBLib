@@ -96,4 +96,33 @@ import XCTest
         XCTAssertNil(crossSelected.location.bookmark, "do not silently issue the valid first section's CFI")
         XCTAssertNil(crossSelected.location.rangeBookmarks)
     }
+
+    /// A bookmark the session issues inside elements whose IDs hold a TAB and a line separator
+    /// is one it restores and highlights (#105). It once asserted both IDs, the second nesting
+    /// one `epubcfi(` inside another, and `restore` refused it as `incompatibleLocation`.
+    func testABookmarkInsideElementsWithUnassertableIDsRestores() async throws {
+        let markup = "<html xmlns='http://www.w3.org/1999/xhtml'><head><title>T</title></head><body>"
+            + "<section id='line&#x2028;separator'><p id='tab&#9;bed'>Before the tabbed passage after.</p></section></body></html>"
+        let publication = try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/two.xhtml": markup]))
+        var events: [EPUBReaderEvent] = []
+        let session = try XCTUnwrap(try NativeEngine().makeSession(publication: publication, selectionAction: nil) { events.append($0) } as? NativeSession)
+        let window = ReaderTestWindow(session: session)
+        defer { session.close(); window.close() }
+        try await wait { events.contains(.ready) }
+        try await session.send(.locate(text: "tabbed passage", highlight: true))
+        try await wait { session.selection?.text == "tabbed passage" }
+        let selected = try XCTUnwrap(events.compactMap { event -> EPUBSelection? in
+            if case .selectionChanged(let selection) = event { return selection }; return nil
+        }.last)
+        XCTAssertEqual(selected.location.bookmark?.value, "epubcfi(/6/4!/4/2/2,/1:11,/1:25)")
+        try await session.send(.restore(selected.location))
+        XCTAssertEqual(session.visibleRange?.start.section, 1)
+        try await session.send(.setHighlights([EPUBHighlight(id: "tabbed", location: selected.location)]))
+        try await wait { session.drawnHighlights.contains { $0.id == "tabbed" } }
+        let range = try XCTUnwrap(session.drawnHighlights.first { $0.id == "tabbed" }?.range)
+        let section = try XCTUnwrap(session.book.section(1))
+        XCTAssertEqual(section.string.attributedSubstring(from: NSRange(location: range.start.offset, length: range.end.offset - range.start.offset)).string,
+                       "tabbed passage")
+        XCTAssertFalse(events.contains { if case .notice = $0 { return true }; return false })
+    }
 }

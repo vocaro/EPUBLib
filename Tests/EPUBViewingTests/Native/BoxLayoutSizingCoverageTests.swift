@@ -244,7 +244,6 @@ import UIKit
     /// reads `vmin` as `vw` and `vmax` as `vh`, which is only right when the viewport is taller
     /// than it is wide.
     func testViewportMinimumAndMaximumUnitsFollowTheSmallerAndLargerSide() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/123")
         for viewport in [CGSize(width: 300, height: 500), CGSize(width: 700, height: 400)] {
             let smaller = min(viewport.width, viewport.height), larger = max(viewport.width, viewport.height)
             for (declaration, expected) in [("width:50vmin", smaller / 2), ("width:50vmax", larger / 2)] {
@@ -254,6 +253,27 @@ import UIKit
                                "\(declaration) in a \(Int(viewport.width)) by \(Int(viewport.height)) viewport")
             }
             for (declaration, expected) in [("height:50vmin", smaller / 2), ("height:50vmax", larger / 2)] {
+                let section = try H.build("<div class='box'><p>Line.</p></div><p>After.</p>",
+                                          css: H.reset + ".box { display:flex; flex-direction:column; justify-content:center; \(declaration) }")
+                let view = H.view(section.string, size: viewport, pageColumn: false)
+                XCTAssertEqual(H.frame("After.", in: section, view: view).minY, expected, accuracy: 2,
+                               "\(declaration) in a \(Int(viewport.width)) by \(Int(viewport.height)) viewport")
+            }
+        }
+    }
+
+    /// Sums of `vmin` alone stay `vmin`, and a height that mixes it with points is the exact sum
+    /// (`ComputedStyle.MixedLength`), each of the smaller side the viewport has at layout.
+    func testCalculatedViewportMinimumAndMaximumUnitsFollowTheSmallerAndLargerSide() throws {
+        for viewport in [CGSize(width: 300, height: 500), CGSize(width: 700, height: 400)] {
+            let smaller = min(viewport.width, viewport.height), larger = max(viewport.width, viewport.height)
+            for (declaration, expected) in [("width:calc(25vmin + 25vmin)", smaller / 2), ("width:calc(100vmax / 2)", larger / 2)] {
+                let section = try H.build("<figure>Alpha box.</figure><p>\(H.prose)</p>", css: H.reset + "figure { float:left; \(declaration) }")
+                let view = H.view(section.string, size: viewport)
+                XCTAssertEqual(try XCTUnwrap(H.region("Alpha box.", in: section, view: view)).frame.width, expected, accuracy: 0.6,
+                               "\(declaration) in a \(Int(viewport.width)) by \(Int(viewport.height)) viewport")
+            }
+            for (declaration, expected) in [("height:calc(50vmin + 20px)", smaller / 2 + 20), ("min-height:calc(50vmax - 20px)", larger / 2 - 20)] {
                 let section = try H.build("<div class='box'><p>Line.</p></div><p>After.</p>",
                                           css: H.reset + ".box { display:flex; flex-direction:column; justify-content:center; \(declaration) }")
                 let view = H.view(section.string, size: viewport, pageColumn: false)

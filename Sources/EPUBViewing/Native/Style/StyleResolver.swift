@@ -328,7 +328,7 @@ struct CSSRuleIndex: Sendable {
         test(buckets.byType[matcher.facts.bucketNames[element]])
         if !buckets.attributeNames.isEmpty {
             for attribute in node.attributes {
-                let name = Self.bucketName(attribute.name)
+                let name = CSSBucketKey.attributeName(attribute.name)
                 guard buckets.attributeNames.contains(name) else { continue }
                 test(buckets.byAttribute[name])
                 guard !buckets.byAttributeValue.isEmpty else { continue }
@@ -344,17 +344,6 @@ struct CSSRuleIndex: Sendable {
         // An element can reach one entry through two attributes or repeated tokens.
         var previous = -1
         return result.filter { defer { previous = $0 }; return $0 != previous }
-    }
-}
-
-extension CSSRuleIndex {
-    /// An attribute's name as rules are bucketed: lowercased, without a prefix that a document
-    /// recovered as HTML kept (`epub:type`).
-    static func bucketName(_ name: String) -> String {
-        guard name.utf8.contains(where: { ($0 >= 0x41 && $0 <= 0x5A) || $0 == 0x3A }) else { return name }
-        let lower = name.lowercased()
-        guard let colon = lower.lastIndex(of: ":") else { return lower }
-        return String(lower[lower.index(after: colon)...])
     }
 }
 

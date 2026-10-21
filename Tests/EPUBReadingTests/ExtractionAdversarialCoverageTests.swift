@@ -37,9 +37,9 @@ final class ExtractionAdversarialCoverageTests: XCTestCase {
     // MARK: Traps
 
     // XML 1.0's Name production admits ":" alone. libxml2 reports the element with only a
-    // recoverable namespace error, so the strict reader hands the name ":" to `start`, where a
-    // split at the colon leaves no piece to be the local name. The input is otherwise
-    // well-formed XHTML; any section of an untrusted book can carry it.
+    // recoverable namespace error and hands on the name ":", where a split at the colon leaves
+    // no piece to be the local name; the strict path now refuses it (#178). The input is
+    // otherwise well-formed XHTML; any section of an untrusted book can carry it.
     func testAnElementNamedWithALoneColonIsReadOrRefusedWithoutTrapping() throws {
         try assertReturnsOrIsMalformed(Data(page("<p>a<:/>b</p>").utf8), recovering: false, "strict")
     }
@@ -51,22 +51,56 @@ final class ExtractionAdversarialCoverageTests: XCTestCase {
         try assertReturnsOrIsMalformed(Data(page("<p>a</b><:>b</p>").utf8), recovering: true, "recovery, as text")
     }
 
-    // Read, not refused: both parsers report a name made only of colons whole and unprefixed, so
-    // it is an unknown inline element of the enclosing namespace that keeps its text and its ID.
-    func testNamesMadeOnlyOfColonsAreUnknownInlineElementsInBothParsers() throws {
+    // A name that begins or ends with a colon is no qualified name. libxml2 reports it with a
+    // recoverable namespace error and reads on; the native reader takes that error for markup
+    // that is not well-formed and reads the section as HTML, where `<:` is text (#198). So
+    // strict extraction refuses the section, and recovery reads what the reader shows (#178).
+    func testNamesWithALeadingOrTrailingColonAreMalformedAndRecoveredAsTheReaderShowsThem() throws {
+        let cases = [
+            ("<div>a<:p>b</:p>c</div>", "a<:p>bc"),
+            ("<p>a<:script>b</:script>c</p>", "a<:script>bc"),
+            ("<p>a<:img alt='ALT'/>c</p>", "a<:img alt='ALT'/>c"),
+            // HTML reads a tag name on through its colon: an unknown inline element.
+            ("<div>a<p:>b</p:>c</div>", "abc"),
+            ("<p>a<script:>b</script:>c</p>", "abc"),
+            ("<p>a<style:>b</style:>c</p>", "abc"),
+            ("<p>a<img: alt='ALT'/>c</p>", "ac"),
+            ("<p>x<a:>y</a:>z</p>", "xyz"),
+            // A second colon: libxml2 takes `a` for a prefix and keeps `b:script` whole.
+            ("<p>a<a:b:script>b</a:b:script>c</p>", "abc"),
+            // Attribute names, and a processing instruction's target, which may hold no colon.
+            ("<p :='v' a:='w' :a='x' id='i'>a</p>", "a"),
+            ("<p>a<?a:b x?>b</p>", "ab"),
+        ]
+        for (body, text) in cases {
+            let publication = try book(page(body))
+            XCTAssertThrowsError(try publication.textSection(at: 0), body) {
+                XCTAssertEqual($0 as? EPUBTextExtractionError, .malformedContent(path), body)
+            }
+            let section = try publication.textSection(at: 0, recoversMalformedMarkup: true)
+            XCTAssertEqual(section.text, text, body)
+            XCTAssertTrue(section.recoveredAsHTML, body)
+        }
+    }
+
+    // Names made only of colons are refused in the same way. Recovered, `<:` is text and gives
+    // no element its ID; what libxml2's HTML parser leaves of `a:` and the colons, once it has
+    // taken `a` for a prefix, is an unknown inline element that keeps its text and its ID.
+    func testNamesMadeOnlyOfColonsAreMalformedAndRecoveredAsText() throws {
         for name in [":", "::", ":::"] {
-            let strict = try book(page("<p>a<\(name) id='q'>b</\(name)>c<\(name)/></p>",
-                                       head: "<title>T<\(name)>U</\(name)></title>")).textSection(at: 0)
-            XCTAssertEqual(strict.text, "abc", name)
-            XCTAssertEqual(strict.title, "TU", name)
-            XCTAssertEqual(strict.anchors, ["q": EPUBTextMark(offset: 1, separator: 0)], name)
-            XCTAssertFalse(strict.recoveredAsHTML, name)
-            // In recovery `<:` is text (#198), so the name is spelled as the reader's test spells
-            // it: what libxml2 leaves of `a:` and the colons once it has taken `a` for a prefix.
-            let recovered = try book(page("<p>a</b><a:\(name) id='q'>b</a:\(name)>c</p>")).textSection(at: 0, recoversMalformedMarkup: true)
-            XCTAssertEqual(recovered.text, "abc", name)
-            XCTAssertEqual(recovered.anchors, ["q": EPUBTextMark(offset: 1, separator: 0)], name)
-            XCTAssertTrue(recovered.recoveredAsHTML, name)
+            let publication = try book(page("<p>a<\(name) id='q'>b</\(name)>c<\(name)/></p>",
+                                            head: "<title>T<\(name)>U</\(name)></title>"))
+            XCTAssertThrowsError(try publication.textSection(at: 0), name) {
+                XCTAssertEqual($0 as? EPUBTextExtractionError, .malformedContent(path), name)
+            }
+            let recovered = try publication.textSection(at: 0, recoversMalformedMarkup: true)
+            XCTAssertEqual(recovered.text, "a<\(name) id='q'>bc<\(name)/>", name)
+            XCTAssertEqual(recovered.title, "T<\(name)>U", name)
+            XCTAssertEqual(recovered.anchors, [:], name)
+            let element = try book(page("<p>a</b><a:\(name) id='q'>b</a:\(name)>c</p>")).textSection(at: 0, recoversMalformedMarkup: true)
+            XCTAssertEqual(element.text, "abc", name)
+            XCTAssertEqual(element.anchors, ["q": EPUBTextMark(offset: 1, separator: 0)], name)
+            XCTAssertTrue(element.recoveredAsHTML, name)
         }
     }
 
@@ -77,21 +111,70 @@ final class ExtractionAdversarialCoverageTests: XCTestCase {
         XCTAssertThrowsError(try book(rooted).textSection(at: 0)) {
             XCTAssertEqual($0 as? EPUBTextExtractionError, .malformedContent(path))
         }
-        let math = try book(page("<p>a<math xmlns='http://www.w3.org/1998/Math/MathML'><: id='m'><mi>x</mi></:></math>b</p>")).textSection(at: 0)
+        let math = try book(page("<p>a</b><math xmlns='http://www.w3.org/1998/Math/MathML'><a:: id='m'><mi>x</mi></a::></math>b</p>"))
+            .textSection(at: 0, recoversMalformedMarkup: true)
         XCTAssertEqual(math.text, #"amath(:("x"))b"#)
         XCTAssertEqual(math.anchors, ["m": EPUBTextMark(offset: 6, separator: 0)])
-        let attributes = try book(page("<p xmlns:e='http://www.idpf.org/2007/ops' :='v' ::='w' e:type='x' id='i'>a</p>")).textSection(at: 0)
-        XCTAssertEqual(attributes.text, "a")
-        XCTAssertEqual(attributes.semanticTypes, ["x"])
-        XCTAssertEqual(attributes.anchors, ["i": EPUBTextMark(offset: 0, separator: 0)])
+        let attributes = try book(page("<p xmlns:e='http://www.idpf.org/2007/ops' :='v' ::='w' e:type='x' id='i'>a</p>"))
+        XCTAssertThrowsError(try attributes.textSection(at: 0)) {
+            XCTAssertEqual($0 as? EPUBTextExtractionError, .malformedContent(path))
+        }
+        let recovered = try attributes.textSection(at: 0, recoversMalformedMarkup: true)
+        XCTAssertEqual(recovered.text, "a")
+        XCTAssertEqual(recovered.semanticTypes, ["x"])
+        XCTAssertEqual(recovered.anchors, ["i": EPUBTextMark(offset: 0, separator: 0)])
     }
 
-    // Names that merely contain or end in a colon take the same code and must stay harmless.
-    func testElementNamesWithEmptyOrUndeclaredPrefixesAreReadAsText() throws {
-        XCTAssertEqual(try book(page("<p>x<a:>y</a:>z</p>")).textSection(at: 0).text, "xyz")
-        let section = try book(page("<p>x<foo:bar id='q'>y</foo:bar>z</p>")).textSection(at: 0)
-        XCTAssertEqual(section.text, "xyz")
+    // A prefix that is never declared names no namespace, as in the reader, whose HTML parser
+    // drops it: the element is read by its local name. Strictly it is no malformed name.
+    func testElementNamesWithUndeclaredPrefixesAreReadByTheirLocalNames() throws {
+        let section = try book(page("<p>x<foo:bar id='q'>y</foo:bar>z<foo:script>s</foo:script></p><foo:p>w</foo:p>")).textSection(at: 0)
+        XCTAssertEqual(section.text, "xyz\nw")
         XCTAssertEqual(section.anchors["q"], EPUBTextMark(offset: 1, separator: 0))
+        XCTAssertFalse(section.recoveredAsHTML)
+    }
+
+    // Neither is the XHTML root or body. Recovered, each is text, as the reader shows it; there
+    // `<:html …>` opens the body, and the title is the body's text, as other undisplayed text is.
+    func testHTMLAndBodyNamedWithALeadingColonAreNoRootOrBody() throws {
+        let documents = [
+            ("<:html xmlns='http://www.w3.org/1999/xhtml'><head><title>T</title></head><body><p>a</p></body></:html>",
+             "<:html xmlns='http://www.w3.org/1999/xhtml'>\nT\na"),
+            ("<html xmlns='http://www.w3.org/1999/xhtml'><head><title>T</title></head><:body><p>a</p></:body></html>",
+             "<:body>\na"),
+        ]
+        for (document, text) in documents {
+            let publication = try book(document)
+            XCTAssertThrowsError(try publication.textSection(at: 0), document) {
+                XCTAssertEqual($0 as? EPUBTextExtractionError, .malformedContent(path), document)
+            }
+            let section = try publication.textSection(at: 0, recoversMalformedMarkup: true)
+            XCTAssertEqual(section.text, text, document)
+            XCTAssertTrue(section.recoveredAsHTML, document)
+        }
+    }
+
+    // `xmlns:` names no prefix, so it declares none, and no default namespace either (#178).
+    func testAnXMLNSAttributeWithAnEmptyPrefixDeclaresNothing() throws {
+        let publication = try book(page("<p xmlns:='urn:x'>a<img alt='ALT'/>b<span id='s'>c</span></p><p>d</p>"))
+        XCTAssertThrowsError(try publication.textSection(at: 0)) {
+            XCTAssertEqual($0 as? EPUBTextExtractionError, .malformedContent(path))
+        }
+        let section = try publication.textSection(at: 0, recoversMalformedMarkup: true)
+        XCTAssertEqual(section.text, "aALTbc\nd")
+        XCTAssertEqual(section.anchors, ["s": EPUBTextMark(offset: 5, separator: 0)])
+    }
+
+    // Well-formed prefixed names are read in the namespace each prefix names.
+    func testWellFormedPrefixedNamesAreReadInTheirNamespaces() throws {
+        let section = try book(page("<div xmlns:epub='http://www.idpf.org/2007/ops' xmlns:m='http://www.w3.org/1998/Math/MathML' "
+            + "xmlns:svg='http://www.w3.org/2000/svg' xmlns:h='http://www.w3.org/1999/xhtml'>a<epub:switch>"
+            + "<epub:case required-namespace='urn:x'>b</epub:case><epub:default>c</epub:default></epub:switch>"
+            + "<m:math><m:mi>x</m:mi></m:math><svg:svg><svg:text>d</svg:text></svg:svg><h:script>s</h:script>"
+            + "<h:p epub:type='z'>e</h:p></div>")).textSection(at: 0)
+        XCTAssertEqual(section.text, #"abcmath("x")d"# + "\ne")
+        XCTAssertEqual(section.semanticTypes, ["z"])
+        XCTAssertFalse(section.recoveredAsHTML)
     }
 
     // MARK: Work bounded by the limits

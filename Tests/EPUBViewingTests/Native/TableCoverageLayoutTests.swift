@@ -68,6 +68,12 @@ final class TableCoverageLayoutTests: XCTestCase {
         XCTAssertEqual(try boxes("<table width='10'>\(row)</table>").layout(available: 640, viewportHeight: 600).size.width, 150, accuracy: 0.01,
                        "narrower than its content asks: the content's width")
         XCTAssertEqual(try boxes("<table>\(row)</table>", css: "table { width: auto; }").layout(available: 640, viewportHeight: 600).size.width, 150, accuracy: 0.01)
+        // Viewport units: the line stands for the viewport's width and the page for its height,
+        // `vmin` the smaller of the two and `vmax` the larger.
+        for (width, expected) in [("50vw", 320.0), ("50vh", 200), ("50vmin", 200), ("50vmax", 320)] {
+            XCTAssertEqual(try boxes("<table>\(row)</table>", css: "table { width: \(width); }").layout(available: 640, viewportHeight: 400).size.width,
+                           expected, accuracy: 0.01, width)
+        }
         // The extra width of a wider table goes to its columns in proportion to their content.
         let wide = try boxes("<table width='300'>\(row)</table>").layout(available: 640, viewportHeight: 600)
         XCTAssertEqual(wide.columnWidths[0], 200, accuracy: 0.01)

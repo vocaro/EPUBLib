@@ -71,8 +71,9 @@ struct TableLayout {
             }
         }
 
-        /// Column widths for `available` points of line, at most that wide in total.
-        func widths(available: CGFloat, tableWidth: ComputedStyle.Length) -> [CGFloat] {
+        /// Column widths for `available` points of line, at most that wide in total. The table's
+        /// own width in viewport units is of the line's width and the page's `viewportHeight`.
+        func widths(available: CGFloat, tableWidth: ComputedStyle.Length, viewportHeight: CGFloat) -> [CGFloat] {
             let count = minimum.count
             let room = max(0, available - outside)
             let sumMin = minimum.reduce(0, +), sumMax = maximum.reduce(0, +)
@@ -82,7 +83,7 @@ struct TableLayout {
                 return minimum.map { sumMin > 0 ? $0 * room / sumMin : room / CGFloat(count) }
             }
             var target: CGFloat
-            if let specified = tableWidth.resolve(reference: available, viewport: CGSize(width: available, height: available)) {
+            if let specified = tableWidth.resolve(reference: available, viewport: CGSize(width: available, height: viewportHeight)) {
                 target = max(sumMin, min(room, specified - outside))
             } else {
                 var wanted = sumMax
@@ -168,7 +169,7 @@ struct TableLayout {
 
     private static func make(_ table: TableModel, constraints: Constraints, width: CGFloat, scale: CGFloat, viewportHeight: CGFloat) -> TableLayout {
         table.recordLayoutPass()
-        let columns = constraints.widths(available: width, tableWidth: table.width)
+        let columns = constraints.widths(available: width, tableWidth: table.width, viewportHeight: viewportHeight)
         let gap = table.spacing
         let edges = table.borders.widths
         func spanWidth(_ cell: TableModel.Cell) -> CGFloat {

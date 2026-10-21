@@ -388,12 +388,23 @@ final class NavigationDocumentCoverageTests: XCTestCase {
     }
 
     func testAnEntryHrefSurroundedBySpacesNamesItsTarget() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/76")
         // An HTML href is a URL "potentially surrounded by spaces", stripped before parsing. EPUBCheck
-        // passes content-model-a-with-leading-trailing-spaces-valid.xhtml, written this way.
-        let entries = try contents("<ol><li><a href=\" one.xhtml\">Chapter 1</a></li><li><a href=\"two.xhtml#start \">Chapter 2</a></li>"
-            + "<li><a href=\"\n      one.xhtml#start\n    \">Chapter 1 again</a></li></ol>")
-        XCTAssertEqual(entries.map(\.href), ["OPS/one.xhtml", "OPS/two.xhtml#start", "OPS/one.xhtml#start"])
+        // passes content-model-a-with-leading-trailing-spaces-valid.xhtml, written this way
+        // (https://github.com/vocaro/EPUBLib/issues/76).
+        let list = "<ol><li><a href=\" one.xhtml\">Chapter 1</a></li><li><a href=\"two.xhtml#start \">Chapter 2</a></li>"
+            + "<li><a href=\"\n      one.xhtml#start\n    \">Chapter 1 again</a></li><li><a href=\"&#9;two.xhtml&#13;&#10;\">Chapter 2 again</a></li></ol>"
+        let targets = ["OPS/one.xhtml", "OPS/two.xhtml#start", "OPS/one.xhtml#start", "OPS/two.xhtml"]
+        XCTAssertEqual(try contents(list).map(\.href), targets)
+        // So is a landmark's and a page's.
+        let book = try book(nav: "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">1</a></li></ol></nav>"
+            + "<nav epub:type=\"landmarks\">\(list)</nav><nav epub:type=\"page-list\">\(list)</nav>")
+        XCTAssertEqual(book.landmarks.map(\.href), targets)
+        XCTAssertEqual(book.pageList?.map(\.href), targets)
+        // White space outside ASCII is no HTML space: it is a character of the name.
+        for space in Fixture.spacesOutsideASCII {
+            let e = Fixture.escapingNonASCII(space)
+            XCTAssertEqual(try contents("<ol><li><a href=\"\(space)one.xhtml\(space)\">x</a></li></ol>").map(\.href), ["OPS/\(e)one.xhtml\(e)"], e)
+        }
     }
 
     func testAnEPUBCFIFragmentSurvivesInAnEntryHref() throws {

@@ -16,6 +16,10 @@ final class HTMLCFITests: XCTestCase {
         let end: [Int]
     }
     static let vectors = try! JSONDecoder().decode(Vectors.self, from: Data(HTMLCFIGoldenVectors.json.utf8))
+    /// Where the writer departs from the recorded path: foliate asserted an ID holding a TAB,
+    /// which `EPUBCFI.isWellFormed` refuses, and the reader asserts no such ID (#105). The
+    /// recorded CFI still resolves to the same range.
+    static let writtenPaths = ["numeric-carriage-return-and-attribute-tab": "/4/2,/1:0,/1:14"]
 
     func testRecordedFoliateRangesKeepTheirQuotesOrAreRefused() throws {
         XCTAssertEqual(Self.vectors.upstream, "78914aef4466eb960965702401634c2cb348e9b1")
@@ -32,7 +36,8 @@ final class HTMLCFITests: XCTestCase {
                 XCTAssertEqual([range.start.node.order, range.start.offset], vector.start, fixture.name)
                 XCTAssertEqual([range.end.node.order, range.end.offset], vector.end, fixture.name)
                 XCTAssertEqual(quote(range, document: document), vector.quote, fixture.name)
-                XCTAssertEqual(EPUBCFI.localPath(from: range.start, to: range.end, in: document), EPUBCFI.unwrap(vector.cfi), fixture.name)
+                XCTAssertEqual(EPUBCFI.localPath(from: range.start, to: range.end, in: document),
+                               Self.writtenPaths[fixture.name] ?? EPUBCFI.unwrap(vector.cfi), fixture.name)
                 let rendered = BuilderHarness.build(document: document)
                 let lower = rendered.map.location(of: range.start)
                 let upper = rendered.map.location(of: range.end, isEnd: true)
