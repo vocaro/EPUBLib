@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Report `limitExceeded("depth")` in strict text extraction for a well-formed section nested deeper than libxml2's cap of 257 levels, as recovery does, where a caller's depth limit above that gave `malformedContent` ([#91](https://github.com/vocaro/EPUBLib/issues/91)).
 - Refuse an empty title, identifier, contents or navigation label, a contents entry with neither a target nor entries, and a resource ID that is not an XML name, and leave out an empty author, language, summary or keyword, where the writer wrote each into a package EPUBCheck rejects or dropped the entry without a word ([#96](https://github.com/vocaro/EPUBLib/issues/96)).
 - Refuse in strict text extraction a name that Namespaces in XML forbids, such as `<:p>` or `script:`, and read it in recovery as the native reader does, where it was read as `p` or `script` and its text restructured or dropped ([#178](https://github.com/vocaro/EPUBLib/issues/178)).
 - Match CFI ID assertions by their exact code units, and leave out an ID assertion that would make an issued bookmark one `restore` refuses ([#105](https://github.com/vocaro/EPUBLib/issues/105)).
