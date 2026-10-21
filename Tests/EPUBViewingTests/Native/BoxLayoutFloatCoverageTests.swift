@@ -296,10 +296,9 @@ import UIKit
     }
 
     /// CSS 2.2 9.5.2: `clear` on a block-level box puts its top border edge below earlier floats,
-    /// so everything inside it starts below them. The reader reads `clear` only from the block
-    /// that directly owns a paragraph.
+    /// so everything inside it starts below them. The reader read `clear` only from the block
+    /// that directly owns a paragraph (#151).
     func testClearOnABlockContainerMovesItsParagraphsBelowTheFloat() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/151")
         let (section, view) = try layout("<figure>Alpha box.</figure><div class='c'><p>Cleared words here.</p></div>",
                                          css: "figure { float:left; width:100px; height:80px } .c { clear:both }")
         let frame = H.frame("Cleared words here.", in: section, view: view)
@@ -310,7 +309,6 @@ import UIKit
     /// HTML's rendering section gives `br` the `clear` property (`br[clear]`), and every browser
     /// starts the next line below the floats: the idiom old books use after a floated figure.
     func testALineBreakWithClearMovesTheRestOfItsParagraphBelowTheFloat() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/151")
         let (section, view) = try layout("<figure>Alpha box.</figure><p>Short.<br style='clear:both'/>Cleared words here.</p>",
                                          css: "figure { float:left; width:100px; height:80px }")
         XCTAssertEqual(H.frame("Short.", in: section, view: view).minY, 0, accuracy: 1, "before the break: beside the float")
@@ -320,12 +318,87 @@ import UIKit
     /// CSS 2.2 9.5.2: on a float, `clear` adds the constraint that its top is below the bottom of
     /// earlier floats of the named side.
     func testClearOnAFloatPutsItBelowEarlierFloatsOfTheOtherSide() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/151")
         let (section, view) = try layout("<figure class='l'>Alpha box.</figure><figure class='r'>Beta box.</figure><p>\(H.prose)</p>",
                                          css: "figure { width:100px; height:80px } .l { float:left } .r { float:right; clear:left }")
         let right = try XCTUnwrap(H.region("Beta box.", in: section, view: view))
         XCTAssertEqual(right.frame.maxX, 360, accuracy: 0.5)
         XCTAssertGreaterThanOrEqual(right.frame.minY, 79, "below the left float it clears")
+    }
+
+    /// Rule 10 moves the float alone: the prose after it still starts at the top, beside the
+    /// float it cleared, and a float names only its own sides: one clearing `right` with only a
+    /// left float before it stays on the first row.
+    func testClearOnAFloatMovesOnlyThatFloatAndOnlyBelowTheSidesItNames() throws {
+        let (section, view) = try layout("<figure class='l'>Alpha box.</figure><figure class='r'>Beta box.</figure><p>\(H.prose)</p>",
+                                         css: "figure { width:100px; height:80px } .l { float:left } .r { float:right; clear:left }")
+        let left = try XCTUnwrap(H.region("Alpha box.", in: section, view: view))
+        let lines = proseLines(H.prose, around: left, in: section, view: view)
+        XCTAssertEqual(try XCTUnwrap(lines.beside.first).minY, 0, accuracy: 1, "the flow is not moved by the float's clearance")
+        XCTAssertTrue(lines.beside.allSatisfy { $0.minX >= 99 }, "\(lines.beside)")
+        XCTAssertFalse(H.overlaps(H.ink(H.prose, in: section, view: view), [left.frame, try XCTUnwrap(H.region("Beta box.", in: section, view: view)).frame]))
+        let (other, otherView) = try layout("<figure class='l'>Alpha box.</figure><figure class='r'>Beta box.</figure><p>\(H.prose)</p>",
+                                            css: "figure { width:100px; height:80px } .l { float:left } .r { float:right; clear:right }")
+        XCTAssertEqual(try XCTUnwrap(H.region("Beta box.", in: other, view: otherView)).frame.minY, 0, accuracy: 0.5, "no right float before it")
+    }
+
+    /// A cleared container's top is below the float, and so is all it holds: a float it opens
+    /// with, and the paragraph after that float. Inside the container nothing clears again, so
+    /// that paragraph wraps beside the container's own float (CSS 2.2 9.5.2).
+    func testAClearedContainerOpeningWithAFloatPutsTheFloatAndItsProseBelowTheEarlierFloat() throws {
+        let (section, view) = try layout("<figure class='a'>Alpha box.</figure><div class='c'><figure class='b'>Beta box.</figure><p>Inside words. \(H.prose)</p></div>",
+                                         css: ".a { float:left; width:100px; height:80px } .b { float:right; width:100px; height:60px } .c { clear:both }")
+        let beta = try XCTUnwrap(H.region("Beta box.", in: section, view: view))
+        XCTAssertEqual(beta.frame.minY, 80, accuracy: 1, "the container's float starts at the container's top")
+        XCTAssertEqual(beta.frame.maxX, 360, accuracy: 0.5)
+        let inside = H.frame("Inside words.", in: section, view: view)
+        XCTAssertEqual(inside.minY, 80, accuracy: 1, "the container's prose starts at its top too, beside its own float")
+        XCTAssertEqual(inside.minX, 0, accuracy: 0.5)
+        let lines = proseLines(H.prose, around: beta, in: section, view: view)
+        XCTAssertTrue(lines.beside.allSatisfy { $0.maxX <= 261 }, "\(lines.beside)")
+        XCTAssertFalse(H.overlaps(H.ink(H.prose, in: section, view: view), [beta.frame]))
+    }
+
+    /// `clear` on a paragraph is at its top: a drop cap opening it goes below the float with it,
+    /// and its words wrap beside the drop cap instead of clearing that as well.
+    func testAClearedParagraphKeepsItsWordsBesideItsOwnDropCap() throws {
+        let (section, view) = try layout("<figure>Alpha box.</figure><p class='c'><span class='cap'>D</span>rop cap words. \(H.prose)</p>",
+                                         css: "figure { float:left; width:100px; height:80px } .c { clear:both } .cap { float:left; font-size:48px }")
+        let cap = try XCTUnwrap(H.region("D", in: section, view: view))
+        XCTAssertEqual(cap.frame.minY, 80, accuracy: 1, "the drop cap is at the paragraph's top, below the float")
+        XCTAssertEqual(cap.frame.minX, 0, accuracy: 0.5)
+        let words = H.frame("rop cap", in: section, view: view)
+        XCTAssertEqual(words.minY, cap.frame.minY, accuracy: 1, "the words start beside the drop cap")
+        XCTAssertEqual(words.minX, cap.frame.maxX, accuracy: 1)
+    }
+
+    /// An empty block that clears, the clearfix idiom, moves what follows it below the float.
+    func testAnEmptyClearingBlockMovesTheNextParagraphBelowTheFloat() throws {
+        let (section, view) = try layout("<figure>Alpha box.</figure><p>Short.</p><div class='c'></div><p>After words.</p>",
+                                         css: "figure { float:left; width:100px; height:80px } .c { clear:left }")
+        XCTAssertEqual(H.frame("Short.", in: section, view: view).minY, 0, accuracy: 1)
+        let after = H.frame("After words.", in: section, view: view)
+        XCTAssertEqual(after.minY, 80, accuracy: 1)
+        XCTAssertEqual(after.minX, 0, accuracy: 0.5)
+    }
+
+    /// A `br` clears only the sides it names, and the paragraph's lines after the cleared one
+    /// take the full column.
+    func testALineBreakClearsOnlyTheSidesItNames() throws {
+        for (clear, cleared) in [("left", true), ("right", false), ("none", false)] {
+            let (section, view) = try layout("<figure>Alpha box.</figure><p>Short.<br style='clear:\(clear)'/>Cleared words here. \(H.prose)</p>",
+                                             css: "figure { float:left; width:100px; height:80px }")
+            let region = try XCTUnwrap(H.region("Alpha box.", in: section, view: view), clear)
+            let first = H.frame("Cleared words here.", in: section, view: view)
+            if cleared {
+                XCTAssertEqual(first.minY, 80, accuracy: 1, clear)
+                XCTAssertEqual(first.minX, 0, accuracy: 0.5, clear)
+                XCTAssertTrue(proseLines(H.prose, around: region, in: section, view: view).beside.isEmpty, clear)
+            } else {
+                XCTAssertLessThan(first.minY, 79, "beside the float: \(clear)")
+                XCTAssertGreaterThanOrEqual(first.minX, 99, clear)
+            }
+            XCTAssertEqual(view.visibleText, section.string.string, clear)
+        }
     }
 
     // MARK: Forced breaks
