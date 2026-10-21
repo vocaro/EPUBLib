@@ -223,7 +223,10 @@ continues to describe the authored spine resource.
   renderer reads them, and takes time linear in the CSS.
   Stylesheet text is sanitized together so XML text/CDATA boundaries do not split declarations.
   CSS is read by Unicode scalar, so a combining mark after a quote, backslash, comma or bracket
-  hides no delimiter ([#248](https://github.com/vocaro/EPUBLib/issues/248)). An embedded font's
+  hides no delimiter ([#248](https://github.com/vocaro/EPUBLib/issues/248)). The serializer
+  writes a tab or carriage return in an attribute value, and a carriage return in text, as a
+  character reference, so the renderer reads a class list, text and the id an `href` names as
+  the book has them ([#249](https://github.com/vocaro/EPUBLib/issues/249)). An embedded font's
   own family name, which comes from the book's font file, stands for the family a drawing names
   only when it holds nothing but letters, marks, digits, spaces and `-`, `_`, `.`, `&` and `+`.
   The renderer's direct entry point continues to refuse filters, including commented and
