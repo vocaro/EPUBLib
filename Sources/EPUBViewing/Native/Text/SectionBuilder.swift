@@ -102,7 +102,7 @@ final class SectionBuildState {
     /// Counters and quotes for generated content, shared by the section's writer and those it
     /// starts for table cells and captions.
     var generated = GeneratedContentState()
-    var notes: [String: NSAttributedString] = [:]
+    var notes: [EPUBElementID: NSAttributedString] = [:]
     /// The body's computed style: notes are styled like body text.
     var bodyStyle: ComputedStyle
     /// The publication's first language: a hint for typesetting text whose document declares
@@ -230,8 +230,8 @@ final class SectionBuildState {
 
     /// Legacy named anchors follow the section's fragment registration: an id takes precedence,
     /// an anchor with an id uses that id, and the first eligible name in document order wins.
-    private lazy var namedAnchors: [String: ContentNode] = {
-        var names: [String: ContentNode] = [:]
+    private lazy var namedAnchors: [EPUBElementID: ContentNode] = {
+        var names: [EPUBElementID: ContentNode] = [:]
         for node in document.nodes where node.isHTML("a") && node.id == nil {
             if let name = node.attribute("name"), !name.isEmpty, document.element(id: name) == nil, names[name] == nil {
                 names[name] = node
@@ -293,19 +293,19 @@ final class SectionBuildState {
     /// note whatever order the notes are reached in.
     private lazy var noteIDs: [Int: [String]] = {
         let enclosing = enclosingNote, hidden = insideHiddenFootnote
-        var ids: [Int: [String]] = [:], taken = Set<String>()
+        var ids: [Int: [String]] = [:], taken = Set<EPUBElementID>()
         // First each note's own id and those of its leading descendants, as far as a nested note.
         for note in document.nodes where note.isElement && enclosing[note.order] == note.order {
             var leading: ContentNode? = note
             while let node = leading, enclosing[node.order] == note.order {
-                if let id = noteName(of: node), taken.insert(id).inserted { ids[note.order, default: []].append(id) }
+                if let id = noteName(of: node), taken.insert(EPUBElementID(id)).inserted { ids[note.order, default: []].append(id) }
                 leading = node.children.first(where: \.isElement)
             }
         }
         // Then every other id inside a footnote hidden from the flow, for the nearest note
         // around it. An empty id adds no name here.
         for node in document.nodes where node.isElement && hidden[node.order] {
-            if let id = noteName(of: node), !id.isEmpty, taken.insert(id).inserted { ids[enclosing[node.order], default: []].append(id) }
+            if let id = noteName(of: node), !id.isEmpty, taken.insert(EPUBElementID(id)).inserted { ids[enclosing[node.order], default: []].append(id) }
         }
         return ids
     }()
@@ -377,7 +377,7 @@ final class SectionBuildState {
         nesting += 1
         let previousMode = noteMode
         defer { nesting -= 1; noteMode = previousMode }
-        let names = Set(ids), depth = namedNoteDepth[element.order], reported = report.report
+        let names = Set(ids.map { EPUBElementID($0) }), depth = namedNoteDepth[element.order], reported = report.report
         noteMode = .note(ids: names, depth: depth)
         let counters = generated
         let writer = SectionWriter(state: self, mode: .note(ids: names, depth: depth))

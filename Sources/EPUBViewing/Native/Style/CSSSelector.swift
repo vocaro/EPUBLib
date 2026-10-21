@@ -1,3 +1,4 @@
+import EPUBCore
 import Foundation
 
 /// The namespaces a stylesheet declares with `@namespace`.
@@ -56,7 +57,8 @@ indirect enum CSSPseudoClass: Hashable, Sendable {
 }
 
 enum CSSSimpleSelector: Hashable, Sendable {
-    case id(String)
+    /// Matches the id with the same code units, as `getElementById` compares them.
+    case id(EPUBElementID)
     case className(String)
     case attribute(CSSAttributeSelector)
     case pseudo(CSSPseudoClass)
@@ -142,7 +144,7 @@ struct CSSComplexSelector: Hashable, Sendable {
             let compound = compounds[index + 1]
             for simple in compound.simple {
                 switch simple {
-                case .id(let id): names.append(.init(kind: .id, value: id))
+                case .id(let id): names.append(.init(kind: .id, value: id.string))
                 case .className(let name): names.append(.init(kind: .className, value: name))
                 default: break
                 }
@@ -236,7 +238,7 @@ struct CSSSiblingSearchIndex {
 }
 
 enum CSSBucketKey: Hashable {
-    case id(String), className(String), type(String), attribute(String)
+    case id(EPUBElementID), className(String), type(String), attribute(String)
     /// An attribute's whole value (`=`) or one of its whitespace-separated tokens (`~=`).
     case attributeValue(String, String)
     case universal
@@ -260,6 +262,8 @@ struct AncestorFilter: Sendable {
     struct Name: Hashable {
         enum Kind: UInt8 { case id, className, type }
         let kind: Kind
+        /// Hashed as a `String`, so canonically equivalent ids share bits: the filter is coarser
+        /// than an id selector's match, and never rejects what it matches.
         let value: String
         /// Two bit positions out of 256.
         var bits: (UInt8, UInt8) {
@@ -438,7 +442,7 @@ struct CSSSelectorParser {
             switch component {
             case .token(.hash(let value, let isID)):
                 guard isID, pseudoElement == nil else { throw .invalid }
-                compound.simple.append(.id(value)); specificity.a += 1; index += 1
+                compound.simple.append(.id(EPUBElementID(value))); specificity.a += 1; index += 1
             case .token(.delim(".")):
                 guard index + 1 < components.count, case .token(.ident(let name)) = components[index + 1], pseudoElement == nil else { throw .invalid }
                 compound.simple.append(.className(name)); specificity.b += 1; index += 2
