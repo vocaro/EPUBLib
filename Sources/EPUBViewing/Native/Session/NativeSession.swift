@@ -680,13 +680,8 @@ import SwiftUI
         // A failed multi-section bookmark set must never fall back to its first segment.
         guard range.start.section == range.end.section,
               let section = book.section(range.start.section), section.document.canResolveCFIs else { return nil }
-        let endOffset = range.end.section == range.start.section ? range.end.offset : section.string.length
-        guard let start = section.domPosition(range.start),
-              let end = range.end.tableCell != nil || endOffset > range.start.offset
-                ? section.domPosition(range.end.section == range.start.section ? range.end : ReaderTextPosition(section: range.start.section, offset: endOffset), isEnd: true) : start else {
-            return spine.bases[range.start.section]
-        }
-        return spine.cfi(spineIndex: range.start.section, start: start, end: end, in: section.document)
+        guard let dom = section.domRange(range) else { return spine.bases[range.start.section] }
+        return spine.cfi(spineIndex: range.start.section, start: dom.start, end: dom.end, in: section.document)
     }
 
     /// Split at document boundaries; nonlinear sections and empty endpoints contribute no CFI.

@@ -134,11 +134,12 @@ enum SectionContentSupport {
         return violations
     }
 
-    /// A rendered range becomes a DOM range (`position(at:)` to `endPosition(at:)`) and back
+    /// A rendered range becomes a DOM range (`domRange`, as the session makes a CFI) and back
     /// (`location(of:)`, `location(of:isEnd:)`). Checked for every pair of locations when the
-    /// text is short, else for pairs around every span boundary. For a range holding at least
-    /// one mapped character:
-    /// - the DOM range is never inverted;
+    /// text is short, else for pairs around every span boundary. The DOM range is never inverted:
+    /// `position(at:)` to `endPosition(at:)` when it holds a mapped character, which `domRange`
+    /// must not reorder. For a range holding only generated text, it comes back holding none of
+    /// the book's characters. For a range holding at least one mapped character:
     /// - it comes back as a range that contains it;
     /// - an end that lies in an exact span comes back with no other mapped character added (generated
     ///   ones may be: an isolate's closing character can sit between two spans of one text node).
@@ -158,12 +159,22 @@ enum SectionContentSupport {
         for start in all where start < map.length {
             for end in all where end > start {
                 guard violations.count < limit else { return violations }
-                guard mapped[start..<end].contains(true) else { continue }
-                guard let first = map.position(at: start, in: document), let last = map.endPosition(at: end, in: document) else {
-                    violations.append("no position for \(start)..<\(end)"); continue
+                guard let (first, last) = map.domRange(start..<end, in: document) else {
+                    // Text with no mapped character at all has no DOM position: a CFI names its section alone.
+                    if !map.spans.isEmpty { violations.append("no position for \(start)..<\(end)") }
+                    continue
                 }
                 if last < first { violations.append("\(start)..<\(end) is an inverted DOM range"); continue }
                 let lower = map.location(of: first), upper = map.location(of: last, isEnd: true)
+                guard mapped[start..<end].contains(true) else {
+                    if lower < upper, mapped[lower..<upper].contains(true) {
+                        violations.append("\(start)..<\(end) holds only generated text but came back as \(lower)..<\(upper)")
+                    }
+                    continue
+                }
+                if first != map.position(at: start, in: document) || last != map.endPosition(at: end, in: document) {
+                    violations.append("\(start)..<\(end) holds the book's text, but its DOM range is not its ends' positions")
+                }
                 if (mapped[start] && lower > start) || (mapped[end - 1] && upper < end) || lower > upper {
                     violations.append("\(start)..<\(end) came back as \(lower)..<\(upper), which does not contain it")
                 } else if (mapped[start] && exact[start] && lower < start && mapped[lower..<start].contains(true))
@@ -175,12 +186,14 @@ enum SectionContentSupport {
         return violations
     }
 
-    /// Every DOM position (each offset of each text node, each element start) has a rendered
-    /// location inside the text, and locations never decrease in document order.
+    /// Every DOM position (each offset of each text node, each element start, the document's end)
+    /// has a rendered location inside the text, and locations never decrease in document order.
     static func locationViolations(_ text: SectionText) -> [String] {
         var previous = 0, previousEnd = 0
         for node in text.document.nodes {
-            for offset in 0...(node.isText ? node.utf16Length : 0) {
+            // The last node is followed by the document's end, which is just after it when it is an element.
+            let offsets = node.isText ? node.utf16Length : node === text.document.nodes.last ? 1 : 0
+            for offset in 0...offsets {
                 let position = DOMPosition(node, offset)
                 let location = text.map.location(of: position), end = text.map.location(of: position, isEnd: true)
                 guard location >= previous, location <= text.string.length, end >= previousEnd, end <= text.string.length else {

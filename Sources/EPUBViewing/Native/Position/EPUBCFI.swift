@@ -10,7 +10,8 @@ import Foundation
 /// EPUB Canonical Fragment Identifiers, generated and resolved exactly as foliate-js does, so a
 /// CFI the WebKit reader recorded names the same position here.
 ///
-/// Resolution yields `DOMPosition`s, which can only name a text offset or an element's start.
+/// Resolution yields `DOMPosition`s, which can only name a text offset, an element's start or
+/// the document's end.
 /// foliate-js's DOM ranges map onto them as follows, each naming the same place in the text:
 /// - a step into a text chunk names that text node, its offset clamped to the node (foliate threw
 ///   on a stale offset, or on a merged chunk without one);
@@ -19,7 +20,8 @@ import Foundation
 /// - the virtual `before` index (`/0`) names the start of the element being indexed, as foliate's
 ///   `setStartBefore` put the boundary just before it;
 /// - the virtual `after` index (`n + 2`) names the first node after that element's subtree, or
-///   the end of the document's last node when nothing follows (foliate's `setStartAfter`);
+///   the document's end when nothing follows (foliate's `setStartAfter`): the end of its last
+///   node, or just after that node when it is an element (`ContentDocument.end`);
 /// - the virtual `first` and `last` indices name the start of the first or last child element,
 ///   as foliate's `firstChild`/`lastChild` did (with a trailing comment, which `ContentDocument`
 ///   does not keep, foliate's `last` landed after that element instead);
@@ -494,16 +496,25 @@ enum EPUBCFI {
     }
 
     /// A position's steps. foliate threw for the root element itself, which has no step; its
-    /// start is its first child's start here.
-    private static func steps(for position: DOMPosition, indices: ChildIndexCache? = nil,
+    /// start is its first child's start here. Just after an element (the document's end, when
+    /// its last node is one) is its parent's virtual `after` index: nothing lies between the two,
+    /// since that element is the last child, and foliate's `setStartAfter` and `setEndAfter`
+    /// read the index there.
+    private static func steps(for position: DOMPosition, in document: ContentDocument, indices: ChildIndexCache? = nil,
                               assertingIDs: Bool = true) -> [Expression.Step] {
+        var position = position
+        if position.node.isElement, position.offset > 0 { position = document.position(after: position.node) }
         var node = position.node, offset = position.offset
         if node.parent == nil {
             guard let first = node.children.first else { return [] }
             node = first; offset = 0
         }
         if node.isText { offset = min(max(offset, 0), node.utf16Length) }
-        return steps(to: node, offset: offset, indices: indices, assertingIDs: assertingIDs)
+        var steps = steps(to: node, offset: offset, indices: indices, assertingIDs: assertingIDs)
+        if node.isElement, offset > 0, !steps.isEmpty {
+            steps[steps.count - 1] = Expression.Step(index: steps[steps.count - 1].index + 2)
+        }
+        return steps
     }
 
     /// foliate `fromRange` within one content document: a local path (no `epubcfi(` wrapper, no
@@ -514,10 +525,10 @@ enum EPUBCFI {
                           indices: ChildIndexCache? = nil, assertingIDs: Bool = true) -> String {
         guard document.canResolveCFIs else { return "" }
         let (start, end) = end < start ? (end, start) : (start, end)
-        var startSteps = steps(for: start, indices: indices, assertingIDs: assertingIDs)
+        var startSteps = steps(for: start, in: document, indices: indices, assertingIDs: assertingIDs)
         if !startSteps.isEmpty { startSteps[0].resource = document.cfiResource }
         if start == end { return pathString([startSteps]) }
-        var endSteps = steps(for: end, indices: indices, assertingIDs: assertingIDs)
+        var endSteps = steps(for: end, in: document, indices: indices, assertingIDs: assertingIDs)
         if !endSteps.isEmpty { endSteps[0].resource = document.cfiResource }
         return innerString(buildRange(from: Expression(path: [startSteps]), to: Expression(path: [endSteps])))
     }
@@ -572,10 +583,7 @@ enum EPUBCFI {
             guard node.isText else { return DOMPosition(node, 0) }
             return DOMPosition(node, min(max(offset ?? 0, 0), node.utf16Length))
         case .before(let node)?: return DOMPosition(node, 0)
-        case .after(let node)?:
-            if node.subtreeEnd + 1 < document.nodes.count { return DOMPosition(document.nodes[node.subtreeEnd + 1], 0) }
-            let last = document.nodes[document.nodes.count - 1]
-            return DOMPosition(last, last.utf16Length)
+        case .after(let node)?: return document.position(after: node)
         case nil: return nil
         }
     }

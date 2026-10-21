@@ -86,7 +86,10 @@ enum ContentNamespace {
 }
 
 /// A position in a content document, with DOM Range semantics restricted to what a CFI can name:
-/// a UTF-16 offset in a text node, or the start (`offset == 0`) of an element.
+/// a UTF-16 offset in a text node, or the start (`offset == 0`) of an element. The one place
+/// neither names is the document's end when its last node is an element (an image or a rule
+/// with nothing after it): that is the element with `offset == 1`, just after it
+/// (`ContentDocument.end`).
 struct DOMPosition: Hashable, Sendable {
     let node: ContentNode
     let offset: Int
@@ -169,6 +172,18 @@ final class ContentDocument: @unchecked Sendable {
     var body: ContentNode? { root.elementChildren.first { $0.isHTML("body") } }
     /// Document language: `xml:lang`/`lang` on the root or body.
     var language: String? { root.language ?? body?.language }
+
+    /// The document's end: after its last node's last character, or just after its last node
+    /// when that is an element, which has no children since nothing follows it.
+    var end: DOMPosition {
+        let last = nodes[nodes.count - 1]
+        return DOMPosition(last, last.isText ? last.utf16Length : 1)
+    }
+
+    /// The position just after `node`'s subtree: the next node's start, or the document's end.
+    func position(after node: ContentNode) -> DOMPosition {
+        node.subtreeEnd + 1 < nodes.count ? DOMPosition(nodes[node.subtreeEnd + 1], 0) : end
+    }
 
     /// The first rendered-order node at or after `position`'s node that is a text node.
     func nextTextNode(from node: ContentNode) -> ContentNode? {
