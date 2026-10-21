@@ -206,7 +206,8 @@ continues to describe the authored spine resource.
   viewBox coordinates, and one omitted dimension follows the image's intrinsic ratio.
   Other aspect fits, transforms and nested viewports use the SVG renderer
   ([#187](https://github.com/vocaro/EPUBLib/issues/187)). Archive raster references are resolved
-  and bounded before rendering; scripts,
+  and bounded before rendering, and images in `data:` URLs read and bounded as they are
+  (**Data URLs**, below); scripts,
   animation, foreign content and external resources are omitted with a disclosure. Manifest
   image fallbacks apply inside SVG as well. Recursive preparation shares one memo and work
   budget per drawing: 128 request/candidate misses, 16 MiB each of loaded source and serialized
@@ -238,20 +239,26 @@ continues to describe the authored spine resource.
   rebuild script and redistribution notices are in [Vendor/Resvg](../Vendor/Resvg/README.md).
 - **Data URLs.** An image a document holds in a `data:` URL, as EPUB 3.3 §3.7 permits, is shown
   as one from the archive is: an `<img>`, and an `<object>` or `<embed>` whose `type` names an
-  image ([#134](https://github.com/vocaro/EPUBLib/issues/134)). The URL is read as browsers read
+  image ([#134](https://github.com/vocaro/EPUBLib/issues/134)); and an SVG `<image>`, in a drawing
+  in the document, in one from the archive, in one inside another, and in an SVG that is that one
+  image ([#657](https://github.com/vocaro/EPUBLib/issues/657)). The URL is read as browsers read
   it, by the Fetch standard's data: URL processor (`DataURL`): base64, broken by white space or
   without padding, or percent-encoded. Its type stands for a manifest's media type, so one that
   is not an image's (`text/plain`, where it names none) is not shown. Its bytes go to the same
   bitmap decoder and SVG sanitizer under the same limits, and decode to no more than the 32 MiB
   the archive holds of one resource by default; the document holding the URL is held to less.
-  A drawing in a `data:` URL has no base in the archive, so a reference in it names no file. A
-  `data:` URL that is no usable image shows its alternative text and is disclosed as an image
-  that could not be shown. Elsewhere `data:` URLs are not read: in an SVG `<image>`, inline or
-  in a file (the drawing is shown without it, disclosed); in an SVG that is that one image,
-  which shows its fallback text; in a MathML `mglyph`; in an `<object>` or `<embed>` with no
-  image `type`; and in a stylesheet `<link>`, `@import` or `@font-face`. A link to one is
-  refused as a link outside the book is, and so never opens as a document of its own
-  (RS 3.3 §3.4).
+  Inside a drawing, an image in a `data:` URL is prepared as an archive image there is: no more
+  than 8 MiB, its pixels counted with the drawing's other images, its bytes and work charged to
+  the drawing's preparation budget, and one URL given twice prepared once. The renderer is given
+  the PNG it decodes to, as it is an archive image's, never the book's URL, and the drawing is
+  screened before it is prepared and again after. A drawing in a `data:` URL has no base in the
+  archive, so a reference in it names no file, inside another drawing as anywhere. A `data:` URL
+  that is no usable image shows its alternative text and is disclosed as an image that could not
+  be shown; inside a drawing it is left out and disclosed as an archive image there that cannot
+  be decoded is, and is never counted as a resource refused from the internet. Elsewhere `data:`
+  URLs are not read: in a MathML `mglyph`; in an `<object>` or `<embed>` with no image `type`;
+  and in a stylesheet `<link>`, `@import` or `@font-face`. A link to one is refused as a link
+  outside the book is, and so never opens as a document of its own (RS 3.3 §3.4).
 - **Image contrast.** In dark appearance, transparent images containing dark strokes receive
   a white backdrop so diagram edges and labels remain legible. Their authored colors and
   publication bytes are preserved. Opaque images and transparent light artwork retain their
