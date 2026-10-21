@@ -3,6 +3,9 @@
 ## Unreleased
 
 - Ignore a `background` declaration with a value the reader does not know, such as a gradient prefixed for another engine or an unknown keyword, so the colour an earlier declaration gave stays, where it was cleared ([#120](https://github.com/vocaro/EPUBLib/issues/120)).
+- Read past the white space round a contents, landmark, page-list, NCX, guide, manifest or rootfile reference as URL parsing does, so a link written `href=" one.xhtml#start"` names `OPS/one.xhtml#start` instead of no file ([#76](https://github.com/vocaro/EPUBLib/issues/76)).
+- Find a book's NCX by its media type when the spine's `toc` attribute is missing or names no item, where an EPUB 2 book opened with no contents or page list ([#169](https://github.com/vocaro/EPUBLib/issues/169)).
+- Make the IDPF font obfuscation key from the unique identifier with only the space, tab, carriage return and line feed removed, as EPUB 3.3 says, where white space outside ASCII, a zero-width space at its ends and a mark after a space were removed too and the font was decoded to garbage ([#82](https://github.com/vocaro/EPUBLib/issues/82)).
 - Default simulator VoiceOver activation to guarded cursor dispatch on pinned iOS 27.2 and announce link destinations through its layout handler before screen updates ([#495](https://github.com/vocaro/EPUBLib/issues/495)).
 - Name the language of each line, heading, link and table cell to VoiceOver on iPhone and iPad, part by part where a line mixes languages ([#65](https://github.com/vocaro/EPUBLib/issues/65)).
 - Use MathMLLayout’s native wrapping, elementary-math layout and localized generated readings, with long inline formulas flowing across text lines ([#25](https://github.com/vocaro/EPUBLib/issues/25)).
