@@ -9,6 +9,20 @@ import tempfile
 import unittest
 
 SCRIPTS = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SCRIPTS))
+from _engineering import toolkit_location
+
+
+def engineering_configuration():
+    """This checkout's engineering.json, naming the toolkit its own adapters find (#701).
+
+    The copies run from a temporary folder with an environment of their own, so neither
+    VOCARO_ENGINEERING_ROOT nor the main checkout of a worktree reaches them: they are given
+    the toolkit's absolute path.
+    """
+    configuration = json.loads((SCRIPTS.parent / "engineering.json").read_text())
+    configuration["toolkit"]["path"] = str(toolkit_location(SCRIPTS.parent))
+    return configuration
 
 
 class ScriptTestCase(unittest.TestCase):
@@ -21,8 +35,7 @@ class ScriptTestCase(unittest.TestCase):
         for name in ("hosted-run.py", "run-voiceover-sessions.py", "run-voiceover-mac.py"):
             shutil.copyfile(SCRIPTS / name, self.scripts / name)
         shutil.copyfile(SCRIPTS / "_engineering.py", self.scripts / "_engineering.py")
-        configuration = json.loads((SCRIPTS.parent / "engineering.json").read_text())
-        configuration["toolkit"]["path"] = str((SCRIPTS.parent / configuration["toolkit"]["path"]).resolve())
+        configuration = engineering_configuration()
         configuration["hostedRepositories"] = [configuration["repository"]]
         (self.root / "engineering.json").write_text(json.dumps(configuration))
         self.bin = self.root / "bin"
