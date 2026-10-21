@@ -2651,7 +2651,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   one is: UIKit asks for that notification after every scroll that succeeds, and VoiceOver
   goes on reading from its handling of it. Reading on, it played its page sound and did
   not say the words. What it read after the turn is its own and the host's
-  ([#554](https://github.com/vocaro/EPUBLib/issues/554)): in the sample, whose controls
+  ([#554](https://github.com/vocaro/EPUBLib/issues/554)): in the reader screen the VoiceOver lanes run, whose controls
   stand above the reader, it read on from the top of the screen, the controls and then the
   new page from its first line, every line once and in order through each turn, and with
   no controls there it stopped after the turn. After the turn VoiceOver looks among the
