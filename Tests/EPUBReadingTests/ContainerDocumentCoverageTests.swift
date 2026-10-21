@@ -76,6 +76,13 @@ final class ContainerDocumentCoverageTests: XCTestCase {
         XCTAssertEqual(book.tableOfContents.first?.href, "B%C3%BCcher/one.xhtml#start")
     }
 
+    func testANamedReferenceInARootfilePathIsReadAsInThePackageDocument() throws {
+        // HTML's names from the HTML Standard's table, and a name it lacks as written, where the
+        // parser would refuse the container (https://github.com/vocaro/EPUBLib/issues/184).
+        let book = try EPUBPublication.open(data: relocated(to: "OPS/", package: "\u{159}&bogus;.opf", fullPath: "OPS/&rcaron;&bogus;.opf"))
+        XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/two.xhtml"])
+    }
+
     func testAPercentEncodedRootfilePathNamesTheDecodedFile() throws {
         // EPUB 3.3 §4.2.6.3.1.3: full-path is a path-relative-scheme-less-URL string, so a space
         // in the path is written %20.

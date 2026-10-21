@@ -86,6 +86,19 @@ final class ExtractionInputCoverageTests: XCTestCase {
         XCTAssertEqual(section.anchors, ["café": EPUBTextMark(offset: 0, separator: 0)])
     }
 
+    func testTheHTMLStandardsNamesDecodeInTextAttributesAndTitlesWithOrWithoutADoctype() throws {
+        // The viewer's table (#184): names HTML 4 lacks, those of two scalars, and HTML 5's U+27E8
+        // and U+27E9 for `&lang;` and `&rang;`, where libxml2's HTML 4 table has U+2329 and U+232A.
+        for prolog in ["", xhtml11] {
+            let section = try book(prolog + page("<p id='Dvo&rcaron;&aacute;k'>Dvo&rcaron;&aacute;k &check; &lang;1&rang; &NotEqualTilde;</p>",
+                                                 head: "<title>&ccaron;&comma;&Afr;</title>")).textSection(at: 0)
+            XCTAssertEqual(section.title, "\u{10D},\u{1D504}", prolog)
+            XCTAssertEqual(section.text, "Dvo\u{159}\u{E1}k \u{2713} \u{27E8}1\u{27E9} \u{2242}\u{338}", prolog)
+            XCTAssertEqual(section.anchors, ["Dvo\u{159}\u{E1}k": EPUBTextMark(offset: 0, separator: 0)], prolog)
+            XCTAssertFalse(section.recoveredAsHTML, prolog)
+        }
+    }
+
     func testUnknownMiscasedAndUnterminatedReferencesAreMalformedInTextAttributesAndTitles() throws {
         for (body, head) in [
             ("<p>a&NBSP;b</p>", "<title>T</title>"), ("<p>a&bogus;b</p>", "<title>T</title>"),
@@ -94,7 +107,8 @@ final class ExtractionInputCoverageTests: XCTestCase {
             ("<p>a&abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz;b</p>", "<title>T</title>"), ("<p>a & b</p>", "<title>T</title>"),
         ] {
             // With an external DOCTYPE an undeclared name is no well-formedness error, so the
-            // reader itself must refuse it; without one the parser does.
+            // reader itself must refuse it; without one the parser does. The viewer reads such a
+            // section as HTML, as recovery does, keeping a name HTML does not know as written.
             assertMalformed(try book(xhtml11 + page(body, head: head)), body + head)
             assertMalformed(try book(page(body, head: head)), body + head)
         }
