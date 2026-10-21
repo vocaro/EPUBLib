@@ -64,6 +64,17 @@ before starting a run. The idle-CPU recipe [reported in #62](https://github.com/
 is a heuristic from one session, not a gate requirement or an acceptance cutoff. Host activity
 alone does not invalidate a passing run.
 
+When several branches are ready at once, one gate can serve them all. Merge them onto `main` in
+a local branch that is not pushed, keeping every branch's changelog line, run the gate there,
+and say on each pull request which commit ran and which heads it held. A filtered Mac run does
+not stand in for the iOS suites. On 2026-10-21 such a gate over ten branches, each of whose own
+Mac runs had passed, found three iOS-only failures in two of them: a test helper that drew
+images upside down under UIKit
+([#664](https://github.com/vocaro/EPUBLib/pull/664#issuecomment-6309444868)), and a frozen iOS
+layout expectation that a change to float grouping moved
+([#666](https://github.com/vocaro/EPUBLib/pull/666)). Before opening a pull request that changes
+drawing, layout or pagination, run its classes on a simulator as well.
+
 The Mac suites need the screen unlocked and the display awake. AppKit runs a scroll view's
 animation from the display's refresh, so while the display sleeps it does not advance, and
 `ScrolledAccessibilityReadTests.testWheelAndTrackpadAfterAReadKeepTheTextOnScreen` times out
