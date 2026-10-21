@@ -7,6 +7,30 @@ struct ReaderTablePosition: Hashable, Sendable {
     var table: Int
     var cell: Int
     var offset: Int
+    /// The same place in a table nested in the cell: that table, its cell and the offset in
+    /// that cell's characters, and so on for a table nested deeper. `offset` is then where the
+    /// nested table is in this cell's characters, as a section offset is for a table in the
+    /// section, and the nested place tells which continuation of a nested row draws it. nil
+    /// for a place in the cell's own text.
+    var nested: ReaderTablePosition? {
+        get { inner.first }
+        set { inner = newValue.map { [$0] } ?? [] }
+    }
+    /// Where `nested` is kept: a value cannot hold one of its own type directly.
+    private var inner: [ReaderTablePosition] = []
+
+    init(table: Int, cell: Int, offset: Int, nested: ReaderTablePosition? = nil) {
+        self.table = table; self.cell = cell; self.offset = offset
+        self.nested = nested
+    }
+
+    /// Places in one row in reading order, by cell and offset, and then by their places in the
+    /// table nested there. A place in no cell (nil) comes first.
+    static func precedes(_ a: Self?, _ b: Self?) -> Bool {
+        let left = (a?.cell ?? -1, a?.offset ?? -1), right = (b?.cell ?? -1, b?.offset ?? -1)
+        guard left == right, a?.nested != nil || b?.nested != nil else { return left < right }
+        return precedes(a?.nested, b?.nested)
+    }
 }
 
 final class ReaderDetachedTextMap: NSObject, @unchecked Sendable {
@@ -86,32 +110,48 @@ extension SectionText {
     }
 
     /// Old bookmarks naming a table element still use the attachment unit. Only CFIs naming
-    /// a cell or its descendants enter cell space.
+    /// a cell or its descendants enter cell space, and those naming a cell of a table nested
+    /// in it enter that cell's too, at any depth (`ReaderTablePosition.nested`).
     func renderedPosition(_ position: DOMPosition, isEnd: Bool = false) -> ReaderTextPosition {
-        let coarse = map.location(of: position, isEnd: isEnd)
-        // Ordinary body positions never scan table cells. Locate the enclosing unit with the
-        // same source-ordered binary search the section's text map uses.
+        guard let found = Self.cell(holding: position, map: map, string: string, document: document),
+              let offset = found.table.sourceRowOffsets[found.table.cells[found.cell].row] else {
+            return ReaderTextPosition(section: spineIndex, offset: map.location(of: position, isEnd: isEnd))
+        }
+        return ReaderTextPosition(section: spineIndex, offset: offset,
+            tableCell: tablePosition(position, isEnd: isEnd, in: found))
+    }
+
+    /// `position` as a place in the cell `found`, and in each table nested there that holds it.
+    private func tablePosition(_ position: DOMPosition, isEnd: Bool,
+                               in found: (table: TableModel, cell: Int, map: TextMap)) -> ReaderTablePosition {
+        var result = ReaderTablePosition(table: found.table.sourceOrder, cell: found.cell,
+                                         offset: found.map.location(of: position, isEnd: isEnd))
+        if let inner = Self.cell(holding: position, map: found.map, string: found.table.cells[found.cell].content,
+                                 document: document) {
+            result.nested = tablePosition(position, isEnd: isEnd, in: inner)
+        }
+        return result
+    }
+
+    /// The written cell holding `position` of a table that `string`, mapped by `map`, renders
+    /// as a unit, with the cell's own map. Ordinary positions never scan table cells: the
+    /// enclosing unit is found with the same source-ordered binary search the map uses.
+    private static func cell(holding position: DOMPosition, map: TextMap, string: NSAttributedString,
+                             document: ContentDocument) -> (table: TableModel, cell: Int, map: TextMap)? {
         var low = 0, high = map.spans.count
         while low < high {
             let middle = (low + high) / 2
             if map.spans[middle].node <= position.node.order { low = middle + 1 } else { high = middle }
         }
-        guard low > 0 else { return ReaderTextPosition(section: spineIndex, offset: coarse) }
+        guard low > 0 else { return nil }
         let span = map.spans[low - 1]
         guard span.isUnit, document.nodes[span.node].isHTML("table"),
-              document.nodes[span.node].isAncestor(of: position.node) else {
-            return ReaderTextPosition(section: spineIndex, offset: coarse)
-        }
-        guard span.location < string.length,
+              document.nodes[span.node].isAncestor(of: position.node),
+              span.location < string.length,
               let table = string.attribute(.readerTableModel, at: span.location, effectiveRange: nil) as? TableModel,
               let index = table.sourceCell(containing: position.node.order),
-              let mapping = table.cells[index].textMap,
-              let offset = table.sourceRowOffsets[table.cells[index].row] else {
-            return ReaderTextPosition(section: spineIndex, offset: coarse)
-        }
-        return ReaderTextPosition(section: spineIndex, offset: offset,
-            tableCell: ReaderTablePosition(table: table.sourceOrder, cell: index,
-                offset: mapping.map.location(of: position, isEnd: isEnd)))
+              let mapping = table.cells[index].textMap else { return nil }
+        return (table, index, mapping.map)
     }
 
     /// Actual cell characters rather than a row's spoken equivalent. This preserves exact

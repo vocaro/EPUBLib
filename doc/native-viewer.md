@@ -595,6 +595,12 @@ continues to describe the authored spine resource.
   A page-fit reduction is retained only when it makes the tallest row fit; otherwise the
   table continues at its initial scale. Tall nested rows provide complete-line portions to
   their parent, retaining their source character while their own text continues across pages.
+  A place in a nested table, at any depth, is a place in that table's cell as well as the
+  outer cell's, so a search result, a located passage, a bookmark or a link's target there
+  opens the continuation of the outer row that holds the nested row's continuation drawing
+  it, and continuous scroll brings that nested line to the top. Each named only the outer
+  cell's character for the whole nested table, and opened the row's first page
+  ([#544](https://github.com/vocaro/EPUBLib/issues/544)).
   A cell is laid out with TextKit 1, which applies a paragraph's indents itself. Where a
   paragraph's indents, a list's among them, take the whole column left inside the cell's
   padding, the paragraph keeps the glyph-wide column the reader's other text keeps, its left

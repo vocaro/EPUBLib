@@ -182,12 +182,19 @@ final class TableCoverageTextMappingTests: XCTestCase {
         }
     }
 
+    /// Text in a table inside a cell is that inner table within its outer cell, and a place in
+    /// the inner table's cell too, which tells the continuation that draws it (#544).
     func testTextInATableInsideACellIsThatInnerTableWithinItsOuterCell() throws {
         let (_, section, table) = try fixture()
         let outer = try TableCoverage.cell("inner one inner two", in: table)
+        let inner = try XCTUnwrap(TableCoverage.tables(in: table.cells[outer].content).first)
+        let cell = try TableCoverage.cell("inner one", in: inner)
         let found = try range(of: "inner one", in: section).range
-        XCTAssertEqual(found.start.tableCell, ReaderTablePosition(table: table.sourceOrder, cell: outer, offset: 0))
-        XCTAssertEqual(found.end.tableCell, ReaderTablePosition(table: table.sourceOrder, cell: outer, offset: 1), "the inner table is one character of its cell")
+        XCTAssertEqual(found.start.tableCell, ReaderTablePosition(table: table.sourceOrder, cell: outer, offset: 0,
+            nested: ReaderTablePosition(table: inner.sourceOrder, cell: cell, offset: 0)))
+        XCTAssertEqual(found.end.tableCell, ReaderTablePosition(table: table.sourceOrder, cell: outer, offset: 1,
+            nested: ReaderTablePosition(table: inner.sourceOrder, cell: cell, offset: 9)), "the inner table is one character of its cell")
+        XCTAssertEqual(inner.sourceOrder, section.document.element(id: "n1")?.parent?.parent?.order)
         XCTAssertEqual(section.tablePassage(found), "inner one\tinner two")
         let back = try XCTUnwrap(section.domPosition(found.start))
         XCTAssertTrue(back.node.isHTML("table"))

@@ -281,6 +281,53 @@ import UIKit
         XCTAssertEqual(found, found.sorted())
     }
 
+    /// A search result opens the page whose continuation reads its words: in a cell, in a table
+    /// nested in the cell, and in one nested in that. A match in a nested table mapped to the
+    /// outer cell's character for the whole table, so every one opened the row's first page
+    /// (#544). The first two are #544's, the last two #569's and #377's narrow cells.
+    func testASearchMatchOpensThePageOfTheContinuationThatReadsIt() throws {
+        let words = ["Opening"] + (0..<60).map { "body\($0) words" } + ["Needle"]
+        let tallRow = "<tr><td>" + words.map { "<p>\($0)</p>" }.joined() + "</td><td>y</td></tr>"
+        let manyRows = words.map { "<tr><td>\($0)</td><td>y</td></tr>" }.joined()
+        func nested(_ rows: String) -> String { "<table><tr><td><table>\(rows)</table></td><td>x</td></tr></table>" }
+        let top = "td { vertical-align: top; }", size = CGSize(width: 350, height: 600), quotes = ["Opening", "body30 words", "Needle"]
+        let cases: [(label: String, body: String, css: String, size: CGSize, font: CGFloat, quotes: [String], depth: Int)] = [
+            ("a single tall inner row", nested(tallRow), top, size, 16, quotes, 1),
+            ("many inner rows", nested(manyRows), top, size, 16, quotes, 1),
+            ("a tall row two tables deep", "<table><tr><td>\(nested(tallRow))</td><td>w</td></tr></table>", top, size, 16, quotes, 2),
+            ("many rows two tables deep", "<table><tr><td>\(nested(manyRows))</td><td>w</td></tr></table>", top, size, 16, quotes, 2),
+            ("a list in a padded cell", TableNarrowCellTests.listInPaddedCell, "", CGSize(width: 60, height: 90), 16, ["the again and"], 0),
+            ("#377's nested cell", TableNarrowCellTests.nestedListInPaddedCell, "", CGSize(width: 60, height: 90), 9, ["the again and"], 1),
+        ]
+        /// How many tables deep a place is nested in its cell.
+        func depth(_ cell: ReaderTablePosition?) -> Int { cell?.nested.map { depth($0) + 1 } ?? 0 }
+        for (label, body, css, size, font, quotes, nesting) in cases {
+            let section = try TableCoverage.section(body, css: css, typography: .init(fontSize: font))
+            let paginator = ReaderPaginator(text: section.string, size: size)
+            let pages = paginator.allPages
+            var opened: [Int] = []
+            for quote in quotes {
+                let match = try XCTUnwrap(TextSearch.matches(of: TextSearch.normalizeQuote(quote), in: section.document, locale: nil).first,
+                                          "\(label): \(quote)")
+                let range = SearchResultBuilder.renderedRange(of: match, in: section)
+                XCTAssertNotNil(range.start.tableCell, "\(label): \(quote) is in a cell")
+                XCTAssertEqual(depth(range.start.tableCell), nesting, "\(label): \(quote) is in the innermost table's cell")
+                XCTAssertEqual(depth(range.end.tableCell), nesting, "\(label): and so is its end")
+                XCTAssertTrue(range.start < range.end, "\(label): \(quote) is a range that holds it")
+                // The page is found by what its continuations read, not by any position.
+                let word = Substring(quote.prefix { $0 != " " })
+                let reading = pages.indices.filter { index in
+                    pages[index].tableFragments.contains { $0.attachment.textEquivalent.split(whereSeparator: \.isWhitespace).contains(word) }
+                }
+                XCTAssertEqual(reading.count, 1, "\(label): \(word) is read on one page")
+                let index = paginator.pageIndex(containing: range.start)
+                XCTAssertEqual(index, reading.first, "\(label): \(quote) opens the page that reads it")
+                opened.append(index)
+            }
+            if quotes.count > 1 { XCTAssertEqual(Set(opened).count, quotes.count, "\(label): each match is on a page of its own") }
+        }
+    }
+
     // MARK: Interaction geometry
 
     /// "Visible cells have native text interaction surfaces aligned to their drawn glyphs":
