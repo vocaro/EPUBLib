@@ -79,8 +79,9 @@ public enum SpecConformanceCorpus {
         /// Spine indices read with the forgiving HTML parser.
         public var recovered: Set<Int> = []
         /// Explicit indices strict headless extraction must refuse as malformed. When nil,
-        /// use the viewer's withheld and recovered indices. A viewer-only namespace repair
-        /// can disable CFIs even when the extractor's XML reader accepts the characters.
+        /// use the viewer's withheld and recovered indices. A viewer-only namespace repair (of an
+        /// undeclared prefix) can disable CFIs even when the extractor's XML reader accepts the
+        /// characters; a name that Namespaces in XML forbids, it refuses too (#178).
         public var extractionMalformed: Set<Int>?
         public var checks: [Check] = []
         /// A recommended (SHOULD or MAY) behaviour the reader lacks, or a limit of this run.
@@ -330,8 +331,8 @@ public enum SpecConformanceCorpus {
         "pub-foreign_xml-spine": .init("epub-rs#confreq-rs-foreign", .rendered(0, fallbackShown), .notRendered(0, "Test fails")),
         "pub-foreign_xml-suffix-spine": .init("epub-rs#confreq-rs-foreign", .rendered(0, fallbackShown), .notRendered(0, "Test fails")),
         "pub-xml-external-id": .init("epub-rs#confreq-rs-xml-extid", outOfScope: entities, withheld: [0], .disclosed(.withheld)),
-        "pub-xml-names": .init("epub-rs#confreq-rs-xml-ns", outOfScope: repair, recovered: [0], extractionMalformed: [],
-            note: "the invalid QName is read as HTML under the #102 namespace-error policy; saved positions are refused and disclosed",
+        "pub-xml-names": .init("epub-rs#confreq-rs-xml-ns", outOfScope: repair, recovered: [0],
+            note: "the invalid QName is read as HTML under the #102 namespace-error policy; saved positions are refused and disclosed; strict extraction refuses it (#178)",
             .disclosed(.positionsUnavailable)),
         "pub-xml-non-validating_comment": .init("epub-rs#confreq-rs-xml-nval", .spine(["EPUB/content_001.xhtml", "EPUB/content_002.xhtml"])),
         "pub-xml-non-validating_unclosed": .init("epub-rs#confreq-rs-xml-nval", outOfScope: repair, recovered: [0],

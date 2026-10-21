@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Refuse in strict text extraction a name that Namespaces in XML forbids, such as `<:p>` or `script:`, and read it in recovery as the native reader does, where it was read as `p` or `script` and its text restructured or dropped ([#178](https://github.com/vocaro/EPUBLib/issues/178)).
 - Match CFI ID assertions by their exact code units, and leave out an ID assertion that would make an issued bookmark one `restore` refuses ([#105](https://github.com/vocaro/EPUBLib/issues/105)).
 - Draw nothing in the room of a rule, image, SVG drawing, formula or table that `visibility: hidden` hides, nor of the words shown where an image or formula cannot be, and draw what sets `visibility: visible` again inside it ([#132](https://github.com/vocaro/EPUBLib/issues/132)).
 - Resolve `vmin` and `vmax` against the smaller and the larger side of the reading viewport, where they were read as `vw` and `vh` and wrong in a viewport wider than it is tall, and a rule's or a table's width in viewport units against that viewport rather than its own line ([#123](https://github.com/vocaro/EPUBLib/issues/123)).

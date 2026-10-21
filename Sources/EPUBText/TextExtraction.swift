@@ -53,7 +53,8 @@ extension EPUBPublication {
     /// Extracts one XHTML spine occurrence without a renderer. Call off the main actor for
     /// large documents. All roles and nonlinear entries are retained; hosts choose what to index.
     /// XHTML 1.x named character references (`&nbsp;`) are supported without loading a DTD.
-    /// Markup that is not well-formed XML fails with `malformedContent`.
+    /// Markup that is not well-formed XML fails with `malformedContent`, as does a name that
+    /// Namespaces in XML forbids, such as `<:p>`.
     public func textSection(at index: Int, limits: EPUBTextExtractionLimits = .init()) throws -> EPUBTextSection {
         try textSection(at: index, limits: limits, recoversMalformedMarkup: false)
     }
@@ -214,11 +215,25 @@ private final class XHTMLTextReader {
             guard let reader = xmlReaderForMemory(buffer.baseAddress?.assumingMemoryBound(to: CChar.self),
                 Int32(data.count), nil, nil, options) else { throw ParseFailure.notWellFormed }
             defer { xmlFreeTextReader(reader) }
+            // XML 1.0's Name admits a colon anywhere, and libxml2 reports a name that Namespaces in
+            // XML forbids (`:p`, `script:`, `a:b:c`, a processing instruction's `a:b`) with a
+            // namespace error and reads on. The native reader takes that for markup that is not
+            // well-formed and reads the section as HTML, where `<:p>` is text (#178).
+            let malformedName = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
+            malformedName.initialize(to: false)
+            defer { malformedName.deinitialize(count: 1); malformedName.deallocate() }
+            xmlTextReaderSetStructuredErrorHandler(reader, { flag, error in
+                guard let flag, let error, error.pointee.domain == Int32(XML_FROM_NAMESPACE.rawValue),
+                      error.pointee.code == Int32(XML_NS_ERR_QNAME.rawValue)
+                        || error.pointee.code == Int32(XML_NS_ERR_COLON.rawValue) else { return }
+                flag.assumingMemoryBound(to: Bool.self).pointee = true
+            }, malformedName)
             let result = XHTMLTextReader(limits: limits)
             func string(_ value: UnsafePointer<xmlChar>?) -> String { value.map { String(cString: $0) } ?? "" }
             while true {
                 try Task.checkCancellation()
                 let status = xmlTextReaderRead(reader)
+                guard !malformedName.pointee else { throw ParseFailure.notWellFormed }
                 if status == 0 { break }
                 guard status == 1 else { throw ParseFailure.notWellFormed }
                 switch xmlTextReaderNodeType(reader) {
@@ -232,7 +247,7 @@ private final class XHTMLTextReader {
                         } while xmlTextReaderMoveToNextAttribute(reader) == 1
                         xmlTextReaderMoveToElement(reader)
                     }
-                    try result.start(name, attributes: attributes)
+                    try result.start(Self.split(name), attributes: attributes)
                     if empty { try result.end() }
                 case Int32(XML_READER_TYPE_END_ELEMENT.rawValue): try result.end()
                 case Int32(XML_READER_TYPE_TEXT.rawValue), Int32(XML_READER_TYPE_CDATA.rawValue),
@@ -309,7 +324,10 @@ private final class XHTMLTextReader {
                     attributes[qualified(property.pointee.name, property.pointee.ns)] = value
                     attribute = property.pointee.next
                 }
-                try result.start(qualified(node.pointee.name, node.pointee.ns), attributes: attributes)
+                // libxml2's HTML parser has split an element's name already, at its first colon
+                // where a name stands on each side, and names the element by the rest, whole:
+                // `b:script` of `a:b:script` and `:` of `a::` are unknown elements, as in the reader (#178).
+                try result.start((string(node.pointee.ns?.pointee.prefix), string(node.pointee.name)), attributes: attributes)
                 descends = node.pointee.children != nil
                 if !descends { try result.end() }
             case XML_TEXT_NODE, XML_CDATA_SECTION_NODE:
@@ -351,21 +369,28 @@ private final class XHTMLTextReader {
         return deepest
     }
 
-    private func start(_ name: String, attributes: [String: String]) throws {
+    /// A name's prefix and local part, as libxml2 splits one: at its first colon, where a name
+    /// stands on each side. A name that begins or ends with its colon has no prefix and is read
+    /// whole (#88, #178). The strict path refuses such a name; recovery keeps an attribute's name
+    /// as written, as HTML does, so there `xmlns:` and `:` are attributes that declare nothing.
+    private static func split(_ name: String) -> (prefix: String, local: String) {
+        guard let colon = name.firstIndex(of: ":"), colon != name.startIndex,
+              name.index(after: colon) != name.endIndex else { return ("", name) }
+        return (String(name[..<colon]), String(name[name.index(after: colon)...]))
+    }
+
+    private func start(_ name: (prefix: String, local: String), attributes: [String: String]) throws {
         guard stack.count < limits.depth else { throw EPUBTextExtractionError.limitExceeded("depth") }
         guard elements < limits.elementCount else { throw EPUBTextExtractionError.limitExceeded("elementCount") }
         elements += 1
         var namespaces = stack.last?.namespaces ?? [:]
         for (key, value) in attributes {
             if key == "xmlns" { namespaces[""] = value }
-            else if key.hasPrefix("xmlns:") { namespaces[String(key.dropFirst(6))] = value }
+            else if case let (prefix, local) = Self.split(key), prefix == "xmlns" { namespaces[local] = value }
         }
-        // XML 1.0's Name (and libxml2's HTML parser) admit names made only of colons, which have
-        // no piece to split off. Like libxml2, read such a name whole, as an unprefixed element.
-        let parts = name.split(separator: ":", maxSplits: 1)
-        let local = parts.last.map(String.init) ?? name
-        var uri = namespaces[parts.count == 2 ? String(parts[0]) : ""] ?? ""
-        if recovered, parts.count == 1, uri.isEmpty || uri == "http://www.w3.org/1999/xhtml", local == "math", stack.last?.math == nil {
+        let (prefix, local) = name
+        var uri = namespaces[prefix] ?? ""
+        if recovered, prefix.isEmpty, uri.isEmpty || uri == "http://www.w3.org/1999/xhtml", local == "math", stack.last?.math == nil {
             // HTML places an undeclared <math> subtree in the MathML namespace.
             namespaces[""] = MathTextNode.namespace
             uri = MathTextNode.namespace
@@ -401,9 +426,8 @@ private final class XHTMLTextReader {
         if block { body.lineBreak() }
         if inBody {
             for (key, value) in attributes {
-                let parts = key.split(separator: ":", maxSplits: 1)
-                if parts.count == 2, parts[1] == "type",
-                   namespaces[String(parts[0])] == "http://www.idpf.org/2007/ops" {
+                let (prefix, local) = Self.split(key)
+                if !prefix.isEmpty, local == "type", namespaces[prefix] == "http://www.idpf.org/2007/ops" {
                     semanticTypes.formUnion(value.unicodeScalars.split(whereSeparator: { $0.properties.isWhitespace }).map(String.init))
                 }
             }
