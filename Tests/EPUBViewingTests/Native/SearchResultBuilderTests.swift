@@ -97,6 +97,38 @@ final class SearchResultBuilderTests: XCTestCase {
         XCTAssertFalse(exact.hasMore, "only hidden occurrences follow the last listed one")
     }
 
+    /// Content that renders nothing maps to an empty range at its section's start and end, and to
+    /// a reversed one between rendered text. Both hold no rendered character, so both are empty:
+    /// neither is a result, a passage `.locate` selects or a highlight drawn (#158).
+    func testARangeOfHiddenContentIsEmptyWhereverItSitsInItsSection() throws {
+        let text = try BuilderHarness.build("""
+        <p class="gone">A hidden pin first.</p><p>First pin.</p><p class="gone">A hidden pin between.</p>\
+        <p>Last pin.</p><p class="gone">A hidden pin last.</p>
+        """, rules: [(".gone", { $0.display = .none })])
+        let hidden = matches("hidden pin", in: text).map { SearchResultBuilder.renderedRange(of: $0, in: text) }
+        XCTAssertEqual(hidden.count, 3)
+        XCTAssertTrue(hidden[1].end < hidden[1].start, "between rendered text the range is reversed: \(hidden[1])")
+        XCTAssertEqual(hidden.map(\.isEmpty), [true, true, true], "\(hidden)")
+        XCTAssertFalse(hidden.contains { SearchResultBuilder.isRendered($0) || SearchResultBuilder.isListed($0, in: text) })
+        let shown = try batch("pin", in: text)
+        XCTAssertEqual(shown.results.map(\.contextBefore), ["First ", "Last "])
+        XCTAssertFalse(shown.ranges.contains(where: \.isEmpty))
+
+        // Across sections and table cells alike: a range holds something only when it ends after
+        // it starts.
+        func at(_ section: Int, _ offset: Int, cell: (Int, Int)? = nil) -> ReaderTextPosition {
+            ReaderTextPosition(section: section, offset: offset, tableCell: cell.map { ReaderTablePosition(table: 0, cell: $0.0, offset: $0.1) })
+        }
+        for (start, end, isEmpty) in [
+            (at(0, 4), at(0, 4), true), (at(0, 4), at(0, 5), false), (at(0, 5), at(0, 4), true),
+            (at(0, 9), at(1, 0), false), (at(1, 0), at(0, 9), true),
+            (at(0, 4, cell: (1, 2)), at(0, 4, cell: (1, 6)), false), (at(0, 4, cell: (1, 6)), at(0, 4, cell: (1, 2)), true),
+            (at(0, 4, cell: (2, 0)), at(0, 4, cell: (1, 6)), true), (at(0, 4), at(0, 4, cell: (0, 1)), false),
+        ] {
+            XCTAssertEqual(ReaderTextRange(start: start, end: end).isEmpty, isEmpty, "\(start) to \(end)")
+        }
+    }
+
     func testContextStaysInItsParagraphAndIsCutAtWholeWords() throws {
         let long = (1...40).map { "word\($0)" }.joined(separator: " ")
         let text = try BuilderHarness.build("""
