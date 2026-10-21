@@ -1,4 +1,5 @@
 import CoreGraphics
+import EPUBCore
 import Foundation
 import Synchronization
 
@@ -232,7 +233,7 @@ struct CSSRuleIndex: Sendable {
     private struct AttributeValueKey: Hashable { let name: String; let value: Substring }
 
     private struct Buckets {
-        var byID: [String: [Int32]] = [:]
+        var byID: [EPUBElementID: [Int32]] = [:]
         var byClass: [String: [Int32]] = [:]
         var byType: [String: [Int32]] = [:]
         var byAttribute: [String: [Int32]] = [:]
@@ -683,7 +684,7 @@ struct SelectorMatcher {
         }
         for simple in compound.simple {
             switch simple {
-            case .id(let id): guard node.id == id else { return false }
+            case .id(let id): guard node.id.map { EPUBElementID($0) } == id else { return false }
             case .className(let name): guard facts.classes[element].contains(name) else { return false }
             case .attribute(let attribute): guard matches(attribute, node) else { return false }
             case .pseudo(let pseudo): guard matches(pseudo, element, node) else { return false }

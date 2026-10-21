@@ -682,6 +682,30 @@ struct WriterPackageCoverageTests {
         }
     }
 
+    // Manifest IDs compare code unit for code unit, as XML compares them: `caf\u{E9}` and
+    // `cafe\u{301}` are two items, though `String` compares them equal, and a fallback or spine
+    // item names the one with its own code units.
+    @Test func canonicallyEquivalentResourceIDsAreTwoItems() async throws {
+        let composed = EPUBResource(id: "caf\u{E9}", path: "EPUB/one.xhtml", mediaType: "application/xhtml+xml")
+        let decomposed = EPUBResource(id: "cafe\u{301}", path: "EPUB/two.xhtml", mediaType: "application/xhtml+xml", fallbackID: "caf\u{E9}")
+        let documents = try generate(resources: [composed, decomposed], spine: [.init(resource: decomposed), .init(resource: composed)])
+        expectScalars(try opf(documents).named("item").map { $0.attributes["id"] }, ["nav", composed.id, decomposed.id], "item IDs")
+        expectScalars(try opf(documents).named("itemref").map { $0.attributes["idref"] }, [decomposed.id, composed.id], "spine IDREFs")
+        let publication = try await reopened(documents, content: [composed.path: WriterCoverage.xhtml("<p>One</p>"),
+                                                                  decomposed.path: WriterCoverage.xhtml("<p>Two</p>")])
+        #expect(publication.spine.map(\.resource.path) == [decomposed.path, composed.path])
+        #expect(publication.fallbackChain(for: decomposed).map(\.path) == [decomposed.path, composed.path])
+        // A spine item or fallback that names a declared ID only by canonical equivalence names none.
+        let stray = EPUBResource(id: "cafe\u{301}", path: composed.path, mediaType: composed.mediaType)
+        #expect(throws: EPUBWritingError.invalidPublication("spine references an undeclared resource")) {
+            try generate(resources: [composed], spine: [.init(resource: stray)])
+        }
+        let dangling = EPUBResource(id: "d", path: "EPUB/two.xhtml", mediaType: "application/xhtml+xml", fallbackID: "cafe\u{301}")
+        #expect(throws: EPUBWritingError.invalidPublication("fallback references an undeclared resource: cafe\u{301}")) {
+            try generate(resources: [composed, dangling], spine: [.init(resource: composed)])
+        }
+    }
+
     @Test func navigationTargetsMustBeDeclaredResourcesInsideThePackage() {
         for href in ["EPUB/missing.xhtml", "EPUB/missing.xhtml#x", "one.xhtml", "", "#frag", "META-INF/container.xml", "mimetype", "EPUB"] {
             let expected = EPUBWritingError.invalidPublication("navigation references an undeclared resource: \(href)")

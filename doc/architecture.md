@@ -123,6 +123,9 @@ disclosed:
   document it names. An href that matches no entry names the one entry that differs only in case,
   when there is exactly one. `EPUBResource.fallbackID` retains a designated manifest fallback;
   `fallbackChain(for:)` follows declared IDs in order and stops at a missing or repeated ID.
+  Manifest IDs and the references to them (the spine's `idref`, `fallback`, the NCX `toc`, the
+  EPUB 2 cover and `unique-identifier`) compare code unit for code unit, as XML compares IDs:
+  `caf&#xE9;` and `cafe&#x301;` are two items ([#635](https://github.com/vocaro/EPUBLib/issues/635)).
   Missing and remote declarations remain available to chain traversal, while resource access
   still reads archive-local entries only; the authored spine entries remain unchanged
   ([#78](https://github.com/vocaro/EPUBLib/issues/78)).

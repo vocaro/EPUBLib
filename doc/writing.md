@@ -26,7 +26,10 @@ A target is matched to a declared path by canonical equivalence, so one spelled 
 its fragment is percent-encoded and otherwise kept as given ([#240](https://github.com/vocaro/EPUBLib/issues/240)).
 
 A resource may supply `fallbackID`; the writer emits that manifest relationship and refuses
-undeclared targets or cycles ([#78](https://github.com/vocaro/EPUBLib/issues/78)).
+undeclared targets or cycles ([#78](https://github.com/vocaro/EPUBLib/issues/78)). Resource IDs,
+fallback targets and spine items are matched by the IDs' code units, as XML compares IDs:
+`caf\u{E9}` and `cafe\u{301}` are two resources, and a spine item or fallback that names a
+declared ID only by canonical equivalence is undeclared ([#635](https://github.com/vocaro/EPUBLib/issues/635)).
 
 The producer supplies content XHTML, CSS and media. It owns chapter division, content styles,
 source-page decisions and document reconstruction. Metadata and navigation are XML escaped
