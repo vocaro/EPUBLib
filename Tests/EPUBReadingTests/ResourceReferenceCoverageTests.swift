@@ -60,6 +60,59 @@ final class ResourceReferenceCoverageTests: XCTestCase {
         }
     }
 
+    func testADoubleDotRemovesAnEmptySegmentBeforeItAsURLParsingDoes() throws {
+        // A doubled slash is an empty segment, in the reference and in its base, and `..` removes
+        // it rather than the name before it (https://github.com/vocaro/EPUBLib/issues/605). One
+        // that remains names no entry and is read past, as before.
+        let cases: [(href: String, base: String, expected: String)] = [
+            ("a//../b", "EPUB/nav.xhtml", "EPUB/a/b"),
+            ("a///../../b", "EPUB/nav.xhtml", "EPUB/a/b"),
+            ("a/.//../b", "EPUB/nav.xhtml", "EPUB/a/b"),
+            ("a//./../b", "EPUB/nav.xhtml", "EPUB/a/b"),
+            ("./a//..", "EPUB/nav.xhtml", "EPUB/a"),
+            ("a/b//../../c", "EPUB/nav.xhtml", "EPUB/a/c"),
+            ("x//..//y", "EPUB/nav.xhtml", "EPUB/x/y"),
+            ("/a//../b", "EPUB/nav.xhtml", "a/b"),
+            ("a//../b", "root.opf", "a/b"),
+            ("a//b", "EPUB/nav.xhtml", "EPUB/a/b"),
+            ("./c:x//../b", "EPUB/nav.xhtml", "EPUB/c%3Ax/b"),
+            // A query and a fragment are no part of the path.
+            ("a//../b?q=1#f", "EPUB/nav.xhtml", "EPUB/a/b#f"),
+            ("a//../b#f//..", "EPUB/nav.xhtml", "EPUB/a/b#f//.."),
+            ("a?b//../c", "EPUB/nav.xhtml", "EPUB/a"),
+            // Empty segments in the base.
+            ("../b", "EPUB//nav.xhtml", "EPUB/b"),
+            ("../../b", "EPUB///nav.xhtml", "EPUB/b"),
+            ("../b", "EPUB/a//nav.xhtml", "EPUB/a/b"),
+            ("a//../b", "EPUB//nav.xhtml", "EPUB/a/b"),
+            ("#x", "EPUB//nav.xhtml", "EPUB/nav.xhtml#x"),
+        ]
+        // As Foundation's URL parsing reads it from the container root, with the empty segments
+        // that remain read past.
+        let root = try XCTUnwrap(URL(string: "https://reader.invalid/"))
+        for (href, base, expected) in cases {
+            let what = "\(href.debugDescription) from \(base)"
+            XCTAssertEqual(try ResourceReference.resolve(href, relativeTo: base), expected, what)
+            let url = try XCTUnwrap(URL(string: href, relativeTo: URL(string: base, relativeTo: root))?.absoluteURL, what)
+            XCTAssertEqual(url.host(), "reader.invalid", what)
+            let read = url.path(percentEncoded: false).split(separator: "/").joined(separator: "/") + (url.fragment(percentEncoded: false).map { "#" + $0 } ?? "")
+            XCTAssertEqual(read, expected.removingPercentEncoding, what)
+        }
+        // About to be written, a `..` that removes an empty segment does not climb past the root,
+        // and a name it no longer removes is held to what a written path may hold.
+        XCTAssertEqual(try ResourceReference.resolve("a//../b", relativeTo: "EPUB/nav.xhtml", strict: true), "EPUB/a/b")
+        XCTAssertEqual(try ResourceReference.resolve("a//../../../b", relativeTo: "EPUB/nav.xhtml", strict: true), "b")
+        for href in ["a/../../../b", "./c:x//../b"] {
+            XCTAssertThrowsError(try ResourceReference.resolve(href, relativeTo: "EPUB/nav.xhtml", strict: true), href.debugDescription) {
+                XCTAssertEqual($0 as? EPUBPublicationError, .unsafePath(href), href.debugDescription)
+            }
+        }
+        // Two slashes at the start name a host, here "..".
+        XCTAssertThrowsError(try ResourceReference.resolve("//../b", relativeTo: "EPUB/nav.xhtml")) {
+            XCTAssertEqual($0 as? EPUBPublicationError, .unsafePath("//../b"))
+        }
+    }
+
     func testAQueryIsDroppedFromAReference() throws {
         // It cannot change which archive entry is meant, and is never read.
         let cases = [
