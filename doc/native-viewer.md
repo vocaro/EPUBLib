@@ -2132,7 +2132,8 @@ reserves space around rectangular boxes to keep prose readable rather than repro
 arbitrary overlapping layers.
 
 Widths, minimum/maximum widths and insets resolve points, percentages and viewport units at
-the current column size in pagination and continuous scroll; auto margins center a non-floated
+the current column size in pagination and continuous scroll, `vmin` and `vmax` against the
+smaller and the larger side of the viewport at that size; auto margins center a non-floated
 box. Native paragraph styles retain text alignment, direction and typography. Native text
 retains selection, links, anchors, search and the same exact text-to-DOM mapping as ordinary prose. Resizing and
 reader typography changes recompute geometry from source formatting and retain selection.
@@ -2288,7 +2289,7 @@ item narrower than its container is indented from both sides. Nothing else about
 changes.
 
 - **Heights.** A container has free space when its `height` or `min-height` is definite: points,
-  `vh`/`vw`, a percentage of an ancestor chain of definite heights that starts at the viewport
+  `vh`/`vw`/`vmin`/`vmax`, a percentage of an ancestor chain of definite heights that starts at the viewport
   (`html, body { height: 100% }`), or a sum of those (`calc(98vh - 3em)`, exactly).
   `max-height` caps a definite `height`, `box-sizing: border-box` takes the vertical padding
   and border out of it, and content taller than the box is never clipped: it flows as blocks.
@@ -3036,7 +3037,8 @@ Go: the native viewer is the bundled engine.
   padding and text indents resolve against the live containing content width, including
   constrained flow-box ancestors, and recalculate at resize. Mixed-unit CSS calculations
   and `min`/`max`/`clamp` branch selection still use the nominal media-query viewport;
-  viewport-relative font sizes and media queries remain based on that nominal viewport.
+  viewport-relative font sizes and media queries remain based on that nominal 600 × 800
+  viewport, in which `vmin` is its width and `vmax` its height whatever the reader's shape.
 - Whole-table bookmarks and visible row ranges retain attachment granularity. A resize or
   flow change without a precise cell endpoint returns a continued row to its source position
   rather than preserving its particular visual fragment. A table's captions, and the cells

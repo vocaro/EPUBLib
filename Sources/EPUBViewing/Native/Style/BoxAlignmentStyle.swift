@@ -50,9 +50,37 @@ extension ComputedStyle {
         var hasGridPlacement = false
         /// `height`, `min-height` and `max-height` exactly, when they mix units: nil when the
         /// style's own `Length` is exact (one unit alone, or `auto`).
-        var height: MixedLength?
-        var minHeight: MixedLength?
-        var maxHeight: MixedLength?
+        var height: MixedLength? {
+            get { exactHeights?.values.height }
+            set { updateExactHeights { $0.height = newValue } }
+        }
+        var minHeight: MixedLength? {
+            get { exactHeights?.values.minHeight }
+            set { updateExactHeights { $0.minHeight = newValue } }
+        }
+        var maxHeight: MixedLength? {
+            get { exactHeights?.values.maxHeight }
+            set { updateExactHeights { $0.maxHeight = newValue } }
+        }
+        /// The three behind one reference, nil when none mixes units, as nearly none does: a
+        /// computed style is copied on every nesting level of a table built on a small stack.
+        private var exactHeights: ExactHeights?
+
+        private mutating func updateExactHeights(_ change: (inout ExactHeights.Values) -> Void) {
+            var values = exactHeights?.values ?? ExactHeights.Values()
+            change(&values)
+            exactHeights = values == ExactHeights.Values() ? nil : ExactHeights(values)
+        }
+    }
+
+    /// `BoxAlignment`'s exact heights, shared between the copies of a style.
+    final class ExactHeights: Equatable, Sendable {
+        struct Values: Equatable, Sendable {
+            var height: MixedLength?, minHeight: MixedLength?, maxHeight: MixedLength?
+        }
+        let values: Values
+        init(_ values: Values) { self.values = values }
+        static func == (lhs: ExactHeights, rhs: ExactHeights) -> Bool { lhs === rhs || lhs.values == rhs.values }
     }
 
     /// A length of several units, as `calc(98vh - 3em)` is. `ComputedStyle.Length` holds one
@@ -62,9 +90,19 @@ extension ComputedStyle {
         var points: CGFloat
         /// 0–100 of the containing block's height.
         var percent: CGFloat
-        /// 0–100 of the reading viewport.
+        /// 0–100 of the reading viewport: its width, its height, its smaller and its larger side.
         var viewportWidth: CGFloat
         var viewportHeight: CGFloat
+        var viewportMin: CGFloat
+        var viewportMax: CGFloat
+
+        /// The points and the viewport units in `viewport`: all of the sum but `percent`, which
+        /// needs the containing block.
+        func resolve(viewport: CGSize) -> CGFloat {
+            let smaller = min(viewport.width, viewport.height), larger = max(viewport.width, viewport.height)
+            return points + (viewportWidth * viewport.width + viewportHeight * viewport.height
+                             + viewportMin * smaller + viewportMax * larger) / 100
+        }
     }
 }
 

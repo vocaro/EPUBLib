@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Resolve `vmin` and `vmax` against the smaller and the larger side of the reading viewport, where they were read as `vw` and `vh` and wrong in a viewport wider than it is tall, and a rule's or a table's width in viewport units against that viewport rather than its own line ([#123](https://github.com/vocaro/EPUBLib/issues/123)).
 - Apply a rule whose selector names `epub:type` with an escaped colon, such as `[epub\:type~="footnote"]`, in a section read as HTML, where most such rules never applied ([#111](https://github.com/vocaro/EPUBLib/issues/111)).
 - Ignore a `background` declaration with a value the reader does not know, such as a gradient prefixed for another engine or an unknown keyword, so the colour an earlier declaration gave stays, where it was cleared ([#120](https://github.com/vocaro/EPUBLib/issues/120)).
 - Read past the white space round a contents, landmark, page-list, NCX, guide, manifest or rootfile reference as URL parsing does, so a link written `href=" one.xhtml#start"` names `OPS/one.xhtml#start` instead of no file ([#76](https://github.com/vocaro/EPUBLib/issues/76)).
