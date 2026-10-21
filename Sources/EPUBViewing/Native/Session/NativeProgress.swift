@@ -132,7 +132,7 @@ extension NativeProgress {
 
     /// `anchors` are the built section's (`SectionText.anchors`); an entry whose fragment they do
     /// not hold sits at the section's start, as it does for `title(at:anchor:)` and `pages`.
-    func marks(inSection section: Int, anchors: [String: Int]) -> SectionMarks {
+    func marks(inSection section: Int, anchors: [EPUBElementID: Int]) -> SectionMarks {
         var marks = SectionMarks()
         for entry in entries {
             if entry.section > section { break }

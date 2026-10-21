@@ -19,12 +19,17 @@ EPUBCheck refuses.
 A navigation or stylesheet href is written as the declared path it resolves to, relative to the
 navigation document and percent-encoded as that path's manifest href is, not as it was spelled:
 `EPUB//one.xhtml`, `EPUB/./one.xhtml` and `EPUB/c:x/../one.xhtml` are each written `one.xhtml`.
+A `..` after a doubled slash removes the empty segment, as URL parsing and the reader read it, so
+`EPUB/a//../one.xhtml` is written `a/one.xhtml` ([#605](https://github.com/vocaro/EPUBLib/issues/605)).
 A target is matched to a declared path by canonical equivalence, so one spelled with a decomposed
 `é` for a path declared with a composed one is written as the manifest writes the declared path;
 its fragment is percent-encoded and otherwise kept as given ([#240](https://github.com/vocaro/EPUBLib/issues/240)).
 
 A resource may supply `fallbackID`; the writer emits that manifest relationship and refuses
-undeclared targets or cycles ([#78](https://github.com/vocaro/EPUBLib/issues/78)).
+undeclared targets or cycles ([#78](https://github.com/vocaro/EPUBLib/issues/78)). Resource IDs,
+fallback targets and spine items are matched by the IDs' code units, as XML compares IDs:
+`caf\u{E9}` and `cafe\u{301}` are two resources, and a spine item or fallback that names a
+declared ID only by canonical equivalence is undeclared ([#635](https://github.com/vocaro/EPUBLib/issues/635)).
 
 The producer supplies content XHTML, CSS and media. It owns chapter division, content styles,
 source-page decisions and document reconstruction. Metadata and navigation are XML escaped
@@ -68,6 +73,9 @@ ordered file-backed entries, placing `mimetype` first. The `mimetype` entry's so
 exactly the 20 bytes `application/epub+zip`. Any other content, a trailing line end or space
 included, is refused with `EPUBWritingError.invalidPublication("invalid mimetype")` before an
 archive is created or a source consumed ([#97](https://github.com/vocaro/EPUBLib/issues/97)).
+The entry is written from the bytes checked, and its source is closed after the check and not
+read again, so a source appended to or replaced afterwards, while `progress(0)` runs, does not
+change the archive ([#604](https://github.com/vocaro/EPUBLib/issues/604)).
 It stores the exact mimetype uncompressed, deflates other entries, checks cancellation between
 entries and archive chunks, enforces the uncompressed content-byte budget and removes an
 unfinished archive on failure or cancellation. The destination must be a new local file.

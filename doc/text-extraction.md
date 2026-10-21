@@ -83,7 +83,10 @@ replacement point to that replacement; IDs in structural notation point to their
 Generated delimiters and escapes count toward the existing output budget and subsequent offsets.
 
 `EPUBTextExtractionLimits` bounds input bytes (default 4 MiB), UTF-8 bytes per output field (8 MiB), nesting
-(64 elements) and element count (100,000) per section. A fixed additional safety bound allows
+(64 elements) and element count (100,000) per section. Whatever the nesting limit, libxml2 reads
+no more than 257 levels, and a section nested deeper is `limitExceeded("depth")` on the strict
+path as in recovery; markup that is not well-formed before that depth is still `malformedContent`
+([#91](https://github.com/vocaro/EPUBLib/issues/91)). A fixed additional safety bound allows
 at most 1,024 attribute occurrences on one element, including namespace declarations, duplicate
 names and HTML boolean attributes. A linear preflight checks this before strict XML or HTML
 parsing; extraction reports `limitExceeded("attributesPerElement")`, and native content parsing
@@ -96,13 +99,18 @@ script/style contexts after source rewriting ([#196](https://github.com/vocaro/E
 [testing](testing.md#attribute-parser-cost-probe) has the parser-only probe. Callers processing a whole book enforce
 their own cumulative text budget while iterating. `CancellationError` propagates during parsing.
 `EPUBTextExtractionError` distinguishes invalid spine indices, unsupported media types, malformed
-XHTML and exceeded limits. XHTML 1.x named character references such as `&nbsp;` and `&mdash;`
-are supported without loading a DTD. Their spelling inside CDATA and comments is left unchanged.
+XHTML and exceeded limits. Named character references such as `&nbsp;` and `&rcaron;` are read
+from the HTML Standard's table, the one the native reader uses, without loading a DTD
+([#184](https://github.com/vocaro/EPUBLib/issues/184)). Their spelling inside CDATA and comments
+is left unchanged. A name the table lacks, such as `&bogus;`, is malformed markup on the strict
+path; the native reader reads such a section as HTML, and recovery keeps the name as written.
 Malformed markup fails by default, and so does a name that Namespaces in XML forbids, which
 libxml2 reports and reads on: an element or attribute name that begins or ends with a colon or
 holds a second one (`<:p>`, `script:`, `a:b:c`), and a processing instruction's target with a
 colon. The native reader reads such a section as HTML, and recovery reads it as the reader does:
 `<:p>` is text and `<script:>` an unknown element ([#178](https://github.com/vocaro/EPUBLib/issues/178)).
+An `xmlns:` attribute is such a name and declares nothing, so beside `xmlns` it gives the same
+result on every run, whichever of the two comes first ([#213](https://github.com/vocaro/EPUBLib/issues/213)).
 A prefix that is never declared names no namespace, and its element is read by its local name.
 Entity declarations and internal DTD subsets always fail.
 Ordinary external
@@ -150,18 +158,21 @@ end tags, any DOCTYPE internal subset, and, outside what libxml2 reads as a comm
 unterminated CDATA section and a start tag's quoted attribute value that never ends.
 Unsafe declarations, exceeded limits, cancellation and well-formed documents without the expected
 XHTML structure remain errors. A parser halt at its built-in nesting cap returns
-`limitExceeded("depth")` instead of partial text, even with a larger caller limit; recovery is
-effectively capped at 255 levels. UTF-8 and detectable UTF-16/32 are supported; recovery does not
-guess other encodings. HTML5-only named references remain literal in recovery and fail on the
-strict path. The parser never loads external resources. This option concerns
-headless text extraction; it does not change reader CFIs or navigation parsing.
+`limitExceeded("depth")` instead of partial text, even with a larger caller limit; both paths
+are capped at 257 levels. UTF-8 and detectable UTF-16/32 are supported; recovery does not
+guess other encodings. Recovery reads named references from the HTML Standard's table too, as the
+native reader does, not from libxml2's HTML 4 one. The parser never loads external resources. This
+option concerns headless text extraction; it does not change reader CFIs or navigation parsing.
 
 Hosts own section inclusion, chunking, embeddings, persistence and citation policy. Extracting a
 colophon is valid library behavior; whether it belongs in a study index is the host's decision.
 
 ## Positions
 
-`anchors` maps the first occurrence of each body element ID to an `EPUBTextMark`. `headings`
+`anchors` maps the first occurrence of each body element ID to an `EPUBTextMark`. It is keyed by
+`EPUBElementID`, which compares IDs code unit for code unit as `getElementById` does, so
+`caf&#xE9;` and `cafe&#x301;` are two anchors; `anchors[fragment]` looks one up by a `String`
+([#635](https://github.com/vocaro/EPUBLib/issues/635)). `headings`
 contains each XHTML heading in document order, with normalized text and its mark. A mark's
 `offset` counts UTF-8 bytes to the first text character after the element opens; `separator`
 counts the normalized space or newline immediately before that character. An empty element

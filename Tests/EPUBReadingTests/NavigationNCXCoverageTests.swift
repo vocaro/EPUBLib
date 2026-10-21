@@ -253,6 +253,24 @@ final class NavigationNCXCoverageTests: XCTestCase {
         }
     }
 
+    func testHTMLsNamesAreReadFromItsStandardAndAnUnknownNameIsKeptAsWrittenInAnNCX() throws {
+        // As in the navigation document (#184): `&rcaron;` and HTML 5's `&lang;` from the HTML
+        // Standard's table, and a name it lacks as written, in a label and in a `src`, with the
+        // DAISY DOCTYPE or without. An EPUB 3 book that cannot read its NCX opens without the page
+        // list, so a refusal there would leave the pages out with no word.
+        let doctype = "<!DOCTYPE ncx PUBLIC \"-//NISO//DTD ncx 2005-1//EN\" \"http://www.daisy.org/z3986/2005/ncx-2005-1.dtd\">\n"
+        let document = ncx("<navMap>\(point("a", "Dvo&rcaron;&aacute;k &bogus; &lang;1&rang;", "one.xhtml#s&rcaron;&bogus;"))</navMap>"
+            + "<pageList><pageTarget id=\"p1\" type=\"normal\" value=\"1\"><navLabel><text>&sect;&nbsp;&bogus;</text></navLabel>"
+            + "<content src=\"one.xhtml#p1\"/></pageTarget></pageList>")
+        let pages = [EPUBPageListEntry(label: "\u{A7}\u{A0}&bogus;", href: "OPS/one.xhtml#p1")]
+        for prolog in [doctype, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n" + doctype, ""] {
+            let book = try book(ncx: prolog + document)
+            XCTAssertEqual(book.tableOfContents, [Item(title: "Dvo\u{159}\u{E1}k &bogus; \u{27E8}1\u{27E9}", href: "OPS/one.xhtml#s%C5%99&bogus;")], prolog)
+            XCTAssertEqual(book.pageList, pages, prolog)
+            XCTAssertEqual(try EPUBPublication.open(data: Fixture.packageVariant(ncx: { _ in prolog + document })).pageList, pages, prolog)
+        }
+    }
+
     func testNamedCharacterReferencesInAnNCXLabelAreDecodedBesideALabelWithATildeAndBrace() throws {
         // `~{` opens a two-byte run in the HZ encoding. This document is UTF-8, as one with no
         // encoding declared or with that one is, so a label that holds a template expression is

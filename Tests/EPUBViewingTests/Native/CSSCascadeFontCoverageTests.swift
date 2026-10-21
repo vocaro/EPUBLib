@@ -429,6 +429,35 @@ final class CSSCascadeFontCoverageTests: XCTestCase {
         XCTAssertEqual(fonts.font(for: CSSCascadeSupport.fontStyle(["obfuscated", "monospace"])).fontName, "Georgia")
     }
 
+    /// A font obfuscated with no key the package gives is left out of the book under either
+    /// algorithm (https://github.com/vocaro/EPUBLib/issues/171,
+    /// https://github.com/vocaro/EPUBLib/issues/530): here the package names no unique identifier
+    /// and holds no UUID. Its face is reported as one that could not be read, and the next family
+    /// is used.
+    func testAnObfuscatedFontWithoutAKeyIsReportedUnreadableUnderEitherAlgorithm() throws {
+        let font = try CSSCascadeSupport.fontFile("Georgia")
+        for algorithm in ["http://www.idpf.org/2008/embedding", "http://ns.adobe.com/pdf/enc#RC"] {
+            var files = try Fixture.files()
+            files["OPS/book.opf"] = Data(String(decoding: files["OPS/book.opf"]!, as: UTF8.self)
+                .replacingOccurrences(of: " unique-identifier=\"uid\"", with: "").utf8)
+            files["OPS/one.xhtml"] = Data(StyleTestSupport.xhtml(body: "<p>x</p>").utf8)
+            files["OPS/fonts/g.ttf"] = font
+            files["META-INF/encryption.xml"] = Data("""
+                <encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><EncryptedData xmlns="http://www.w3.org/2001/04/xmlenc#">\
+                <EncryptionMethod Algorithm="\(algorithm)"/><CipherData><CipherReference URI="OPS/fonts/g.ttf"/></CipherData>\
+                </EncryptedData></encryption>
+                """.utf8)
+            let fonts = FontRegistry(publication: try EPUBPublication.open(data: Fixture.archive(files)))
+            var report = SectionReport()
+            fonts.register([CSSFontFace(family: "obfuscated", sources: ["OPS/fonts/g.ttf"])], report: &report)
+            var expected = SectionReport()
+            expected.unreadableResources = 1
+            XCTAssertEqual(report, expected, algorithm)
+            let fallback = fonts.font(for: CSSCascadeSupport.fontStyle(["obfuscated", "monospace"]))
+            XCTAssertTrue(CTFontGetSymbolicTraits(fallback as CTFont).contains(.traitMonoSpace), algorithm)
+        }
+    }
+
     func testFacesPastTheBooksFontBudgetAreDroppedAsTruncation() throws {
         let font = try CSSCascadeSupport.smallFontFile()
         var files: [String: Data] = [:]

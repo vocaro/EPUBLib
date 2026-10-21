@@ -357,7 +357,6 @@ final class CSSCascadeValueCoverageTests: XCTestCase {
     /// CSS Values 4 §6.1: rem is "the computed value of the em unit on the root element". Only in
     /// the root's own `font-size` does it stand for the initial size instead.
     func testRemInTheRootsOtherPropertiesIsTheRootsOwnComputedFontSize() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/118")
         let section = """
             <html xmlns="http://www.w3.org/1999/xhtml" id="html"><head><title>T</title><style>
             html { font-size: 20px; padding-left: 2rem; text-indent: 1rem; line-height: 1.5rem }
@@ -369,5 +368,25 @@ final class CSSCascadeValueCoverageTests: XCTestCase {
         XCTAssertEqual(root.padding.left, .points(40), "2rem on the root itself")
         XCTAssertEqual(root.textIndent, .points(20), "1rem on the root itself")
         XCTAssertEqual(root.lineHeight, .points(30), "1.5rem on the root itself, which every element inherits")
+    }
+
+    /// The root's own rem holds inside `calc()` and beside viewport units too, and the line height
+    /// it gives the root is the one every element inherits.
+    func testRemOnTheRootIsItsOwnSizeInCalcAndBesideViewportUnits() throws {
+        let section = """
+            <html xmlns="http://www.w3.org/1999/xhtml" id="html"><head><title>T</title><style>
+            html { font-size: calc(1rem + 4px); margin-left: calc(1rem + 10px); line-height: calc(1rem + 10px);
+                   width: calc(10vw + 3rem); min-height: calc(10vh + 2rem) }
+            </style></head><body><p id="p">x</p></body></html>
+            """
+        let result = try StyleTestSupport.styled(section: section, files: [:], typography: NativeTypography(fontSize: 16))
+        let root = result.style("html")
+        XCTAssertEqual(root.fontSize, 20, "In calc() in the root's font-size, rem is still the reader's size")
+        XCTAssertEqual(root.margin.left, .points(30))
+        XCTAssertEqual(root.lineHeight, .points(30))
+        XCTAssertEqual(root.width, .viewportWidth(20), "3rem is 60 points, a tenth of the nominal 600-point width")
+        XCTAssertEqual(root.boxAlignment.minHeight?.points, 40)
+        XCTAssertEqual(root.boxAlignment.minHeight?.viewportHeight, 10)
+        XCTAssertEqual(result.style("p").lineHeight, .points(30))
     }
 }

@@ -121,9 +121,15 @@ continues to describe the authored spine resource.
   nothing had shipped, so a host migrates its own stored ones by re-tagging them, since the CFI
   value names the same position. A CFI that no longer resolves (a changed book has a different
   publication ID and is rejected before that) produces a `.notice`.
+- **Element IDs.** Every lookup of an element by its ID compares the ID code unit for code unit,
+  as `getElementById` does, so `caf&#xE9;` and `cafe&#x301;` are two IDs although Swift strings
+  compare them equal: a section's anchors, legacy `<a name>` anchors and notes, the target of a
+  link or a `navigate(href:)` fragment, the TOC and page-list positions, CSS `#id` selectors, SVG
+  references, and the manifest IDs that choose a fallback. Tables of IDs are keyed by
+  `EPUBElementID`, which compares and hashes an ID's UTF-8 bytes. Class names and attribute
+  values in a selector still compare as strings ([#635](https://github.com/vocaro/EPUBLib/issues/635)).
 - **ID assertions.** An ID assertion names the element whose `id` has the same code units, as
-  `getElementById` compares them, so `caf&#xE9;` and `cafe&#x301;` are two IDs although Swift
-  strings compare them equal. Every CFI the reader issues passes the check `restore` applies to
+  every ID lookup does (above), so `caf&#xE9;` and `cafe&#x301;` are two IDs. Every CFI the reader issues passes the check `restore` applies to
   a bookmark (`EPUBCFI.isWellFormed`), which refuses a C0 or C1 control character, a line or
   paragraph separator, and a CFI longer than its 4,096-character budget. An ID holding one of
   those characters is therefore not asserted: the CFI grammar would take the character only as
@@ -217,7 +223,10 @@ continues to describe the authored spine resource.
   renderer reads them, and takes time linear in the CSS.
   Stylesheet text is sanitized together so XML text/CDATA boundaries do not split declarations.
   CSS is read by Unicode scalar, so a combining mark after a quote, backslash, comma or bracket
-  hides no delimiter ([#248](https://github.com/vocaro/EPUBLib/issues/248)). An embedded font's
+  hides no delimiter ([#248](https://github.com/vocaro/EPUBLib/issues/248)). The serializer
+  writes a tab or carriage return in an attribute value, and a carriage return in text, as a
+  character reference, so the renderer reads a class list, text and the id an `href` names as
+  the book has them ([#249](https://github.com/vocaro/EPUBLib/issues/249)). An embedded font's
   own family name, which comes from the book's font file, stands for the family a drawing names
   only when it holds nothing but letters, marks, digits, spaces and `-`, `_`, `.`, `&` and `+`.
   The renderer's direct entry point continues to refuse filters, including commented and
@@ -227,6 +236,22 @@ continues to describe the authored spine resource.
   drawing text instead. Title and description provide the image's accessible label. No WebKit.
   The renderer ships as an Apple XCFramework; consumers do not need Rust. Its source pins,
   rebuild script and redistribution notices are in [Vendor/Resvg](../Vendor/Resvg/README.md).
+- **Data URLs.** An image a document holds in a `data:` URL, as EPUB 3.3 §3.7 permits, is shown
+  as one from the archive is: an `<img>`, and an `<object>` or `<embed>` whose `type` names an
+  image ([#134](https://github.com/vocaro/EPUBLib/issues/134)). The URL is read as browsers read
+  it, by the Fetch standard's data: URL processor (`DataURL`): base64, broken by white space or
+  without padding, or percent-encoded. Its type stands for a manifest's media type, so one that
+  is not an image's (`text/plain`, where it names none) is not shown. Its bytes go to the same
+  bitmap decoder and SVG sanitizer under the same limits, and decode to no more than the 32 MiB
+  the archive holds of one resource by default; the document holding the URL is held to less.
+  A drawing in a `data:` URL has no base in the archive, so a reference in it names no file. A
+  `data:` URL that is no usable image shows its alternative text and is disclosed as an image
+  that could not be shown. Elsewhere `data:` URLs are not read: in an SVG `<image>`, inline or
+  in a file (the drawing is shown without it, disclosed); in an SVG that is that one image,
+  which shows its fallback text; in a MathML `mglyph`; in an `<object>` or `<embed>` with no
+  image `type`; and in a stylesheet `<link>`, `@import` or `@font-face`. A link to one is
+  refused as a link outside the book is, and so never opens as a document of its own
+  (RS 3.3 §3.4).
 - **Image contrast.** In dark appearance, transparent images containing dark strokes receive
   a white backdrop so diagram edges and labels remain legible. Their authored colors and
   publication bytes are preserved. Opaque images and transparent light artwork retain their
@@ -540,7 +565,12 @@ continues to describe the authored spine resource.
   image-drawn attachment per row so pages can break between any two rows; rows a rowspan
   joins, and the header, keep with the next row and share a page when they fit. `colspan`/
   `rowspan` honoured (`rowspan="0"` spans one row, as WebKit does); a spanning cell is drawn in
-  each row it covers. Oversized rows continue across pages using complete cell glyph lines;
+  each row it covers. Consecutive columns spanned by exactly the same cells, and declared by no
+  `col` or `colgroup`, are laid out as one (CSS Tables 3 §3.3.2, track merging): the 98 columns
+  a title row's `colspan="100"` runs past over a two-column body add one border spacing to the
+  table, not 98 ([#140](https://github.com/vocaro/EPUBLib/issues/140)). The model keeps the
+  columns HTML forms, and an assistive technology is given those. Oversized rows continue
+  across pages using complete cell glyph lines;
   a line crossing a rowspan boundary is finished in its preceding row and never drawn twice.
   A continuation sharing a page with following rows or prose uses the displayed page’s exact
   bounds; overflowing content advances to the next page once, without laying out the whole
@@ -1467,11 +1497,13 @@ continues to describe the authored spine resource.
   with `quotes`; and `counter()` and `counters()`, with `counter-reset`, `counter-increment`
   and `counter-set` (CSS Lists 3 §4) in the counter styles `list-style-type` has
   ([#131](https://github.com/vocaro/EPUBLib/issues/131)). A pseudo-element is styled by its
-  own rules and inherits from its element. `none`, `normal`, a rule with no `content` and
-  `display: none` generate nothing. The marks around a `q` are generated the same way, from
-  the user-agent sheet's `q::before` and `q::after` as HTML gives them, so a book's `quotes`,
-  and the reset stylesheets that write `q:before, q:after { content: none }`, apply to them as
-  they do in a browser. Before, the marks were drawn whatever the book's styles said.
+  own rules and inherits from its element. One written alone, as in `*, ::before, ::after`, is
+  that of any element (Selectors 4 §3.7, [#110](https://github.com/vocaro/EPUBLib/issues/110)).
+  `none`, `normal`, a rule with no `content` and `display: none` generate nothing. The marks
+  around a `q` are generated the same way, from the user-agent sheet's `q::before` and
+  `q::after` as HTML gives them, so a book's `quotes`, and the reset stylesheets that write
+  `q:before, q:after { content: none }`, apply to them as they do in a browser. Before, the
+  marks were drawn whatever the book's styles said.
   - **Where it stands.** An inline box is written in its line, and white space collapses
     across it as across the book's text. A block box is a paragraph of its own. A box that
     floats or is positioned is written in its line, with the disclosure of the boxes left in
@@ -2116,8 +2148,12 @@ as they did.
 The native CSS subset wraps prose beside left/right floated figures, text and archive images,
 then restores the full column below the box. Auto-width text floats use their content width,
 including narrow drop caps. Horizontal margins and padding reserve space around the native
-glyph column. `clear: left`, `right` and `both` move subsequent prose below the
-requested float side.
+glyph column. `clear: left`, `right` and `both` on a block start it below the earlier floats
+of the requested side, with all it holds, a float it opens with included; inside it nothing
+clears again, so its later lines wrap beside its own floats. An empty block that clears moves
+what follows it. On a float, `clear` moves that float alone below the earlier floats of the
+side (CSS 2.2 9.5.2), and on a `br` it moves the line after the break, as browsers do
+([#151](https://github.com/vocaro/EPUBLib/issues/151)).
 
 A sized `inline-block` is set on its block's line. It starts where the text or the box before
 it ends, a space after it where the source has white space between the two, and at the start
@@ -2953,9 +2989,10 @@ refused external links, unresolved CFIs and quotes, and highlights that could no
 ## Security
 
 Books are untrusted. Nothing is executed: there is no JavaScript engine. Every reference
-resolves inside the archive through `ResourceReference`; remote URLs are never fetched and are
-counted for disclosure. XML, CSS and font input is bounded, and the import limits in
-`EPUBReading` still apply. External links are refused with a notice.
+resolves inside the archive through `ResourceReference`, but for an image in a `data:` URL,
+which is read from the URL's own bytes (**Data URLs** under [Decisions](#decisions)); remote
+URLs are never fetched and are counted for disclosure. XML, CSS and font input is bounded, and
+the import limits in `EPUBReading` still apply. External links are refused with a notice.
 
 Subsequent-sibling CSS searches (`~`) share a memo entry when their entire left-hand selector
 suffix is equal, across rule declarations, right-hand subjects and nested pseudo-classes.
@@ -3426,5 +3463,4 @@ Go: the native viewer is the bundled engine.
   `list-item` do not change a list's numbering; and a counter style that `list-style-type`
   lacks (`@counter-style`, `symbols()`, `hiragana`…) is decimal. `::first-letter`,
   `::first-line`, `::marker` and the other pseudo-elements are not rendered: their rules are
-  dropped, and that is not disclosed. A pseudo-element written alone, as in
-  `*, ::before, ::after`, drops its rule ([#110](https://github.com/vocaro/EPUBLib/issues/110)).
+  dropped, and that is not disclosed.

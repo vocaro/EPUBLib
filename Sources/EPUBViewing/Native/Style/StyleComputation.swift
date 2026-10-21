@@ -199,7 +199,9 @@ extension StyleResolver {
         var decorationColor: CSSColor?
 
         // Font-relative lengths use the element's resolved face, irrespective of declaration
-        // order. font-size itself uses its parent's face and size.
+        // order. font-size itself uses its parent's face and size. `rem` is the root's computed
+        // size: on the root, the size just computed, except in its own font-size, where it is the
+        // initial size passed in (CSS Values 4 §6.1).
         for property in Self.computationOrder {
             guard var value = winners[property.rawValue] else { continue }
             if value == .revert { value = userAgent[property.rawValue] ?? .unset }
@@ -220,7 +222,7 @@ extension StyleResolver {
             switch value {
             case .inherit: copy(property, from: parent, to: &style)
             case .initial: copy(property, from: initialValues, to: &style, initial: true)
-            default: apply(property, value, to: &style, parent: parent, rem: rem)
+            default: apply(property, value, to: &style, parent: parent, rem: isRoot && property != .fontSize ? style.fontSize : rem)
             }
         }
 

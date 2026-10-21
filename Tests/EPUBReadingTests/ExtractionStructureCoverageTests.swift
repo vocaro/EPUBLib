@@ -239,6 +239,17 @@ final class ExtractionStructureCoverageTests: XCTestCase {
         XCTAssertEqual(extracted.anchors, ["a": mark(0, 0), "e": mark(13, 0), "f": mark(13, 0)])
     }
 
+    // IDs compare code unit for code unit, as `getElementById` compares them: `caf&#xE9;` and
+    // `cafe&#x301;` are two IDs, though `String` compares them equal.
+    func testCanonicallyEquivalentIDsAreTwoAnchors() throws {
+        let extracted = try section("<p id='caf&#xE9;'>One</p><p id='cafe&#x301;'>Two</p>")
+        XCTAssertEqual(extracted.text, "One\nTwo")
+        XCTAssertEqual(extracted.anchors.count, 2)
+        XCTAssertEqual(extracted.anchors["caf\u{E9}"], mark(0, 0))
+        XCTAssertEqual(extracted.anchors["cafe\u{301}"], mark(4, 1))
+        XCTAssertNil(extracted.anchors["cafe"])
+    }
+
     func testIDsOnBodyLineBreaksRulesAndEmptyElementsMarkTheNextText() throws {
         let extracted = try document("<html xmlns='http://www.w3.org/1999/xhtml'><head/><body id='b'><p>a<br id='br'/>b</p>"
             + "<hr id='hr'/><a id='empty'/><p>c</p></body></html>")

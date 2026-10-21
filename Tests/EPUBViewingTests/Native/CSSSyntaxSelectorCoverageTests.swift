@@ -476,7 +476,6 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
     }
 
     func testAPseudoElementAloneImpliesTheUniversalSelectorAndLeavesItsListValid() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/110")
         // Selectors 4 §3.7: "a pseudo-element immediately follows the compound selector
         // representing its originating element. If this compound selector is omitted, it is
         // assumed to be the universal selector *." Resets written `*, ::before, ::after` rely on it.

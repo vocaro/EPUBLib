@@ -28,7 +28,9 @@ import AppKit
 ///   Asian wide characters disappears. A single trailing forced break in a block makes no line.
 /// - Floats, positioned callouts and sized inline-blocks keep separate source paragraphs and
 ///   symbolic constraints. The native layout resolves wrapping and positions at viewport size;
-///   oversized or complex boxes remain pageable in-flow text with the same exact map.
+///   oversized or complex boxes remain pageable in-flow text with the same exact map. `clear`
+///   is `.readerClear` on the first character of the paragraph that opens the blocks setting
+///   it, and of the line after a `br` setting it, for the layout to resolve against the floats.
 /// - A positioned box hidden from the page but not from assistive technology (parked off screen
 ///   or clipped to nothing) is a `SpokenLabelAttachment` for each block of its text: a character
 ///   that takes no room, in a line of the text, because a text view's own accessibility reads
@@ -50,13 +52,13 @@ final class SectionWriter {
         /// `ids` are the ids the note is captured under. `depth` is how deep in notes captured
         /// on their own (`SectionBuildState.noteDepth`) the content goes: the note's own depth,
         /// or further for a note with nothing else to show.
-        case note(ids: Set<String>, depth: Int)
+        case note(ids: Set<EPUBElementID>, depth: Int)
     }
 
     struct Output {
         let string: NSAttributedString
         let map: TextMap
-        let anchors: [String: Int]
+        let anchors: [EPUBElementID: Int]
     }
 
     /// Nominal column the percentages of a section resolve against.
@@ -77,7 +79,7 @@ final class SectionWriter {
 
     private var buffer = TextBuffer()
     private var map = TextMap()
-    private var anchors: [String: Int] = [:]
+    private var anchors: [EPUBElementID: Int] = [:]
     /// Ids waiting for the next rendered character, with their registration serial.
     private var pendingAnchors: [(id: String, serial: Int)] = []
     private var anchorSerial = 0
@@ -126,7 +128,8 @@ final class SectionWriter {
 
     private var stack: [Entry] = []
     /// `ResourceReference.resolve` by href (nil: not in the archive); books repeat their links.
-    private var resolvedLinks: [String: String?] = [:]
+    /// By the href's code units, as resolving reads it: `#caf\u{E9}` and `#cafe\u{301}` name two ids.
+    private var resolvedLinks: [[UInt8]: String?] = [:]
 
     init(state: SectionBuildState, mode: Mode) {
         self.state = state; self.mode = mode
@@ -375,7 +378,7 @@ final class SectionWriter {
         }
         var role = Role.normal
         switch node.name {
-        case "br": lineBreak(attributes: styling.attributes(style, context)); return
+        case "br": lineBreak(attributes: styling.attributes(style, context), clear: style.clear); return
         case "wbr": wordBreak(attributes: styling.attributes(style, context)); return
         case "img":
             if let result = state.request.rich.image(node, style: style, context: state.richContext) {
@@ -572,14 +575,15 @@ final class SectionWriter {
 
     private func link(for element: ContentNode, href: String) -> ReaderLink? {
         let href = href.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolution = resolvedLinks[href] ?? (try? ResourceReference.resolve(href, relativeTo: document.path))
-        resolvedLinks[href] = .some(resolution)
+        let key = Array(href.utf8)
+        let resolution = resolvedLinks[key] ?? (try? ResourceReference.resolve(href, relativeTo: document.path))
+        resolvedLinks[key] = .some(resolution)
         guard let resolved = resolution else { return .external(href) }
         let parts = resolved.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
         let path = String(parts[0]).removingPercentEncoding ?? String(parts[0])
         let fragment = parts.count == 2 ? String(parts[1]).removingPercentEncoding ?? String(parts[1]) : nil
         // The note's own number, or another link to the note it is in.
-        if case .note(let ids, _) = mode, path == document.path, let fragment, ids.contains(fragment) { return nil }
+        if case .note(let ids, _) = mode, path == document.path, let fragment, ids.contains(EPUBElementID(fragment)) { return nil }
         if ContentSemantics.isNoteReference(element) { return .note(href: resolved) }
         // A plain link to a note or its child is a note link; so is one to anything inside a
         // footnote hidden from the flow (`isInsideHiddenFootnote`), where there is nothing to
@@ -611,6 +615,9 @@ final class SectionWriter {
         if isSection {
             if style.breakBefore == .page || style.breakBefore == .column { pendingPageBreak = true }
             if style.breakBefore == .avoid, !paragraphs.isEmpty { paragraphs[paragraphs.count - 1].keepWithNext = true }
+            // A float's own `clear` moves the float alone (`ReaderBoxLayout`), and inside a box
+            // `clear` is about the box's own floats.
+            if !style.requiresFlowBox, frames[frames.count - 1].format.boxes.isEmpty { gap.add(clear: style.clear) }
         }
         let parent = frames[frames.count - 1]
         let keep = ContentSemantics.isHeading(node) || node.isHTML("dt") || style.breakAfter == .avoid
@@ -756,7 +763,7 @@ final class SectionWriter {
     private func openParagraph(next: UInt32? = nil) {
         guard !paragraphOpen else { return }
         let frame = frames[frames.count - 1]
-        let gapValue = min(gap.value, Self.maximumGap)
+        let gapValue = min(gap.value, Self.maximumGap), clear = gap.clear
         gap = MarginGap()
         let dynamicGap = sizingGap
         sizingGap = ReaderParagraphGap()
@@ -798,6 +805,7 @@ final class SectionWriter {
             paragraph.keepsOwnNext = frames.contains { $0.keepWithNext }
             paragraph.keptTogetherBy = frames.firstIndex { $0.keepTogether }
             paragraph.keepWithNext = paragraph.keepsOwnNext || paragraph.keptTogetherBy != nil
+            if clear != .none { postAttributes.append((NSRange(location: paragraph.start, length: 1), .readerClear, clear)) }
         }
         paragraphs.append(paragraph)
         paragraphOpen = true
@@ -1278,17 +1286,19 @@ final class SectionWriter {
         lastScalar = 0x20
     }
 
-    private func forcedBreak(node: ContentNode?, offset: Int, length: Int, attributes: Int) {
+    private func forcedBreak(node: ContentNode?, offset: Int, length: Int, attributes: Int, clear: ComputedStyle.Clear = .none) {
         openParagraph()
         pendingSpace = nil
         lastWasCollapsedSpace = false
         pendingBreaks.append(PendingBreak(node: node?.order, offset: offset, length: length, attributes: attributes,
-                                          anchorSerial: anchorSerial))
+                                          anchorSerial: anchorSerial, clear: clear))
         lineStart = true
     }
 
-    private func lineBreak(attributes: Int) {
-        forcedBreak(node: nil, offset: 0, length: 0, attributes: attributes)
+    /// A `br`. HTML's rendering section gives it `clear`, and every browser starts the line
+    /// after one that sets it below the floats it names.
+    private func lineBreak(attributes: Int, clear: ComputedStyle.Clear) {
+        forcedBreak(node: nil, offset: 0, length: 0, attributes: attributes, clear: clear)
     }
 
     private func flushBreaks() {
@@ -1302,6 +1312,8 @@ final class SectionWriter {
                 map.append(TextMap.Span(location: location, length: 1, node: node, offset: pending.offset,
                                         sourceLength: pending.length, isExact: pending.length == 1, authoredText: "\n"))
             }
+            // On whatever starts the next line; nothing when nothing does.
+            if pending.clear != .none { postAttributes.append((NSRange(location: location + 1, length: 1), .readerClear, pending.clear)) }
         }
         pendingBreaks.removeAll()
         lastScalar = 0x2028
@@ -1828,9 +1840,16 @@ extension SectionWriter {
 
 private struct MarginGap {
     private var fixed: CGFloat = 0, positive: CGFloat = 0, negative: CGFloat = 0
+    /// The `clear` of the blocks opened since the last paragraph, an empty one's included: the
+    /// next paragraph opens them all, so its top is theirs (CSS 2.2 9.5.2).
+    private(set) var clear = ComputedStyle.Clear.none
     /// A margin adjoining the others: they collapse.
     mutating func add(_ margin: CGFloat) {
         if margin > 0 { positive = max(positive, margin) } else { negative = min(negative, margin) }
+    }
+    /// A block's `clear`, with those of the blocks it opens with.
+    mutating func add(clear side: ComputedStyle.Clear) {
+        if clear == .none || clear == side { clear = side } else if side != .none { clear = .both }
     }
     /// Padding or border: the margins so far are fixed, and later ones collapse among themselves.
     mutating func seal(_ inset: CGFloat) {
@@ -1946,6 +1965,8 @@ private struct PendingBreak {
     var attributes: Int
     /// As for a pending space.
     var anchorSerial: Int
+    /// A `br`'s `clear`, for the line after it.
+    var clear = ComputedStyle.Clear.none
 }
 
 private struct Isolate {

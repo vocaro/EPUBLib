@@ -5,7 +5,6 @@ import Foundation
 import FoundationXML
 #endif
 import ZIPFoundation
-import libxml2
 
 /// An immutable snapshot. Parsing and every engine read the same bytes even if the source file changes.
 /// Opening validates ZIP paths, declared sizes, CRCs and actual expanded sizes before returning.
@@ -46,16 +45,17 @@ public struct EPUBPublication: Sendable {
     /// Original EPUB bytes, for engines with their own container implementation.
     public let archiveData: Data
     private let contents: [String: Data]
-    /// All declared IDs, including missing and remote hops. They are never fetched.
-    private let manifestByID: [String: EPUBResource]
+    /// All declared IDs, including missing and remote hops. They are never fetched. By the ID's
+    /// code units, as an IDREF names it (`EPUBElementID`).
+    private let manifestByID: [EPUBElementID: EPUBResource]
 
     /// The designated manifest chain, starting with `resource`, stopping at a missing ID or
     /// before repeating an ID. Missing/remote files remain in the chain so a host can continue
     /// to a later available fallback; the host chooses which media types it supports.
     public func fallbackChain(for resource: EPUBResource) -> [EPUBResource] {
-        var chain: [EPUBResource] = [], seen: Set<String> = []
+        var chain: [EPUBResource] = [], seen: Set<EPUBElementID> = []
         var next: EPUBResource? = manifestByID[resource.id] ?? resource
-        while let item = next, seen.insert(item.id).inserted {
+        while let item = next, seen.insert(EPUBElementID(item.id)).inserted {
             chain.append(item)
             next = item.fallbackID.flatMap { manifestByID[$0] }
         }
@@ -65,7 +65,8 @@ public struct EPUBPublication: Sendable {
     /// A declared local or remote resource, including one whose bytes the archive lacks.
     /// Lookup uses the resolved archive path; this does not load or fetch anything.
     public func manifestResource(at path: String) -> EPUBResource? {
-        resources.first { $0.path == path } ?? manifestByID.values.filter { $0.path == path }.min { $0.id < $1.id }
+        resources.first { $0.path == path } ?? manifestByID.values.filter { $0.path == path }
+            .min { $0.id.utf8.lexicographicallyPrecedes($1.id.utf8) }
     }
 
     public func data(for resource: EPUBResource) throws -> Data {
@@ -211,7 +212,11 @@ public struct EPUBPublication: Sendable {
         if contents["META-INF/encryption.xml"] != nil {
             let encryption = try xml("META-INF/encryption.xml")
             let identifiers = metadataElements.filter { $0.name == "identifier" }
-            let unique = identifiers.first { $0.attribute("id") == opf.attribute("unique-identifier") }
+            // The identifier `unique-identifier` names, by its exact code units. A package without the
+            // attribute names none, not the first identifier that has no `id`.
+            let unique = opf.attribute("unique-identifier").flatMap { id in
+                identifiers.first { $0.attribute("id").map { EPUBElementID($0) } == EPUBElementID(id) }
+            }
             // IDPF's key is made from the unique identifier as written, less "specifically, the
             // Unicode code points U+0020, U+0009, U+000D and U+000A" (EPUB 3.3 §4.4.3) and nothing
             // else: white space outside ASCII is part of it, at its ends too. Each is removed as its
@@ -226,25 +231,26 @@ public struct EPUBPublication: Sendable {
                 // A font already left out stays out, however often it is listed as obfuscated.
                 if undecoded.contains(path), Self.obfuscations.contains(algorithm) { continue }
                 guard var bytes = contents[path] else { throw EPUBPublicationError.unsupportedEncryption }
-                let key: [UInt8]
+                let key: [UInt8]?
                 let prefixLength: Int
                 switch algorithm {
                 case "http://www.idpf.org/2008/embedding":
-                    guard !idpfIdentifier.isEmpty else { throw EPUBPublicationError.unsupportedEncryption }
-                    key = Array(Insecure.SHA1.hash(data: idpfIdentifier))
+                    // The key is made from the unique identifier and nothing else. Any text makes
+                    // one, so another identifier could not be told right from wrong (#530).
+                    key = idpfIdentifier.isEmpty ? nil : Array(Insecure.SHA1.hash(data: idpfIdentifier))
                     prefixLength = 1040
                 case "http://ns.adobe.com/pdf/enc#RC":
                     // The key is the package's UUID: the unique identifier or, where that is
                     // not one, the first identifier that is.
-                    guard let uuid = ([unique].compactMap { $0 } + identifiers).lazy.compactMap({ uuidBytes($0.content) }).first else {
-                        contents[path] = nil
-                        undecoded.insert(path)
-                        if !isFont(mediaType: nil, path: path) { unproven.insert(path) }
-                        continue
-                    }
-                    key = uuid
+                    key = ([unique].compactMap { $0 } + identifiers).lazy.compactMap({ uuidBytes($0.content) }).first
                     prefixLength = 1024
                 default: throw EPUBPublicationError.unsupportedEncryption
+                }
+                guard let key else {
+                    contents[path] = nil
+                    undecoded.insert(path)
+                    if !isFont(mediaType: nil, path: path) { unproven.insert(path) }
+                    continue
                 }
                 for index in 0..<min(prefixLength, bytes.count) { bytes[index] ^= key[index % key.count] }
                 contents[path] = bytes
@@ -254,11 +260,12 @@ public struct EPUBPublication: Sendable {
             }
         }
         var resources: [EPUBResource] = []
-        var byID: [String: EPUBResource] = [:]
+        // Items by their IDs' code units, as an IDREF names them.
+        var byID: [EPUBElementID: EPUBResource] = [:]
         // Every item the manifest declares, including those whose file the archive lacks and,
         // under its href for a path, each remote one.
-        var declared: [String: EPUBResource] = [:]
-        var remote: Set<String> = []
+        var declared: [EPUBElementID: EPUBResource] = [:]
+        var remote: Set<EPUBElementID> = []
         // Archive paths by their lower-case form, made when a manifest href first matches no entry.
         var folded: [String: [String]]?
         for item in manifest.children where item.name == "item" {
@@ -289,7 +296,7 @@ public struct EPUBPublication: Sendable {
             // Some converters write an item more than once; a verbatim repeat adds nothing, but one
             // id naming two different resources is ambiguous.
             if let earlier = declared[id] {
-                guard earlier == resource, remote.contains(id) == isRemote else { throw EPUBPublicationError.invalidXML("Manifest item") }
+                guard earlier == resource, remote.contains(EPUBElementID(id)) == isRemote else { throw EPUBPublicationError.invalidXML("Manifest item") }
                 continue
             }
             declared[id] = resource
@@ -297,7 +304,7 @@ public struct EPUBPublication: Sendable {
             // than refusing the book; the spine still needs every document it names (below).
             // So is a remote item: EPUB 3 lets audio, video and fonts live outside the
             // container, and nothing is ever fetched.
-            if isRemote { remote.insert(id) }
+            if isRemote { remote.insert(EPUBElementID(id)) }
             guard !isRemote, contents[path] != nil else { continue }
             resources.append(resource)
             byID[id] = resource
@@ -311,7 +318,7 @@ public struct EPUBPublication: Sendable {
                 throw EPUBPublicationError.invalidXML("Spine idref")
             }
             guard let resource = byID[ref] else {
-                if remote.contains(ref) { throw EPUBPublicationError.unsafePath(named.path) }
+                if remote.contains(EPUBElementID(ref)) { throw EPUBPublicationError.unsafePath(named.path) }
                 if undecoded.contains(named.path) { throw EPUBPublicationError.unsupportedEncryption }
                 throw EPUBPublicationError.missingResource(named.path)
             }
@@ -566,6 +573,10 @@ private final class XMLTree: NSObject, XMLParserDelegate {
         let local = String(name.split(separator: ":").last ?? Substring(name))
         func isDeclaration(_ key: String) -> Bool { key == "xmlns" || key.hasPrefix("xmlns:") }
         var namespaces = scopes.last ?? ["xml": XMLNamespace.xml]
+        // XMLParser gives no document order, and a dictionary's changes from run to run. Two
+        // prefixes for one namespace give two attributes one name, which Namespaces in XML forbids
+        // and XMLParser reads on; of those, the one whose qualified name sorts last is kept (#213).
+        let attributes = attributes.sorted { $0.key < $1.key }
         for (key, value) in attributes where isDeclaration(key) {
             namespaces[key == "xmlns" ? "" : String(key.dropFirst(6))] = value
         }
@@ -597,12 +608,14 @@ private final class XMLTree: NSObject, XMLParserDelegate {
 
 /// What a browser reads in XHTML and an XML parser refuses, rewritten so that a navigation
 /// document reads here as the same file does as a content document: a `DOCTYPE` keyword in
-/// another case, and HTML's named character references (`&nbsp;`, `&eacute;`) as numeric ones.
+/// another case, and HTML's named character references (`&nbsp;`, `&rcaron;`) as numeric ones.
 /// The DTD a DOCTYPE names is never read. The references follow the native viewer's and text
-/// extraction's translation: CDATA sections and comments are copied unchanged, as processing
-/// instructions are here, XML's five predefined names and unknown names are left for the
-/// parser, and UTF-16/32 documents are rewritten in their own encoding, retaining any
-/// byte-order mark.
+/// extraction's translation, from the HTML Standard's table: CDATA sections and comments are
+/// copied unchanged, as processing instructions are here, XML's five predefined names are left
+/// for the parser, and UTF-16/32 documents are rewritten in their own encoding, retaining any
+/// byte-order mark. Unlike theirs, a name the table lacks (`&bogus;`) is not left for the parser,
+/// which would drop it or refuse the document, but kept as the text it spells, in element content
+/// and in an attribute value alike.
 ///
 /// The rewrite takes each byte below 0x80 for its ASCII character, so it is kept from a document
 /// whose declared encoding does not: in ISO-2022-JP, HZ or SCSU the bytes of `&pi;` may be parts
@@ -698,15 +711,22 @@ private enum BrowserMarkup {
     }
     private static let declarationLimit = 1024
     /// Names an XML declaration gives, in lower case, to encodings known to keep every byte below
-    /// 0x80 for its ASCII character: UTF-8, US-ASCII, the parts of ISO 8859 and the Windows code
-    /// pages 1250 to 1258.
+    /// 0x80 for its ASCII character: UTF-8, US-ASCII, the parts of ISO 8859, the Windows code
+    /// pages 874 and 1250 to 1258, KOI8-R, Mac OS Roman, TIS-620, EUC-JP, EUC-KR and GB2312.
     private static let asciiTransparentEncodings: Set<String> = {
         var names: Set = ["utf-8", "utf8", "us-ascii", "ascii", "iso-8859-6-e", "iso-8859-6-i", "iso-8859-8-e", "iso-8859-8-i"]
         for part in 1...16 where part != 12 { // ISO 8859 has no part 12.
             names.formUnion(["iso-8859-\(part)", "iso_8859-\(part)", "iso8859-\(part)"])
         }
         for number in 1...10 where number != 7 { names.insert("latin\(number)") }
-        for page in 1250...1258 { names.formUnion(["windows-\(page)", "cp\(page)", "x-cp\(page)"]) }
+        for page in [874] + Array(1250...1258) { names.formUnion(["windows-\(page)", "cp\(page)", "x-cp\(page)"]) }
+        // The parser reads no byte below 0x80 in these as part of a character of two or three
+        // bytes, nor as anything but its ASCII character (#184). It reads `ks_c_5601-1987`,
+        // `korean`, `iso-ir-149` and `csksc56011987` as Windows 949, whose second byte may be an
+        // ASCII letter, so those names for EUC-KR are not here.
+        names.formUnion(["koi8-r", "cskoi8r", "macintosh", "mac", "csmacintosh", "x-mac-roman", "tis-620", "tis620",
+                         "euc-jp", "eucjp", "x-euc-jp", "cseucpkdfmtjapanese", "euc-kr", "euckr", "cseuckr",
+                         "gb2312", "csgb2312", "euc-cn", "euccn"])
         return names
     }()
 
@@ -720,6 +740,12 @@ private enum BrowserMarkup {
         func starts(_ token: [UInt8], at position: Int) -> Bool {
             position + token.count <= bytes.count && bytes[position..<position + token.count].elementsEqual(token)
         }
+        // A byte of a name as XML reads one, with every byte from 0x80 on taken for part of one of
+        // its characters: a letter, `_` or `:` first, and after it a digit, `-` or `.` as well.
+        func isNameByte(_ byte: UInt8, first: Bool) -> Bool {
+            byte >= 0x80 || byte == 0x3A || byte == 0x5F || (byte | 0x20 >= 0x61 && byte | 0x20 <= 0x7A)
+                || (!first && (byte == 0x2D || byte == 0x2E || (byte >= 0x30 && byte <= 0x39)))
+        }
         let verbatim = [("<![CDATA[", "]]>"), ("<!--", "-->"), ("<?", "?>")].map { (Array($0.0.utf8), Array($0.1.utf8)) }
         while index < bytes.count {
             if bytes[index] == 0x3C, let (open, close) = verbatim.first(where: { starts($0.0, at: index) }) { // <
@@ -731,16 +757,20 @@ private enum BrowserMarkup {
             }
             if bytes[index] == 0x26 {
                 var end = index + 1
-                while end < bytes.count, end - index <= 32,
-                      (bytes[end] >= 0x30 && bytes[end] <= 0x39) || (bytes[end] | 0x20 >= 0x61 && bytes[end] | 0x20 <= 0x7A) {
-                    end += 1
-                }
+                while end < bytes.count, isNameByte(bytes[end], first: end == index + 1) { end += 1 }
                 if end < bytes.count, bytes[end] == 0x3B, end > index + 1 { // ;
                     let name = String(decoding: bytes[(index + 1)..<end], as: UTF8.self)
-                    if !["amp", "lt", "gt", "quot", "apos"].contains(name),
-                       let entity = name.withCString({ htmlEntityLookup(UnsafeRawPointer($0).assumingMemoryBound(to: xmlChar.self)) }) {
-                        output.append(contentsOf: Array("&#\(entity.pointee.value);".utf8))
-                        index = end + 1
+                    if !["amp", "lt", "gt", "quot", "apos"].contains(name) {
+                        if let reference = HTMLNamedCharacterReferences.numeric[name] {
+                            output.append(contentsOf: reference.utf8)
+                            index = end + 1
+                        } else {
+                            // A name HTML does not know is kept as written, as a browser shows
+                            // it, where the parser would drop it or refuse the document: its `&`
+                            // is escaped and the rest copied as it stands.
+                            output.append(contentsOf: "&amp;".utf8)
+                            index += 1
+                        }
                         changed = true
                         continue
                     }

@@ -86,6 +86,19 @@ final class ExtractionInputCoverageTests: XCTestCase {
         XCTAssertEqual(section.anchors, ["café": EPUBTextMark(offset: 0, separator: 0)])
     }
 
+    func testTheHTMLStandardsNamesDecodeInTextAttributesAndTitlesWithOrWithoutADoctype() throws {
+        // The viewer's table (#184): names HTML 4 lacks, those of two scalars, and HTML 5's U+27E8
+        // and U+27E9 for `&lang;` and `&rang;`, where libxml2's HTML 4 table has U+2329 and U+232A.
+        for prolog in ["", xhtml11] {
+            let section = try book(prolog + page("<p id='Dvo&rcaron;&aacute;k'>Dvo&rcaron;&aacute;k &check; &lang;1&rang; &NotEqualTilde;</p>",
+                                                 head: "<title>&ccaron;&comma;&Afr;</title>")).textSection(at: 0)
+            XCTAssertEqual(section.title, "\u{10D},\u{1D504}", prolog)
+            XCTAssertEqual(section.text, "Dvo\u{159}\u{E1}k \u{2713} \u{27E8}1\u{27E9} \u{2242}\u{338}", prolog)
+            XCTAssertEqual(section.anchors, ["Dvo\u{159}\u{E1}k": EPUBTextMark(offset: 0, separator: 0)], prolog)
+            XCTAssertFalse(section.recoveredAsHTML, prolog)
+        }
+    }
+
     func testUnknownMiscasedAndUnterminatedReferencesAreMalformedInTextAttributesAndTitles() throws {
         for (body, head) in [
             ("<p>a&NBSP;b</p>", "<title>T</title>"), ("<p>a&bogus;b</p>", "<title>T</title>"),
@@ -94,7 +107,8 @@ final class ExtractionInputCoverageTests: XCTestCase {
             ("<p>a&abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz;b</p>", "<title>T</title>"), ("<p>a & b</p>", "<title>T</title>"),
         ] {
             // With an external DOCTYPE an undeclared name is no well-formedness error, so the
-            // reader itself must refuse it; without one the parser does.
+            // reader itself must refuse it; without one the parser does. The viewer reads such a
+            // section as HTML, as recovery does, keeping a name HTML does not know as written.
             assertMalformed(try book(xhtml11 + page(body, head: head)), body + head)
             assertMalformed(try book(page(body, head: head)), body + head)
         }
@@ -322,11 +336,34 @@ final class ExtractionInputCoverageTests: XCTestCase {
         assertLimit("inputBytes", try book(xml + "\n"), EPUBTextExtractionLimits())
     }
 
+    // libxml2 opens no element after markup that is not well-formed, so a document malformed before
+    // the parser's nesting cap is malformed on the strict path, whatever the caller's depth limit.
+    // Past the cap the parser reads nothing, and a malformation there is never reached (#91).
+    func testADocumentMalformedBeforeTheParserCapIsMalformedHoweverDeepItGoes() throws {
+        func nested(_ count: Int, before: String = "", inner: String = "deep") -> String {
+            page(before + String(repeating: "<div>", count: count) + inner + String(repeating: "</div>", count: count))
+        }
+        var raised = EPUBTextExtractionLimits()
+        raised.depth = 400
+        func assertMalformedSource(_ xml: String, _ limits: EPUBTextExtractionLimits, line: UInt = #line) {
+            XCTAssertThrowsError(try book(xml).textSection(at: 0, limits: limits), "depth \(limits.depth)", line: line) {
+                XCTAssertEqual($0 as? EPUBTextExtractionError, .malformedContent(path), "depth \(limits.depth)", line: line)
+            }
+        }
+        // A mismatched end tag, a bare ampersand and a name that Namespaces in XML forbids.
+        for before in ["<p>x</b></p>", "<p>a & b</p>", "<:p>x</:p>"] {
+            assertMalformedSource(nested(300, before: before), EPUBTextExtractionLimits())
+            assertMalformedSource(nested(300, before: before), raised)
+        }
+        // At the deepest level the parser admits, html, body and 255 divs, and one level past it.
+        assertMalformedSource(nested(255, inner: "a & b"), raised)
+        assertLimit("depth", try book(nested(256, inner: "a & b")), raised)
+    }
+
     // doc/text-extraction.md distinguishes "malformed XHTML and exceeded limits", and promises of
     // the same parser cap under recovery that it "returns limitExceeded("depth") ... even with a
     // larger caller limit". A well-formed document is not malformed XHTML on either path.
     func testAWellFormedDocumentDeeperThanTheParserCapReportsTheDepthLimit() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/91")
         func nested(_ count: Int) -> String {
             page(String(repeating: "<div>", count: count) + "deep" + String(repeating: "</div>", count: count))
         }
