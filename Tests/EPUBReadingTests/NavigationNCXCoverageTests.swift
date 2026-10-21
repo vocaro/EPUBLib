@@ -21,6 +21,62 @@ final class NavigationNCXCoverageTests: XCTestCase {
         try EPUBPublication.open(data: Fixture.packageVariant(epub2: true, ncx: { _ in document }, adding: adding))
     }
 
+    // OPF 2.0.1 §2.4 has the spine's `toc` name the NCX, but converters leave it out or name an
+    // item that is not there. The NCX is then found by its media type, as foliate-js finds it
+    // (https://github.com/vocaro/EPUBLib/issues/169).
+    func testAnNCXTheSpineDoesNotNameIsFoundByItsMediaType() throws {
+        let document = ncx("<navMap>" + point("a", "Only Chapter", "one.xhtml") + "</navMap><pageList><pageTarget id=\"p1\" type=\"normal\" value=\"1\">"
+            + "<navLabel><text>1</text></navLabel><content src=\"two.xhtml#p1\"/></pageTarget></pageList>")
+        let pages = [EPUBPageListEntry(label: "1", href: "OPS/two.xhtml#p1")]
+        // Before it, an NCX whose file the archive lacks and a remote one, which are passed over.
+        let elsewhere = "<item id=\"gone\" href=\"gone.ncx\" media-type=\"application/x-dtbncx+xml\"/>"
+            + "<item id=\"remote\" href=\"https://example.invalid/toc.ncx\" media-type=\"application/x-dtbncx+xml\"/>"
+        for spine in ["<spine>", "<spine toc=\"\">", "<spine toc=\"toc\">", "<spine toc=\"gone\">", "<spine toc=\"remote\">"] {
+            for type in ["application/x-dtbncx+xml", " Application/X-DTBNCX+XML "] {
+                func edit(_ opf: String) -> String {
+                    opf.replacingOccurrences(of: "<spine toc=\"ncx\">", with: spine)
+                        .replacingOccurrences(of: "<item id=\"ncx\" href=\"toc.ncx\" media-type=\"application/x-dtbncx+xml\"/>",
+                                              with: elsewhere + "<item id=\"ncx\" href=\"toc.ncx\" media-type=\"\(type)\"/>")
+                }
+                let book = try EPUBPublication.open(data: Fixture.packageVariant(epub2: true, opf: edit, ncx: { _ in document }))
+                XCTAssertEqual(book.tableOfContents, [Item(title: "Only Chapter", href: "OPS/one.xhtml")], spine + type)
+                XCTAssertEqual(book.pageList, pages, spine + type)
+                // An EPUB 3 book's NCX, found so, fills the page list its navigation document lacks.
+                XCTAssertEqual(try EPUBPublication.open(data: Fixture.packageVariant(opf: edit, ncx: { _ in document })).pageList, pages, spine + type)
+            }
+        }
+    }
+
+    func testAnNCXFoundByItsMediaTypeThatDoesNotParseIsIgnored() throws {
+        // The book never needed it to open. One the spine names still refuses an EPUB 2 book
+        // (EPUBCheckNavigationCoverageTests.testAnEPUB2BookWhoseNCXIsMalformedIsATypedRefusal).
+        let book = try EPUBPublication.open(data: Fixture.packageVariant(epub2: true, opf: {
+            $0.replacingOccurrences(of: "<spine toc=\"ncx\">", with: "<spine>")
+        }, ncx: { _ in "<ncx><navMap><navPoint></navMap></ncx>" }))
+        XCTAssertEqual(book.tableOfContents, [])
+        XCTAssertNil(book.pageList)
+        XCTAssertEqual(book.spine.count, 2)
+    }
+
+    func testOfSeveralNCXsTheOneTheSpineNamesOrElseTheFirstIsRead() throws {
+        // A second NCX listed before the fixture's. The spine's choice stands whatever media
+        // type the item it names is declared with; without one, only an item of the NCX's media
+        // type is taken for it, the first in manifest order, as foliate-js and Readium take it.
+        func contents(_ spine: String, earlierType: String = "application/x-dtbncx+xml") throws -> [Item] {
+            let earlier = ncx("<navMap>" + point("e", "Listed first", "two.xhtml") + "</navMap>")
+            return try EPUBPublication.open(data: Fixture.packageVariant(epub2: true, opf: {
+                $0.replacingOccurrences(of: "<spine toc=\"ncx\">", with: spine)
+                    .replacingOccurrences(of: "<item id=\"ncx\"", with: "<item id=\"early\" href=\"early.ncx\" media-type=\"\(earlierType)\"/><item id=\"ncx\"")
+            }, adding: ["OPS/early.ncx": Data(earlier.utf8)])).tableOfContents
+        }
+        let listedFirst = [Item(title: "Listed first", href: "OPS/two.xhtml")]
+        let fixture = try EPUBPublication.open(data: Fixture.epub(epub2: true)).tableOfContents
+        XCTAssertEqual(try contents("<spine>"), listedFirst)
+        XCTAssertEqual(try contents("<spine toc=\"ncx\">"), fixture)
+        XCTAssertEqual(try contents("<spine toc=\"early\">", earlierType: "text/xml"), listedFirst)
+        XCTAssertEqual(try contents("<spine>", earlierType: "text/xml"), fixture)
+    }
+
     func testNavPointsNestInDocumentOrderWhateverTheirPlayOrder() throws {
         let map = point("a", "Part One", "one.xhtml", order: 9,
                         point("b", "Chapter 1", "one.xhtml#start", order: 3, point("c", "Section 1.1", "one.xhtml#s1", order: 1)

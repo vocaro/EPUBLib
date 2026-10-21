@@ -325,7 +325,16 @@ public struct EPUBPublication: Sendable {
         var toc: [EPUBNavigationItem] = []
         var landmarks: [EPUBLandmark] = []
         var pages: [EPUBPageListEntry] = []
-        let ncx = spineNode.attribute("toc").flatMap { byID[$0] }
+        // The NCX is the item the spine's `toc` names or, where it names none the archive holds,
+        // the first of the NCX's media type that it does. OPF 2.0.1 §2.4 requires `toc`, but
+        // converters leave it out or name an item that is not there (#169). The item `toc` names
+        // is taken whatever media type it is declared with, as foliate-js and Readium take it. A
+        // book without a navigation document is refused when the NCX it names does not parse; one
+        // found by its media type was never needed to open the book, so it is ignored.
+        let namedNCX = spineNode.attribute("toc").flatMap { byID[$0] }
+        let ncx = namedNCX ?? resources.first {
+            $0.mediaType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "application/x-dtbncx+xml"
+        }
         // In either page list, as among landmarks, a page whose href does not resolve is left out
         // rather than refusing the book.
         func pageTargets(_ root: XMLNode, _ path: String) -> [EPUBPageListEntry] {
@@ -375,8 +384,7 @@ public struct EPUBPublication: Sendable {
                 }
                 pages = node.children.filter { $0.name == "ol" }.flatMap(entries)
             }
-        } else if let ncx {
-            let root = try xml(ncx.path)
+        } else if let ncx, let root = try namedNCX.map({ try xml($0.path) }) ?? (try? xml(ncx.path)) {
             func points(_ parent: XMLNode) -> [EPUBNavigationItem] {
                 parent.children.filter { $0.name == "navPoint" }.map { point in
                     let title = point.children.first { $0.name == "navLabel" }?.text ?? ""
