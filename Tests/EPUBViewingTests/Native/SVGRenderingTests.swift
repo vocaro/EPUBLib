@@ -328,6 +328,28 @@ final class SVGRenderingTests: XCTestCase {
         XCTAssertNil(ReaderImageSource.svg(Data(embedded.utf8), path: "", key: "pixels"))
     }
 
+    /// The renderer reads a `data:` image by the data: URL processor, and so are its images read
+    /// before it is given them (`DataURL`): in any case, as base64 broken by white space, or
+    /// percent-encoded. Each of those forms is drawn when it is small and refused when it is not.
+    func testDataImagesAreBoundedInEveryFormTheRendererDraws() throws {
+        func drawing(_ href: String) -> Data {
+            Data("<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><image href='\(href)' width='10' height='10'/></svg>".utf8)
+        }
+        func forms(_ png: Data) -> [String] {
+            let b64 = png.base64EncodedString()
+            return ["data:image/png;base64,\(b64)", "DATA:IMAGE/PNG;BASE64,\(b64)",
+                    "data:image/png;base64,\(b64.prefix(8))&#10; \(b64.dropFirst(8))",
+                    "data:image/png,\(png.map { String(format: "%%%02X", $0) }.joined())"]
+        }
+        for href in forms(RichFixture.image(width: 10, height: 10)) {
+            let source = try XCTUnwrap(ReaderImageSource.svg(drawing(href), path: "", key: "small"), String(href.prefix(24)))
+            XCTAssertEqual(pixel(try XCTUnwrap(source.decode(maxPixelSize: 10)), 5, 5)[3], 255, String(href.prefix(24)))
+        }
+        for href in forms(RichFixture.image(width: 2100, height: 2100)) {
+            XCTAssertNil(ReaderImageSource.svg(drawing(href), path: "", key: "large"), String(href.prefix(24)))
+        }
+    }
+
     func testOriginalNetworkingSVGCorpusWhenProvided() throws {
         guard let path = ProcessInfo.processInfo.environment["EPUBLIB_SVG_CORPUS"] else { throw XCTSkip("Set EPUBLIB_SVG_CORPUS to the unchanged publisher networking EPUB") }
         let bytes = try Data(contentsOf: URL(fileURLWithPath: path))

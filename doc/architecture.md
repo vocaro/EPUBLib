@@ -113,8 +113,11 @@ disclosed:
   `one.xhtml`; white space inside it, outside ASCII or written as an escape is part of the name
   ([#76](https://github.com/vocaro/EPUBLib/issues/76)). No reference leaves the container: a
   leading `/` names the container root and `..` stops there (EPUB Reading Systems 3.3 §4.1.1). A
-  query is dropped. The container's rootfile path is the exception: it names the package document
-  or nothing, and is refused in these forms.
+  doubled slash is an empty segment, as URL parsing has it, so a `..` after one removes it and
+  `a//../b` names `a/b`; an empty segment that remains names no entry and is read past, so `a//b`
+  names `a/b` too ([#605](https://github.com/vocaro/EPUBLib/issues/605)). A query is dropped.
+  The container's rootfile path is the exception: it names the package document or nothing, and
+  is refused in these forms.
 - **Manifest.** An item repeated verbatim counts once. An item whose file the archive lacks and a
   remote item, which is never fetched, are left out of `resources`; the spine still needs every
   document it names. An href that matches no entry names the one entry that differs only in case,
@@ -254,7 +257,8 @@ element before strict or recovery parsing, including duplicates and namespace de
 named HTML entities become numeric references, DTDs and the network are
 never loaded, and depth and node counts are bounded. Markup that is not well-formed is read with
 libxml2's forgiving HTML parser rather than refused. CSS, fonts, MathML and images are parsed with
-their own bounds. Every reference resolves inside the archive snapshot; remote images, stylesheets,
+their own bounds. Every reference resolves inside the archive snapshot, but for an image in a
+`data:` URL, which is read from the URL's own bytes; remote images, stylesheets,
 fonts and media are never fetched, external links are refused with a notice, and `script`
 elements are counted and disclosed but never run. Sandboxed macOS hosts need no network entitlement.
 

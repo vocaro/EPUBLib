@@ -21,6 +21,10 @@ struct NativeRichContent: RichContentFactory {
 
     init(images: ReaderImageCache = .shared) { self.images = images }
 
+    /// The most bytes an image in a `data:` URL may decode to: what the archive holds of one
+    /// resource unless the host sets less, which bounds the document holding the URL as well.
+    static let maximumDataURLBytes = EPUBImportLimits().resourceBytes
+
     func image(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
         let isObject = element.isHTML("object"), isEmbed = element.isHTML("embed")
         let reference: String?
@@ -39,12 +43,29 @@ struct NativeRichContent: RichContentFactory {
         var alt = alternative.text
         // An `<object>` falls back to its own content, an image to its alt text.
         let fallback = { isObject ? nil : Self.altText(alt, style: style, context: context) }
-        guard let reference = reference?.trimmingCharacters(in: .whitespacesAndNewlines), !reference.isEmpty,
-              let path = context.resolve(reference) else { return fallback() }
-        guard let resolved = resolvedImage(at: path, style: style, context: context) else {
-            if let data = try? context.publication.data(at: path), Self.isSVG(data, path: path, context: context) {
+        guard let reference = reference?.trimmingCharacters(in: .whitespacesAndNewlines), !reference.isEmpty else { return fallback() }
+        let found: (source: ReaderImageSource, intrinsic: CGSize, svg: ContentNode?)?
+        // The image's bytes where they are SVG, for its words and its disclosure if it is not drawn.
+        let svgData: Data?, svgPath: String
+        if let url = DataURL(reference, maximumBytes: Self.maximumDataURLBytes), url.mediaType.hasPrefix("image/") {
+            // An image the document holds itself is shown and bounded as one in the archive is,
+            // its type standing for a manifest's, and has no path: it is known by its element's
+            // position. `resolve` counts any other `data:` URL unreadable (#134).
+            let isSVG = ImageType.mediaType(of: url.body) == nil && ImageType.isSVG(url.body, path: "", mediaType: url.mediaType)
+            let key = context.publication.id + "\u{0}" + context.document.path + "\u{0}\(element.order)"
+            found = decodedImage(url.body, path: "", isSVG: isSVG, key: key, style: style, context: context)
+            svgData = isSVG ? url.body : nil
+            svgPath = ""
+        } else {
+            guard let path = context.resolve(reference) else { return fallback() }
+            found = resolvedImage(at: path, style: style, context: context)
+            svgData = found == nil ? (try? context.publication.data(at: path)).flatMap { Self.isSVG($0, path: path, context: context) ? $0 : nil } : nil
+            svgPath = path
+        }
+        guard let resolved = found else {
+            if let svgData {
                 context.report.report.unsupportedElements["svg", default: 0] += 1
-                if alt.isEmpty, let document = try? ContentDocument.parse(data, path: path, asContent: false) {
+                if alt.isEmpty, let document = try? ContentDocument.parse(svgData, path: svgPath, asContent: false) {
                     alt = SVGContent.fallbackText(document.root)
                 }
             } else { context.report.report.unreadableResources += 1 }
@@ -141,29 +162,40 @@ struct NativeRichContent: RichContentFactory {
         } else { candidates = [path] }
         for candidate in candidates {
             guard !ResourceReference.isRemote(candidate), let data = try? context.publication.data(at: candidate) else { continue }
-            let key = context.publication.id + "\u{0}" + candidate
-            if Self.isSVG(data, path: candidate, context: context) {
-                let before = context.report.report
-                guard let (source, root) = svgDocument(data, path: candidate, key: key, context: context) else {
-                    context.report.report = before
-                    continue
-                }
-                return (source, SVGContent.intrinsicSize(root, fontSize: style.fontSize, fallback: source.pixelSize), root)
-            }
-            if let source = ReaderImageSource.bitmap(data, path: candidate, key: key) {
-                return (source, source.pixelSize, nil)
+            if let image = decodedImage(data, path: candidate, isSVG: Self.isSVG(data, path: candidate, context: context),
+                                        key: context.publication.id + "\u{0}" + candidate, style: style, context: context) {
+                return image
             }
         }
         return nil
     }
 
-    /// An SVG resource as a sanitized document the static renderer can draw, and its root.
+    /// An image's bytes as the reader draws them: SVG sanitized for the static renderer, or a
+    /// bitmap ImageIO reads. An SVG that cannot be drawn leaves nothing in the report.
+    private func decodedImage(_ data: Data, path: String, isSVG: Bool, key: String, style: ComputedStyle,
+                              context: RichContentContext) -> (source: ReaderImageSource, intrinsic: CGSize, svg: ContentNode?)? {
+        if isSVG {
+            let before = context.report.report
+            guard let (source, root) = svgDocument(data, path: path, key: key, context: context) else {
+                context.report.report = before
+                return nil
+            }
+            return (source, SVGContent.intrinsicSize(root, fontSize: style.fontSize, fallback: source.pixelSize), root)
+        }
+        guard let source = ReaderImageSource.bitmap(data, path: path, key: key) else { return nil }
+        return (source, source.pixelSize, nil)
+    }
+
+    /// An SVG resource as a sanitized document the static renderer can draw, and its root. One
+    /// with no path, from a `data:` URL, has no base a reference in it resolves against, as the
+    /// URL Standard parses none against a `data:` URL.
     private func svgDocument(_ data: Data, path: String, key: String,
                              context: RichContentContext) -> (ReaderImageSource, ContentNode)? {
         guard let document = try? ContentDocument.parse(data, path: path, asContent: false),
               SVGContent.isSVG(document.root, root: document.root), document.root.name == "svg" else { return nil }
         discloseSVG(document.root, context: context)
         let resolve: (String) -> String? = { reference in
+            guard !path.isEmpty else { return nil }
             guard let resolved = try? ResourceReference.resolve(reference, relativeTo: path) else {
                 context.report.report.remoteResourcesRefused += 1
                 return nil

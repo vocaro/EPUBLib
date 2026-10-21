@@ -219,14 +219,14 @@ import XCTest
         XCTAssertEqual(words(build(publication, 1)), "Still here.")
     }
 
-    func testAnImageGivenAsADataURLFallsBackToItsAlternativeText() throws {
-        // Valid EPUB 3 (3.7 Data URLs). The reader resolves references inside the archive only:
-        // the image is counted as unreadable and its alternative text stands in.
+    func testAnImageGivenAsADataURLIsShown() throws {
+        // Valid EPUB 3 (3.7 Data URLs). The image is read from the URL's own bytes, as one in
+        // the archive is from its file (#134).
         let pixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
         let section = build(try book(page("<p>Before <img src=\"data:image/png;base64,\(pixel)\" alt=\"a red dot\"/> after.</p>")))
         XCTAssertFalse(section.report.withheld)
-        XCTAssertEqual(words(section), "Before a red dot after.")
-        XCTAssertEqual(section.report.unreadableResources, 1)
+        XCTAssertEqual(section.string.string, "Before \u{FFFC} after.")
+        XCTAssertEqual(section.report.unreadableResources, 0)
         XCTAssertEqual(section.report.remoteResourcesRefused, 0)
     }
 }

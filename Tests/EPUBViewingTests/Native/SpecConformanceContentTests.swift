@@ -166,7 +166,6 @@ import UIKit
     /// media type resource like any other, and RS 3.4 only forbids opening one as a top-level
     /// document (W3C test pub-data-urls_browsing-context).
     func testAnImageInADataURLIsShown() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/134")
         let png = Book.image(width: 40, height: 30).base64EncodedString()
         let book = try build("<p>Before.</p><p><img src=\"data:image/png;base64,\(png)\" alt=\"An embedded square\"/></p>")
         let section = book[0]

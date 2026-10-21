@@ -1,3 +1,5 @@
+import EPUBReading
+import EPUBTestSupport
 import XCTest
 @testable import EPUBViewing
 
@@ -33,6 +35,15 @@ final class RichMediaSVGReferenceCoverageTests: XCTestCase {
     /// A drawing the renderer was shown to draw safely, decoded as an archive image is.
     private func source(_ body: String) -> ReaderImageSource? {
         ReaderImageSource.svg(Data(drawing(body).utf8), path: "", key: UUID().uuidString)
+    }
+
+    /// A drawing's tree as the book has it, and as the renderer is handed it: serialized, and
+    /// parsed again as `SVGRenderer.init` parses it, with the serialized bytes.
+    private func trees(_ body: String) throws -> (written: ContentDocument, serialized: ContentDocument, bytes: Data) {
+        let limits = ContentLimits(bytes: SVGContent.maximumBytes, depth: SVGContent.maximumDepth, nodes: SVGContent.maximumNodes)
+        let written = try ContentDocument.parse(Data(drawing(body).utf8), path: "svg", limits: limits, asContent: false)
+        let bytes = try XCTUnwrap(SVGContent.serialize(written.root, resolve: { _ in nil }, publication: EPUBPublication.open(data: Fixture.epub())))
+        return (written, try ContentDocument.parse(bytes, path: "svg", limits: limits, asContent: false), bytes)
     }
 
     /// The section a refused drawing is shown in, built as the reader builds it. The limits are
@@ -473,6 +484,58 @@ final class RichMediaSVGReferenceCoverageTests: XCTestCase {
         XCTAssertNotNil(source(arrows + edges))
         // A gradient that takes its stops from another, written with both spellings of the reference.
         XCTAssertNotNil(source("<linearGradient id='stops'><stop offset='0' stop-color='red'/><stop offset='1' stop-color='blue'/></linearGradient><linearGradient id='g' x2='0' y2='1' href='#stops' xlink:href='#stops'/><radialGradient id='r' xlink:href='#g'/><rect width='5' height='5' fill='url(#g)' stroke='url(#r)'/>"))
+    }
+
+    // MARK: Serialized drawings
+
+    /// A tab or carriage return after the `#` is part of the id, where a space ends it. The
+    /// serializer writes each as a reference, so in the bytes the renderer is handed a reference
+    /// names the element it names in the book, and a drawing the screen passes as written is not
+    /// one the screening of those bytes has to stop ([#249](https://github.com/vocaro/EPUBLib/issues/249)).
+    func testAReferenceNamesTheSameElementOnceSerialized() throws {
+        /// The fill of each element the `use` names.
+        func named(_ document: ContentDocument) -> [String] {
+            let ids = SVGContent.elementsByID(document.nodes)
+            let use = document.nodes.first { $0.name == "use" }
+            return use.flatMap(SVGContent.fragment).flatMap { ids[$0] }?.compactMap { $0.attribute("fill") } ?? []
+        }
+        for space in ["&#9;", "&#13;"] {
+            for attribute in ["href", "xlink:href"] {
+                let red = "<rect id='b' width='5' height='5' fill='red'/>", blue = "<rect id='b\(space)' width='5' height='5' fill='blue'/>"
+                let cases: [(definitions: String, named: [String], pixel: [UInt8])] = [(red + blue, ["blue"], [0, 0, 255, 255]), (red, [], [0, 0, 0, 0])]
+                for (definitions, expected, pixel) in cases {
+                    // The white square beside it keeps the drawing from being empty when the `use` draws nothing.
+                    let body = "<defs>\(definitions)</defs><use \(attribute)='#b\(space)'/><rect x='5' width='5' height='5' fill='white'/>"
+                    let name = "\(attribute)='#b\(space)' with \(expected.isEmpty ? "only b" : "b and b\(space)")"
+                    let (written, serialized, bytes) = try trees(body)
+                    XCTAssertEqual(named(written), expected, "as written: \(name)")
+                    XCTAssertEqual(named(serialized), expected, "serialized: \(name)")
+                    // The renderer agrees, whether it is handed the book's bytes or the serialized ones.
+                    for (form, data) in [("as written", Data(drawing(body).utf8)), ("serialized", bytes)] {
+                        let image = try XCTUnwrap(ReaderImageSource.svg(data, path: "", key: UUID().uuidString)?.decode(maxPixelSize: 10), "\(form): \(name)")
+                        XCTAssertEqual(RichMediaImages.rgba(image, x: 2, y: 2), pixel, "\(form): \(name)")
+                    }
+                }
+            }
+        }
+
+        // Named without the tab or carriage return, these lead the renderer round a loop it does
+        // not end. Spelled with one, they name nothing, before serialization and after; they are
+        // given only to the screens.
+        let rect = "<rect \(Self.box)"
+        for space in ["&#9;", "&#13;"] {
+            let unended: [(String, String)] = [
+                ("a ring of three masks closed through a use", ringClosed(by: "<use href='#q\(space)'/>", definitions: "<defs>\(rect) id='q' mask='url(#a)'/></defs>")),
+                ("a gradient walk into a loop", gradients(ring: 2, tail: 1).replacingOccurrences(of: "id='t0' href='#r0'", with: "id='t0' href='#r0\(space)'")),
+            ]
+            for (name, body) in unended {
+                XCTAssertFalse(try passes(body.replacingOccurrences(of: space, with: "")), "named without \(space): \(name)")
+                XCTAssertTrue(try passes(body), "as written: \(name)")
+                let serialized = try trees(body).serialized
+                XCTAssertTrue(SVGReferenceScreen.accepts(serialized.nodes, ids: SVGContent.elementsByID(serialized.nodes)), "serialized: \(name)")
+                XCTAssertTrue(SVGContent.isWithinRenderingLimits(serialized.root), "serialized: \(name)")
+            }
+        }
     }
 
     // MARK: The screen's own cost

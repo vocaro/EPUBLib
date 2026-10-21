@@ -220,31 +220,43 @@ private final class XHTMLTextReader {
             // XML forbids (`:p`, `script:`, `a:b:c`, a processing instruction's `a:b`) with a
             // namespace error and reads on. The native reader takes that for markup that is not
             // well-formed and reads the section as HTML, where `<:p>` is text (#178).
-            let malformedName = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
-            malformedName.initialize(to: false)
-            defer { malformedName.deinitialize(count: 1); malformedName.deallocate() }
-            xmlTextReaderSetStructuredErrorHandler(reader, { flag, error in
-                guard let flag, let error, error.pointee.domain == Int32(XML_FROM_NAMESPACE.rawValue),
-                      error.pointee.code == Int32(XML_NS_ERR_QNAME.rawValue)
-                        || error.pointee.code == Int32(XML_NS_ERR_COLON.rawValue) else { return }
-                flag.assumingMemoryBound(to: Bool.self).pointee = true
-            }, malformedName)
+            // libxml2 also halts, as at markup that is not well-formed, where an element would open
+            // more than 256 levels below the root (`xmlParserMaxDepth`; XML_PARSE_HUGE, which lifts
+            // that bound and its others, is never enabled). As in recovery, that is the depth limit,
+            // whatever the caller's (#91). libxml2 2.9 raises it as an internal error, a code that
+            // other failures share, so its message names the cause. A parse halted at markup that is
+            // not well-formed opens no more elements: such markup before the cap stays malformed.
+            let reported = UnsafeMutablePointer<(malformedName: Bool, nestingCap: Bool)>.allocate(capacity: 1)
+            reported.initialize(to: (false, false))
+            defer { reported.deinitialize(count: 1); reported.deallocate() }
+            xmlTextReaderSetStructuredErrorHandler(reader, { flags, error in
+                guard let flags, let error else { return }
+                let reported = flags.assumingMemoryBound(to: (malformedName: Bool, nestingCap: Bool).self)
+                if error.pointee.domain == Int32(XML_FROM_NAMESPACE.rawValue),
+                   error.pointee.code == Int32(XML_NS_ERR_QNAME.rawValue) || error.pointee.code == Int32(XML_NS_ERR_COLON.rawValue) {
+                    reported.pointee.malformedName = true
+                } else if error.pointee.domain == Int32(XML_FROM_PARSER.rawValue), let message = error.pointee.message,
+                          String(cString: message).hasPrefix("Excessive depth in document") {
+                    reported.pointee.nestingCap = true
+                }
+            }, reported)
             let result = XHTMLTextReader(limits: limits)
             func string(_ value: UnsafePointer<xmlChar>?) -> String { value.map { String(cString: $0) } ?? "" }
             while true {
                 try Task.checkCancellation()
                 let status = xmlTextReaderRead(reader)
-                guard !malformedName.pointee else { throw ParseFailure.notWellFormed }
+                guard !reported.pointee.malformedName else { throw ParseFailure.notWellFormed }
+                guard !reported.pointee.nestingCap else { throw EPUBTextExtractionError.limitExceeded("depth") }
                 if status == 0 { break }
                 guard status == 1 else { throw ParseFailure.notWellFormed }
                 switch xmlTextReaderNodeType(reader) {
                 case Int32(XML_READER_TYPE_ELEMENT.rawValue):
                     let name = string(xmlTextReaderConstName(reader))
                     let empty = xmlTextReaderIsEmptyElement(reader) == 1
-                    var attributes: [String: String] = [:]
+                    var attributes: [(String, String)] = []
                     if xmlTextReaderMoveToFirstAttribute(reader) == 1 {
                         repeat {
-                            attributes[string(xmlTextReaderConstName(reader))] = string(xmlTextReaderConstValue(reader))
+                            attributes.append((string(xmlTextReaderConstName(reader)), string(xmlTextReaderConstValue(reader))))
                         } while xmlTextReaderMoveToNextAttribute(reader) == 1
                         xmlTextReaderMoveToElement(reader)
                     }
@@ -313,7 +325,7 @@ private final class XHTMLTextReader {
             var descends = false
             switch node.pointee.type {
             case XML_ELEMENT_NODE:
-                var attributes: [String: String] = [:]
+                var attributes: [(String, String)] = []
                 var attribute = node.pointee.properties
                 while let property = attribute {
                     var value = ""
@@ -322,7 +334,7 @@ private final class XHTMLTextReader {
                         if let content = text.pointee.content { value += string(content) }
                         part = text.pointee.next
                     }
-                    attributes[qualified(property.pointee.name, property.pointee.ns)] = value
+                    attributes.append((qualified(property.pointee.name, property.pointee.ns), value))
                     attribute = property.pointee.next
                 }
                 // libxml2's HTML parser has split an element's name already, at its first colon
@@ -380,15 +392,19 @@ private final class XHTMLTextReader {
         return (String(name[..<colon]), String(name[name.index(after: colon)...]))
     }
 
-    private func start(_ name: (prefix: String, local: String), attributes: [String: String]) throws {
+    /// `declared` holds an element's attributes in document order. Its declarations are read in
+    /// that order, not a dictionary's, which changes from run to run (#213).
+    private func start(_ name: (prefix: String, local: String), attributes declared: [(String, String)]) throws {
         guard stack.count < limits.depth else { throw EPUBTextExtractionError.limitExceeded("depth") }
         guard elements < limits.elementCount else { throw EPUBTextExtractionError.limitExceeded("elementCount") }
         elements += 1
         var namespaces = stack.last?.namespaces ?? [:]
-        for (key, value) in attributes {
+        for (key, value) in declared {
             if key == "xmlns" { namespaces[""] = value }
             else if case let (prefix, local) = Self.split(key), prefix == "xmlns" { namespaces[local] = value }
         }
+        // XML refuses a repeated name, and libxml2's HTML parser keeps the first.
+        let attributes = Dictionary(declared, uniquingKeysWith: { first, _ in first })
         let (prefix, local) = name
         var uri = namespaces[prefix] ?? ""
         if recovered, prefix.isEmpty, uri.isEmpty || uri == "http://www.w3.org/1999/xhtml", local == "math", stack.last?.math == nil {
