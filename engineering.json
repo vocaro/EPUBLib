@@ -23,7 +23,7 @@
         "-v"
       ],
       "resource": "light",
-      "minimumTests": 46
+      "minimumTests": 51
     },
     "docs": {
       "command": [
