@@ -269,7 +269,6 @@ final class SectionContentElementCoverageTests: XCTestCase {
     }
 
     func testAVisibilityHiddenRuleDrawsNothing() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/132")
         // CSS 2 section 11.2: "The generated box is invisible (fully transparent, nothing is drawn), but still affects layout."
         let text = try S.styled("<p>above</p><hr style='visibility: hidden'/><p>below</p>")
         var rules: [ReaderRuleAttachment] = []
@@ -284,6 +283,105 @@ final class SectionContentElementCoverageTests: XCTestCase {
         let reference = drawn.image(forBounds: CGRect(origin: .zero, size: size), textContainer: nil, characterIndex: 0)
         XCTAssertGreaterThan(try XCTUnwrap(S.maximumAlpha(of: reference, size: size)), 0, "an ordinary rule is drawn")
         XCTAssertEqual(S.maximumAlpha(of: image, size: size) ?? 0, 0, "a `visibility: hidden` rule is drawn")
+    }
+
+    /// Every kind of attachment keeps its room and draws nothing when its element is hidden: a
+    /// rule, a bitmap, an SVG image, an inline drawing and a formula ([#132](https://github.com/vocaro/EPUBLib/issues/132)).
+    /// Inside the same hidden box, one that sets `visibility: visible` again is drawn.
+    func testVisibilityHiddenAttachmentsDrawNothingInTheirRoomUnlessShownAgain() throws {
+        let drawing = #"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="blue"/></svg>"#
+        let body = """
+            <div class="v"><hr class="a"/><p><img class="a" src="photo.png" alt="Photo"/> <img class="a" src="art.svg" alt="Art"/> \
+            <svg xmlns="http://www.w3.org/2000/svg" class="a" width="40" height="20"><rect width="40" height="20" fill="blue"/></svg> \
+            <math xmlns="http://www.w3.org/1998/Math/MathML" class="a"><mi>x</mi><mo>+</mo><mn>1</mn></math></p></div>
+            """
+        let files = ["photo.png": RichFixture.image(width: 40, height: 20), "art.svg": Data(drawing.utf8)]
+        let shown = try S.styled(body, files: files)
+        let hidden = try S.styled(body, css: ".v { visibility: hidden }", files: files)
+        let revealed = try S.styled(body, css: ".v { visibility: hidden } .a { visibility: visible }", files: files)
+        XCTAssertEqual(hidden.string.string, shown.string.string, "the same characters")
+        let kinds = ["rule", "bitmap", "SVG image", "inline drawing", "formula"]
+        let drawn = Self.drawnAttachments(shown), unseen = Self.drawnAttachments(hidden), again = Self.drawnAttachments(revealed)
+        XCTAssertEqual(drawn.map { $0.kind }, kinds)
+        XCTAssertEqual(unseen.map { $0.kind }, kinds)
+        XCTAssertEqual(again.map { $0.kind }, kinds)
+        for (index, kind) in kinds.enumerated() where index < min(drawn.count, unseen.count, again.count) {
+            XCTAssertGreaterThan(drawn[index].alpha, 0, "a \(kind) is drawn")
+            XCTAssertEqual(unseen[index].bounds, drawn[index].bounds, "a hidden \(kind) keeps its room")
+            XCTAssertEqual(unseen[index].alpha, 0, "a hidden \(kind) draws nothing")
+            XCTAssertEqual(again[index].bounds, drawn[index].bounds)
+            XCTAssertGreaterThan(again[index].alpha, 0, "a \(kind) that is visible inside a hidden box is drawn")
+        }
+        // An image that cannot be drawn shows its words instead: they keep its room and are not drawn either.
+        let lost = "<p class='v'>a <img src='missing.png' alt='Lost picture'/> b</p>"
+        let missing = try S.styled(lost, css: ".v { visibility: hidden }"), standing = try S.styled(lost)
+        XCTAssertEqual(H.attribute(.foregroundColor, of: "Lost picture", in: standing) as? PlatformColor, ReaderPalette.secondaryText(dark: false))
+        XCTAssertEqual(H.attribute(.foregroundColor, of: "Lost picture", in: missing) as? PlatformColor, .clear)
+    }
+
+    /// A hidden table keeps its room and draws neither its borders nor its background, nor its
+    /// rows' and cells'; a cell that sets `visibility: visible` again draws its own and nothing else.
+    func testAVisibilityHiddenTableDrawsOnlyTheCellsShownAgain() throws {
+        let body = """
+            <table class="v" style="border: 2px solid black; background-color: yellow">\
+            <tr style="background-color: silver"><td style="border: 2px solid red; background-color: lime">left</td>\
+            <td class="u" style="border: 2px solid blue; background-color: aqua">right</td></tr>\
+            <tr><td style="border: 2px solid red">below</td><td style="border: 2px solid red">two</td></tr></table>
+            """
+        func rows(_ text: SectionText) -> [TableRowAttachment] {
+            var rows: [TableRowAttachment] = []
+            text.string.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.string.length)) { value, _, _ in
+                if let row = value as? TableRowAttachment { rows.append(row) }
+            }
+            return rows
+        }
+        func image(_ row: TableRowAttachment) -> (bounds: CGRect, image: PlatformImage?) {
+            let bounds = row.layoutBounds(line(300))
+            return (bounds, row.image(forBounds: CGRect(origin: .zero, size: bounds.size), textContainer: nil, characterIndex: 0))
+        }
+        let shown = rows(try S.styled(body)), hidden = rows(try S.styled(body, css: ".v { visibility: hidden }"))
+        let revealed = rows(try S.styled(body, css: ".v { visibility: hidden } .u { visibility: visible }"))
+        XCTAssertEqual(shown.count, 2)
+        XCTAssertEqual(hidden.count, 2)
+        XCTAssertEqual(revealed.count, 2)
+        for (index, (drawn, unseen)) in zip(shown, hidden).enumerated() {
+            let (bounds, picture) = image(drawn), (hiddenBounds, hiddenPicture) = image(unseen)
+            XCTAssertGreaterThan(S.maximumAlpha(of: picture, size: bounds.size) ?? 0, 0, "row \(index) is drawn")
+            XCTAssertEqual(hiddenBounds, bounds, "row \(index) keeps its room")
+            XCTAssertEqual(S.maximumAlpha(of: hiddenPicture, size: bounds.size) ?? 0, 0, "hidden row \(index) draws nothing")
+        }
+        let (bounds, picture) = image(revealed[0])
+        let viewport = TableRowAttachment.viewportHeight(nil, width: bounds.width)
+        let cell = try XCTUnwrap(revealed[0].spokenCells(size: bounds.size, viewportHeight: viewport).first { $0.text == "right" })
+        XCTAssertGreaterThan(S.maximumAlpha(of: picture, size: bounds.size) ?? 0, 0, "the cell shown again is drawn")
+        XCTAssertEqual(S.maximumAlpha(of: picture, size: bounds.size, outside: cell.frame.insetBy(dx: -1, dy: -1)) ?? 0, 0,
+                       "nothing but that cell is drawn")
+        let (otherBounds, other) = image(revealed[1])
+        XCTAssertEqual(S.maximumAlpha(of: other, size: otherBounds.size) ?? 0, 0, "a row without one draws nothing")
+    }
+
+    /// Each attachment of a section, as laid out on a 300-point line, and the most opaque pixel
+    /// it draws there. A formula is counted once, by its first row.
+    private static func drawnAttachments(_ text: SectionText) -> [(kind: String, bounds: CGRect, alpha: UInt8)] {
+        var result: [(kind: String, bounds: CGRect, alpha: UInt8)] = []
+        text.string.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.string.length)) { value, _, _ in
+            let kind: String, bounds: CGRect, image: PlatformImage?
+            if let attachment = value as? ReaderAttachment {
+                if attachment is ReaderRuleAttachment { kind = "rule" }
+                else if let picture = attachment as? ReaderImageAttachment {
+                    kind = picture.path.hasSuffix(".png") ? "bitmap" : picture.path.hasSuffix(".svg") ? "SVG image" : "inline drawing"
+                } else { kind = "\(type(of: attachment))" }
+                bounds = attachment.layoutBounds(line(300))
+                image = attachment.image(forBounds: CGRect(origin: .zero, size: bounds.size), textContainer: nil, characterIndex: 0)
+            } else if let formula = value as? MathAttachment {
+                guard formula.row == 0 else { return }
+                kind = "formula"
+                bounds = formula.bounds(lineWidth: 300, height: 0)
+                image = formula.image(size: bounds.size)
+            } else { return }
+            result.append((kind, bounds, S.maximumAlpha(of: image, size: bounds.size) ?? 0))
+        }
+        return result
     }
 
     func testVisuallyHiddenPositionedLabelsAreNotDrawnAndAreKeptForAssistiveTechnology() throws {

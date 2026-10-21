@@ -67,6 +67,10 @@ continues to describe the authored spine resource.
    cascade over a user-agent stylesheet, the book's archive-local stylesheets and `style`
    attributes produce a `ComputedStyle` per element: the CSS subset in `ComputedStyle.swift`.
    `@font-face` fonts load from the archive with CoreText. Nothing remote is fetched.
+   In a section read as HTML, `epub:type` is one attribute of that name in no namespace, as
+   a browser's HTML parser makes it: `[epub\:type]` matches it, and so does `[epub|type]`
+   when the sheet binds the prefix `epub` to the OPS namespace. In XHTML only `[epub|type]`
+   does ([#111](https://github.com/vocaro/EPUBLib/issues/111)).
    Media queries for the reader's appearance govern only what paints (**Appearance media**
    under [Decisions](#decisions)), so neither the reader's size nor its appearance changes
    what the next step writes.
@@ -2140,7 +2144,8 @@ reserves space around rectangular boxes to keep prose readable rather than repro
 arbitrary overlapping layers.
 
 Widths, minimum/maximum widths and insets resolve points, percentages and viewport units at
-the current column size in pagination and continuous scroll; auto margins center a non-floated
+the current column size in pagination and continuous scroll, `vmin` and `vmax` against the
+smaller and the larger side of the viewport at that size; auto margins center a non-floated
 box. Native paragraph styles retain text alignment, direction and typography. Native text
 retains selection, links, anchors, search and the same exact text-to-DOM mapping as ordinary prose. Resizing and
 reader typography changes recompute geometry from source formatting and retain selection.
@@ -2280,9 +2285,14 @@ quite that: its VoiceOver read hidden words inside a shown paragraph, and passed
 - **Positions.** A saved position or a CFI inside hidden text names the characters it named
   before hiding them, and resolves to them.
 
-An image, a formula, a table or a rule inside such a box is still drawn
-([#132](https://github.com/vocaro/EPUBLib/issues/132)) and still read
-([#549](https://github.com/vocaro/EPUBLib/issues/549)). A note's popover on iPhone and iPad
+An image, an SVG drawing, a formula, a table or a rule that `visibility: hidden` hides keeps
+its room and draws nothing, nor do the words shown where an image or a formula cannot be
+([#132](https://github.com/vocaro/EPUBLib/issues/132)). A hidden table draws none of its
+borders and backgrounds, its rows' or its cells'. One that sets `visibility: visible` again
+inside a hidden box is drawn, a table's row or cell among them; a part of an SVG drawing or
+a formula is not, since the attachment the whole is drawn by is hidden. All of them are still
+read ([#549](https://github.com/vocaro/EPUBLib/issues/549)), and a hidden image is still
+opened by a double click or a tap on its room. A note's popover on iPhone and iPad
 gives VoiceOver UIKit's own text accessibility, which these changes do not reach
 ([#550](https://github.com/vocaro/EPUBLib/issues/550)).
 
@@ -2296,7 +2306,7 @@ item narrower than its container is indented from both sides. Nothing else about
 changes.
 
 - **Heights.** A container has free space when its `height` or `min-height` is definite: points,
-  `vh`/`vw`, a percentage of an ancestor chain of definite heights that starts at the viewport
+  `vh`/`vw`/`vmin`/`vmax`, a percentage of an ancestor chain of definite heights that starts at the viewport
   (`html, body { height: 100% }`), or a sum of those (`calc(98vh - 3em)`, exactly).
   `max-height` caps a definite `height`, `box-sizing: border-box` takes the vertical padding
   and border out of it, and content taller than the box is never clipped: it flows as blocks.
@@ -3044,7 +3054,8 @@ Go: the native viewer is the bundled engine.
   padding and text indents resolve against the live containing content width, including
   constrained flow-box ancestors, and recalculate at resize. Mixed-unit CSS calculations
   and `min`/`max`/`clamp` branch selection still use the nominal media-query viewport;
-  viewport-relative font sizes and media queries remain based on that nominal viewport.
+  viewport-relative font sizes and media queries remain based on that nominal 600 × 800
+  viewport, in which `vmin` is its width and `vmax` its height whatever the reader's shape.
 - Whole-table bookmarks and visible row ranges retain attachment granularity. A resize or
   flow change without a precise cell endpoint returns a continued row to its source position
   rather than preserving its particular visual fragment. A table's captions, and the cells

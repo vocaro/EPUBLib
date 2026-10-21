@@ -189,11 +189,13 @@ struct NativeRichContent: RichContentFactory {
         return ImageType.isSVG(data, path: path, mediaType: context.publication.resources.first { $0.path == path }?.mediaType)
     }
 
+    /// The words shown in place of an image that cannot be, in the image's style: a hidden
+    /// image's keep its room and are not drawn either.
     private static func altText(_ alt: String, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
         guard !alt.isEmpty else { return nil }
         return NSAttributedString(string: alt, attributes: [
             .font: context.fonts.font(for: style),
-            .foregroundColor: ReaderPalette.secondaryText(dark: context.typography.isDark),
+            .foregroundColor: style.isHidden ? PlatformColor.clear : ReaderPalette.secondaryText(dark: context.typography.isDark),
         ])
     }
 }

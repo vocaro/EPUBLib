@@ -385,7 +385,7 @@ enum ReaderAlignmentLayout {
             func definite(_ length: ComputedStyle.Length, _ mixed: ComputedStyle.MixedLength?) -> CGFloat? {
                 if let mixed {
                     // `calc(98vh - 3em)`: the sum itself, not its one-unit approximation.
-                    var value = mixed.points + mixed.viewportWidth * viewport.width / 100 + mixed.viewportHeight * viewport.height / 100
+                    var value = mixed.resolve(viewport: viewport)
                     if mixed.percent != 0 {
                         guard let outer = container.containing?.resolve(viewport: viewport) else { return nil }
                         value += mixed.percent * outer / 100

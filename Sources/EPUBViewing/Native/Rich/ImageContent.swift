@@ -79,6 +79,8 @@ struct ImageSizing: Equatable, Sendable {
         if unit == "%" { return .percent(points) }
         if unit == "vw" { return .viewportWidth(points) }
         if unit == "vh" { return .viewportHeight(points) }
+        if unit == "vmin" { return .viewportMin(points) }
+        if unit == "vmax" { return .viewportMax(points) }
         return factors[unit].map { .points(points * $0) }
     }
 }
@@ -154,7 +156,7 @@ final class ReaderImageAttachment: ReaderAttachment {
         invertsColors = style.invertsColors
         self.isDark = isDark
         self.cache = cache
-        super.init()
+        super.init(isHidden: style.isHidden)
     }
     required init?(coder: NSCoder) { nil }
 
@@ -295,6 +297,8 @@ final class ReaderImageAttachment: ReaderAttachment {
 
     private func render(_ size: CGSize) -> PlatformImage? {
         guard size.width > 0, size.height > 0 else { return nil }
+        // Nothing is decoded for a hidden image, nor its words painted where it cannot be drawn.
+        guard !isHidden else { return Self.invisibleImage(size: size) }
         let rect = imageRect(in: size)
         #if os(iOS)
         let scale = currentDrawingScale()
