@@ -14,6 +14,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.20"),
         .package(url: "https://github.com/vocaro/MathMLLayout.git", exact: "0.3.1"),
+        .package(path: "../../../../StaticSVG"),
     ],
     targets: [
         .executableTarget(name: "SearchFocusProbe", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing", "EPUBTestSupport"], path: "Examples/SearchFocusProbe"),
@@ -21,9 +22,9 @@ let package = Package(
         .target(name: "EPUBReading", dependencies: ["EPUBCore", "ZIPFoundation"]),
         .target(name: "EPUBText", dependencies: ["EPUBCore", "EPUBReading"]),
         .target(name: "EPUBWriting", dependencies: ["EPUBCore", "ZIPFoundation"]),
-        .binaryTarget(name: "CResvg", path: "Vendor/Resvg/Resvg.xcframework"),
-        .target(name: "EPUBViewing", dependencies: ["EPUBCore", "EPUBReading", "CResvg",
-                                                    .product(name: "MathMLLayout", package: "MathMLLayout")]),
+        .target(name: "EPUBViewing", dependencies: ["EPUBCore", "EPUBReading",
+                                                    .product(name: "MathMLLayout", package: "MathMLLayout"),
+                                                    .product(name: "StaticSVG", package: "StaticSVG")]),
         .target(name: "EPUBViewingTestSupport", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing"]),
         .target(name: "EPUBTestSupport", dependencies: ["ZIPFoundation"], path: "Tests/EPUBTestSupport"),
         .target(name: "ReaderHostSupport", dependencies: ["EPUBCore", "EPUBReading", "EPUBText", "EPUBViewing"],
