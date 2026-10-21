@@ -22,7 +22,8 @@
         "scripts/tests",
         "-v"
       ],
-      "resource": "light"
+      "resource": "light",
+      "minimumTests": 43
     },
     "docs": {
       "command": [
