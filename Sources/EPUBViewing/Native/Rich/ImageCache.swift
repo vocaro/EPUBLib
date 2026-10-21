@@ -14,9 +14,9 @@ final class ReaderImageSource: @unchecked Sendable {
     enum Format: Sendable { case bitmap, svg }
 
     /// Identifies the resource across sections and rebuilds: the publication and archive path,
-    /// or the inline SVG's document position.
+    /// or the document position of an inline SVG or of an image in a `data:` URL.
     let key: String
-    /// The decoded archive path; empty for inline SVG.
+    /// The decoded archive path; empty for inline SVG and an image in a `data:` URL.
     let path: String
     let data: Data
     let format: Format

@@ -160,7 +160,7 @@ final class ReaderImageAttachment: ReaderAttachment {
     }
     required init?(coder: NSCoder) { nil }
 
-    /// The decoded archive path the image came from (empty for inline SVG).
+    /// The decoded archive path the image came from (empty for inline SVG and a `data:` URL).
     var path: String { source.path }
     /// The words that stand for the image, empty for decoration and for an image without any.
     var alt: String {

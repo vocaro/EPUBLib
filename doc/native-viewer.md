@@ -236,6 +236,22 @@ continues to describe the authored spine resource.
   drawing text instead. Title and description provide the image's accessible label. No WebKit.
   The renderer ships as an Apple XCFramework; consumers do not need Rust. Its source pins,
   rebuild script and redistribution notices are in [Vendor/Resvg](../Vendor/Resvg/README.md).
+- **Data URLs.** An image a document holds in a `data:` URL, as EPUB 3.3 §3.7 permits, is shown
+  as one from the archive is: an `<img>`, and an `<object>` or `<embed>` whose `type` names an
+  image ([#134](https://github.com/vocaro/EPUBLib/issues/134)). The URL is read as browsers read
+  it, by the Fetch standard's data: URL processor (`DataURL`): base64, broken by white space or
+  without padding, or percent-encoded. Its type stands for a manifest's media type, so one that
+  is not an image's (`text/plain`, where it names none) is not shown. Its bytes go to the same
+  bitmap decoder and SVG sanitizer under the same limits, and decode to no more than the 32 MiB
+  the archive holds of one resource by default; the document holding the URL is held to less.
+  A drawing in a `data:` URL has no base in the archive, so a reference in it names no file. A
+  `data:` URL that is no usable image shows its alternative text and is disclosed as an image
+  that could not be shown. Elsewhere `data:` URLs are not read: in an SVG `<image>`, inline or
+  in a file (the drawing is shown without it, disclosed); in an SVG that is that one image,
+  which shows its fallback text; in a MathML `mglyph`; in an `<object>` or `<embed>` with no
+  image `type`; and in a stylesheet `<link>`, `@import` or `@font-face`. A link to one is
+  refused as a link outside the book is, and so never opens as a document of its own
+  (RS 3.3 §3.4).
 - **Image contrast.** In dark appearance, transparent images containing dark strokes receive
   a white backdrop so diagram edges and labels remain legible. Their authored colors and
   publication bytes are preserved. Opaque images and transparent light artwork retain their
@@ -2973,9 +2989,10 @@ refused external links, unresolved CFIs and quotes, and highlights that could no
 ## Security
 
 Books are untrusted. Nothing is executed: there is no JavaScript engine. Every reference
-resolves inside the archive through `ResourceReference`; remote URLs are never fetched and are
-counted for disclosure. XML, CSS and font input is bounded, and the import limits in
-`EPUBReading` still apply. External links are refused with a notice.
+resolves inside the archive through `ResourceReference`, but for an image in a `data:` URL,
+which is read from the URL's own bytes (**Data URLs** under [Decisions](#decisions)); remote
+URLs are never fetched and are counted for disclosure. XML, CSS and font input is bounded, and
+the import limits in `EPUBReading` still apply. External links are refused with a notice.
 
 Subsequent-sibling CSS searches (`~`) share a memo entry when their entire left-hand selector
 suffix is equal, across rule declarations, right-hand subjects and nested pseudo-classes.
