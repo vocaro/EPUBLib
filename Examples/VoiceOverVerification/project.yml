@@ -18,7 +18,7 @@ targets:
     type: application
     platform: iOS
     sources:
-      - ../ReaderSample/Shared
+      - Shared
       - VerificationApp.swift
       - Resources
     settings:
@@ -42,7 +42,7 @@ targets:
     type: application
     platform: macOS
     sources:
-      - ../ReaderSample/Shared
+      - Shared
       - VerificationApp.swift
       - Resources
     settings:
