@@ -249,10 +249,9 @@ enum SVGGeometryCostScreen {
             }
             if node.name == "image" {
                 var intrinsic = CGSize.zero
-                if let reference = SVGContent.href(node), reference.hasPrefix("data:"), let comma = reference.firstIndex(of: ","),
-                   let data = Data(base64Encoded: String(reference[reference.index(after: comma)...])),
-                   data.count <= SVGContent.maximumInlinedImageBytes,
-                   let bitmap = ReaderImageSource.bitmap(data, path: "", key: "svg-span") { intrinsic = bitmap.pixelSize }
+                if let reference = SVGContent.href(node),
+                   let url = DataURL(reference, maximumBytes: SVGContent.maximumInlinedImageBytes),
+                   let bitmap = ReaderImageSource.bitmap(url.body, path: "", key: "svg-span") { intrinsic = bitmap.pixelSize }
                 let width = node.attributes.filter { $0.name == "width" }.compactMap { length($0.value, relativeTo: here.width, fontSize: font) }.map(abs).max() ?? intrinsic.width
                 let height = node.attributes.filter { $0.name == "height" }.compactMap { length($0.value, relativeTo: here.height, fontSize: font) }.map(abs).max() ?? intrinsic.height
                 let spanX = abs(total.a * width) + abs(total.c * height), spanY = abs(total.b * width) + abs(total.d * height)

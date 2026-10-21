@@ -1521,20 +1521,20 @@ enum SVGContent {
 
     /// The direct renderer entry point is also used by tests and inspection. Validate data
     /// image headers before Rust can decode them; arbitrary strings are denied by its resolver.
+    /// Its `data:` URLs are read as the renderer reads them, by the data: URL processor
+    /// (`DataURL`), and it decodes only the four bitmap types.
     static func preparedImagesAreBounded(_ svg: ContentNode) -> Bool {
         var pixels = 0
         var bytes = 0
         func visit(_ node: ContentNode) -> Bool {
-            if node.name == "image", let reference = href(node), reference.hasPrefix("data:") {
-                guard let comma = reference.firstIndex(of: ","),
-                      ["data:image/png;base64", "data:image/jpeg;base64", "data:image/gif;base64", "data:image/webp;base64"].contains(String(reference[..<comma])),
-                      let data = Data(base64Encoded: String(reference[reference.index(after: comma)...])),
-                      data.count <= maximumInlinedImageBytes - bytes,
-                      let source = ReaderImageSource.bitmap(data, path: "", key: "svg-preflight"),
+            if node.name == "image", let reference = href(node), DataURL.isDataURL(reference) {
+                guard let url = DataURL(reference, maximumBytes: maximumInlinedImageBytes - bytes),
+                      ["image/png", "image/jpeg", "image/gif", "image/webp"].contains(url.mediaType),
+                      let source = ReaderImageSource.bitmap(url.body, path: "", key: "svg-preflight"),
                       source.pixelSize.width * source.pixelSize.height <= CGFloat(maximumImagePixels) else { return false }
                 let count = Int(source.pixelSize.width * source.pixelSize.height)
                 guard count <= maximumTotalImagePixels - pixels else { return false }
-                pixels += count; bytes += data.count
+                pixels += count; bytes += url.body.count
             }
             return node.children.allSatisfy(visit)
         }
