@@ -62,6 +62,50 @@ final class BoxAlignmentStyleTests: XCTestCase {
         XCTAssertNil(values("gap", "1px 2px 3px"))
     }
 
+    /// CSS Box Alignment 3, 5.1, 6.1 and 6.2: `left` and `right` are values of the `justify-`
+    /// properties alone, `justify-content` has no baseline, `safe` and `unsafe` go only before a
+    /// position, and a baseline takes `first` or `last` in either order. The `place-` shorthands
+    /// give their first value to the `align-` property. An invalid value is dropped.
+    func testEachAlignmentPropertyTakesOnlyItsOwnKeywords() {
+        for value in ["left", "right", "safe left", "unsafe right"] {
+            XCTAssertNil(values("align-items", value), value)
+            XCTAssertNil(values("align-self", value), value)
+            XCTAssertNil(values("align-content", value), value)
+            XCTAssertNil(values("-webkit-box-align", value), value)
+        }
+        XCTAssertEqual(values("justify-content", "safe right")?[.justifyContent], .contentAlignment(.right))
+        XCTAssertEqual(values("justify-self", "unsafe left")?[.justifySelf], .itemAlignment(.left))
+        XCTAssertEqual(values("justify-items", "right")?[.justifyItems], .itemAlignment(.right))
+        XCTAssertNil(values("justify-content", "baseline"))
+        XCTAssertNil(values("justify-content", "first baseline"))
+        XCTAssertEqual(values("align-content", "last baseline")?[.alignContent], .contentAlignment(.start))
+        XCTAssertEqual(values("align-items", "baseline last")?[.alignItems], .itemAlignment(.baseline), "either order")
+        XCTAssertEqual(values("-webkit-box-pack", "justify")?[.justifyContent], .contentAlignment(.spaceBetween))
+        for value in ["safe stretch", "unsafe normal", "safe baseline", "safe space-between", "safe safe center", "center safe", "safe",
+                      "first last", "first first baseline"] {
+            XCTAssertNil(values("justify-content", value), value)
+            XCTAssertNil(values("align-items", value), value)
+        }
+        XCTAssertNil(values("align-self", "safe auto"))
+        XCTAssertNil(values("flex-direction", "safe column"))
+        XCTAssertNil(values("justify-items", "legacy stretch"))
+        XCTAssertNil(values("justify-items", "legacy legacy"))
+        XCTAssertEqual(values("justify-items", "right legacy")?[.justifyItems], .itemAlignment(.normal))
+        // The shorthands.
+        XCTAssertNil(values("place-items", "right"))
+        XCTAssertNil(values("place-items", "legacy"))
+        XCTAssertNil(values("place-self", "left center"))
+        XCTAssertNil(values("place-content", "left"))
+        XCTAssertEqual(values("place-items", "center right"), [.alignItems: .itemAlignment(.center), .justifyItems: .itemAlignment(.right)])
+        XCTAssertEqual(values("place-content", "baseline"), [.alignContent: .contentAlignment(.start), .justifyContent: .contentAlignment(.start)],
+                       "justify-content has no baseline: it is start")
+        XCTAssertEqual(values("place-content", "safe center space-between"),
+                       [.alignContent: .contentAlignment(.center), .justifyContent: .contentAlignment(.spaceBetween)])
+        XCTAssertEqual(values("place-items", "first baseline"), [.alignItems: .itemAlignment(.baseline), .justifyItems: .itemAlignment(.baseline)])
+        XCTAssertEqual(values("place-self", "unsafe end safe start"), [.alignSelf: .itemAlignment(.end), .justifySelf: .itemAlignment(.start)])
+        XCTAssertNil(values("place-self", "center center center"))
+    }
+
     func testGridTemplatesAreCountedInColumns() {
         XCTAssertEqual(values("grid-template-columns", "none")?[.gridColumns], .integer(0))
         XCTAssertEqual(values("grid-template-columns", "1fr")?[.gridColumns], .integer(1))
