@@ -85,6 +85,21 @@ final class ContainerDocumentCoverageTests: XCTestCase {
                        ["My Books/one.xhtml", "My Books/two.xhtml"], "written %20")
     }
 
+    func testARootfilePathIsReadPastTheWhiteSpaceRoundIt() throws {
+        // As URL parsing reads it (https://github.com/vocaro/EPUBLib/issues/76). Written as an
+        // escape, white space is a character of the name (testARootfilePathIsJudgedOnlyOnceDecoded).
+        for fullPath in [" OPS/book.opf", "OPS/book.opf ", "&#9;OPS/book.opf&#13;&#10;", "\n  OPS/book.opf\n"] {
+            let book = try EPUBPublication.open(data: Fixture.packageVariant(container: container("<rootfiles><rootfile full-path=\"\(fullPath)\"/></rootfiles>")))
+            XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/two.xhtml"], fullPath.debugDescription)
+        }
+        // White space alone names the container root's file no more than an empty value does, and
+        // none hides what a rootfile path may not be.
+        for fullPath in ["", "  ", "&#9;", " /OPS/book.opf", "OPS/book.opf/ ", " ../OPS/book.opf", " OPS//book.opf", "OPS/book.opf#x "] {
+            assertOpening(try Fixture.packageVariant(container: container("<rootfiles><rootfile full-path=\"\(fullPath)\"/></rootfiles>")),
+                          throws: .invalidXML("container rootfile"), fullPath.debugDescription)
+        }
+    }
+
     func testARootfilePathIsDecodedOnce() throws {
         let cases: [(folder: String, package: String, fullPath: String)] = [
             // Any octet, in either case of hexadecimal digit.
@@ -456,9 +471,10 @@ final class ContainerDocumentCoverageTests: XCTestCase {
     }
 
     func testTheIDPFKeyIgnoresXMLWhiteSpaceInTheIdentifier() throws {
-        // EPUB 3.3 §4.4.3: U+0020, U+0009, U+000D and U+000A are removed before hashing.
+        // EPUB 3.3 §4.4.3: U+0020, U+0009, U+000D and U+000A are removed before hashing. A parser
+        // reads a carriage return in the text as a line end, so one is also written as a reference.
         let original = font(1_100)
-        let data = try book(identifier: "\n    urn:isbn: 978 0\t00 000000\n 2\r\n  ",
+        let data = try book(identifier: "\n    urn:isbn: 978 0\t00 000000\n 2\r\n &#13;&#x9; ",
                             fonts: ["OPS/font.otf": obfuscated(original, key: sha1("urn:isbn:9780000000002"), prefix: 1040)],
                             encryption: encryption([(Self.idpf, "OPS/font.otf")]))
         XCTAssertEqual(try EPUBPublication.open(data: data).data(at: "OPS/font.otf"), original)
@@ -488,16 +504,30 @@ final class ContainerDocumentCoverageTests: XCTestCase {
     }
 
     func testTheIDPFKeyKeepsOtherSpaceCharactersOfTheIdentifier() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/82")
         // EPUB 3.3 §4.4.3 removes "specifically, the Unicode code points U+0020, U+0009, U+000D
-        // and U+000A"; an ideographic or no-break space inside the identifier is part of the key.
-        let identifier = "\u{66F8}\u{540D}\u{3000}\u{7B2C}\u{4E00}\u{5DFB}\u{A0}2"
+        // and U+000A", and nothing else. White space outside ASCII is part of the key, inside the
+        // identifier or at its ends, and so is a mark after a space, where only the space goes.
+        // Each case gives the identifier and the text its key is the SHA-1 of.
+        let isbn = "urn:isbn:9780000000002"
+        let cases: [(name: String, identifier: String, key: String)] = [
+            ("ideographic and no-break spaces inside", "\u{66F8}\u{540D}\u{3000}\u{7B2C}\u{4E00}\u{5DFB}\u{A0}2",
+             "\u{66F8}\u{540D}\u{3000}\u{7B2C}\u{4E00}\u{5DFB}\u{A0}2"),
+            ("no-break and ideographic spaces at the ends", "\u{A0}\u{3000}\(isbn)\u{3000}\u{A0}", "\u{A0}\u{3000}\(isbn)\u{3000}\u{A0}"),
+            ("a line separator and a next line", "urn:isbn:\u{2028}978\u{85}0000000002", "urn:isbn:\u{2028}978\u{85}0000000002"),
+            ("a mark after a space", "urn:isbn: \u{301}978 0000000002", "urn:isbn:\u{301}9780000000002"),
+            // Not a metadata value, which is empty when it holds white space alone, but a key.
+            ("a no-break space alone", "\u{A0}", "\u{A0}"),
+        ]
         let original = font(1_100)
-        let data = try book(identifier: identifier, fonts: ["OPS/font.otf": obfuscated(original, key: sha1(identifier), prefix: 1040)],
-                            encryption: encryption([(Self.idpf, "OPS/font.otf")]))
-        let decoded = try EPUBPublication.open(data: data).data(at: "OPS/font.otf")
-        XCTAssertEqual(Array(decoded.prefix(8)), Array(original.prefix(8)), "the font's first bytes")
-        XCTAssertEqual(decoded.suffix(60), original.suffix(60), "bytes after the obfuscated prefix are never changed")
+        for (name, identifier, key) in cases {
+            let data = try book(identifier: identifier, fonts: ["OPS/font.otf": obfuscated(original, key: sha1(key), prefix: 1040)],
+                                encryption: encryption([(Self.idpf, "OPS/font.otf")]))
+            XCTAssertNoThrow(try {
+                let decoded = try EPUBPublication.open(data: data).data(at: "OPS/font.otf")
+                XCTAssertEqual(Array(decoded.prefix(8)), Array(original.prefix(8)), "the font's first bytes: \(name)")
+                XCTAssertEqual(decoded.suffix(60), original.suffix(60), "bytes after the obfuscated prefix are never changed: \(name)")
+            }(), name)
+        }
     }
 
     func testAnAdobeKeyIsReadFromAnUpperCaseOrPaddedIdentifier() throws {
@@ -514,14 +544,14 @@ final class ContainerDocumentCoverageTests: XCTestCase {
         // An identifier's metadata value has its ASCII whitespace stripped and collapsed and its
         // other white space kept (https://github.com/vocaro/EPUBLib/issues/75). A key is not made
         // from that value. IDPF's leaves out every space, tab and line end, where the value keeps
-        // one for each run, and the zero-width space at either end, which the value keeps and
-        // `Character` does not count as white space: made from the value, the key would hold
-        // both. Adobe's is the UUID whatever white space surrounds it, a no-break space included,
-        // which the value keeps. What a key reads at the identifier's ends is
-        // https://github.com/vocaro/EPUBLib/issues/82's to settle, and is held here as it stands.
+        // one for each run, and keeps the zero-width space at either end, as the value does: its
+        // key starts `315c4050`, and one without them `b877ec46`
+        // (https://github.com/vocaro/EPUBLib/issues/82). Adobe's is the UUID whatever white space
+        // surrounds it, a no-break space included, which the value keeps.
         let original = font(1_100)
         let spaced = try EPUBPublication.open(data: book(identifier: "\u{200B}\n    urn:isbn: 978 0\t00 000000\n 2\r\n  \u{200B}",
-            fonts: ["OPS/font.otf": obfuscated(original, key: sha1("urn:isbn:9780000000002"), prefix: 1040)], encryption: encryption([(Self.idpf, "OPS/font.otf")])))
+            fonts: ["OPS/font.otf": obfuscated(original, key: sha1("\u{200B}urn:isbn:9780000000002\u{200B}"), prefix: 1040)],
+            encryption: encryption([(Self.idpf, "OPS/font.otf")])))
         XCTAssertEqual(spaced.metadata.identifiers.map { Array($0.unicodeScalars) }, [Array("\u{200B} urn:isbn: 978 0 00 000000 2 \u{200B}".unicodeScalars)])
         XCTAssertEqual(try spaced.data(at: "OPS/font.otf"), original)
         let key = Array(stride(from: UInt8(0x00), through: UInt8(0xff), by: 0x11))

@@ -78,6 +78,54 @@ final class ResourceReferenceCoverageTests: XCTestCase {
         }
     }
 
+    func testWhiteSpaceRoundAReferenceIsReadPastAsURLParsingReadsIt() throws {
+        // An HTML href is a URL "potentially surrounded by spaces", and URL parsing strips the C0
+        // controls and spaces at its ends (https://github.com/vocaro/EPUBLib/issues/76).
+        let cases = [
+            " ch2.xhtml": "OPS/text/ch2.xhtml",
+            "ch2.xhtml#s1 ": "OPS/text/ch2.xhtml#s1",
+            "\n\t  ../images/a.png\r\n  ": "OPS/images/a.png",
+            "\u{C}ch2.xhtml\u{1F}": "OPS/text/ch2.xhtml",
+            " /media/photo.jpg ": "media/photo.jpg",
+            " #top ": "OPS/text/ch1.xhtml#top",
+            " ": "OPS/text/ch1.xhtml",
+            // A space inside, and white space written as an escape, are characters of the name. So
+            // is a tab or newline inside, which URL parsing drops and a reference about to be
+            // written keeps (https://github.com/vocaro/EPUBLib/issues/254).
+            " a b.xhtml ": "OPS/text/a%20b.xhtml",
+            "%20ch2.xhtml%09": "OPS/text/%20ch2.xhtml%09",
+            "\tch\t2.xhtml#s\n1\n": "OPS/text/ch%092.xhtml#s%0A1",
+        ]
+        for (href, expected) in cases {
+            XCTAssertEqual(try ResourceReference.resolve(href, relativeTo: base), expected, href.debugDescription)
+        }
+        // So is white space outside ASCII, which neither HTML nor URL parsing strips.
+        for space in ["\u{A0}", "\u{3000}", "\u{2003}", "\u{85}", "\u{2028}", "\u{200B}"] {
+            let e = escaped(space)
+            XCTAssertEqual(try ResourceReference.resolve("\(space)ch2.xhtml#s1\(space)", relativeTo: base), "OPS/text/\(e)ch2.xhtml#s1\(e)", e)
+        }
+        // A remote reference is one past its white space, as before.
+        for href in [" https://example.invalid/", "\t//example.invalid/x"] {
+            XCTAssertThrowsError(try ResourceReference.resolve(href, relativeTo: base), href.debugDescription) {
+                XCTAssertEqual($0 as? EPUBPublicationError, .unsafePath(href), href.debugDescription)
+            }
+        }
+    }
+
+    func testARootfilePathIsJudgedPastTheWhiteSpaceRoundIt() {
+        let isEntry: (String) -> Bool = { ["mimetype", "OPS/book.opf"].contains($0) }
+        for fullPath in [" OPS/book.opf", "OPS/book.opf\n", "\t OPS/book.opf \r\n"] {
+            XCTAssertEqual(ResourceReference.rootfilePath(fullPath, isEntry: isEntry), "OPS/book.opf", fullPath.debugDescription)
+        }
+        // White space alone is no more the base than an empty value is, and none hides a path a
+        // rootfile may not have.
+        for fullPath in ["", " ", "\t\n", " /OPS/book.opf", "OPS//book.opf ", "OPS/book.opf/ ", " ../OPS/book.opf", "OPS/book.opf#x ", "OPS/book.opf? "] {
+            XCTAssertNil(ResourceReference.rootfilePath(fullPath, isEntry: isEntry), fullPath.debugDescription)
+        }
+        // As written, white space is part of the entry's name.
+        XCTAssertEqual(ResourceReference.rootfilePath(" OPS/book.opf", isEntry: { $0 == " OPS/book.opf" }), " OPS/book.opf")
+    }
+
     func testAnEncodedColonIsACharacterOfThePathAndStaysEncoded() throws {
         // Written bare in a first segment it would be read as a scheme, so it never is.
         let cases = [
@@ -145,12 +193,13 @@ final class ResourceReferenceCoverageTests: XCTestCase {
 
     func testAReferenceAboutToBeWrittenIsHeldToWhatEPUBAllowsItsAuthor() throws {
         for href in ["/media/photo.jpg", "../../../cover.jpg", "ch2.xhtml?version=2", "?x", "c%3A/windows.xhtml", "./a:b.xhtml",
-                     "https://example.invalid/a.xhtml", "a%5Cb.xhtml"] {
+                     "https://example.invalid/a.xhtml", "a%5Cb.xhtml", " ch2.xhtml", "ch2.xhtml#s1\n", " "] {
             XCTAssertThrowsError(try ResourceReference.resolve(href, relativeTo: base, strict: true), href.debugDescription) {
                 XCTAssertEqual($0 as? EPUBPublicationError, .unsafePath(href), href.debugDescription)
             }
         }
         XCTAssertEqual(try ResourceReference.resolve("../images/a b.png#x", relativeTo: base, strict: true), "OPS/images/a%20b.png#x")
+        XCTAssertEqual(try ResourceReference.resolve("ch\t2.xhtml#a\nb", relativeTo: base, strict: true), "OPS/text/ch%092.xhtml#a%0Ab")
     }
 
     func testAResolvedReferenceIsEncodedHoweverItWasWritten() throws {

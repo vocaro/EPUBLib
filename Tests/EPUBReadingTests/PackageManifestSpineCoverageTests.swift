@@ -66,6 +66,17 @@ final class PackageManifestSpineCoverageTests: XCTestCase {
         }
     }
 
+    func testAManifestHrefIsReadPastTheWhiteSpaceRoundIt() throws {
+        // As URL parsing reads every reference (https://github.com/vocaro/EPUBLib/issues/76).
+        // Written as an escape, a space is part of the name.
+        let book = try book(items: "<item id=\"three\" href=\" three.xhtml \" \(xhtml)/><item id=\"four\" href=\"&#9;four.xhtml&#10;\" \(xhtml)/>"
+                            + "<item id=\"five\" href=\"%20five.xhtml\" \(xhtml)/>",
+                            spine: "<spine><itemref idref=\"one\"/><itemref idref=\"three\"/><itemref idref=\"four\"/><itemref idref=\"five\"/></spine>",
+                            adding: ["OPS/three.xhtml": Data("<html/>".utf8), "OPS/four.xhtml": Data("<html/>".utf8), "OPS/ five.xhtml": Data("<html/>".utf8)])
+        XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/three.xhtml", "OPS/four.xhtml", "OPS/ five.xhtml"])
+        XCTAssertEqual(book.spine.map(\.resource.href), ["OPS/one.xhtml", "OPS/three.xhtml", "OPS/four.xhtml", "OPS/%20five.xhtml"])
+    }
+
     func testAManifestHrefWithAFragmentNamesTheFileBeforeIt() throws {
         // OPF 2.0.1 §2.3 forbids the fragment; some packages carry one all the same.
         let book = try book(items: "<item id=\"part\" href=\"two.xhtml#second-half\" \(xhtml)/>",

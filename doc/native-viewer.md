@@ -67,6 +67,10 @@ continues to describe the authored spine resource.
    cascade over a user-agent stylesheet, the book's archive-local stylesheets and `style`
    attributes produce a `ComputedStyle` per element: the CSS subset in `ComputedStyle.swift`.
    `@font-face` fonts load from the archive with CoreText. Nothing remote is fetched.
+   In a section read as HTML, `epub:type` is one attribute of that name in no namespace, as
+   a browser's HTML parser makes it: `[epub\:type]` matches it, and so does `[epub|type]`
+   when the sheet binds the prefix `epub` to the OPS namespace. In XHTML only `[epub|type]`
+   does ([#111](https://github.com/vocaro/EPUBLib/issues/111)).
    Media queries for the reader's appearance govern only what paints (**Appearance media**
    under [Decisions](#decisions)), so neither the reader's size nor its appearance changes
    what the next step writes.

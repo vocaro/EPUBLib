@@ -42,16 +42,31 @@ package enum ResourceReference {
     private static let pathAllowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "#%?:"))
     private static let dot: [UInt8] = [0x2E], dotDot: [UInt8] = [0x2E, 0x2E]
 
+    /// A reference without the white space round it, which URL parsing strips: the C0 controls and
+    /// spaces at its ends. An HTML `href` is a URL "potentially surrounded by spaces", and tools
+    /// that wrap attributes leave them. White space outside ASCII (a no-break space), white space
+    /// written as an escape (`%20`), and a tab or newline inside the reference are characters of
+    /// it, as they are of one about to be written.
+    private static func stripped(_ href: String) -> String {
+        let bytes = href.utf8
+        guard let first = bytes.firstIndex(where: { $0 > 0x20 }), let last = bytes.lastIndex(where: { $0 > 0x20 }) else { return "" }
+        return String(decoding: bytes[first...last], as: UTF8.self)
+    }
+
     /// Resolves a local EPUB reference as EPUB Reading Systems 3.3 §4.1.1 has it parsed against
-    /// the container root URL: a leading `/` names the root and `..` stops there, so no reference
-    /// leaves the container. A query is dropped; it cannot change which entry is meant. A remote
-    /// reference, and one that does not decode to a path an entry can have, throw.
+    /// the container root URL: white space round it is read past (`stripped`), a leading `/` names
+    /// the root and `..` stops there, so no reference leaves the container. A query is dropped; it
+    /// cannot change which entry is meant. A remote reference, and one that does not decode to a
+    /// path an entry can have, throw.
     ///
-    /// `strict` is for a reference about to be written. What EPUB forbids its author (a leading
-    /// `/`, `..` beyond the root, a query, a colon in the path) is then refused, not read past.
+    /// `strict` is for a reference about to be written. What EPUB forbids its author (white space
+    /// round it, a leading `/`, `..` beyond the root, a query, a colon in the path) is then
+    /// refused, not read past.
     package static func resolve(_ href: String, relativeTo path: String, strict: Bool = false) throws -> String {
         let unsafe = EPUBPublicationError.unsafePath(href)
-        let raw = href.utf8
+        let reference = stripped(href)
+        guard !strict || reference.utf8.elementsEqual(href.utf8) else { throw unsafe }
+        let raw = reference.utf8
         let hash = raw.firstIndex(of: 0x23) ?? raw.endIndex // #
         let query = raw[..<hash].firstIndex(of: 0x3F) ?? hash // ?
         func isPlain(_ text: String) -> Bool { !text.utf8.contains(0x5C) && !text.utf8.contains(0) }
@@ -98,10 +113,12 @@ package enum ResourceReference {
     /// Failing both, the URL reading's path is returned for the caller to report as missing.
     package static func rootfilePath(_ fullPath: String, isEntry: (String) -> Bool) -> String? {
         var url: String?
-        // An empty value would resolve to the base itself.
-        if !fullPath.isEmpty, !fullPath.utf8.contains(0x3F), // ?
-           let reference = try? resolve(fullPath, relativeTo: "mimetype"), !reference.contains("#"),
-           let written = fullPath.removingPercentEncoding?.utf8.split(separator: 0x2F, omittingEmptySubsequences: false),
+        // Judged past the white space round it, as it is resolved. An empty value, or one of white
+        // space alone, would resolve to the base itself.
+        let value = stripped(fullPath)
+        if !value.isEmpty, !value.utf8.contains(0x3F), // ?
+           let reference = try? resolve(value, relativeTo: "mimetype"), !reference.contains("#"),
+           let written = value.removingPercentEncoding?.utf8.split(separator: 0x2F, omittingEmptySubsequences: false),
            !written.contains(where: \.isEmpty), let name = written.last, !name.elementsEqual(dot), !name.elementsEqual(dotDot) {
             // Every `..` has a folder of the path to step out of.
             var depth = 0
