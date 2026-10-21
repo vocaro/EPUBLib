@@ -41,9 +41,15 @@ enum SectionBuilder {
         let sheets = SectionStyles.load(for: document, publication: request.publication, fonts: request.fonts, report: &report)
         let resolver = StyleResolver(document: document, stylesheets: sheets, typography: request.typography, fonts: request.fonts)
         report.stylesTruncated = report.stylesTruncated || resolver.stylesTruncated
-        return build(document: document, request: request, initialStyle: resolver.initialStyle, report: report) {
+        let text = build(document: document, request: request, initialStyle: resolver.initialStyle, report: report) {
             resolver.style(for: $0, parent: $1)
         }
+        // The bound on substitution is met, if at all, as the styles are computed.
+        guard resolver.substitutionsTruncated, !text.report.stylesTruncated else { return text }
+        var truncated = text.report
+        truncated.stylesTruncated = true
+        return SectionText(spineIndex: text.spineIndex, href: text.href, document: text.document, string: text.string, map: text.map,
+                           anchors: text.anchors, notes: text.notes, title: text.title, report: truncated, layout: text.layout)
     }
 
     /// The builder proper, over an already parsed document and an injected cascade.

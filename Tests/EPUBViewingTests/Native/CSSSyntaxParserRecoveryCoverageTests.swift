@@ -149,12 +149,17 @@ final class CSSSyntaxParserRecoveryCoverageTests: XCTestCase {
         }
     }
 
-    func testCustomPropertiesVariablesAndNestedRulesAreSkippedWithoutLosingTheRule() {
+    func testCustomPropertiesVariablesAndNestedRulesKeepTheRestOfTheList() {
+        // Custom properties are kept apart from the other declarations (#119), whatever they hold.
         XCTAssertEqual(properties("--x: {a:b}; clear: both"), [.clear])
+        XCTAssertEqual(CSSStyleSheet.block("--x: {a:b}; clear: both").custom.map(\.name), ["--x"])
         XCTAssertEqual(properties("--x: ; --y:; --z: a b c !important; clear: both"), [.clear])
+        XCTAssertEqual(CSSStyleSheet.block("--x: ; --y:; --z: a b c !important; clear: both").custom.map(\.important), [false, false, true])
         XCTAssertEqual(properties("--x: { color: red; }; clear: both"), [.clear])
-        XCTAssertEqual(properties("color: var(--x); clear: both"), [.clear])
-        XCTAssertEqual(properties("color: var(--x, red); width: calc(var(--w) * 2); clear: both"), [.clear])
+        // A declaration that holds a valid var() is valid at parse time, and substituted at computed-value time.
+        XCTAssertEqual(properties("color: var(--x); clear: both"), [.color, .clear])
+        XCTAssertEqual(properties("color: var(--x, red); width: calc(var(--w) * 2); clear: both"), [.color, .width, .clear])
+        XCTAssertEqual(properties("color: var(); width: var(, 1px); clear: both"), [.clear], "A var() with no name is invalid at parse time")
         XCTAssertEqual(properties("bogus: {a:b}; clear: both"), [.clear])
         XCTAssertEqual(properties("color: red; & > p { color: blue } clear: both"), [.color, .clear], "CSS Nesting is not supported")
         XCTAssertEqual(properties("color: red; .x { color: blue; float: left } clear: both"), [.color, .clear])

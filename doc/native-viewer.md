@@ -282,7 +282,10 @@ continues to describe the authored spine resource.
   content in both: dark line art stays legible by the image contrast above, and an author's
   `filter: invert()` for dark appearance, as Standard Ebooks writes it, still applies. Rules
   for either appearance are indexed in both, so a bound on author CSS drops the same
-  selectors in each ([#130](https://github.com/vocaro/EPUBLib/issues/130)).
+  selectors in each ([#130](https://github.com/vocaro/EPUBLib/issues/130)). A custom property
+  declared for one appearance is substituted into what paints in that appearance, and into
+  everything else, in either appearance, only when that is the light one (**Custom
+  properties**).
 - **Alternative text.** HTML tells an image with an empty `alt` from one with none, and the
   reader keeps the two apart (`ImageAlternative`). Words in `alt` stand for the image in
   selections, copies, search and VoiceOver, which reads them as the image's name. An empty
@@ -1586,6 +1589,53 @@ continues to describe the authored spine resource.
     content of a table laid out as a grid and of its rows and row groups, where that of its
     cells and captions is shown; and what passes a bound of 1,048,576 UTF-16 units of
     generated text in one section, which only a hostile stylesheet reaches.
+- **Custom properties.** Custom properties (`--name`) and `var()` follow CSS Custom
+  Properties for Cascading Variables 1 ([#119](https://github.com/vocaro/EPUBLib/issues/119)).
+  A custom property is declared on any element, `:root` and pseudo-elements included, in a
+  rule or a `style` attribute; it cascades with `!important`, and with `inherit`, `initial`,
+  `unset` and `revert`, as any property does, and inherits; `all` leaves it alone; its name is
+  case-sensitive. Its computed value is its tokens with every `var()` substituted, and
+  `initial`, a cycle or a failed substitution give it the guaranteed-invalid value. A
+  declaration of another property that holds a `var()` is valid at parse time when its
+  `var()`s are, and is substituted and parsed at computed-value time, a shorthand as a whole
+  and the sides by flow by the element's direction; `var()` substitutes tokens, not text, so
+  it works inside `calc()` and `var(--n)px` is no length. When that fails, the declaration is
+  invalid at computed-value time and acts as `unset`: an earlier declaration of the property
+  does not apply instead. `var()`'s grammar is the one Variables 1 now takes from CSS Values 5:
+  its name argument may itself hold a `var()` or be wrapped in braces, a name argument that
+  is not one name takes the fallback, `var(--x,)` has an empty fallback, a fallback is
+  substituted only when it is used, and a value that comes to a CSS-wide keyword acts as that
+  keyword. `@supports` takes a custom property, and a declaration that holds a `var()`. HTML's
+  presentational attributes are read by HTML's rules and substitute nothing; an SVG `width` or
+  `height` attribute is a CSS value and does.
+  - **Cycles.** A custom property in a dependency cycle is invalid at computed-value time. Only
+    the references a substitution follows count, so a fallback that is not used makes no
+    cycle, and once a property is in a cycle its fallbacks are not substituted, as in Blink,
+    whose way of finding cycles the reader follows. The properties being resolved are held on
+    a stack of the reader's own rather than the call stack, so a chain of references as long as
+    a stylesheet can hold needs no deeper stack than a short one.
+  - **Light and dark.** A custom property declared in a rule for one appearance is
+    substituted, in that appearance, into what paints, and into everything else as in the
+    light appearance, as the properties it is substituted into are resolved (**Appearance
+    media**). An element holds custom properties for each side when a book declares some for
+    one appearance alone and the reader is dark.
+  - **Bounds.** One substitution produces at most 65,536 component values, WebKit's bound,
+    counted over the value as a whole as Blink and Gecko count theirs, and nests functions
+    and blocks no deeper than the parser's 32 levels; a longer or deeper result is invalid at
+    computed-value time, which stops a value that doubles at each reference. A section spends
+    at most 1,048,576 units of work on substitution for each appearance side, the number it
+    bounds generated text by: the component values substitutions read and produce, and the
+    entries an element that declares custom properties copies from its parent's. Elements that
+    declare the same custom properties under the same parent share what they compute to, and a
+    rule's substitution against one set of custom properties is parsed once, so a book stays
+    far within the bound: a design system of 340 custom properties on the root, components
+    that declare their own and 100 chapters that each set one in a `style` attribute spends
+    about 150,000. Past it, what remains to substitute is invalid at computed-value time, and
+    the section has the `.disclosure` that some of its styling was too large to apply.
+  - **Not supported.** `env()`, and `attr()` outside `content`, are not substituted: a
+    declaration that holds one is dropped. Registered custom properties (`@property`, CSS
+    Properties and Values API 1) are not: the rule is ignored, and every custom property takes
+    any value and inherits.
 - **Building** is per section and lazy for first paint: the opening section builds first and
   the session emits `.ready` once it is on screen; the rest build in the background in
   parallel. Images decode lazily, downsampled to their displayed size, under a shared cache
@@ -3068,6 +3118,9 @@ resolves inside the archive through `ResourceReference`, but for an image in a `
 which is read from the URL's own bytes (**Data URLs** under [Decisions](#decisions)); remote
 URLs are never fetched and are counted for disclosure. XML, CSS and font input is bounded, and
 the import limits in `EPUBReading` still apply. External links are refused with a notice.
+What `var()` substitutes is bounded for one value and for a section, so that custom properties
+that expand at each reference cannot stall a build or exhaust its memory (**Custom
+properties** under [Decisions](#decisions)).
 
 Subsequent-sibling CSS searches (`~`) share a memo entry when their entire left-hand selector
 suffix is equal, across rule declarations, right-hand subjects and nested pseudo-classes.

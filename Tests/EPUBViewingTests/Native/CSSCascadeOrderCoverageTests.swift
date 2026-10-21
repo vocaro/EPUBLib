@@ -343,7 +343,6 @@ final class CSSCascadeOrderCoverageTests: XCTestCase {
     /// CSS Custom Properties for Cascading Variables 1 §3 (part of the CSS Snapshot that EPUB
     /// Reading Systems 3.3 §6.3 requires): `var()` substitutes a custom property's value.
     func testCustomPropertiesSubstituteIntoVar() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/119")
         let result = try styled(#"<div id="d"><p id="a">a</p><p id="b">b</p><p id="c">c</p><p id="e">e<span id="f">f</span></p></div>"#, css: """
             :root { --accent: #0000ff; --gap: 12px }
             #d { color: red }

@@ -212,6 +212,9 @@ enum CSSValue: Equatable, Sendable {
     case quotes(ComputedStyle.Quotes)
     /// `counter-reset`, `counter-increment` and `counter-set`; empty for `none`.
     case counterChanges([ComputedStyle.CounterChange])
+    /// A value that holds a `var()`, for `longhand` (as set in left-to-right text), until the
+    /// element's style is computed (CSS Variables 1 §3; `CustomProperties.swift`).
+    case pending(CSSPendingSubstitution, longhand: CSSProperty)
 
     var isGlobal: Bool {
         switch self {
@@ -248,17 +251,30 @@ struct CSSDeclaration: Equatable, Sendable {
 enum CSSPropertyParser {
     static let maximumFamilies = 16
 
-    static func parse(name: String, value: [CSSComponent], important: Bool) -> [CSSDeclaration]? {
+    /// A value that holds a `var()` is valid at parse time when its `var()`s are (CSS Variables 1
+    /// §3), and each longhand the property sets holds it pending until computed-value time;
+    /// `isRuleValue` says whether it is a style rule's (`CSSPendingSubstitution.isRuleValue`).
+    static func parse(name: String, value: [CSSComponent], important: Bool, isRuleValue: Bool = true) -> [CSSDeclaration]? {
         let components = value.significant
         // `attr()` is part of `content`'s own grammar (CSS 2 §12.2); anywhere else it is a
-        // substitution the cascade does not make, as `var()` is.
-        guard !components.isEmpty, !containsVariable(components, allowingAttr: name == "content") else { return nil }
+        // substitution the cascade does not make, as `env()` is.
+        guard !components.isEmpty, !containsUnsupportedSubstitution(components, allowingAttr: name == "content") else { return nil }
         let flowRelative = isInlineFlowRelative(name)
         func declaration(_ property: CSSProperty, _ value: CSSValue) -> CSSDeclaration {
             CSSDeclaration(property: property, value: value, important: important,
                            rightToLeft: flowRelative ? property.otherInlineSide : nil)
         }
-        if components.count == 1, let keyword = components[0].ident, let global = globalKeyword(keyword) {
+        switch CSSSubstitution.syntax(of: value) {
+        case .invalid:
+            return nil
+        case .substitutes:
+            guard let properties = longhands(of: name) else { return nil }
+            let pending = CSSPendingSubstitution(name: name, value: value, isRuleValue: isRuleValue)
+            return properties.map { declaration($0, .pending(pending, longhand: $0)) }
+        case .plain:
+            break
+        }
+        if components.count == 1, let keyword = components[0].ident, let global = wideKeyword(keyword) {
             guard let properties = longhands(of: name) else { return nil }
             return properties.map { declaration($0, global) }
         }
@@ -267,30 +283,20 @@ enum CSSPropertyParser {
     }
 
     /// Parses a declaration from text (a presentational hint or a `@supports` test).
-    static func parse(name: String, text: String) -> [CSSDeclaration]? {
+    static func parse(name: String, text: String, isRuleValue: Bool = true) -> [CSSDeclaration]? {
         var truncated = false
-        return parse(name: name, value: CSSParser.components(text, truncated: &truncated), important: false)
+        return parse(name: name, value: CSSParser.components(text, truncated: &truncated), important: false, isRuleValue: isRuleValue)
     }
 
-    private static func containsVariable(_ components: [CSSComponent], allowingAttr: Bool = false) -> Bool {
+    private static func containsUnsupportedSubstitution(_ components: [CSSComponent], allowingAttr: Bool = false) -> Bool {
         components.contains { component in
             switch component {
             case .function("attr", _) where allowingAttr: false
             case .function(let name, let arguments):
-                name == "var" || name == "env" || name == "attr" || containsVariable(arguments, allowingAttr: allowingAttr)
-            case .block(_, let contents): containsVariable(contents, allowingAttr: allowingAttr)
+                name == "env" || name == "attr" || containsUnsupportedSubstitution(arguments, allowingAttr: allowingAttr)
+            case .block(_, let contents): containsUnsupportedSubstitution(contents, allowingAttr: allowingAttr)
             default: false
             }
-        }
-    }
-
-    private static func globalKeyword(_ keyword: String) -> CSSValue? {
-        switch keyword {
-        case "inherit": .inherit
-        case "initial": .initial
-        case "unset": .unset
-        case "revert", "revert-layer": .revert
-        default: nil
         }
     }
 
@@ -954,7 +960,7 @@ enum CSSPropertyParser {
                 guard case .token(.ident(let word)) = component else { return nil }
                 words.append(word.lowercased())
             }
-            if words.count == 1, globalKeyword(words[0]) != nil || words[0] == "default" { return nil }
+            if words.count == 1, wideKeyword(words[0]) != nil || words[0] == "default" { return nil }
             result.append(String(words.joined(separator: " ").prefix(128)))
         }
         guard !result.isEmpty else { return nil }

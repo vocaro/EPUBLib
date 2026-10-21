@@ -22,6 +22,9 @@ struct CSSStyleSheet: Sendable {
 struct CSSStyleRule: Sendable {
     var selectors: [CSSComplexSelector]
     var declarations: [CSSDeclaration]
+    /// Custom properties (`--name`), which `media` decides for each appearance as a whole
+    /// (`CSSRuleIndex`).
+    var custom: [CSSCustomDeclaration] = []
     var media: CSSMediaMask
 }
 
@@ -85,12 +88,13 @@ extension CSSStyleSheet {
         return builder.sheet
     }
 
+    /// Parses a `style` attribute's declarations, those of custom properties apart.
+    static func declarations(_ text: String) -> [CSSDeclaration] { block(text).declarations }
+
     /// Parses a `style` attribute's declarations.
-    static func declarations(_ text: String) -> [CSSDeclaration] {
+    static func block(_ text: String) -> CSSDeclarationBlock {
         var truncated = false
-        return CSSParser.declarations(CSSParser.components(text, truncated: &truncated)).flatMap {
-            CSSPropertyParser.parse(name: $0.name, value: $0.value, important: $0.important) ?? []
-        }
+        return CSSPropertyParser.block(CSSParser.declarations(CSSParser.components(text, truncated: &truncated)), isRuleValue: false)
     }
 
     private struct Builder {
@@ -128,26 +132,28 @@ extension CSSStyleSheet {
             // Of the pseudo-elements only `::before` and `::after` are rendered.
             let matching = selectors.filter { $0.pseudoElement == nil || $0.pseudoElement == .before || $0.pseudoElement == .after }
             guard !matching.isEmpty else { return true }
-            let declarations = CSSParser.declarations(block).flatMap {
-                CSSPropertyParser.parse(name: $0.name, value: $0.value, important: $0.important) ?? []
-            }
-            guard !declarations.isEmpty else { return true }
+            let parsed = CSSPropertyParser.block(CSSParser.declarations(block), isRuleValue: true)
+            let declarations = parsed.declarations
+            guard !parsed.isEmpty else { return true }
             guard media != .all else {
-                sheet.rules.append(CSSStyleRule(selectors: matching, declarations: declarations, media: media))
+                sheet.rules.append(CSSStyleRule(selectors: matching, declarations: declarations, custom: parsed.custom, media: media))
                 return true
             }
             // In a rule for one appearance, what decides generated characters
             // (`CSSProperty.generatedText`, `generatedBox`) is resolved as in the light
             // appearance: from a rule for light it applies in both, and from one for dark in
             // neither. So a section's characters are the same in light and dark, as for what
-            // else such a rule sets that does not paint (#130).
+            // else such a rule sets that does not paint (#130). Its custom properties stay under
+            // its media, and the rule index keeps each appearance's apart.
             for generated in [false, true] {
                 let selectors = matching.filter { $0.hasPseudoElement == generated }
                 guard !selectors.isEmpty else { continue }
                 let decides = generated ? CSSProperty.generatedBox : CSSProperty.generatedText
                 let follows = declarations.filter { !decides.contains($0.property) }
                 let light = declarations.filter { decides.contains($0.property) }
-                if !follows.isEmpty { sheet.rules.append(CSSStyleRule(selectors: selectors, declarations: follows, media: media)) }
+                if !follows.isEmpty || !parsed.custom.isEmpty {
+                    sheet.rules.append(CSSStyleRule(selectors: selectors, declarations: follows, custom: parsed.custom, media: media))
+                }
                 if media.contains(.light), !light.isEmpty {
                     sheet.rules.append(CSSStyleRule(selectors: selectors, declarations: light, media: .all))
                 }
