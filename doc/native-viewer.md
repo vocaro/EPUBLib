@@ -2202,7 +2202,13 @@ box. Native paragraph styles retain text alignment, direction and typography. Na
 retains selection, links, anchors, search and the same exact text-to-DOM mapping as ordinary prose. Resizing and
 reader typography changes recompute geometry from source formatting and retain selection.
 Requested heights do not truncate content. A box and the prose wrapping beside it stay together
-when they fit a page. Oversized groups and nested complex boxes instead continue as native
+when they fit a page. Two boxes are one group when a line is in the rows of both, and not when
+their rows only meet: a definition list with floated terms is a group a row, and one longer than
+a page breaks between rows and keeps every float
+([#149](https://github.com/vocaro/EPUBLib/issues/149)). A line that reaches into a box's rows by
+less than the reader takes for a collision is set clear of the box and is not beside it. A run
+of sized inline blocks, with the lines it shares, is one group, all of its rows on one page.
+Oversized groups and nested complex boxes instead continue as native
 blocks in reading order; fallback widths expand when necessary to leave readable lines, and
 long box text can continue across pages. A box taller than a page continues so a paragraph at
 a time, and from each of its paragraphs the rest of the box is tried as a box again, so that

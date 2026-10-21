@@ -694,6 +694,38 @@ private final class BoxMarginFragments: NSObject, NSTextLayoutManagerDelegate {
         XCTAssertNil(geometry.paragraph(at: 60))
     }
 
+    /// Rows of a box and the line beside it that only meet are a group each, so a run of them
+    /// longer than a page breaks between rows and keeps its boxes (#149). A line reaching into
+    /// the next box's rows by less than the container takes for a collision is set clear of that
+    /// box and does not join the rows; one reaching a point into them does. The rows of a run of
+    /// sized inline blocks are one group whatever their lines.
+    func testRowsThatOnlyMeetAreSeparateGroups() {
+        let geometry = ReaderBoxGeometry()
+        for row in 0..<4 { // A 5-character box and a 10-character line beside it, 20 points a row.
+            let y = CGFloat(row * 20), box = NSRange(location: row * 15, length: 5), line = NSRange(location: row * 15 + 5, length: 10)
+            geometry.paragraphs.append(.init(range: box, flowStart: y, flowEnd: y,
+                                             lines: [(box, CGRect(x: 0, y: y, width: 80, height: 20))], isBox: true))
+            geometry.paragraphs.append(.init(range: line, flowStart: y, flowEnd: y + 20,
+                                             lines: [(line, CGRect(x: 80, y: y, width: 200, height: 20))]))
+            geometry.regions.append(.init(range: box, frame: CGRect(x: 0, y: y, width: 80, height: 20), side: .left))
+        }
+        geometry.formGroups()
+        XCTAssertEqual(geometry.groups, (0..<4).map { NSRange(location: $0 * 15, length: 15) })
+        XCTAssertEqual(geometry.bounds(of: NSRange(location: 45, length: 15)), CGRect(x: 0, y: 60, width: 280, height: 20))
+        geometry.paragraphs[1].lines[0].frame.size.height = 20.005
+        geometry.formGroups()
+        XCTAssertEqual(geometry.groups, (0..<4).map { NSRange(location: $0 * 15, length: 15) }, "a rounding residual")
+        geometry.paragraphs[1].lines[0].frame.size.height = 21
+        geometry.formGroups()
+        XCTAssertEqual(geometry.groups, [NSRange(location: 0, length: 30), NSRange(location: 30, length: 15), NSRange(location: 45, length: 15)],
+                       "the first row's line is beside the second row's box")
+        // The rows of one run of sized inline blocks stay one group (#280).
+        geometry.paragraphs[1].lines[0].frame.size.height = 20
+        for index in geometry.regions.indices { geometry.regions[index].run = 0 }
+        geometry.formGroups()
+        XCTAssertEqual(geometry.groups, [NSRange(location: 0, length: 60)], "one run")
+    }
+
     // MARK: Hostile input
 
     func testExtremeLengthsOnBoxesNeverCrashLeaveTheColumnOrLoseCharacters() throws {

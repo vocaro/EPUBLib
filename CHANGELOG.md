@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Keep the floats of a run of float-and-text rows longer than a page, such as a definition list with floated terms, by taking rows that only meet as groups of their own, where the run was one group taller than a page and every float in it was turned off, and a float's `break-before: page` was lost when its source followed another float's ([#149](https://github.com/vocaro/EPUBLib/issues/149)).
 - Draw the backgrounds and borders of a table row's cells, and the table's own, through the band a row is drawn taller by to finish a spanning cell's line that crosses into the next row, or a line that crosses a tall row's cut between pages, where the band was left bare and a shaded cell lost its colour behind half a line ([#141](https://github.com/vocaro/EPUBLib/issues/141)).
 - Keep the image or rule that ends a section in a selection's CFI and highlight when nothing follows it in the document, where the range came back without it and one of the image alone could not be highlighted, and give a range of a list marker or quotation mark alone a DOM range that runs forwards ([#129](https://github.com/vocaro/EPUBLib/issues/129)).
 - Draw an SVG `<image>` given in a `data:` URL, inline, in an SVG from the archive and in an SVG that is only that image, as an archive image there is and within the same bounds, where the drawing was shown without it, or its fallback text in its place, and the image was disclosed, in an SVG file as a resource refused from the internet ([#657](https://github.com/vocaro/EPUBLib/issues/657)).
