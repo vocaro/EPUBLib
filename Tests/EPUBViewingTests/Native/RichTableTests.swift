@@ -327,6 +327,34 @@ final class RichTableTests: XCTestCase {
         XCTAssertEqual(short.width, 260, accuracy: 0.01)
         XCTAssertEqual(short.midX, 200, accuracy: 0.01)
         XCTAssertEqual(try rule("left").ruleRect(in: bounds.size).minX, 0)
+        // Viewport units are of the reading viewport, not of the rule's own line.
+        let viewportFixture = try RichFixture("<hr id='min'/><hr id='max'/><hr id='tall'/>")
+        viewportFixture.overrides["min"] = { $0.width = .viewportMin(50) }
+        viewportFixture.overrides["max"] = { $0.width = .viewportMax(50) }
+        viewportFixture.overrides["tall"] = { $0.width = .viewportHeight(50) }
+        func viewportRule(_ id: String) throws -> ReaderRuleAttachment {
+            let element = viewportFixture.element(id)
+            let text = viewportFixture.factory.horizontalRule(element, style: viewportFixture.style(of: element), context: viewportFixture.context)
+            return try XCTUnwrap(RichFixture.attachments(in: text).first as? ReaderRuleAttachment)
+        }
+        let landscape = CGSize(width: 700, height: 400)
+        XCTAssertEqual(try viewportRule("min").ruleRect(in: bounds.size, viewport: landscape).width, 200, accuracy: 0.01)
+        XCTAssertEqual(try viewportRule("max").ruleRect(in: bounds.size, viewport: landscape).width, 350, accuracy: 0.01)
+        XCTAssertEqual(try viewportRule("tall").ruleRect(in: bounds.size, viewport: landscape).width, 200, accuracy: 0.01)
+        XCTAssertEqual(try viewportRule("max").ruleRect(in: bounds.size, viewport: CGSize(width: 300, height: 1000)).width, 400,
+                       accuracy: 0.01, "never wider than its line")
+        // Drawn, it takes the viewport from its text container: 200 points centred on a 600-point line.
+        let container = ReaderTextContainer(size: CGSize(width: 600, height: 0))
+        container.viewportSize = landscape
+        let drawSize = CGSize(width: 600, height: 20)
+        func alpha(_ container: NSTextContainer?, x: Int) throws -> UInt8 {
+            let image = try XCTUnwrap(viewportRule("min").image(forBounds: CGRect(origin: .zero, size: drawSize), textContainer: container,
+                                                                characterIndex: 0))
+            return RichImageTests.rgba(try XCTUnwrap(RichImageTests.draw(image, size: drawSize, scale: 1)), x: x, y: 10)[3]
+        }
+        XCTAssertGreaterThan(try alpha(container, x: 210), 0)
+        XCTAssertEqual(try alpha(container, x: 190), 0)
+        XCTAssertEqual(try alpha(nil, x: 210), 0, "with no viewport, of its own 600 × 20 bounds: 10 points")
         let dark = try RichFixture("<hr id='r'/>", typography: NativeTypography(fontSize: 16, isDark: true))
         let element = dark.element("r")
         let darkRule = try XCTUnwrap(RichFixture.attachments(in: dark.factory.horizontalRule(element, style: dark.style(of: element),

@@ -297,37 +297,15 @@ final class EPUBCheckWriterValidationTests: XCTestCase {
 
     // MARK: Empty and near-empty fields
 
+    // The writer refuses an empty title, identifier, contents or navigation label, a contents
+    // entry with neither a target nor entries, and a resource ID that is no XML name
+    // (https://github.com/vocaro/EPUBLib/issues/96). Such a book is never written, so there is
+    // nothing here for EPUBCheck to validate: EPUBCheckWriterOutputCoverageTests holds each
+    // refusal. What the writer leaves out instead is validated below.
+
     func testNoAuthorsLanguagesSummaryOrKeywords() async throws {
         var book = EPUBCheckWrittenBook.minimal
         book.metadata.metadata = .init(title: "Only a Title")
-        book.pages = [.init(title: "1", href: "EPUB/chapter.xhtml")]
-        try await assertValid(book)
-    }
-
-    func testNoContents() async throws {
-        var book = EPUBCheckWrittenBook.minimal
-        book.contents = []
-        book.pages = [.init(title: "1", href: "EPUB/chapter.xhtml")]
-        try await assertValid(book)
-    }
-
-    func testContentsWhoseOnlyEntryHasNoTarget() async throws {
-        var book = EPUBCheckWrittenBook.minimal
-        book.contents = [.init(title: "A heading with nothing under it")]
-        book.pages = [.init(title: "1", href: "EPUB/chapter.xhtml")]
-        try await assertValid(book)
-    }
-
-    func testAnEmptyTitle() async throws {
-        var book = EPUBCheckWrittenBook.minimal
-        book.metadata.metadata = .init(title: "", authors: ["Test Author"], languages: ["en"])
-        book.pages = [.init(title: "1", href: "EPUB/chapter.xhtml")]
-        try await assertValid(book)
-    }
-
-    func testAWhitespaceOnlyTitle() async throws {
-        var book = EPUBCheckWrittenBook.minimal
-        book.metadata.metadata = .init(title: " \n\t ", authors: ["Test Author"], languages: ["en"])
         book.pages = [.init(title: "1", href: "EPUB/chapter.xhtml")]
         try await assertValid(book)
     }
@@ -346,9 +324,9 @@ final class EPUBCheckWriterValidationTests: XCTestCase {
         try await assertValid(book)
     }
 
-    func testAnEmptyIdentifier() async throws {
+    func testAnEmptyAdditionalIdentifier() async throws {
         var book = EPUBCheckWrittenBook.minimal
-        book.metadata.identifier = ""
+        book.metadata.metadata = .init(title: "A Written Book", authors: ["Test Author"], languages: ["en"], identifiers: ["", "urn:isbn:9780000000002", " "])
         book.pages = [.init(title: "1", href: "EPUB/chapter.xhtml")]
         try await assertValid(book)
     }
@@ -361,23 +339,14 @@ final class EPUBCheckWriterValidationTests: XCTestCase {
         try await assertValid(book)
     }
 
-    func testAnEmptyContentsLabel() async throws {
-        var book = EPUBCheckWrittenBook.minimal
-        book.contents = [.init(title: "", href: "EPUB/chapter.xhtml"), .init(title: "  ", href: "EPUB/chapter.xhtml#start")]
-        book.pages = [.init(title: "1", href: "EPUB/chapter.xhtml")]
-        try await assertValid(book)
-    }
+    // MARK: Resource identifiers
 
-    func testAnEmptyPageLabel() async throws {
-        var book = EPUBCheckWrittenBook.minimal
-        book.pages = [.init(title: "", href: "EPUB/chapter.xhtml")]
-        try await assertValid(book)
-    }
-
-    func testAResourceIdentifierThatIsNotAnXMLName() async throws {
+    func testResourceIdentifiersAtTheEdgesOfAnXMLName() async throws {
         var book = EPUBCheckWrittenBook()
-        book.addChapter(id: "1 chapter", path: "EPUB/chapter.xhtml", title: "Chapter")
-        book.pages = [.init(title: "1", href: "EPUB/chapter.xhtml")]
+        for (index, id) in EPUBCheckWrittenBook.xmlNamesAtTheEdges.enumerated() {
+            book.addChapter(id: id, path: "EPUB/c\(index).xhtml", title: "Chapter \(index)")
+        }
+        book.pages = [.init(title: "1", href: "EPUB/c0.xhtml")]
         try await assertValid(book)
     }
 }

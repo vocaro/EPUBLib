@@ -350,7 +350,7 @@ enum TableContent {
                     result.rowElements.append((row.element, group.element))
                     let background = row.element.flatMap { row.style.backgroundColor ?? TableContent.color($0.attribute("bgcolor")) }
                     let height = row.element.flatMap { TableContent.length(row.style.height, hint: $0.attribute("height"), style: row.style).points }
-                    result.rows.append(TableModel.Row(background: isDark ? nil : background?.cgColor, height: height ?? 0,
+                    result.rows.append(TableModel.Row(background: isDark || row.style.isHidden ? nil : background?.cgColor, height: height ?? 0,
                                                       isHeader: group.isHeader))
                     var column = 0
                     var leavesOut = false
@@ -427,6 +427,9 @@ enum TableContent {
                 let line = TableModel.Stroke(width: 1, style: .solid, color: defaultColor.cgColor)
                 borders = TableModel.Borders(top: line, right: line, bottom: line, left: line)
             }
+            // A hidden cell keeps its room and draws neither its borders nor its background; its
+            // content is hidden with it unless it sets `visibility: visible` again.
+            if cellStyle.isHidden { borders = borders.hidden }
             // In the separated model a cell's borders are inside its slot; collapsed, half of
             // each line (the table's own on the outside edges) is.
             var chrome = padding
@@ -450,7 +453,8 @@ enum TableContent {
                 content: content, text: TableMeasure.spokenText(content), isHeader: element?.isHTML("th") ?? false,
                 scope: TableContent.scope(element),
                 padding: padding, borders: borders, chrome: chrome,
-                background: isDark ? nil : (cellStyle.backgroundColor ?? TableContent.color(element?.attribute("bgcolor")))?.cgColor,
+                background: isDark || cellStyle.isHidden ? nil
+                    : (cellStyle.backgroundColor ?? TableContent.color(element?.attribute("bgcolor")))?.cgColor,
                 placement: TableContent.placement(cellStyle.verticalAlign, hint: valign),
                 width: TableContent.length(cellStyle.width, hint: element?.attribute("width"), style: cellStyle),
                 height: TableContent.length(cellStyle.height, hint: element?.attribute("height"), style: cellStyle).points ?? 0,
@@ -501,6 +505,9 @@ enum TableContent {
                                              color: (isDark ? ReaderPalette.rule(dark: true) : PlatformColor(white: 0.5, alpha: 1)).cgColor)
                 tableBorders = TableModel.Borders(top: line, right: line, bottom: line, left: line)
             }
+            // A hidden table draws no borders or background of its own; a row, a cell or content
+            // in them that sets `visibility: visible` again is drawn.
+            if style.isHidden { tableBorders = tableBorders.hidden }
             var spacing = style.borderSpacing
             if spacing == CGSize(width: 2, height: 2), let value = table.attribute("cellspacing").flatMap({ ImageSizing.length($0, fontSize: style.fontSize)?.points }) {
                 spacing = CGSize(width: value, height: value)
@@ -524,7 +531,7 @@ enum TableContent {
                 cells: cells, rows: rows, columnCount: columnCount, columns: columns,
                 width: TableContent.length(style.width, hint: table.attribute("width"), style: style), collapse: collapse,
                 spacing: spacing, borders: tableBorders,
-                background: isDark ? nil : (style.backgroundColor ?? TableContent.color(table.attribute("bgcolor")))?.cgColor,
+                background: isDark || style.isHidden ? nil : (style.backgroundColor ?? TableContent.color(table.attribute("bgcolor")))?.cgColor,
                 alignment: alignment, isRightToLeft: style.direction == .rtl,
                 isData: TableContent.isData(table, hasHeaderOrFooter: head != nil || !feet.isEmpty, rows: rowElements.map(\.row),
                                cells: zip(placed, cells).map { ($0.cell.element, $0.row, $0.column, $1.borders) }))

@@ -86,7 +86,8 @@ continues to describe the authored spine resource.
    [#128](https://github.com/vocaro/EPUBLib/issues/128)).
 4. **Positions** (`EPUBCFI`, `SpineCFIs`, `TextSearch`). Swift ports of foliate-js
    `epubcfi.js`, `search.js` and `text-walker.js` (MIT) over `ContentDocument`, producing and
-   resolving the same CFIs foliate-js produced, and locating quotes with its matcher.
+   resolving the same CFIs foliate-js produced (but for the ID assertions under
+   [Decisions](#decisions)), and locating quotes with its matcher.
 5. **Views** (`ReaderCanvas`, `ReaderCanvasView`). TextKit 2 text views: one real scroll view
    over the whole book for continuous scroll, and section pages sliced from one layout per
    column width for page turns.
@@ -120,6 +121,17 @@ continues to describe the authored spine resource.
   nothing had shipped, so a host migrates its own stored ones by re-tagging them, since the CFI
   value names the same position. A CFI that no longer resolves (a changed book has a different
   publication ID and is rejected before that) produces a `.notice`.
+- **ID assertions.** An ID assertion names the element whose `id` has the same code units, as
+  `getElementById` compares them, so `caf&#xE9;` and `cafe&#x301;` are two IDs although Swift
+  strings compare them equal. Every CFI the reader issues passes the check `restore` applies to
+  a bookmark (`EPUBCFI.isWellFormed`), which refuses a C0 or C1 control character, a line or
+  paragraph separator, and a CFI longer than its 4,096-character budget. An ID holding one of
+  those characters is therefore not asserted: the CFI grammar would take the character only as
+  it is, and the step's index names the element without it. A CFI whose ID assertions take it
+  past the budget is issued with none. Both depart from EPUB CFI 1.1, which has a step to an
+  element with an ID assert it, and from foliate-js, which asserted every ID and nested one
+  `epubcfi(…)` inside another for an ID with a line separator
+  ([#105](https://github.com/vocaro/EPUBLib/issues/105)).
 - **Fixed layout.** Out of scope at first: neither StudyWright catalog (50 shipped EPUBs, 87
   PDFReflowLib conversions) contains a pre-paginated book. Fixed-layout spine items render as
   reflowable text with a `.disclosure`; capabilities are not reduced. Owner decision
@@ -2132,7 +2144,8 @@ reserves space around rectangular boxes to keep prose readable rather than repro
 arbitrary overlapping layers.
 
 Widths, minimum/maximum widths and insets resolve points, percentages and viewport units at
-the current column size in pagination and continuous scroll; auto margins center a non-floated
+the current column size in pagination and continuous scroll, `vmin` and `vmax` against the
+smaller and the larger side of the viewport at that size; auto margins center a non-floated
 box. Native paragraph styles retain text alignment, direction and typography. Native text
 retains selection, links, anchors, search and the same exact text-to-DOM mapping as ordinary prose. Resizing and
 reader typography changes recompute geometry from source formatting and retain selection.
@@ -2272,9 +2285,14 @@ quite that: its VoiceOver read hidden words inside a shown paragraph, and passed
 - **Positions.** A saved position or a CFI inside hidden text names the characters it named
   before hiding them, and resolves to them.
 
-An image, a formula, a table or a rule inside such a box is still drawn
-([#132](https://github.com/vocaro/EPUBLib/issues/132)) and still read
-([#549](https://github.com/vocaro/EPUBLib/issues/549)). A note's popover on iPhone and iPad
+An image, an SVG drawing, a formula, a table or a rule that `visibility: hidden` hides keeps
+its room and draws nothing, nor do the words shown where an image or a formula cannot be
+([#132](https://github.com/vocaro/EPUBLib/issues/132)). A hidden table draws none of its
+borders and backgrounds, its rows' or its cells'. One that sets `visibility: visible` again
+inside a hidden box is drawn, a table's row or cell among them; a part of an SVG drawing or
+a formula is not, since the attachment the whole is drawn by is hidden. All of them are still
+read ([#549](https://github.com/vocaro/EPUBLib/issues/549)), and a hidden image is still
+opened by a double click or a tap on its room. A note's popover on iPhone and iPad
 gives VoiceOver UIKit's own text accessibility, which these changes do not reach
 ([#550](https://github.com/vocaro/EPUBLib/issues/550)).
 
@@ -2288,7 +2306,7 @@ item narrower than its container is indented from both sides. Nothing else about
 changes.
 
 - **Heights.** A container has free space when its `height` or `min-height` is definite: points,
-  `vh`/`vw`, a percentage of an ancestor chain of definite heights that starts at the viewport
+  `vh`/`vw`/`vmin`/`vmax`, a percentage of an ancestor chain of definite heights that starts at the viewport
   (`html, body { height: 100% }`), or a sum of those (`calc(98vh - 3em)`, exactly).
   `max-height` caps a definite `height`, `box-sizing: border-box` takes the vertical padding
   and border out of it, and content taller than the box is never clipped: it flows as blocks.
@@ -3036,7 +3054,8 @@ Go: the native viewer is the bundled engine.
   padding and text indents resolve against the live containing content width, including
   constrained flow-box ancestors, and recalculate at resize. Mixed-unit CSS calculations
   and `min`/`max`/`clamp` branch selection still use the nominal media-query viewport;
-  viewport-relative font sizes and media queries remain based on that nominal viewport.
+  viewport-relative font sizes and media queries remain based on that nominal 600 × 800
+  viewport, in which `vmin` is its width and `vmax` its height whatever the reader's shape.
 - Whole-table bookmarks and visible row ranges retain attachment granularity. A resize or
   flow change without a precise cell endpoint returns a continued row to its source position
   rather than preserving its particular visual fragment. A table's captions, and the cells

@@ -24,6 +24,18 @@ struct EPUBCheckWrittenBook {
         return book
     }
 
+    /// Resource IDs at the edges of an XML name without a colon by the character classes of XML
+    /// 1.0 before its fifth edition (Appendix B), which the writer and EPUBCheck accept: an
+    /// underscore, a letter outside ASCII, an ideograph and a Hangul syllable to start one, and a
+    /// digit, hyphen, full stop, middle dot, combining mark and Thai digit after the first character.
+    static let xmlNamesAtTheEdges = ["_1", "a-b.c_d", "\u{E9}", "x\u{B7}y", "a\u{300}", "\u{65E5}\u{672C}", "\u{AC00}", "x\u{E51}"]
+
+    /// Resource IDs that are XML names by the fifth edition's wider classes alone, which EPUBCheck
+    /// refuses (RSC-005) and so does the writer: a Roman numeral, a letter Unicode added after
+    /// those classes were drawn, and a character outside the Basic Multilingual Plane to start
+    /// one, and an undertie after the first character.
+    static let fifthEditionOnlyXMLNames = ["\u{2170}", "\u{221}x", "\u{10000}x", "a\u{203F}b"]
+
     /// A valid XHTML content document.
     static func page(title: String, body: String, head: String = "", language: String = "en") -> Data {
         Data("""

@@ -212,7 +212,7 @@ final class StyleResolverTests: XCTestCase {
         XCTAssertEqual(percent, 100 - 2 * calcSize / 6, accuracy: 0.001)
         XCTAssertEqual(result.style("vw").width, .viewportWidth(50))
         XCTAssertEqual(result.style("vw").height, .viewportHeight(25))
-        XCTAssertEqual(result.style("vw").margin.left, .viewportWidth(10))
+        XCTAssertEqual(result.style("vw").margin.left, .viewportMin(10), "vmin stays symbolic: only layout knows the smaller side")
         XCTAssertEqual(result.style("absurd").fontSize, 400)
         XCTAssertEqual(result.style("absurd").margin.left, .points(1000))
         XCTAssertEqual(result.style("absurd").lineHeight, .multiple(10))
