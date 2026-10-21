@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Remove the sample app, keeping its reader screen and the guide's compiled examples in the VoiceOver verification host ([#700](https://github.com/vocaro/EPUBLib/issues/700)).
 - Share engineering guidance and VoiceOver support tooling through the private apple-engineering toolkit ([#637](https://github.com/vocaro/EPUBLib/issues/637)).
 
 - Read named character references in the container, package, navigation and NCX documents and in text extraction from the HTML Standard's table, as the viewer does, keep a name it lacks such as `&bogus;` as written, and decode them in a document declared in KOI8-R, Mac OS Roman, TIS-620, Windows 874, EUC-JP, EUC-KR or GB2312, where a name outside HTML 4 was dropped from a title or label or refused the book, and a KOI8-R title read `Les Misrables` ([#184](https://github.com/vocaro/EPUBLib/issues/184)).
