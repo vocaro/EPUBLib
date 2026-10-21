@@ -12,12 +12,18 @@ enum NativeFallbacks {
         resource.mediaType.lowercased().hasPrefix("image/")
     }
 
+    /// Whether a resource of the chain is the original itself, by its ID's code units: a fallback
+    /// whose ID is canonically equivalent to the original's is another item.
+    private static func isOriginal(_ resource: EPUBResource, _ original: EPUBResource) -> Bool {
+        EPUBElementID(resource.id) == EPUBElementID(original.id)
+    }
+
     static func resources(for original: EPUBResource, in publication: EPUBPublication) -> [EPUBResource] {
         let chain = publication.fallbackChain(for: original)
         // With no designated fallback a scripted document's static/noscript content remains
         // useful. A designated fallback is processed instead of silently showing an unrun app.
         return chain.filter { item in
-            !item.properties.contains("scripted") || (item.id == original.id && item.fallbackID == nil)
+            !item.properties.contains("scripted") || (isOriginal(item, original) && item.fallbackID == nil)
         }
     }
 
@@ -26,13 +32,13 @@ enum NativeFallbacks {
             guard !ResourceReference.isRemote(resource.path), let data = try? publication.data(for: resource) else { continue }
             if resource.mediaType.lowercased() == "application/xhtml+xml" {
                 guard let document = try? ContentDocument.parse(data, path: resource.path) else { continue }
-                return resource.id == original.id ? document : document.withCFIResource(resource.href)
+                return isOriginal(resource, original) ? document : document.withCFIResource(resource.href)
             }
             guard isImage(resource) else { continue }
             if resource.mediaType.lowercased() == "image/svg+xml" {
                 guard let svg = try? ContentDocument.parse(data, path: resource.path, asContent: false),
                       svg.root.name == "svg", SVGContent.isSVG(svg.root, root: svg.root) else { continue }
-                return resource.id == original.id ? svg : svg.withCFIResource(resource.href)
+                return isOriginal(resource, original) ? svg : svg.withCFIResource(resource.href)
             } else {
                 guard ReaderImageSource.bitmap(data, path: resource.path, key: publication.id + "\u{0}" + resource.path) != nil else { continue }
             }

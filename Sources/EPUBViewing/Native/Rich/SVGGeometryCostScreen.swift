@@ -1,4 +1,5 @@
 import CoreGraphics
+import EPUBCore
 import Foundation
 
 /// Bounds work that happens before resvg's checked raster boundary (#230). In particular,
@@ -149,7 +150,7 @@ enum SVGGeometryCostScreen {
         }
     }
 
-    static func accepts(_ svg: ContentNode, nodes: [ContentNode], ids: [String: [ContentNode]]) -> Bool {
+    static func accepts(_ svg: ContentNode, nodes: [ContentNode], ids: [EPUBElementID: [ContentNode]]) -> Bool {
         for node in nodes where node.name == "path" {
             for attribute in node.attributes where attribute.name == "d" {
                 guard pathBounds(attribute.value) != nil else { return false }
@@ -222,7 +223,7 @@ enum SVGGeometryCostScreen {
                                           tx: transforms.map { abs($0.tx) }.max()!, ty: transforms.map { abs($0.ty) }.max()!)
             }
             let total = local.concatenating(above)
-            if node.name == "path", node.attributes.contains(where: { $0.name == "id" && textTargets.contains($0.value) }) {
+            if node.name == "path", node.attributes.contains(where: { $0.name == "id" && textTargets.contains(EPUBElementID($0.value)) }) {
                 for attribute in node.attributes where attribute.name == "d" {
                     guard let box = pathBounds(attribute.value) else { return false }
                     let x = max(abs(box.minX), abs(box.maxX)), y = max(abs(box.minY), abs(box.maxY))

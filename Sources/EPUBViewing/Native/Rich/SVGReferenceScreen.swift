@@ -1,3 +1,4 @@
+import EPUBCore
 import Foundation
 
 /// The references between an SVG's elements, screened before the bundled renderer follows them.
@@ -45,7 +46,7 @@ enum SVGReferenceScreen {
     /// (`SVGContent.elementsByID`): no loop it would not end, no `href` walk without an end,
     /// and no chain of nesting and references
     /// deeper than nesting alone may be.
-    static func accepts(_ nodes: [ContentNode], ids: [String: [ContentNode]]) -> Bool {
+    static func accepts(_ nodes: [ContentNode], ids: [EPUBElementID: [ContentNode]]) -> Bool {
         let elements = nodes.filter(\.isElement)
         guard !elements.isEmpty else { return true }
         let graph = Graph(elements, ids: ids)
@@ -54,7 +55,7 @@ enum SVGReferenceScreen {
 
     /// What an element is told to reference, by its attributes or by a rule.
     struct References {
-        var targets: [(role: Role, id: String)] = []
+        var targets: [(role: Role, id: EPUBElementID)] = []
         /// `mask` or `clip-path` is `inherit`: the parent's, or that of the `use` drawing it.
         var inherits = false
 
@@ -71,7 +72,7 @@ enum SVGReferenceScreen {
             // A value from CSS has lost the space around it, of any kind.
             let value = value.unicodeScalars.drop { $0.properties.isWhitespace }
             if let id = functionalReference(value) {
-                targets.append((role, id))
+                targets.append((role, EPUBElementID(id)))
             } else if role != .marker, value.starts(with: "inherit".unicodeScalars) {
                 // A marker is inherited whether or not this is said.
                 inherits = true
@@ -170,7 +171,7 @@ enum SVGReferenceScreen {
         private var isName: [Bool]
 
 
-        init(_ elements: [ContentNode], ids: [String: [ContentNode]]) {
+        init(_ elements: [ContentNode], ids: [EPUBElementID: [ContentNode]]) {
             edges = Array(repeating: [], count: 3 * elements.count)
             names = Array(repeating: nil, count: 3 * elements.count)
             isName = Array(repeating: false, count: 3 * elements.count)
@@ -205,7 +206,7 @@ enum SVGReferenceScreen {
                         // The renderer splits a class list at spaces alone.
                         matching += attribute.value.split(separator: " ").map { .class(String($0)) }
                     case "id":
-                        matching.append(.id(attribute.value))
+                        matching.append(.id(EPUBElementID(attribute.value)))
                     default:
                         if SVGReferenceScreen.attributeNamespaces.contains(attribute.namespace) { own[i].add(attribute.name, attribute.value) }
                     }
@@ -216,7 +217,7 @@ enum SVGReferenceScreen {
 
             var named: [Named: Int?] = [:]
             /// The node for the elements a reference names, or nil when it names none.
-            func target(_ id: String, _ role: Role) -> Int? {
+            func target(_ id: EPUBElementID, _ role: Role) -> Int? {
                 let key = Named(id: id, role: role)
                 if let known = named[key] { return known }
                 let found = (ids[id] ?? []).filter { role.admits($0.name) }.compactMap { index[ObjectIdentifier($0)] }
@@ -424,14 +425,14 @@ enum SVGReferenceScreen {
     }
 
     private struct Named: Hashable {
-        let id: String
+        let id: EPUBElementID
         let role: Role
     }
 
     static func subjects(of element: ContentNode) -> Set<Subject> {
         var result: Set<Subject> = [.any, .type(element.name)]
         for attribute in element.attributes {
-            if attribute.name == "id" { result.insert(.id(attribute.value)) }
+            if attribute.name == "id" { result.insert(.id(EPUBElementID(attribute.value))) }
             if attribute.name == "class" {
                 for name in attribute.value.split(separator: " ") { result.insert(.class(String(name))) }
             }
@@ -455,7 +456,7 @@ enum SVGReferenceScreen {
         case any
         case type(String)
         case `class`(String)
-        case id(String)
+        case id(EPUBElementID)
 
         /// How few elements meet it: the condition kept is the one that fewest do.
         var rank: Int {
@@ -723,7 +724,7 @@ enum SVGReferenceScreen {
                     position += 1
                     guard let name = identifier() else { return nil }
                     attributes[byte == UInt8(ascii: "#") ? "id" : "class", default: 0] += 1
-                    condition(byte == UInt8(ascii: "#") ? .id(string(name)) : .class(string(name)))
+                    condition(byte == UInt8(ascii: "#") ? .id(EPUBElementID(string(name))) : .class(string(name)))
                 case UInt8(ascii: "["):
                     expectsSelector = false
                     position += 1
