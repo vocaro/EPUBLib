@@ -345,7 +345,7 @@ import SwiftUI
         emit(.searchChanged(.idle))
         // A match inside content that renders nothing of its own (a hidden footnote), or that
         // takes in text `visibility: hidden` hides, is a place to go, not a passage to select;
-        // one that renders and shows is preferred.
+        // one that renders and shows, as a search result does, is preferred.
         var hidden: ReaderTextPosition?
         for index in publication.spine.indices {
             guard isCurrent(ticket), !closed else { return }
@@ -355,7 +355,7 @@ import SwiftUI
             guard isCurrent(ticket) else { return }
             for match in matches {
                 let range = range(of: match, in: section)
-                guard range.isEmpty || section.holdsHiddenText(range) else {
+                guard !SearchResultBuilder.isListed(range, in: section) else {
                     canvas?.clearSelection()
                     canvas?.show(range.start, selecting: highlight ? range : nil)
                     return

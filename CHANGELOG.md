@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Select the passage `.locate` finds where it renders over an earlier occurrence in content that renders nothing, wherever in its section that content sits, and refuse a highlight or saved range of such content between rendered text as one at a section's start or end is refused, where an occurrence hidden between rendered text was gone to and nothing was selected ([#158](https://github.com/vocaro/EPUBLib/issues/158)).
 - Remove the sample app, keeping its reader screen and the guide's compiled examples in the VoiceOver verification host ([#700](https://github.com/vocaro/EPUBLib/issues/700)).
 - Share engineering guidance and VoiceOver support tooling through the private apple-engineering toolkit ([#637](https://github.com/vocaro/EPUBLib/issues/637)).
 
