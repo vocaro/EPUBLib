@@ -255,7 +255,7 @@ import SwiftUI
     /// Shows an already built navigation target, after its caller checks its navigation ticket.
     private func showNavigationTarget(_ text: SectionText, fragment: String?) {
         canvas?.clearSelection()
-        let position = fragment.flatMap { id in text.document.nodes.first(where: { $0.id == id }) }
+        let position = fragment.flatMap(text.document.element(id:))
             .map { text.renderedPosition(DOMPosition($0, 0)) }
             ?? ReaderTextPosition(section: text.spineIndex, offset: fragment.flatMap { text.anchors[$0] } ?? 0)
         canvas?.show(position, selecting: nil)

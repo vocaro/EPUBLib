@@ -206,6 +206,22 @@ final class PackageManifestSpineCoverageTests: XCTestCase {
         XCTAssertEqual(try book.data(for: book.spine[0].resource), try book.data(for: book.spine[2].resource))
     }
 
+    /// IDs and the IDREFs that name them compare code unit for code unit, as XML compares them:
+    /// `caf&#xE9;` and `cafe&#x301;` are two items, though `String` compares them equal. The
+    /// spine, a fallback and the EPUB 2 cover each name the item with their own code units.
+    func testCanonicallyEquivalentIdsAreTwoItems() throws {
+        let book = try book(items: "<item id=\"caf&#xE9;\" href=\"three.xhtml\" \(xhtml)/>"
+            + "<item id=\"cafe&#x301;\" href=\"four.xhtml\" \(xhtml) fallback=\"caf&#xE9;\"/>"
+            + "<item id=\"na&#xEF;ve\" href=\"a.png\" media-type=\"image/png\"/><item id=\"nai&#x308;ve\" href=\"b.png\" media-type=\"image/png\"/>",
+            spine: "<spine><itemref idref=\"cafe&#x301;\"/><itemref idref=\"caf&#xE9;\"/></spine>",
+            metadata: "<meta name=\"cover\" content=\"nai&#x308;ve\"/>",
+            adding: ["OPS/three.xhtml": Data("<html/>".utf8), "OPS/four.xhtml": Data("<html/>".utf8),
+                     "OPS/a.png": Data([0]), "OPS/b.png": Data([1])])
+        XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/four.xhtml", "OPS/three.xhtml"])
+        XCTAssertEqual(book.fallbackChain(for: book.spine[0].resource).map(\.path), ["OPS/four.xhtml", "OPS/three.xhtml"])
+        XCTAssertEqual(book.cover?.path, "OPS/b.png")
+    }
+
     func testAManifestItemMissingARequiredAttributeRefusesThePackage() throws {
         for item in ["<item href=\"extra.css\" media-type=\"text/css\"/>", "<item id=\"\" href=\"extra.css\" media-type=\"text/css\"/>",
                      "<item id=\"extra\" media-type=\"text/css\"/>", "<item id=\"extra\" href=\"extra.css\"/>"] {
