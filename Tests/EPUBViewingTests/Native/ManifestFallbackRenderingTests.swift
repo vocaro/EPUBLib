@@ -98,6 +98,21 @@ import XCTest
         try built.assertPositionsRoundTrip()
     }
 
+    /// A fallback whose manifest ID is canonically equivalent to its original's is another item,
+    /// as XML compares IDs: its positions assert its resource, as any fallback's do, so a CFI
+    /// into it is not taken for one into the original.
+    func testAFallbackWhoseIDIsCanonicallyEquivalentToTheOriginalsIsAnotherItem() throws {
+        var book = Book()
+        book.add(href: "app.xhtml", id: "caf&#xE9;", mediaType: "application/xhtml+xml", Data(Book.xhtml(body: "<p>Unrun app</p><script>x</script>").utf8),
+                 item: "properties='scripted' fallback='cafe&#x301;'")
+        book.resource("static.xhtml", id: "cafe&#x301;", mediaType: "application/xhtml+xml", Data(Book.xhtml(body: "<p>Static equivalent</p>").utf8))
+        let built = try Build(book)
+        XCTAssertEqual(built[0].specText, "Static equivalent")
+        XCTAssertEqual(built[0].document.path, "EPUB/static.xhtml")
+        XCTAssertNotNil(built[0].document.cfiResource)
+        try built.assertPositionsRoundTrip()
+    }
+
     func testCyclesAndDanglingFallbacksWithholdInsteadOfDisplayingRawBytes() throws {
         for tail in ["source", "absent"] {
             var book = Book()

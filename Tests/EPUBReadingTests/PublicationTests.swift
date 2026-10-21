@@ -1,3 +1,4 @@
+import CryptoKit
 import EPUBCore
 import EPUBReading
 import EPUBText
@@ -91,6 +92,23 @@ extension PublicationTests {
         XCTAssertEqual(decoded.prefix(20), decoded[20..<40])
         XCTAssertEqual(decoded.suffix(10), Data(repeating: 0, count: 10))
         XCTAssertEqual(book.archiveData, data)
+    }
+
+    /// `unique-identifier` names the identifier whose `id` has its code units, as XML compares
+    /// IDs, and that one keys the obfuscation: `cafe&#x301;` is not `caf&#xE9;`, though `String`
+    /// compares them equal.
+    func testTheUniqueIdentifierIsTheOneWhoseIDHasItsExactCodeUnits() throws {
+        let xml = """
+        <encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><EncryptedData xmlns="http://www.w3.org/2001/04/xmlenc#"><EncryptionMethod Algorithm="http://www.idpf.org/2008/embedding"/><CipherData><CipherReference URI="OPS/font.otf"/></CipherData></EncryptedData></encryption>
+        """
+        let data = try Fixture.packageVariant(opf: {
+            $0.replacingOccurrences(of: "unique-identifier=\"uid\"", with: "unique-identifier=\"caf&#xE9;\"")
+                .replacingOccurrences(of: "<dc:identifier id=\"uid\">test-book</dc:identifier>",
+                                      with: "<dc:identifier id=\"cafe&#x301;\">another-book</dc:identifier><dc:identifier id=\"caf&#xE9;\">test-book</dc:identifier>")
+        }, adding: ["META-INF/encryption.xml": Data(xml.utf8), "OPS/font.otf": Data(count: 1050)])
+        let book = try EPUBPublication.open(data: data)
+        XCTAssertEqual(book.metadata.identifiers, ["another-book", "test-book"])
+        XCTAssertEqual(try book.data(at: "OPS/font.otf").prefix(20), Data(Insecure.SHA1.hash(data: Data("test-book".utf8))))
     }
 }
 
