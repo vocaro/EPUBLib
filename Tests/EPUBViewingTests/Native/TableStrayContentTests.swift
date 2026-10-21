@@ -267,8 +267,8 @@ final class TableStrayContentTests: XCTestCase {
         XCTAssertEqual(try plain("<table><tr><td>A</td><td>B</td><col>in a row</col></tr></table>"), "A\tB")
     }
 
-    /// Past the eight levels content is rendered at, a cell is its plain text; content outside
-    /// the cells is too, without what is never rendered.
+    /// Past the eight levels tables are drawn at, a cell is written with the tables in it
+    /// flowing as text; content outside the cells is too, without what is never rendered.
     func testContentOutsideTheCellsOfADeeplyNestedTableKeepsItsWords() throws {
         var markup = "<table><tr><td>leaf</td><td>twig</td></tr></table>"
         for level in 0..<10 {
@@ -279,14 +279,14 @@ final class TableStrayContentTests: XCTestCase {
             XCTAssertTrue(text.contains("stray\(level)") && text.contains("tail\(level)"), "level \(level) of \(text.debugDescription)")
         }
         let words = text.split(whereSeparator: \.isWhitespace).map(String.init)
-        for level in 1..<10 {
+        for level in 0..<10 {
             XCTAssertTrue(words.contains("stray\(level)") && words.contains("tail\(level)"), "level \(level) of \(text.debugDescription)")
             XCTAssertFalse(text.contains("secret\(level)"), "level \(level) of \(text.debugDescription)")
         }
     }
 
-    /// That plain text leaves out what the reader leaves out within the eight levels: an
-    /// element that has no box, with all it holds, and a footnote, which stays in the notes.
+    /// That text leaves out what the reader leaves out within the eight levels: an element
+    /// that has no box, with all it holds, and a footnote, which stays in the notes.
     func testContentOutsideTheCellsOfADeeplyNestedTableLeavesOutWhatIsNotShown() throws {
         let table = """
         <table><tr><td>w1</td><td>w2</td></tr><p style="display: none">h3</p><aside epub:type="footnote" id="note">n4</aside>\
