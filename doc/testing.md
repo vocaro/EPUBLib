@@ -11,8 +11,8 @@ bash scripts/check-all.sh
 
 The gate checks the hosted-run and VoiceOver session scripts, verifies module boundaries,
 compares documentation snippets with compiled Swift sources, runs the Mac tests and the full
-test suite on dedicated iPhone 17 Pro and iPad Air 13-inch (M4) simulators, and builds both
-sample app targets. Test devices are created by UUID and
+test suite on dedicated iPhone 17 Pro and iPad Air 13-inch (M4) simulators, and builds the
+VoiceOver verification host for Mac and iOS. Test devices are created by UUID and
 deleted on exit; existing devices are never selected or shut down. Agents working in the
 repository drive simulators the same way, headlessly ([notes for agents](../AGENTS.md)). iOS logs live in
 `.build/validation/`. `EPUB_SIM_RUNTIME` selects a different installed runtime by identifier.
@@ -1315,8 +1315,11 @@ are also held by `MathSpeechTests` and `MathCanvasTests`. These checks distingui
 and requested voice language from subjective vocabulary review upstream.
 
 
-`Examples/VoiceOverVerification` reuses the normal reader sample's shared interface with
-separate application identifiers and a bundled synthetic EPUB. It opens the fixture at launch
+`Examples/VoiceOverVerification` runs the reader screen in its `Shared` folder, with its own
+application identifiers and a bundled synthetic EPUB. That screen was the sample app's until the
+app was removed on 2026-10-20 ([#700](https://github.com/vocaro/EPUBLib/issues/700)). "The
+sample" in the records below is that screen, and its `-Sample…` launch arguments kept their
+names. It opens the fixture at launch
 without a file-picker interaction. The book contains `word0001` through `word1200` in one
 justified paragraph, a heading, an internal **Verification link**, and an image labeled
 **Blue verification square**. Its long paragraph retains the continuation context that

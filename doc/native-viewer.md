@@ -107,7 +107,11 @@ continues to describe the authored spine resource.
   bookmarks are `epublib-cfi-v1` (`EPUBReader.bookmarkFormat`): names for the library, not a
   renderer, so they outlive any change of how pages are drawn. The value is an EPUB CFI in the
   form foliate-js produced, generated and resolved by a port of its code. A range contained
-  in one document carries its CFI in `bookmark`. A CFI into a spine item the spine repeats
+  in one document carries its CFI in `bookmark`. A range ending with an image, a rule or
+  another element drawn whole includes it, also when nothing follows it in the document: that
+  end, the document's, is written as the virtual `after` index of the element's parent, which
+  foliate-js read with `setEndAfter`, after the element
+  ([#129](https://github.com/vocaro/EPUBLib/issues/129)). A CFI into a spine item the spine repeats
   names the occurrence its package path lands on: each repeat keeps its own position, as EPUB
   Reading Systems 3.3 §5.5 has them "distinct items for user interface (UI) purposes". This
   departs from foliate-js, which resolved every repeat to the first; its CFIs still resolve, and
@@ -206,7 +210,8 @@ continues to describe the authored spine resource.
   viewBox coordinates, and one omitted dimension follows the image's intrinsic ratio.
   Other aspect fits, transforms and nested viewports use the SVG renderer
   ([#187](https://github.com/vocaro/EPUBLib/issues/187)). Archive raster references are resolved
-  and bounded before rendering; scripts,
+  and bounded before rendering, and images in `data:` URLs read and bounded as they are
+  (**Data URLs**, below); scripts,
   animation, foreign content and external resources are omitted with a disclosure. Manifest
   image fallbacks apply inside SVG as well. Recursive preparation shares one memo and work
   budget per drawing: 128 request/candidate misses, 16 MiB each of loaded source and serialized
@@ -238,20 +243,26 @@ continues to describe the authored spine resource.
   rebuild script and redistribution notices are in [Vendor/Resvg](../Vendor/Resvg/README.md).
 - **Data URLs.** An image a document holds in a `data:` URL, as EPUB 3.3 §3.7 permits, is shown
   as one from the archive is: an `<img>`, and an `<object>` or `<embed>` whose `type` names an
-  image ([#134](https://github.com/vocaro/EPUBLib/issues/134)). The URL is read as browsers read
+  image ([#134](https://github.com/vocaro/EPUBLib/issues/134)); and an SVG `<image>`, in a drawing
+  in the document, in one from the archive, in one inside another, and in an SVG that is that one
+  image ([#657](https://github.com/vocaro/EPUBLib/issues/657)). The URL is read as browsers read
   it, by the Fetch standard's data: URL processor (`DataURL`): base64, broken by white space or
   without padding, or percent-encoded. Its type stands for a manifest's media type, so one that
   is not an image's (`text/plain`, where it names none) is not shown. Its bytes go to the same
   bitmap decoder and SVG sanitizer under the same limits, and decode to no more than the 32 MiB
   the archive holds of one resource by default; the document holding the URL is held to less.
-  A drawing in a `data:` URL has no base in the archive, so a reference in it names no file. A
-  `data:` URL that is no usable image shows its alternative text and is disclosed as an image
-  that could not be shown. Elsewhere `data:` URLs are not read: in an SVG `<image>`, inline or
-  in a file (the drawing is shown without it, disclosed); in an SVG that is that one image,
-  which shows its fallback text; in a MathML `mglyph`; in an `<object>` or `<embed>` with no
-  image `type`; and in a stylesheet `<link>`, `@import` or `@font-face`. A link to one is
-  refused as a link outside the book is, and so never opens as a document of its own
-  (RS 3.3 §3.4).
+  Inside a drawing, an image in a `data:` URL is prepared as an archive image there is: no more
+  than 8 MiB, its pixels counted with the drawing's other images, its bytes and work charged to
+  the drawing's preparation budget, and one URL given twice prepared once. The renderer is given
+  the PNG it decodes to, as it is an archive image's, never the book's URL, and the drawing is
+  screened before it is prepared and again after. A drawing in a `data:` URL has no base in the
+  archive, so a reference in it names no file, inside another drawing as anywhere. A `data:` URL
+  that is no usable image shows its alternative text and is disclosed as an image that could not
+  be shown; inside a drawing it is left out and disclosed as an archive image there that cannot
+  be decoded is, and is never counted as a resource refused from the internet. Elsewhere `data:`
+  URLs are not read: in a MathML `mglyph`; in an `<object>` or `<embed>` with no image `type`;
+  and in a stylesheet `<link>`, `@import` or `@font-face`. A link to one is refused as a link
+  outside the book is, and so never opens as a document of its own (RS 3.3 §3.4).
 - **Image contrast.** In dark appearance, transparent images containing dark strokes receive
   a white backdrop so diagram edges and labels remain legible. Their authored colors and
   publication bytes are preserved. Opaque images and transparent light artwork retain their
@@ -1513,7 +1524,9 @@ continues to describe the authored spine resource.
     the flow; one that a position or a clip hides from the page is not written.
   - **The text map.** Generated characters are not the book's: they have no place in the
     document, and the text map has no span for them, as it has none for a list marker or a
-    bidi isolate. A position among them is that of the book's next character, and a CFI names
+    bidi isolate. A position among them is that of the book's next character, and a range of
+    generated characters alone runs from the book's character before them to the one after,
+    the place they are generated at ([#129](https://github.com/vocaro/EPUBLib/issues/129)). A CFI names
     the book's characters alone, the same CFI with or without the styles that generate:
     a selection that takes in generated words is saved without them and comes back without
     them. Search reads the book's text, as foliate-js's did in WebKit, and finds nothing in
@@ -2654,7 +2667,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   one is: UIKit asks for that notification after every scroll that succeeds, and VoiceOver
   goes on reading from its handling of it. Reading on, it played its page sound and did
   not say the words. What it read after the turn is its own and the host's
-  ([#554](https://github.com/vocaro/EPUBLib/issues/554)): in the sample, whose controls
+  ([#554](https://github.com/vocaro/EPUBLib/issues/554)): in the reader screen the VoiceOver lanes run, whose controls
   stand above the reader, it read on from the top of the screen, the controls and then the
   new page from its first line, every line once and in order through each turn, and with
   no controls there it stopped after the turn. After the turn VoiceOver looks among the
@@ -2933,7 +2946,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
 | `nextPage` / `previousPage` | Page turn (paginated) or one viewport (scrolled); stops at the book's ends; skips nonlinear sections as foliate-js did, unless no section is linear. |
 | `navigate(href:)` | An encoded spine or resource href with optional fragment; unknown or non-local hrefs throw `invalidCommand`. |
 | `restore(location)` | Same publication, engine ID and `epublib-cfi-v1` format or `incompatibleLocation`; validates/resolves every bookmark segment and shows the first segment's start. Does not select text or add a highlight. |
-| `locate(text, highlight)` | First match in reading order with foliate's matcher. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A miss emits `.notice("the cited passage could not be found in this book")`. Clears search highlights. |
+| `locate(text, highlight)` | First match in reading order with foliate's matcher that renders and shows, as a search result does. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A passage found only in content that renders nothing (`display: none`, a hidden note) or that `visibility: hidden` hides is shown where its first match is, wherever that sits in its section, and is never selected. A miss emits `.notice("the cited passage could not be found in this book")`. Clears search highlights. |
 | `searchHighlight` / `clearSearch` | Draws every match across the book and lists the rendered ones as `EPUBSearchResults` with no current match / removes and withdraws them. |
 | `search` | Draws and lists matches, opens the first rendered match in spine order and makes it the current match; no matches preserve the position. |
 | `nextSearchResult` / `previousSearchResult` | Shows the result after or before the current match, wrapping at the ends; the first or last when none is current. No effect without results. |
@@ -2959,8 +2972,10 @@ it to `.setHighlights` to restore all segments in either flow, including after t
 No partial annotation is drawn while a section is building or if any segment fails to resolve.
 An empty collection, a contradictory first bookmark, a foreign identity/format or malformed CFI
 is incompatible; unordered/duplicate document targets, nonlinear multi-document targets or
-unresolved CFIs emit one `.notice` per rejected highlight. `restore` similarly refuses an
-incompatible location or emits a notice for an unresolved collection without navigating.
+unresolved CFIs emit one `.notice` per rejected highlight, as does a passage that renders
+nothing, wherever it sits in its section. `restore` similarly refuses an incompatible location
+or emits a notice without navigating for an unresolved collection, or one with a document whose
+part renders nothing.
 Sections requiring unqualified HTML tree repair do not emit bookmarks. Existing CFIs into
 those sections are refused with a notice instead of restoring or highlighting a potentially
 different passage. Href navigation, readable content, selection text and text search remain

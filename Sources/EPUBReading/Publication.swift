@@ -29,7 +29,11 @@ public struct EPUBPublication: Sendable {
     /// whose href does not resolve inside the archive keeps its title and children, without an href.
     /// A title is the text of the entry's link or heading, or of its `navLabel`, read as a
     /// metadata value is: ASCII whitespace stripped from its ends and collapsed, and empty, its
-    /// entry kept, when the text is nothing but white space of any kind.
+    /// entry kept, when the text is nothing but white space of any kind. An image, SVG drawing,
+    /// formula or other embedded element in it is read as its alternative text: its `alt`, else
+    /// its `title`, else a drawing's `title` element or a formula's `alttext`; one with none of
+    /// these is read by its content. A title that is empty then is the link or heading's own
+    /// `title`, read the same way, when it has one.
     public let tableOfContents: [EPUBNavigationItem]
     /// The navigation document's `landmarks` in order or, when it lists none, the OPF `guide`'s
     /// references. Entries whose href does not resolve inside the archive are left out. A title
@@ -348,7 +352,7 @@ public struct EPUBPublication: Sendable {
             root.descendants("pageList").first?.children.filter { $0.name == "pageTarget" }.compactMap { target in
                 guard let src = target.children.first(where: { $0.name == "content" })?.attribute("src"),
                       let href = try? ResourceReference.resolve(src, relativeTo: path) else { return nil }
-                return EPUBPageListEntry(label: target.children.first { $0.name == "navLabel" }?.text ?? "", href: href)
+                return EPUBPageListEntry(label: target.children.first { $0.name == "navLabel" }?.label ?? "", href: href)
             } ?? []
         }
         let nav = resources.first { $0.properties.contains("nav") }
@@ -359,10 +363,10 @@ public struct EPUBPublication: Sendable {
                 // without a target, as a heading does.
                 func items(_ node: XMLNode) -> [EPUBNavigationItem] {
                     node.children.filter { $0.name == "li" }.map { li in
-                        let label = li.children.first { $0.name == "a" || $0.name == "span" }
-                        let href = label?.attribute("href").flatMap { try? ResourceReference.resolve($0, relativeTo: nav.path) }
+                        let link = li.children.first { $0.name == "a" || $0.name == "span" }
+                        let href = link?.attribute("href").flatMap { try? ResourceReference.resolve($0, relativeTo: nav.path) }
                         let children = li.children.filter { $0.name == "ol" }.flatMap { items($0) }
-                        return EPUBNavigationItem(title: label?.text ?? "", href: href, children: children)
+                        return EPUBNavigationItem(title: link?.label ?? "", href: href, children: children)
                     }
                 }
                 toc = node.children.filter { $0.name == "ol" }.flatMap { items($0) }
@@ -374,7 +378,7 @@ public struct EPUBPublication: Sendable {
                     .compactMap { li in
                         guard let link = li.children.first(where: { $0.name == "a" }), let href = link.attribute("href"),
                               let resolved = try? ResourceReference.resolve(href, relativeTo: nav.path) else { return nil }
-                        return EPUBLandmark(types: link.epubTypes, title: link.text, href: resolved)
+                        return EPUBLandmark(types: link.epubTypes, title: link.label, href: resolved)
                     }
             }
             if let node = root.descendants("nav").first(where: { $0.epubTypes.contains("page-list") }) {
@@ -384,7 +388,7 @@ public struct EPUBPublication: Sendable {
                         let link = li.children.first { $0.name == "a" }
                         let entry = link.flatMap { link in
                             link.attribute("href").flatMap { try? ResourceReference.resolve($0, relativeTo: nav.path) }
-                                .map { EPUBPageListEntry(label: link.text, href: $0) }
+                                .map { EPUBPageListEntry(label: link.label, href: $0) }
                         }
                         return [entry].compactMap { $0 } + li.children.filter { $0.name == "ol" }.flatMap(entries)
                     }
@@ -394,7 +398,7 @@ public struct EPUBPublication: Sendable {
         } else if let ncx, let root = try namedNCX.map({ try xml($0.path) }) ?? (try? xml(ncx.path)) {
             func points(_ parent: XMLNode) -> [EPUBNavigationItem] {
                 parent.children.filter { $0.name == "navPoint" }.map { point in
-                    let title = point.children.first { $0.name == "navLabel" }?.text ?? ""
+                    let title = point.children.first { $0.name == "navLabel" }?.label ?? ""
                     let href = point.children.first { $0.name == "content" }?.attribute("src").flatMap {
                         try? ResourceReference.resolve($0, relativeTo: ncx.path)
                     }
@@ -482,13 +486,16 @@ private final class XMLNode {
     /// Local name.
     let name: String
     let attributes: [AttributeName: String]
-    var children: [XMLNode] = []
+    private(set) var children: [XMLNode] = []
     /// The text of the element and of everything inside it, as the parser gives it. A value is
     /// read from it as `text`, and a font obfuscation key is made from it by its algorithm's own
     /// rule, not from `text`.
     var content = ""
-    /// The element's value or label: its text and that of everything inside it, with each run of
-    /// ASCII whitespace (tab, line feed, form feed, carriage return, space) read as one space and
+    /// The element's own text, as the parser gives it, in the runs its children divide it into:
+    /// the first before the first child, each other after the child before it.
+    private var runs = [""]
+    /// The element's value: its text and that of everything inside it, with each run of ASCII
+    /// whitespace (tab, line feed, form feed, carriage return, space) read as one space and
     /// none left at either end. EPUB Reading Systems 3.3 §5.3 requires that of Dublin Core and
     /// `meta` values, and it is how a browser renders a navigation label. White space outside
     /// ASCII, a no-break or an ideographic space, is the author's character and stays wherever
@@ -496,12 +503,48 @@ private final class XMLNode {
     /// (Foundation's `whitespacesAndNewlines`, by scalar) is empty: a lone no-break space is a
     /// tool's placeholder, and no host can show one. ASCII whitespace is read by byte, not by
     /// `Character`: a space is one whatever mark follows it, and the mark stays.
-    var text: String {
-        guard !content.unicodeScalars.allSatisfy(CharacterSet.whitespacesAndNewlines.contains) else { return "" }
+    var text: String { Self.collapsed(content) }
+    /// The element as a navigation label: its text read as `text` is, with each embedded element
+    /// inside it read as its `alternative`, or, when that is empty, its own `title` read the same
+    /// way. EPUB Reading Systems 3.3 §7 has a reading system put a non-text element's alternative
+    /// text in its place in a label, and EPUB 3.3 §7.3 has a link or heading holding embedded
+    /// content with no text alternative carry its label in a `title`, which foliate-js reads when
+    /// the label is empty.
+    var label: String {
+        let label = Self.collapsed(labelContent)
+        guard label.isEmpty, let title = attribute("title") else { return label }
+        return Self.collapsed(title)
+    }
+    /// The element's text and that of everything inside it, each embedded element's `alternative`
+    /// in place of its own.
+    private var labelContent: String {
+        var text = runs[0]
+        for (child, run) in zip(children, runs.dropFirst()) { text += (child.alternative ?? child.labelContent) + run }
+        return text
+    }
+    /// What stands for an embedded element in a label: its `alt`, else its `title` (EPUB Reading
+    /// Systems 3.3 §7 prefers `alt` where both are given), else an SVG drawing's `title` element or
+    /// a formula's `alttext`. nil for any other element, and for one that has none of these, which
+    /// is read by its content: a formula's characters, a drawing's text, an object's fallback.
+    private var alternative: String? {
+        guard Self.embedded.contains(name) else { return nil }
+        if let alternative = attribute("alt") ?? attribute("title") { return alternative }
+        switch name {
+        case "svg": return children.first { $0.name == "title" }?.content
+        case "math": return attribute("alttext")
+        default: return nil
+        }
+    }
+    /// HTML's embedded content but `picture`, whose image stands for it, by local name, as the
+    /// navigation reader matches every element.
+    private static let embedded: Set = ["img", "svg", "math", "audio", "video", "canvas", "object", "embed", "iframe"]
+    /// A value read as `text` reads `content`.
+    private static func collapsed(_ value: String) -> String {
+        guard !value.unicodeScalars.allSatisfy(CharacterSet.whitespacesAndNewlines.contains) else { return "" }
         var bytes: [UInt8] = []
-        bytes.reserveCapacity(content.utf8.count)
+        bytes.reserveCapacity(value.utf8.count)
         var gap = false
-        for byte in content.utf8 {
+        for byte in value.utf8 {
             if byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0C || byte == 0x0D { gap = !bytes.isEmpty; continue }
             if gap { bytes.append(0x20); gap = false }
             bytes.append(byte)
@@ -509,6 +552,10 @@ private final class XMLNode {
         return String(decoding: bytes, as: UTF8.self)
     }
     init(_ name: String, _ attributes: [AttributeName: String]) { self.name = name; self.attributes = attributes }
+    /// Adds the next of the element's children, in document order.
+    func add(_ child: XMLNode) { children.append(child); runs.append("") }
+    /// Adds the next of the parser's text inside the element, not inside a child.
+    func add(_ text: String) { content += text; runs[runs.count - 1] += text }
     /// The value of an attribute by local name; `namespace` nil matches an attribute in no namespace.
     func attribute(_ local: String, namespace: String? = nil) -> String? {
         attributes[AttributeName(namespace: namespace ?? "", local: local)]
@@ -591,13 +638,13 @@ private final class XMLTree: NSObject, XMLParserDelegate {
             }
         }
         let node = XMLNode(local, attrs)
-        if let parent = stack.last { parent.children.append(node) } else { root = node }
+        if let parent = stack.last { parent.add(node) } else { root = node }
         stack.append(node)
         scopes.append(namespaces)
     }
-    func parser(_ parser: XMLParser, foundCharacters string: String) { stack.last?.content += string }
+    func parser(_ parser: XMLParser, foundCharacters string: String) { stack.last?.add(string) }
     func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
-        stack.last?.content += String(decoding: CDATABlock, as: UTF8.self)
+        stack.last?.add(String(decoding: CDATABlock, as: UTF8.self))
     }
     func parser(_ parser: XMLParser, didEndElement: String, namespaceURI: String?, qualifiedName: String?) {
         let node = stack.popLast()

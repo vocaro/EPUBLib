@@ -5,11 +5,11 @@ cd "$(dirname "$0")/.."
 python3 -m unittest discover -s scripts/tests -v
 python3 scripts/check-modules.py
 python3 scripts/check-docs.py
-swift build --target ReaderSampleSupport
+swift build --target ReaderHostSupport
 swift test
 bash scripts/test-ios.sh
-xcodegen generate --spec Examples/ReaderSample/project.yml
-xcodebuild -project Examples/ReaderSample/ReaderSample.xcodeproj -scheme ReaderSampleMac \
-    -destination 'platform=macOS' -derivedDataPath .build/sample-mac CODE_SIGNING_ALLOWED=NO build
-xcodebuild -project Examples/ReaderSample/ReaderSample.xcodeproj -scheme ReaderSample \
-    -destination 'generic/platform=iOS' -derivedDataPath .build/sample-ios CODE_SIGNING_ALLOWED=NO build
+xcodegen generate --spec Examples/VoiceOverVerification/project.yml
+xcodebuild -project Examples/VoiceOverVerification/VoiceOverVerification.xcodeproj -scheme VoiceOverProbeMac \
+    -destination 'platform=macOS' -derivedDataPath .build/host-mac CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project Examples/VoiceOverVerification/VoiceOverVerification.xcodeproj -scheme VoiceOverProbeIOS \
+    -destination 'generic/platform=iOS' -derivedDataPath .build/host-ios CODE_SIGNING_ALLOWED=NO build
