@@ -220,21 +220,33 @@ private final class XHTMLTextReader {
             // XML forbids (`:p`, `script:`, `a:b:c`, a processing instruction's `a:b`) with a
             // namespace error and reads on. The native reader takes that for markup that is not
             // well-formed and reads the section as HTML, where `<:p>` is text (#178).
-            let malformedName = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
-            malformedName.initialize(to: false)
-            defer { malformedName.deinitialize(count: 1); malformedName.deallocate() }
-            xmlTextReaderSetStructuredErrorHandler(reader, { flag, error in
-                guard let flag, let error, error.pointee.domain == Int32(XML_FROM_NAMESPACE.rawValue),
-                      error.pointee.code == Int32(XML_NS_ERR_QNAME.rawValue)
-                        || error.pointee.code == Int32(XML_NS_ERR_COLON.rawValue) else { return }
-                flag.assumingMemoryBound(to: Bool.self).pointee = true
-            }, malformedName)
+            // libxml2 also halts, as at markup that is not well-formed, where an element would open
+            // more than 256 levels below the root (`xmlParserMaxDepth`; XML_PARSE_HUGE, which lifts
+            // that bound and its others, is never enabled). As in recovery, that is the depth limit,
+            // whatever the caller's (#91). libxml2 2.9 raises it as an internal error, a code that
+            // other failures share, so its message names the cause. A parse halted at markup that is
+            // not well-formed opens no more elements: such markup before the cap stays malformed.
+            let reported = UnsafeMutablePointer<(malformedName: Bool, nestingCap: Bool)>.allocate(capacity: 1)
+            reported.initialize(to: (false, false))
+            defer { reported.deinitialize(count: 1); reported.deallocate() }
+            xmlTextReaderSetStructuredErrorHandler(reader, { flags, error in
+                guard let flags, let error else { return }
+                let reported = flags.assumingMemoryBound(to: (malformedName: Bool, nestingCap: Bool).self)
+                if error.pointee.domain == Int32(XML_FROM_NAMESPACE.rawValue),
+                   error.pointee.code == Int32(XML_NS_ERR_QNAME.rawValue) || error.pointee.code == Int32(XML_NS_ERR_COLON.rawValue) {
+                    reported.pointee.malformedName = true
+                } else if error.pointee.domain == Int32(XML_FROM_PARSER.rawValue), let message = error.pointee.message,
+                          String(cString: message).hasPrefix("Excessive depth in document") {
+                    reported.pointee.nestingCap = true
+                }
+            }, reported)
             let result = XHTMLTextReader(limits: limits)
             func string(_ value: UnsafePointer<xmlChar>?) -> String { value.map { String(cString: $0) } ?? "" }
             while true {
                 try Task.checkCancellation()
                 let status = xmlTextReaderRead(reader)
-                guard !malformedName.pointee else { throw ParseFailure.notWellFormed }
+                guard !reported.pointee.malformedName else { throw ParseFailure.notWellFormed }
+                guard !reported.pointee.nestingCap else { throw EPUBTextExtractionError.limitExceeded("depth") }
                 if status == 0 { break }
                 guard status == 1 else { throw ParseFailure.notWellFormed }
                 switch xmlTextReaderNodeType(reader) {

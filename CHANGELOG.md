@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Report `limitExceeded("depth")` in strict text extraction for a well-formed section nested deeper than libxml2's cap of 257 levels, as recovery does, where a caller's depth limit above that gave `malformedContent` ([#91](https://github.com/vocaro/EPUBLib/issues/91)).
 - Show an image given in a `data:` URL, base64 or percent-encoded, as one from the archive is and within the same bounds, where it showed its alternative text and was disclosed as an image that could not be shown ([#134](https://github.com/vocaro/EPUBLib/issues/134)).
 - Honour `clear` on a block that holds other blocks, on a float and on a `br`, starting the block's content, the float or the line after the break below the earlier floats it names, where only a paragraph's own block was cleared and the rest stayed beside the float ([#151](https://github.com/vocaro/EPUBLib/issues/151)).
 - Keep the tabs and carriage returns of an SVG drawing as the book writes them when it is prepared for the renderer, where one in an attribute value was read as a space and one in text as a line feed, so that a class list could change and an `href` name another element ([#249](https://github.com/vocaro/EPUBLib/issues/249)).
