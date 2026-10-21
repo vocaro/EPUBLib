@@ -50,13 +50,13 @@ final class SectionWriter {
         /// `ids` are the ids the note is captured under. `depth` is how deep in notes captured
         /// on their own (`SectionBuildState.noteDepth`) the content goes: the note's own depth,
         /// or further for a note with nothing else to show.
-        case note(ids: Set<String>, depth: Int)
+        case note(ids: Set<EPUBElementID>, depth: Int)
     }
 
     struct Output {
         let string: NSAttributedString
         let map: TextMap
-        let anchors: [String: Int]
+        let anchors: [EPUBElementID: Int]
     }
 
     /// Nominal column the percentages of a section resolve against.
@@ -77,7 +77,7 @@ final class SectionWriter {
 
     private var buffer = TextBuffer()
     private var map = TextMap()
-    private var anchors: [String: Int] = [:]
+    private var anchors: [EPUBElementID: Int] = [:]
     /// Ids waiting for the next rendered character, with their registration serial.
     private var pendingAnchors: [(id: String, serial: Int)] = []
     private var anchorSerial = 0
@@ -126,7 +126,8 @@ final class SectionWriter {
 
     private var stack: [Entry] = []
     /// `ResourceReference.resolve` by href (nil: not in the archive); books repeat their links.
-    private var resolvedLinks: [String: String?] = [:]
+    /// By the href's code units, as resolving reads it: `#caf\u{E9}` and `#cafe\u{301}` name two ids.
+    private var resolvedLinks: [[UInt8]: String?] = [:]
 
     init(state: SectionBuildState, mode: Mode) {
         self.state = state; self.mode = mode
@@ -572,14 +573,15 @@ final class SectionWriter {
 
     private func link(for element: ContentNode, href: String) -> ReaderLink? {
         let href = href.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolution = resolvedLinks[href] ?? (try? ResourceReference.resolve(href, relativeTo: document.path))
-        resolvedLinks[href] = .some(resolution)
+        let key = Array(href.utf8)
+        let resolution = resolvedLinks[key] ?? (try? ResourceReference.resolve(href, relativeTo: document.path))
+        resolvedLinks[key] = .some(resolution)
         guard let resolved = resolution else { return .external(href) }
         let parts = resolved.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
         let path = String(parts[0]).removingPercentEncoding ?? String(parts[0])
         let fragment = parts.count == 2 ? String(parts[1]).removingPercentEncoding ?? String(parts[1]) : nil
         // The note's own number, or another link to the note it is in.
-        if case .note(let ids, _) = mode, path == document.path, let fragment, ids.contains(fragment) { return nil }
+        if case .note(let ids, _) = mode, path == document.path, let fragment, ids.contains(EPUBElementID(fragment)) { return nil }
         if ContentSemantics.isNoteReference(element) { return .note(href: resolved) }
         // A plain link to a note or its child is a note link; so is one to anything inside a
         // footnote hidden from the flow (`isInsideHiddenFootnote`), where there is nothing to
