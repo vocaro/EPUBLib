@@ -211,6 +211,9 @@ struct ComputedStyle: Equatable, Sendable {
     /// (`GeneratedContentStyle.swift`). A computed style is copied on every nesting level of a
     /// table built on a small stack, so what most elements lack takes no room in it.
     var generatedContent: GeneratedContentStorage?
+    /// Custom properties (`--name`), computed. Inherited: an element that declares none shares
+    /// its parent's. nil when there are none (`CustomProperties.swift`).
+    var customProperties: CSSCustomProperties?
 
     /// Resolved line height in points for this style's font size; nil for `normal`.
     var lineHeightPoints: CGFloat? {

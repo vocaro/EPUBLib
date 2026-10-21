@@ -275,8 +275,11 @@ enum CSSSupports {
         case .block(.openParen, let contents):
             let inner = contents.significant
             if let name = inner.first?.ident, inner.count >= 2, inner[1] == .token(.colon) {
-                let value = Array(contents.drop { $0 != .token(.colon) }.dropFirst())
-                return CSSPropertyParser.parse(name: name, value: value.trimmingWhitespace, important: false) != nil
+                let value = Array(contents.drop { $0 != .token(.colon) }.dropFirst()).trimmingWhitespace
+                if case .token(.ident(let custom)) = inner[0], custom.hasPrefix("--") {
+                    return CSSPropertyParser.parseCustom(name: custom, value: value, important: false) != nil
+                }
+                return CSSPropertyParser.parse(name: name, value: value, important: false) != nil
             }
             return condition(inner, namespaces: namespaces) ?? false
         case .function("selector", let arguments):

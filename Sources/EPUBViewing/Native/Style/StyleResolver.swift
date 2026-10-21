@@ -15,6 +15,10 @@ final class StyleResolver: @unchecked Sendable {
     /// An inline style or a sibling-search/filtered-position bound dropped author CSS.
     /// The builder folds this into `SectionReport.stylesTruncated`.
     let stylesTruncated: Bool
+    /// The section's bound on substitution (`maximumSubstitutionWork`) left `var()`s
+    /// unsubstituted in the styles computed so far. The builder folds this into
+    /// `SectionReport.stylesTruncated` once it has computed them all.
+    var substitutionsTruncated: Bool { substitution.isExhausted }
 
     static let maximumInlineStyleBytes = 16 * 1024
 
@@ -25,9 +29,12 @@ final class StyleResolver: @unchecked Sendable {
     /// The root element's computed font size, which `rem` refers to.
     private var rootFontSize: CGFloat
     let initialValues: ComputedStyle
+    let substitution: SubstitutionState
 
-    init(document: ContentDocument, stylesheets: [CSSStyleSheet], typography: NativeTypography, fonts: FontRegistry? = nil) {
+    init(document: ContentDocument, stylesheets: [CSSStyleSheet], typography: NativeTypography, fonts: FontRegistry? = nil,
+         maximumSubstitutionWork: Int = StyleResolver.maximumSubstitutionWork) {
         self.document = document; self.typography = typography; self.fonts = fonts
+        substitution = SubstitutionState(limit: maximumSubstitutionWork)
         facts = ElementFacts(document)
         selectorPositions = SelectorPositionMemo(document: document)
         // Only parents with more than `directWalk + 1` children can allocate a memo entry.
@@ -74,19 +81,19 @@ final class StyleResolver: @unchecked Sendable {
         let userAgent = UserAgentStyleSheet.index.matching(order, matcher: matcher)
         let matched = author.matching(order, matcher: matcher)
         let hints = PresentationalHints.declarations(for: element, facts: facts, document: document)
-        var inline: [CSSDeclaration] = []
+        var inline = CSSDeclarationBlock()
         if let text = element.attribute("style") {
-            inline = CSSStyleSheet.declarations(String(decoding: text.utf8.prefix(Self.maximumInlineStyleBytes), as: UTF8.self))
+            inline = CSSStyleSheet.block(String(decoding: text.utf8.prefix(Self.maximumInlineStyleBytes), as: UTF8.self))
         }
         func cascade(_ direction: ComputedStyle.Direction) -> Cascade {
-            var cascade = Cascade(direction: direction)
+            var cascade = Cascade(direction: direction, separatesAppearance: author.hasAppearanceCustomProperties)
             for entry in userAgent { cascade.apply(UserAgentStyleSheet.index.entries[entry].declarations, important: false) }
             cascade.userAgent = cascade.winners
             cascade.apply(hints, important: false)
-            for entry in matched { cascade.apply(author.entries[entry].declarations, important: false) }
+            for entry in matched { cascade.apply(author.entries[entry], at: entry, important: false) }
             cascade.apply(inline, important: false)
             for entry in matched where author.entries[entry].hasImportant {
-                cascade.apply(author.entries[entry].declarations, important: true)
+                cascade.apply(author.entries[entry], at: entry, important: true)
             }
             cascade.apply(inline, important: true)
             for entry in userAgent where UserAgentStyleSheet.index.entries[entry].hasImportant {
@@ -94,15 +101,15 @@ final class StyleResolver: @unchecked Sendable {
             }
             return cascade
         }
-        let result = resolvingSides(cascade, parent: parent)
+        let (result, custom) = resolvingSides(cascade, parent: parent)
 
         let isRoot = element === document.root
         let rem = isRoot ? typography.fontSize : rootFontSize
         guard let generated = generatedRules(for: element, matcher: matcher) else {
-            return compute(winners: result.winners, userAgent: result.userAgent, parent: parent, rem: rem, isRoot: isRoot)
+            return compute(winners: result.winners, userAgent: result.userAgent, custom: custom, parent: parent, rem: rem, isRoot: isRoot)
         }
-        return style(for: element, generating: generated, winners: result.winners, userAgent: result.userAgent, parent: parent,
-                     rem: rem, isRoot: isRoot)
+        return style(for: element, generating: generated, winners: result.winners, userAgent: result.userAgent, custom: custom,
+                     parent: parent, rem: rem, isRoot: isRoot)
     }
 }
 
@@ -118,8 +125,13 @@ extension StyleResolver {
         let direction: ComputedStyle.Direction
         /// Whether a declaration set a side by flow, so that the winners depend on `direction`.
         private(set) var isFlowRelative = false
+        /// The custom properties declared for the element, which cascade apart from the others.
+        private(set) var custom: CustomCascade
 
-        init(direction: ComputedStyle.Direction) { self.direction = direction }
+        init(direction: ComputedStyle.Direction, separatesAppearance: Bool = false) {
+            self.direction = direction
+            custom = CustomCascade(separatesAppearance: separatesAppearance)
+        }
 
         mutating func apply(_ declarations: [CSSDeclaration], important: Bool) {
             for declaration in declarations where declaration.important == important {
@@ -127,22 +139,42 @@ extension StyleResolver {
                 winners[declaration.property(in: direction).rawValue] = declaration.value
             }
         }
+
+        /// A rule's declarations, custom properties included, from the entry `index` of the
+        /// author index.
+        mutating func apply(_ entry: CSSRuleIndex.Entry, at index: Int, important: Bool) {
+            apply(entry.declarations, important: important)
+            if !entry.custom.isEmpty { custom.apply(entry.custom, sides: entry.customSides, important: important, entry: index) }
+        }
+
+        /// A `style` attribute's declarations, which apply in either appearance.
+        mutating func apply(_ block: CSSDeclarationBlock, important: Bool) {
+            apply(block.declarations, important: important)
+            if !block.custom.isEmpty { custom.apply(block.custom, sides: [.light, .appearance], important: important, entry: nil) }
+        }
     }
 
     /// The cascade `run` makes for an element, with its sides by flow mapped by the element's
     /// own direction (CSS Logical Properties 1 §4), which is also an outcome of the cascade but
     /// never depends on them. Mapped for left to right first, as nearly every element is; an
-    /// element that sets a side by flow and turns out right to left is cascaded again.
-    func resolvingSides(_ run: (ComputedStyle.Direction) -> Cascade, parent: ComputedStyle) -> Cascade {
+    /// element that sets a side by flow and turns out right to left is cascaded again. With it,
+    /// the element's computed custom properties, which do not depend on the direction.
+    func resolvingSides(_ run: (ComputedStyle.Direction) -> Cascade,
+                        parent: ComputedStyle) -> (cascade: Cascade, custom: CSSCustomProperties?) {
         let ltr = run(.ltr)
-        guard ltr.isFlowRelative, direction(of: ltr, parent: parent) == .rtl else { return ltr }
-        return run(.rtl)
+        let custom = ltr.custom.isEmpty ? parent.customProperties : customProperties(ltr.custom, parent: parent.customProperties)
+        guard ltr.isFlowRelative, direction(of: ltr, custom: custom, parent: parent) == .rtl else { return (ltr, custom) }
+        return (run(.rtl), custom)
     }
 
     /// The direction `compute` gives the element from `cascade`'s winners.
-    private func direction(of cascade: Cascade, parent: ComputedStyle) -> ComputedStyle.Direction {
+    private func direction(of cascade: Cascade, custom: CSSCustomProperties?, parent: ComputedStyle) -> ComputedStyle.Direction {
         let index = CSSProperty.direction.rawValue
         var value = cascade.winners[index]
+        if case .pending(let pending, let longhand)? = value {
+            var memo = SubstitutionMemo()
+            value = substituted(pending, longhand: longhand, in: .direction, custom: custom, memo: &memo)
+        }
         if value == .revert { value = cascade.userAgent[index] }
         if case .direction(let direction)? = value { return direction }
         return value == .initial ? initialValues.direction : parent.direction
@@ -171,8 +203,9 @@ extension StyleResolver {
     /// presentational hints or a `style` attribute, and it inherits from the element.
     @inline(never)
     private func style(for element: ContentNode, generating rules: [(userAgent: [Int], author: [Int])], winners: [CSSValue?],
-                       userAgent: [CSSValue?], parent: ComputedStyle, rem: CGFloat, isRoot: Bool) -> ComputedStyle {
-        var style = compute(winners: winners, userAgent: userAgent, parent: parent, rem: rem, isRoot: isRoot)
+                       userAgent: [CSSValue?], custom: CSSCustomProperties?, parent: ComputedStyle, rem: CGFloat,
+                       isRoot: Bool) -> ComputedStyle {
+        var style = compute(winners: winners, userAgent: userAgent, custom: custom, parent: parent, rem: rem, isRoot: isRoot)
         let before = generatedStyle(of: element, userAgent: rules[0].userAgent, matched: rules[0].author, style: style)
         let after = generatedStyle(of: element, userAgent: rules[1].userAgent, matched: rules[1].author, style: style)
         if before != nil || after != nil { style.generated = GeneratedBoxes(before: before, after: after) }
@@ -181,13 +214,13 @@ extension StyleResolver {
 
     private func generatedStyle(of element: ContentNode, userAgent: [Int], matched: [Int], style: ComputedStyle) -> ComputedStyle? {
         guard !userAgent.isEmpty || !matched.isEmpty else { return nil }
-        let cascade = resolvingSides({ direction in
-            var cascade = Cascade(direction: direction)
+        let (cascade, custom) = resolvingSides({ direction in
+            var cascade = Cascade(direction: direction, separatesAppearance: author.hasAppearanceCustomProperties)
             for entry in userAgent { cascade.apply(UserAgentStyleSheet.index.entries[entry].declarations, important: false) }
             cascade.userAgent = cascade.winners
-            for entry in matched { cascade.apply(author.entries[entry].declarations, important: false) }
+            for entry in matched { cascade.apply(author.entries[entry], at: entry, important: false) }
             for entry in matched where author.entries[entry].hasImportant {
-                cascade.apply(author.entries[entry].declarations, important: true)
+                cascade.apply(author.entries[entry], at: entry, important: true)
             }
             for entry in userAgent where UserAgentStyleSheet.index.entries[entry].hasImportant {
                 cascade.apply(UserAgentStyleSheet.index.entries[entry].declarations, important: true)
@@ -196,7 +229,8 @@ extension StyleResolver {
         }, parent: style)
         // `content` is not inherited, so with no declaration it is `normal`: no box.
         guard cascade.winners[CSSProperty.content.rawValue] != nil else { return nil }
-        var generated = compute(winners: cascade.winners, userAgent: cascade.userAgent, parent: style, rem: rootFontSize, isRoot: false)
+        var generated = compute(winners: cascade.winners, userAgent: cascade.userAgent, custom: custom, parent: style,
+                                rem: rootFontSize, isRoot: false)
         guard let items = generated.content, generated.display != .none else { return nil }
         generated.content = items.map { item in
             guard case .attribute(let name) = item else { return item }
@@ -215,6 +249,9 @@ struct CSSRuleIndex: Sendable {
     struct Entry: Sendable {
         let selector: CSSComplexSelector
         let declarations: [CSSDeclaration]
+        /// The rule's custom properties, and the appearance sides they take part in.
+        let custom: [CSSCustomDeclaration]
+        let customSides: CustomSides
         /// Specificity, then source order: the cascade's sort key within an origin.
         let key: UInt64
         let hasImportant: Bool
@@ -224,6 +261,19 @@ struct CSSRuleIndex: Sendable {
     private(set) var entries: [Entry] = []
     /// A selector was omitted to keep retained sibling searches and filtered ranks inside their memos.
     private(set) var stylesTruncated = false
+    /// Whether some rule's custom properties take part in one side and not the other, so that
+    /// an element's custom properties are computed for each (`CSSCustomProperties`). Only in
+    /// the dark index: the light one's sides are one.
+    private(set) var hasAppearanceCustomProperties = false
+
+    /// The sides a custom property declaration takes part in: what is substituted into the
+    /// properties that do not paint, which are resolved as in the light appearance, and what is
+    /// substituted into those that paint, which follow the reader's (`CSSMediaMask.governs`).
+    struct CustomSides: OptionSet, Sendable {
+        let rawValue: UInt8
+        static let light = CustomSides(rawValue: 1)
+        static let appearance = CustomSides(rawValue: 2)
+    }
     /// The rules of elements, and apart from them those of their `::before` and `::after`,
     /// which are bucketed by the originating element.
     private var buckets = Buckets()
@@ -272,10 +322,16 @@ struct CSSRuleIndex: Sendable {
         for sheet in sheets {
             // Every rule's selectors are admitted in either appearance, so that a bound drops the
             // same ones in both. A rule keeps the declarations that take part in `dark`
-            // (`CSSMediaMask.governs`), and one left with none is not matched.
+            // (`CSSMediaMask.governs`) and the custom properties that take part in either side,
+            // and one left with none is not matched.
             for rule in sheet.rules where !rule.media.isEmpty {
                 let declarations = rule.declarations.filter { rule.media.governs($0.property, dark: dark) }
-                let important = declarations.contains(where: \.important)
+                var sides: CustomSides = []
+                if rule.media.contains(.light) { sides.insert(.light) }
+                if rule.media.contains(dark: dark) { sides.insert(.appearance) }
+                let custom = sides.isEmpty ? [] : rule.custom
+                if !custom.isEmpty, sides != [.light, .appearance] { hasAppearanceCustomProperties = true }
+                let important = declarations.contains(where: \.important) || custom.contains(where: \.important)
                 for original in rule.selectors {
                     let wanted = original.selectorPositionFilters
                     guard wanted.subtracting(positionFilters).count <= maximumSelectorPositionFilters - positionFilters.count else {
@@ -285,8 +341,8 @@ struct CSSRuleIndex: Sendable {
                     guard let selector = indexed else { stylesTruncated = true; continue }
                     positionFilters.formUnion(wanted)
                     let index = Int32(entries.count)
-                    guard !declarations.isEmpty else { continue }
-                    entries.append(Entry(selector: selector, declarations: declarations,
+                    guard !declarations.isEmpty || !custom.isEmpty else { continue }
+                    entries.append(Entry(selector: selector, declarations: declarations, custom: custom, customSides: sides,
                                          key: UInt64(selector.specificity) << 32 | order, hasImportant: important,
                                          ancestorBits: selector.ancestorNames.map(\.bits)))
                     switch selector.pseudoElement {
