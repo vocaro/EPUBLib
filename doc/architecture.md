@@ -71,7 +71,10 @@ stays, without a title. `xml:space` changes nothing. ASCII whitespace is
 found as its byte, not by `Character`: a space followed by a combining mark is a space, and the
 mark is kept. An attribute's value is not such text, and a guide reference's `title` is read as
 written. A font obfuscation key is made from the identifier's text by its algorithm's own rule,
-not from the value read here.
+not from the value read here. IDPF's removes the space, tab, carriage return and line feed and
+nothing else (EPUB 3.3 §4.4.3), each as its byte: other white space is part of the key, at the
+identifier's ends too, and so is a mark after a space. Adobe's is the UUID whatever white space
+of any kind surrounds it.
 
 A path the reader keeps is relative and made of names separated by single `/`: no name is empty,
 `.` or `..`, and the path holds no backslash or NUL. Entry names, the rootfile path and the path
