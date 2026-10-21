@@ -1,5 +1,6 @@
 """Isolated copies of the runner scripts, with no host commands on PATH."""
 import importlib.util
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -19,6 +20,11 @@ class ScriptTestCase(unittest.TestCase):
         self.scripts.mkdir()
         for name in ("hosted-run.py", "run-voiceover-sessions.py", "run-voiceover-mac.py"):
             shutil.copyfile(SCRIPTS / name, self.scripts / name)
+        shutil.copyfile(SCRIPTS / "_engineering.py", self.scripts / "_engineering.py")
+        configuration = json.loads((SCRIPTS.parent / "engineering.json").read_text())
+        configuration["toolkit"]["path"] = str((SCRIPTS.parent / configuration["toolkit"]["path"]).resolve())
+        configuration["hostedRepositories"] = [configuration["repository"]]
+        (self.root / "engineering.json").write_text(json.dumps(configuration))
         self.bin = self.root / "bin"
         self.bin.mkdir()
         # Do not inherit workflow inputs, GitHub credentials or the real gh/git/open tools.
