@@ -2510,6 +2510,12 @@ The following are the defaults. Host commands and accessibility actions stay ena
 - Paginated: a tap or click within 56 pt of either edge (except on a link, an image, a press-and-hold or
   while text is selected), a horizontal swipe (not while text is selected), and on macOS a
   trackpad gesture or wheel tick turns a page. Continuous scroll scrolls natively.
+  A trackpad gesture turns one page once it has moved 4 points, and its momentum none. A wheel
+  tick is 4 points or more, after which the wheel turns nothing for 450 ms, as the WebKit
+  reader did. A notched wheel's movement comes in lines, which count 40 points each, WebKit's
+  and Chromium's line step, so one notch turned slowly, a tenth of a line, is a tick, and a
+  wheel spun fast still turns a page each 450 ms
+  ([#163](https://github.com/vocaro/EPUBLib/issues/163)).
 - Keys (all flows): Left/Page Up previous, Right/Page Down/Space next, Shift-Space previous.
   In continuous scroll a page turn scrolls by one viewport less a line. A backward turn
   refines the newly shown text through the line that was first and keeps that line at the

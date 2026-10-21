@@ -355,7 +355,12 @@ The modifier is specific to the native reader; other engines can choose their ow
   unsupported modifier bits are ignored. Modifiers (`shift`, `command`, `option`, `control`)
   match exactly; Caps Lock and the system's arrow Function/Numeric Pad flags are ignored.
   Duplicate key/modifier pairs use the first binding. Layout-specific letter keys use the
-  event's character rather than a Mac physical key code.
+  event's character rather than a Mac physical key code. Where Shift makes a key type
+  something other than a letter or digit, a binding with `.shift` names the character the key
+  types without Shift in the keyboard layout in use: `.character("1")` with `.shift` is the 1
+  key with Shift, which types "!" on a US keyboard. On a French keyboard, where Shift types the
+  digits, the same binding is the key whose Shift types "1", and a digit bound without `.shift`
+  is typed only on the numeric keypad ([#163](https://github.com/vocaro/EPUBLib/issues/163)).
 - Keyboard actions are **logical** `.next` / `.previous` and never mirror in RTL. In
   scrolled flow they move one viewport less a line. A single native responder path handles
   a key whether the canvas or a child text view has focus. The reader does not take focus

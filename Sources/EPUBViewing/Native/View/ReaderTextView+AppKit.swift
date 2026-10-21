@@ -147,7 +147,10 @@ final class ReaderTextView: NSTextView {
         return super.performKeyEquivalent(with: event)
     }
 
-    static func pageTurnDirection(for event: NSEvent, controls: EPUBPageControls = .init()) -> Bool? {
+    /// `unshifted` gives the characters the event's key types with no modifier, in the keyboard
+    /// layout in use (`bindingCharacter(for:unshifted:)`).
+    static func pageTurnDirection(for event: NSEvent, controls: EPUBPageControls = .init(),
+                                  unshifted: (NSEvent) -> String? = { $0.characters(byApplyingModifiers: []) }) -> Bool? {
         let key: EPUBPageKey
         switch event.keyCode {
         case 123: key = .leftArrow
@@ -160,8 +163,7 @@ final class ReaderTextView: NSTextView {
         case 119: key = .end
         case 49: key = .space
         default:
-            guard let characters = event.charactersIgnoringModifiers, characters.count == 1,
-                  let character = characters.first else { return nil }
+            guard let character = bindingCharacter(for: event, unshifted: unshifted) else { return nil }
             key = .character(character)
         }
         var modifiers: EPUBPageKeyModifiers = []
@@ -171,6 +173,24 @@ final class ReaderTextView: NSTextView {
         if flags.contains(.option) { modifiers.insert(.option) }
         if flags.contains(.control) { modifiers.insert(.control) }
         return controls.direction(for: key, modifiers: modifiers)
+    }
+
+    /// The letter or digit a key names for a character binding, whose modifiers, Shift among
+    /// them, are matched apart. It is the character the key types, in the layout's own letters
+    /// and with Shift's effect (`charactersIgnoringModifiers`): Shift-N is "N", and on a French
+    /// keyboard Shift-& is "1". Where that is no letter or digit and Shift is held, it is the
+    /// character the key types without Shift: Shift-1 on a US keyboard types "!" and names "1"
+    /// (#163). No keyboard layout that comes with macOS 27 has a key whose characters with and
+    /// without Shift are two different letters or digits, so the two never compete
+    /// (`ViewCoveragePageInputTests.testNoKeyOfAMacLayoutTypesTwoLettersOrDigitsWithAndWithoutShift`).
+    static func bindingCharacter(for event: NSEvent, unshifted: (NSEvent) -> String?) -> Character? {
+        func letterOrDigit(_ characters: String?) -> Character? {
+            guard let characters, characters.count == 1, let character = characters.first,
+                  EPUBPageKey.character(character).normalized != nil else { return nil }
+            return character
+        }
+        if let typed = letterOrDigit(event.charactersIgnoringModifiers) { return typed }
+        return event.modifierFlags.contains(.shift) ? letterOrDigit(unshifted(event)) : nil
     }
 
     // A link is activated, never dragged out as a URL or previewed (its scheme is private).

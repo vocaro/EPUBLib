@@ -10,9 +10,17 @@ enum ReaderCanvasInput {
 /// Turns pages from wheel and trackpad scrolling in paginated flow: one page per trackpad
 /// gesture once it has moved 4 points (its momentum ignored), and for a phaseless mouse wheel a
 /// tick of at least 4 points, then nothing for 450 ms, as the WebKit reader's `bootstrap.js` did.
+/// A line-based wheel's lines are 40 points (`points(lines:)`), so one notch is a tick.
 struct ReaderWheelPageTurner {
     static let threshold: CGFloat = 4
     static let cooldown: TimeInterval = 0.45
+    /// WebKit's and Chromium's line step. One notch of a notched wheel turned slowly is a tenth
+    /// of a line, which at this step is the threshold (#163).
+    static let pointsPerLine: CGFloat = 40
+
+    /// A line-based wheel's movement in points. AppKit gives lines in 16.16 fixed point, in which
+    /// a tenth is 0.09999; to the nearest hundredth of a line it is a tenth again.
+    static func points(lines: CGFloat) -> CGFloat { (lines * 100).rounded() * pointsPerLine / 100 }
 
     /// Where a scroll event is in a trackpad gesture.
     enum Phase: Sendable {
