@@ -26,8 +26,10 @@ struct SectionText: @unchecked Sendable {
     /// Footnote and endnote content for showing a note in place, under every `id` that names the
     /// note: its own and those of its leading descendants and, for a footnote hidden from the
     /// flow and the notes inside one, those of every other element inside it, apart from the
-    /// ones inside a note nested in it (`SectionBuildState.captureNote` has the rule, and its
-    /// exception for a table part typed as a footnote).
+    /// ones inside a note nested in it (`SectionBuildState.captureNote` has the rule, its
+    /// exception for a table part typed as a footnote, and where the leading descendants of a
+    /// note in the flow end). An empty id names nothing, and a note that shows nothing is not
+    /// here, so that a reference to it navigates.
     let notes: [EPUBElementID: NSAttributedString]
     /// `<head><title>`, whitespace-normalized; nil when absent or empty.
     let title: String?

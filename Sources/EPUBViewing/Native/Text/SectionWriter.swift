@@ -587,10 +587,10 @@ final class SectionWriter {
         if ContentSemantics.isNoteReference(element) { return .note(href: resolved) }
         // A plain link to a note or its child is a note link; so is one to anything inside a
         // footnote hidden from the flow (`isInsideHiddenFootnote`), where there is nothing to
-        // navigate to.
+        // navigate to. An empty fragment names no element (`fragmentTarget`).
         if path == document.path, let fragment, let target = state.fragmentTarget(fragment),
            state.noteKind(target) != nil || target.parent.flatMap(state.noteKind) != nil
-            || (!fragment.isEmpty && state.isInsideHiddenFootnote(target)) {
+            || state.isInsideHiddenFootnote(target) {
             return .note(href: resolved)
         }
         return .internal(href: resolved)
@@ -662,8 +662,12 @@ final class SectionWriter {
 
     private func exitBlock() {
         pendingPassageBoundary = pendingPassageBoundary || (frames.last?.style.display.isBlockLevel ?? false)
-        if let marker = pendingMarker, marker.frame == frames.count - 1 { openParagraph() } // An empty item still shows its marker.
+        if let marker = pendingMarker, marker.frame == frames.count - 1 {
+            // An empty item still shows its marker, but not in a note (`removeBareMarker`).
+            if isNote { pendingMarker = nil } else { openParagraph() }
+        }
         closeParagraph()
+        if isNote { removeBareMarker(of: frames.count - 1) }
         guard frames.count > 1 else { return }
         let frame = frames.removeLast()
         lastInlineBox = frame.inlineBox.map { ($0, frames.count, paragraphs.count) }
@@ -1042,7 +1046,25 @@ final class SectionWriter {
             lineStart = false
             lastWasCollapsedSpace = marker.suffix
         }
+        paragraphs[paragraphs.count - 1].marker = (marker.frame, buffer.count)
         lastScalar = buffer.lastScalar
+    }
+
+    /// In a note, a list item that shows nothing has no marker. What an item of a note holds may
+    /// be shown on its own (a nested note captured apart), and a marker with nothing after it
+    /// stands for nothing. An item's marker waits for its content, so it is dropped when the
+    /// item closes with none (`exitBlock`), but it is written on a line of its own when a
+    /// nested item comes first: that line goes when nothing else came of the item either.
+    private func removeBareMarker(of frame: Int) {
+        guard paragraphs.count == frames[frame].firstParagraph + 1, let marker = paragraphs[paragraphs.count - 1].marker,
+              marker.frame == frame, marker.end == buffer.count else { return }
+        let start = paragraphs.removeLast().start
+        while buffer.count > start { buffer.removeLast() }
+        // The separator before it, and the spacing it gave the paragraph before.
+        if let previous = paragraphs.indices.last {
+            buffer.removeLast()
+            paragraphs[previous].spacingAfter = 0
+        }
     }
 
     // MARK: Inline content
@@ -1707,7 +1729,7 @@ final class SectionWriter {
             next.start = location + offset + 1
             next.indentsFirstLine = false; next.spacingBefore = 0; next.spacingAfter = 0
             next.sizingBefore = nil; next.sizingAfter = nil
-            next.pageBreakBefore = false; next.markerWidth = nil; next.hasNext = false; next.continuation = true
+            next.pageBreakBefore = false; next.markerWidth = nil; next.marker = nil; next.hasNext = false; next.continuation = true
             next.soleAttachment = false; next.factoryStyle = nil; next.hasText = false
             paragraphs.append(next)
             subStart = next.start
@@ -1952,6 +1974,8 @@ private struct Paragraph {
     var hasNext = false
     /// An outside list marker's width, which hangs before the content.
     var markerWidth: CGFloat?
+    /// The list marker that opens the paragraph: its item's block frame and where it ends.
+    var marker: (frame: Int, end: Int)?
     /// The flex or grid item holding the paragraph.
     var alignmentItem: ReaderAlignmentItem?
     /// Hidden labels' own paragraph, of no height and outside the flow (`flushSpokenParagraph`).

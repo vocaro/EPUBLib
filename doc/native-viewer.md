@@ -1411,7 +1411,12 @@ continues to describe the authored spine resource.
     the number that opens it. A link to any other element inside it finds no note and
     navigates to that element, which can be read where it is. An endnotes list marked as one
     note is the case that matters: a reference to its seventeenth item goes to that item
-    rather than opening the whole list from the top.
+    rather than opening the whole list from the top, and so does one to its first item. The
+    leading descendants end at the first of several items: an element followed by another of
+    its name that carries an id itself or on its own first element, when the element around
+    them holds no text of its own. The paragraphs, list items or rows of such a list are
+    items; the elements in a paragraph's text and the cells of a row are not
+    ([#284](https://github.com/vocaro/EPUBLib/issues/284)).
   - A table cell, row, row group, caption or column marked as a footnote
     (`role="doc-footnote"`) is not hidden on that account: unless a hidden footnote is
     around it, it is named as a note that stays in the flow. A table of two or more columns
@@ -1432,13 +1437,18 @@ continues to describe the authored spine resource.
   - A link without the `noteref` type acts as one when it names a note or one of its
     children, or anything inside a footnote hidden from the flow: it shows the note that id
     names, and navigates where the id names none (a later child of a note that stays in the
-    flow). Deeper into a note that is in the flow it is an ordinary link and navigates.
+    flow, or its first of several items). Deeper into a note that is in the flow it is an ordinary link and navigates.
     Inside a popover, a link to the note being shown is plain text.
   - An eligible legacy `<a name>` can name a note by the same rules as its fragment target:
     ids take precedence, an anchor with an id uses that id, and the first eligible name wins.
     Table cells and captions inside a note inherit its backlink and nested-note rules.
   - A footnote `aside` with neither an id nor an eligible name anywhere in it cannot be
     referred to and is not shown.
+  - An empty id names nothing: a link to `#` goes to the top of its document, whatever
+    carries `id=""`. A note that shows nothing, being empty or white space, opens no popover,
+    and a reference to it navigates. In a note's popover a list item that shows nothing,
+    because what it holds is a note shown on its own or is empty, has no marker
+    ([#284](https://github.com/vocaro/EPUBLib/issues/284)).
 - **Paragraph sizing.** The native section builder retains authored paragraph dimensions until
   layout. Percentage margins, padding and text indents resolve against the live containing
   content width, including constrained float and inline-block ancestors. Image percentage

@@ -226,7 +226,8 @@ import SwiftUI
     }
 
     /// The spine section and decoded fragment an encoded publication href names, for
-    /// `.navigate(href:)` and the text start alike.
+    /// `.navigate(href:)` and the text start alike. An empty fragment is none: `#` is the top
+    /// of the document, whatever carries an empty id.
     private static func target(of href: String, in publication: EPUBPublication) throws -> (section: Int, fragment: String?) {
         guard !href.isEmpty, !href.hasPrefix("#"), href.count <= 4_096 else {
             throw EPUBReaderError.invalidCommand("Empty publication href")
@@ -241,7 +242,8 @@ import SwiftUI
         guard let section = NativeFallbacks.spineIndex(for: path, in: publication) else {
             throw EPUBReaderError.invalidCommand("Not a section of this publication")
         }
-        return (section, parts.count == 2 ? String(parts[1]).removingPercentEncoding : nil)
+        let fragment = parts.count == 2 ? String(parts[1]).removingPercentEncoding : nil
+        return (section, fragment?.isEmpty == false ? fragment : nil)
     }
 
     private func navigate(_ href: String) async throws {
