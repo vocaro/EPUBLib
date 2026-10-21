@@ -25,6 +25,10 @@ enum ArchiveBounds {
         /// By its place in the directory, the uncompressed size each entry with a data descriptor
         /// gives there, read by the descriptor's own form (`DataDescriptor`).
         var describedSizes: [Int: UInt64] = [:]
+        /// By its place in the directory, the bytes of each entry its local header says is
+        /// deflated, which are inflated in `DeflateStream`: from where the header ends, as far as
+        /// the entry's compressed size goes and no further than the archive does.
+        var deflatedData: [Int: Range<Int>] = [:]
         /// The entries the directory lists that ZIPFoundation's iteration does not reach.
         var lostEntries: EPUBLostEntries?
         /// The places of entries whose data would overrun their bounds if they were read.
@@ -132,6 +136,9 @@ enum ArchiveBounds {
             let method = u16(local + 8)
             if (method == 0 ? uncompressed : compressed) > (method == 8 ? UInt64(Int64.max) : UInt64(count - dataStart)) {
                 directory.oversized.append(index)
+            }
+            if method == 8 {
+                directory.deflatedData[Int(index)] = dataStart..<(dataStart + Int(min(compressed, UInt64(count - dataStart))))
             }
 
             position = UInt64(record + length)

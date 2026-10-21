@@ -108,7 +108,11 @@ continues to describe the authored spine resource.
   bookmarks are `epublib-cfi-v1` (`EPUBReader.bookmarkFormat`): names for the library, not a
   renderer, so they outlive any change of how pages are drawn. The value is an EPUB CFI in the
   form foliate-js produced, generated and resolved by a port of its code. A range contained
-  in one document carries its CFI in `bookmark`. A CFI into a spine item the spine repeats
+  in one document carries its CFI in `bookmark`. A range ending with an image, a rule or
+  another element drawn whole includes it, also when nothing follows it in the document: that
+  end, the document's, is written as the virtual `after` index of the element's parent, which
+  foliate-js read with `setEndAfter`, after the element
+  ([#129](https://github.com/vocaro/EPUBLib/issues/129)). A CFI into a spine item the spine repeats
   names the occurrence its package path lands on: each repeat keeps its own position, as EPUB
   Reading Systems 3.3 §5.5 has them "distinct items for user interface (UI) purposes". This
   departs from foliate-js, which resolved every repeat to the first; its CFIs still resolve, and
@@ -207,7 +211,8 @@ continues to describe the authored spine resource.
   viewBox coordinates, and one omitted dimension follows the image's intrinsic ratio.
   Other aspect fits, transforms and nested viewports use the SVG renderer
   ([#187](https://github.com/vocaro/EPUBLib/issues/187)). Archive raster references are resolved
-  and bounded before rendering; scripts,
+  and bounded before rendering, and images in `data:` URLs read and bounded as they are
+  (**Data URLs**, below); scripts,
   animation, foreign content and external resources are omitted with a disclosure. Manifest
   image fallbacks apply inside SVG as well. Recursive preparation shares one memo and work
   budget per drawing: 128 request/candidate misses, 16 MiB each of loaded source and serialized
@@ -239,20 +244,26 @@ continues to describe the authored spine resource.
   rebuild script and redistribution notices are in [Vendor/Resvg](../Vendor/Resvg/README.md).
 - **Data URLs.** An image a document holds in a `data:` URL, as EPUB 3.3 §3.7 permits, is shown
   as one from the archive is: an `<img>`, and an `<object>` or `<embed>` whose `type` names an
-  image ([#134](https://github.com/vocaro/EPUBLib/issues/134)). The URL is read as browsers read
+  image ([#134](https://github.com/vocaro/EPUBLib/issues/134)); and an SVG `<image>`, in a drawing
+  in the document, in one from the archive, in one inside another, and in an SVG that is that one
+  image ([#657](https://github.com/vocaro/EPUBLib/issues/657)). The URL is read as browsers read
   it, by the Fetch standard's data: URL processor (`DataURL`): base64, broken by white space or
   without padding, or percent-encoded. Its type stands for a manifest's media type, so one that
   is not an image's (`text/plain`, where it names none) is not shown. Its bytes go to the same
   bitmap decoder and SVG sanitizer under the same limits, and decode to no more than the 32 MiB
   the archive holds of one resource by default; the document holding the URL is held to less.
-  A drawing in a `data:` URL has no base in the archive, so a reference in it names no file. A
-  `data:` URL that is no usable image shows its alternative text and is disclosed as an image
-  that could not be shown. Elsewhere `data:` URLs are not read: in an SVG `<image>`, inline or
-  in a file (the drawing is shown without it, disclosed); in an SVG that is that one image,
-  which shows its fallback text; in a MathML `mglyph`; in an `<object>` or `<embed>` with no
-  image `type`; and in a stylesheet `<link>`, `@import` or `@font-face`. A link to one is
-  refused as a link outside the book is, and so never opens as a document of its own
-  (RS 3.3 §3.4).
+  Inside a drawing, an image in a `data:` URL is prepared as an archive image there is: no more
+  than 8 MiB, its pixels counted with the drawing's other images, its bytes and work charged to
+  the drawing's preparation budget, and one URL given twice prepared once. The renderer is given
+  the PNG it decodes to, as it is an archive image's, never the book's URL, and the drawing is
+  screened before it is prepared and again after. A drawing in a `data:` URL has no base in the
+  archive, so a reference in it names no file, inside another drawing as anywhere. A `data:` URL
+  that is no usable image shows its alternative text and is disclosed as an image that could not
+  be shown; inside a drawing it is left out and disclosed as an archive image there that cannot
+  be decoded is, and is never counted as a resource refused from the internet. Elsewhere `data:`
+  URLs are not read: in a MathML `mglyph`; in an `<object>` or `<embed>` with no image `type`;
+  and in a stylesheet `<link>`, `@import` or `@font-face`. A link to one is refused as a link
+  outside the book is, and so never opens as a document of its own (RS 3.3 §3.4).
 - **Image contrast.** In dark appearance, transparent images containing dark strokes receive
   a white backdrop so diagram edges and labels remain legible. Their authored colors and
   publication bytes are preserved. Opaque images and transparent light artwork retain their
@@ -573,6 +584,9 @@ continues to describe the authored spine resource.
   columns HTML forms, and an assistive technology is given those. Oversized rows continue
   across pages using complete cell glyph lines;
   a line crossing a rowspan boundary is finished in its preceding row and never drawn twice.
+  That row, or a tall row's piece whose cut such a line crosses, is drawn on to the line's
+  foot: its cells' backgrounds and borders and the table's go through the band, and the next
+  row's cells are left to the next row ([#141](https://github.com/vocaro/EPUBLib/issues/141)).
   A continuation sharing a page with following rows or prose uses the displayed page’s exact
   bounds; overflowing content advances to the next page once, without laying out the whole
   section again ([#546](https://github.com/vocaro/EPUBLib/issues/546)).
@@ -1406,7 +1420,12 @@ continues to describe the authored spine resource.
     the number that opens it. A link to any other element inside it finds no note and
     navigates to that element, which can be read where it is. An endnotes list marked as one
     note is the case that matters: a reference to its seventeenth item goes to that item
-    rather than opening the whole list from the top.
+    rather than opening the whole list from the top, and so does one to its first item. The
+    leading descendants end at the first of several items: an element followed by another of
+    its name that carries an id itself or on its own first element, when the element around
+    them holds no text of its own. The paragraphs, list items or rows of such a list are
+    items; the elements in a paragraph's text and the cells of a row are not
+    ([#284](https://github.com/vocaro/EPUBLib/issues/284)).
   - A table cell, row, row group, caption or column marked as a footnote
     (`role="doc-footnote"`) is not hidden on that account: unless a hidden footnote is
     around it, it is named as a note that stays in the flow. A table of two or more columns
@@ -1427,13 +1446,18 @@ continues to describe the authored spine resource.
   - A link without the `noteref` type acts as one when it names a note or one of its
     children, or anything inside a footnote hidden from the flow: it shows the note that id
     names, and navigates where the id names none (a later child of a note that stays in the
-    flow). Deeper into a note that is in the flow it is an ordinary link and navigates.
+    flow, or its first of several items). Deeper into a note that is in the flow it is an ordinary link and navigates.
     Inside a popover, a link to the note being shown is plain text.
   - An eligible legacy `<a name>` can name a note by the same rules as its fragment target:
     ids take precedence, an anchor with an id uses that id, and the first eligible name wins.
     Table cells and captions inside a note inherit its backlink and nested-note rules.
   - A footnote `aside` with neither an id nor an eligible name anywhere in it cannot be
     referred to and is not shown.
+  - An empty id names nothing: a link to `#` goes to the top of its document, whatever
+    carries `id=""`. A note that shows nothing, being empty or white space, opens no popover,
+    and a reference to it navigates. In a note's popover a list item that shows nothing,
+    because what it holds is a note shown on its own or is empty, has no marker
+    ([#284](https://github.com/vocaro/EPUBLib/issues/284)).
 - **Paragraph sizing.** The native section builder retains authored paragraph dimensions until
   layout. Percentage margins, padding and text indents resolve against the live containing
   content width, including constrained float and inline-block ancestors. Image percentage
@@ -1519,7 +1543,9 @@ continues to describe the authored spine resource.
     the flow; one that a position or a clip hides from the page is not written.
   - **The text map.** Generated characters are not the book's: they have no place in the
     document, and the text map has no span for them, as it has none for a list marker or a
-    bidi isolate. A position among them is that of the book's next character, and a CFI names
+    bidi isolate. A position among them is that of the book's next character, and a range of
+    generated characters alone runs from the book's character before them to the one after,
+    the place they are generated at ([#129](https://github.com/vocaro/EPUBLib/issues/129)). A CFI names
     the book's characters alone, the same CFI with or without the styles that generate:
     a selection that takes in generated words is saved without them and comes back without
     them. Search reads the book's text, as foliate-js's did in WebKit, and finds nothing in
@@ -2195,7 +2221,13 @@ box. Native paragraph styles retain text alignment, direction and typography. Na
 retains selection, links, anchors, search and the same exact text-to-DOM mapping as ordinary prose. Resizing and
 reader typography changes recompute geometry from source formatting and retain selection.
 Requested heights do not truncate content. A box and the prose wrapping beside it stay together
-when they fit a page. Oversized groups and nested complex boxes instead continue as native
+when they fit a page. Two boxes are one group when a line is in the rows of both, and not when
+their rows only meet: a definition list with floated terms is a group a row, and one longer than
+a page breaks between rows and keeps every float
+([#149](https://github.com/vocaro/EPUBLib/issues/149)). A line that reaches into a box's rows by
+less than the reader takes for a collision is set clear of the box and is not beside it. A run
+of sized inline blocks, with the lines it shares, is one group, all of its rows on one page.
+Oversized groups and nested complex boxes instead continue as native
 blocks in reading order; fallback widths expand when necessary to leave readable lines, and
 long box text can continue across pages. A box taller than a page continues so a paragraph at
 a time, and from each of its paragraphs the rest of the box is tried as a box again, so that
@@ -2356,6 +2388,14 @@ changes.
   `max-height` caps a definite `height`, `box-sizing: border-box` takes the vertical padding
   and border out of it, and content taller than the box is never clipped: it flows as blocks.
   The height used is at most one viewport, so a box that opens a page stays on that page.
+- **Items.** Every in-flow child is an item, an empty one such as a `flex: 1` spacer included.
+  An item's margins collapse with nothing, as CSS Flexbox 1 (sections 3 and 4) and CSS Grid 1
+  (sections 5.1 and 6) have it: not with its container's, its siblings' or those of what it
+  holds, with or without a height to align in. Its margins, borders and padding, and those of
+  what it holds above its first line and below its last, are content of the container, so they
+  come out of the free space and are kept, as the box's own space, where the box starts a page.
+  An empty item has its gaps and its own margins and padding, and takes its share of the free
+  space by `flex-grow`, `auto` margins, `justify-content` and a grid's stretched rows.
 - **Down the page.** In a column flex container the free space goes first to items with
   `flex-grow` (a grown item keeps its content at its top), then to `auto` top and bottom margins,
   then by `justify-content`: `flex-start`, `center`, `flex-end`, `space-between`, `space-around`
@@ -2660,7 +2700,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   one is: UIKit asks for that notification after every scroll that succeeds, and VoiceOver
   goes on reading from its handling of it. Reading on, it played its page sound and did
   not say the words. What it read after the turn is its own and the host's
-  ([#554](https://github.com/vocaro/EPUBLib/issues/554)): in the sample, whose controls
+  ([#554](https://github.com/vocaro/EPUBLib/issues/554)): in the reader screen the VoiceOver lanes run, whose controls
   stand above the reader, it read on from the top of the screen, the controls and then the
   new page from its first line, every line once and in order through each turn, and with
   no controls there it stopped after the turn. After the turn VoiceOver looks among the
@@ -2939,7 +2979,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
 | `nextPage` / `previousPage` | Page turn (paginated) or one viewport (scrolled); stops at the book's ends; skips nonlinear sections as foliate-js did, unless no section is linear. |
 | `navigate(href:)` | An encoded spine or resource href with optional fragment; unknown or non-local hrefs throw `invalidCommand`. |
 | `restore(location)` | Same publication, engine ID and `epublib-cfi-v1` format or `incompatibleLocation`; validates/resolves every bookmark segment and shows the first segment's start. Does not select text or add a highlight. |
-| `locate(text, highlight)` | First match in reading order with foliate's matcher. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A miss emits `.notice("the cited passage could not be found in this book")`. Clears search highlights. |
+| `locate(text, highlight)` | First match in reading order with foliate's matcher that renders and shows, as a search result does. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A passage found only in content that renders nothing (`display: none`, a hidden note) or that `visibility: hidden` hides is shown where its first match is, wherever that sits in its section, and is never selected. A miss emits `.notice("the cited passage could not be found in this book")`. Clears search highlights. |
 | `searchHighlight` / `clearSearch` | Draws every match across the book and lists the rendered ones as `EPUBSearchResults` with no current match / removes and withdraws them. |
 | `search` | Draws and lists matches, opens the first rendered match in spine order and makes it the current match; no matches preserve the position. |
 | `nextSearchResult` / `previousSearchResult` | Shows the result after or before the current match, wrapping at the ends; the first or last when none is current. No effect without results. |
@@ -2965,8 +3005,10 @@ it to `.setHighlights` to restore all segments in either flow, including after t
 No partial annotation is drawn while a section is building or if any segment fails to resolve.
 An empty collection, a contradictory first bookmark, a foreign identity/format or malformed CFI
 is incompatible; unordered/duplicate document targets, nonlinear multi-document targets or
-unresolved CFIs emit one `.notice` per rejected highlight. `restore` similarly refuses an
-incompatible location or emits a notice for an unresolved collection without navigating.
+unresolved CFIs emit one `.notice` per rejected highlight, as does a passage that renders
+nothing, wherever it sits in its section. `restore` similarly refuses an incompatible location
+or emits a notice without navigating for an unresolved collection, or one with a document whose
+part renders nothing.
 Sections requiring unqualified HTML tree repair do not emit bookmarks. Existing CFIs into
 those sections are refused with a notice instead of restoring or highlighting a potentially
 different passage. Href navigation, readable content, selection text and text search remain
@@ -3439,9 +3481,10 @@ Go: the native viewer is the bundled engine.
 - Flex and grid alignment covers the single-column subset described above. Side-by-side row
   items, wrapping and reversed flex, multi-column and explicitly placed grids, `order` and
   inline flex or grid containers render as blocks in reading order with a disclosure. Within
-  the subset: margins between items still collapse as block margins do; `flex-shrink`,
-  `flex-basis`, `align-content` in flex, `column-gap`, percentage gaps, baseline alignment and
-  `aspect-ratio` are not laid out; `box-sizing` applies to heights only; start-aligned items
+  the subset: `flex-shrink`, `flex-basis`, `align-content` in flex, `column-gap`, percentage
+  gaps, baseline alignment, `aspect-ratio` and an empty item's own `height` are not laid out;
+  empty items beside a row's only item with content do not move it, which is placed as if alone;
+  `box-sizing` applies to heights only; start-aligned items
   and items holding images, tables or formulas keep their block-flow width and placement; a
   box taller than one viewport is treated as one viewport tall; and a container holding a float
   or positioned box is left in block flow. `min()`, `max()` and `clamp()` heights choose their

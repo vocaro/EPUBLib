@@ -26,8 +26,10 @@ struct SectionText: @unchecked Sendable {
     /// Footnote and endnote content for showing a note in place, under every `id` that names the
     /// note: its own and those of its leading descendants and, for a footnote hidden from the
     /// flow and the notes inside one, those of every other element inside it, apart from the
-    /// ones inside a note nested in it (`SectionBuildState.captureNote` has the rule, and its
-    /// exception for a table part typed as a footnote).
+    /// ones inside a note nested in it (`SectionBuildState.captureNote` has the rule, its
+    /// exception for a table part typed as a footnote, and where the leading descendants of a
+    /// note in the flow end). An empty id names nothing, and a note that shows nothing is not
+    /// here, so that a reference to it navigates.
     let notes: [EPUBElementID: NSAttributedString]
     /// `<head><title>`, whitespace-normalized; nil when absent or empty.
     let title: String?
@@ -215,14 +217,19 @@ struct TextMap: Equatable, Sendable {
             let mid = (low + high) / 2
             if spans[mid].location + spans[mid].length <= location { low = mid + 1 } else { high = mid }
         }
-        if low == spans.count {
-            let last = spans[spans.count - 1]
-            return DOMPosition(document.nodes[last.node], last.offset + last.sourceLength)
-        }
+        if low == spans.count { return end(of: spans[spans.count - 1], in: document) }
         let span = spans[low]
         let node = document.nodes[span.node]
         if location < span.location || !span.isExact { return DOMPosition(node, span.offset) }
         return DOMPosition(node, span.offset + (location - span.location))
+    }
+
+    /// The DOM position just after a span's source: after the whole subtree of an element
+    /// rendered as a unit, so a range ending there includes it, even when nothing follows it in
+    /// the document (`ContentDocument.end`).
+    private func end(of span: Span, in document: ContentDocument) -> DOMPosition {
+        let node = document.nodes[span.node]
+        return span.isUnit ? document.position(after: node) : DOMPosition(node, span.offset + span.sourceLength)
     }
 
     private static func node(_ node: ContentNode, isInsideElementAt order: Int) -> Bool {
@@ -247,30 +254,34 @@ struct TextMap: Equatable, Sendable {
         }
         guard low > 0 else { return position(at: location, in: document) }
         let span = spans[low - 1]
-        let node = document.nodes[span.node]
-        if span.isUnit {
-            // After the unit's whole subtree: a range ending with an image, table or formula
-            // includes it.
-            let next = node.subtreeEnd + 1
-            if next < document.nodes.count { return DOMPosition(document.nodes[next], 0) }
-            let final = document.nodes[document.nodes.count - 1]
-            return DOMPosition(final, final.isText ? final.utf16Length : 0)
-        }
-        guard last < span.location + span.length else {
-            // `last` is generated text after the span: end after the span.
-            return DOMPosition(node, span.offset + span.sourceLength)
-        }
-        if !span.isExact { return DOMPosition(node, span.offset + span.sourceLength) }
-        return DOMPosition(node, span.offset + (last - span.location) + 1)
+        // A unit (a range ending with an image, table or formula includes it), a collapsed
+        // run, or generated text after the span (`last` past it): end after the span.
+        guard span.isExact, last < span.location + span.length else { return end(of: span, in: document) }
+        return DOMPosition(document.nodes[span.node], span.offset + (last - span.location) + 1)
+    }
+
+    /// The DOM range of a rendered range: from `position(at:)` its start to `endPosition(at:)`
+    /// its end, and a position (`position(at:)` twice) when it is empty.
+    ///
+    /// A range holding only generated text (a list marker, a line break, a quotation mark) has
+    /// none of the document's characters: its start comes forward to the next mapped character
+    /// and its end back to the last one before it, so the two cross. They are taken the other
+    /// way round, from the end of the text before it to the start of the text after it: a range
+    /// that runs forwards over the place in the document where that text is generated.
+    func domRange(_ range: Range<Int>, in document: ContentDocument) -> (start: DOMPosition, end: DOMPosition)? {
+        guard let start = position(at: range.lowerBound, in: document) else { return nil }
+        guard !range.isEmpty, let end = endPosition(at: range.upperBound, in: document) else { return (start, start) }
+        return end < start ? (end, start) : (start, end)
     }
 
     /// The rendered location of a DOM position: exact inside an exact span, otherwise the first
     /// rendered character at or after it (the string's end when nothing follows). A position
     /// inside an element rendered as a unit (a table, formula or SVG) is that unit: its start, or
-    /// its end when `isEnd` (the end of a range).
+    /// its end when `isEnd` (the end of a range). Just after an element (the document's end,
+    /// `DOMPosition`) is after the element's unit, when it is one.
     func location(of position: DOMPosition, isEnd: Bool = false) -> Int {
         let order = position.node.order
-        let offset = position.node.isText ? position.offset : 0
+        let offset = position.node.isText ? position.offset : min(max(position.offset, 0), 1)
         var low = 0, high = spans.count
         while low < high { // first span whose source ends after the position
             let mid = (low + high) / 2

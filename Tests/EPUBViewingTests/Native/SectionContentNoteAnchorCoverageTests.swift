@@ -272,8 +272,8 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
         for (word, id) in [("1", "fn1"), ("2", "fn2"), ("3", "deep")] {
             XCTAssertEqual(S.link(word, in: text), .note(href: "OPS/one.xhtml#\(id)"), id)
         }
-        // An empty id that is not on the note's leading chain names nothing: a link to `#` does not open the note
-        // that holds one. On the leading chain it is still a key (https://github.com/vocaro/EPUBLib/issues/284).
+        // An empty id names nothing: a link to `#` does not open the note that holds one
+        // (`testAnEmptyIdNamesNoNoteAndALinkToTheTopOpensNone` has one on a note's leading chain).
         XCTAssertEqual(S.link("top", in: text), .internal(href: "OPS/one.xhtml#"))
         // The section is as it was: the note is out of the flow and its ids anchor where it stood.
         XCTAssertEqual(text.string.string, "A1 B2 C3 top")
@@ -425,14 +425,107 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
         ]
         for (markup, item, plainIsNoteLink) in shapes {
             let text = try H.build("<p>Claim<a epub:type=\"noteref\" href=\"#n17\">ref</a>, and <a href=\"#n17\">also</a>.</p>" + markup)
-            // No id but the first item's names the element. That one is on its leading chain and still opens the
-            // whole element, unless a heading comes first (https://github.com/vocaro/EPUBLib/issues/284).
-            XCTAssertTrue(Set(text.notes.keys).isSubset(of: ["n1"]), "\(text.notes.keys.sorted()) in \(markup)")
+            // No item's id names the element, the first's included, though it is on the element's leading chain
+            // (`testAReferenceToTheFirstOfSeveralItemsInANoteInTheFlowNavigatesToo`).
+            XCTAssertTrue(text.notes.isEmpty, "\(text.notes.keys.sorted()) in \(markup)")
             XCTAssertEqual(S.link("ref", in: text), .note(href: "OPS/one.xhtml#n17"), markup)
             XCTAssertEqual(S.link("also", in: text), plainIsNoteLink ? .note(href: "OPS/one.xhtml#n17") : .internal(href: "OPS/one.xhtml#n17"), markup)
             XCTAssertEqual(text.anchors["n17"], H.location(of: item, in: text), markup)
             XCTAssertEqual(S.paragraphs(text).filter { $0.hasSuffix("Endnote 17.") }, [item], markup)
         }
+    }
+
+    func testAReferenceToTheFirstOfSeveralItemsInANoteInTheFlowNavigatesToo() throws {
+        // The first item's id is on the note element's leading chain, and it named the whole element: a reference to
+        // the first of thirty endnotes opened all thirty (https://github.com/vocaro/EPUBLib/issues/284). Items are
+        // elements of one name, each named itself or by its first element, in an element with no text of its own.
+        func items(_ item: (Int) -> String) -> String { (1...3).map(item).joined(separator: "\n") }
+        let shapes = [
+            "<div class='footnotes' epub:type='footnote'>" + items { "<p id='n\($0)'>Endnote \($0).</p>" } + "</div>",
+            "<aside epub:type='endnote'>" + items { "<p><a id='n\($0)' href='#r'>\($0).</a> Endnote \($0).</p>" } + "</aside>",
+            "<aside epub:type='endnote'>" + items { "<p><a name='n\($0)'/>Endnote \($0).</p>" } + "</aside>",
+            "<section role='doc-endnote'><ol>" + items { "<li id='n\($0)'><p>Endnote \($0).</p></li>" } + "</ol></section>",
+            "<ol epub:type='endnote'>" + items { "<li><p id='n\($0)'>Endnote \($0).</p></li>" } + "</ol>",
+            "<dl epub:type='footnote'>" + items { "<dt id='n\($0)'>\($0)</dt><dd>Endnote \($0).</dd>" } + "</dl>",
+        ]
+        for markup in shapes {
+            let text = try H.build("<p id='r'>Claim<a epub:type='noteref' href='#n1'>first</a>.</p>" + markup)
+            XCTAssertTrue(text.notes.isEmpty, "\(text.notes.keys.sorted()) in \(markup)")
+            // A note link that finds no note navigates (`NativeSession`), to where the first item is shown.
+            XCTAssertEqual(S.link("first", in: text), .note(href: "OPS/one.xhtml#n1"), markup)
+            let anchor = try XCTUnwrap(text.anchors["n1"], markup)
+            XCTAssertGreaterThan(anchor, H.location(of: "Claimfirst.", in: text), markup)
+            XCTAssertLessThan(anchor, H.location(of: "Endnote 1.", in: text) + 1, markup)
+        }
+    }
+
+    func testANoteInTheFlowStaysNamedByItsLeadingIdsWhenNoItemLikeTheirsFollows() throws {
+        // An id after the note's number in the same paragraph is among the paragraph's words; a page break between
+        // its paragraphs, and paragraphs after its heading, are not items like the first. A footnote hidden from the
+        // flow is named by every id inside it, its first item's among them. A row's cells are the parts of one note
+        // (`testAFootnoteInsideATablePartAndATablePartWithItsOwnIdAreNamedAsBefore`).
+        let text = try H.build("""
+            <p id="r">Claim.</p><div epub:type="footnote"><p><a id="a1" href="#r">1</a> See <a id="a2" href="#r">the claim</a>.</p></div>\
+            <aside epub:type="endnote"><p id="b1">Lead.</p><span epub:type="pagebreak" id="page9"/><p>More.</p></aside>\
+            <aside epub:type="endnote"><h3 id="c1">Notes</h3><p id="c2">One.</p><p id="c3">Two.</p></aside>\
+            <aside epub:type="footnote"><p id="f1">Hidden one.</p><p id="f2">Hidden two.</p></aside>
+            """)
+        XCTAssertEqual(text.notes.mapValues(\.string), [
+            "a1": "1 See the claim.", "b1": "Lead.\nMore.", "c1": "Notes\nOne.\nTwo.",
+            "f1": "Hidden one.\nHidden two.", "f2": "Hidden one.\nHidden two.",
+        ])
+    }
+
+    func testAnEmptyIdNamesNoNoteAndALinkToTheTopOpensNone() throws {
+        // `id=""` on a note or on its leading descendant captured the note under the key `""`, so a link to `#`, the
+        // top of the document, opened it (https://github.com/vocaro/EPUBLib/issues/284). An id further down the
+        // leading chain still names its note.
+        let text = try H.build("""
+            <p><a href="#">top</a> <a epub:type="noteref" href="#fn1">ref</a></p>\
+            <aside epub:type="endnote" id=""><p>An endnote.</p></aside><div epub:type="footnote"><p id="">In the flow.</p></div>\
+            <aside epub:type="footnote"><p id="">Out of the flow.</p></aside><aside epub:type="footnote" id=""><p id="fn1">Named.</p></aside>
+            """)
+        XCTAssertEqual(text.notes.mapValues(\.string), ["fn1": "Named."])
+        XCTAssertEqual(S.link("top", in: text), .internal(href: "OPS/one.xhtml#"))
+        XCTAssertEqual(S.link("ref", in: text), .note(href: "OPS/one.xhtml#fn1"))
+    }
+
+    func testAListItemThatShowsNothingInANoteHasNoMarker() throws {
+        // Each item holds only a note captured on its own, so the list showed bare bullets, "• \n• "
+        // (https://github.com/vocaro/EPUBLib/issues/284); with nothing of its own the note now shows the notes in it.
+        // An item left empty, and an outer item whose nested items show nothing, lose their markers too. Ordered
+        // items keep their numbers.
+        let text = try H.build("""
+            <p>Text</p><aside epub:type="footnote" id="list"><ul><li><aside epub:type="footnote" id="a">First.</aside></li>\
+            <li><aside epub:type="footnote" id="b">Second.</aside></li></ul></aside>\
+            <aside epub:type="footnote" id="mixed"><ol><li>One.</li><li><aside epub:type="footnote" id="c">Apart.</aside></li>\
+            <li> </li><li>Four.</li></ol></aside>\
+            <aside epub:type="footnote" id="nested"><ul><li><ul><li><aside epub:type="footnote" id="d">Deep.</aside></li></ul></li>\
+            <li><ul><li>Inner.</li></ul></li><li>Last.</li></ul></aside>
+            """)
+        XCTAssertEqual(text.notes["list"]?.string, "• First.\n• Second.")
+        XCTAssertEqual(text.notes["mixed"]?.string, "1. One.\n4. Four.")
+        XCTAssertEqual(text.notes["nested"]?.string, "• \n◦ Inner.\n• Last.")
+        for (id, note) in [("a", "First."), ("b", "Second."), ("c", "Apart."), ("d", "Deep.")] { XCTAssertEqual(text.notes[id]?.string, note) }
+        // In the flow an empty item keeps its marker, as a browser draws it.
+        XCTAssertEqual(S.paragraphs(try H.build("<ul><li> </li><li>x</li></ul>")), ["•\t", "•\tx"])
+    }
+
+    func testANoteThatShowsNothingIsNotKeptSoItsReferenceNavigates() throws {
+        // An empty or white-space note opened an empty popover (https://github.com/vocaro/EPUBLib/issues/284). With no
+        // note under its id, a reference to it navigates (`NativeSession`).
+        let text = try H.build("""
+            <p id="r">Claim<a epub:type="noteref" href="#e1">one</a> <a epub:type="noteref" href="#e3">three</a> \
+            <a href="#e4">four</a>.</p><aside epub:type="footnote" id="e1"></aside><aside epub:type="footnote" id="e2">  </aside>\
+            <aside epub:type="footnote" id="e3"><a href="#r" epub:type="backlink">↩</a></aside>\
+            <aside epub:type="endnote" id="e4"><p class="gone">Hidden by the book.</p></aside>\
+            <aside epub:type="footnote" id="e5"><aside epub:type="footnote" id="e6"> </aside></aside>\
+            <aside epub:type="footnote" id="kept"><img src="picture.png" alt="Pic"/></aside>
+            """, rules: [(".gone", { $0.display = .none })])
+        XCTAssertEqual(text.notes.mapValues(\.string), ["kept": "[Pic]"])
+        XCTAssertEqual(S.link("one", in: text), .note(href: "OPS/one.xhtml#e1"))
+        XCTAssertEqual(S.link("three", in: text), .note(href: "OPS/one.xhtml#e3"))
+        XCTAssertEqual(S.link("four", in: text), .note(href: "OPS/one.xhtml#e4"))
     }
 
     func testALaterIdNamesANoteExactlyWhenTheFlowLeavesTheNoteOut() throws {
@@ -475,8 +568,8 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
                 let id = prefix + part
                 let element = try XCTUnwrap(tabled.document.element(id: id))
                 let shown = tabled.map.spans.contains { $0.node > element.order && $0.node <= element.subtreeEnd }
-                // A column holds nothing to show, in the flow or out of it.
-                let columns = prefix == "e" && (part == "colgroup" || part == "col")
+                // A column holds nothing to show, in the flow or out of it, and a note that shows nothing is not kept.
+                let columns = part == "colgroup" || part == "col"
                 XCTAssertEqual("\(shown ? "shown" : "hidden"), \(tabled.notes[id] != nil ? "named" : "unnamed")",
                                columns ? "hidden, unnamed" : expected, "\(id): \(part) typed as a footnote")
             }
@@ -539,16 +632,16 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
             "shown in a cell", "keys ", "noteref: note link to OPS/one.xhtml#n17", "plain: note link to OPS/one.xhtml#n17",
         ])
 
-        // An endnotes table whose row group is typed as one footnote. Only the first row's id, on the group's leading
-        // chain, names the group; a reference to the seventeenth or the thirtieth row navigates to the table rather
-        // than opening all thirty from the top, and a plain link to a cell of a row is an internal link.
+        // An endnotes table whose row group is typed as one footnote. No row's id names the group, the first's
+        // included: a reference to the seventeenth or the thirtieth row navigates to the table rather than opening
+        // all thirty from the top, and a plain link to a cell of a row is an internal link.
         let rows = (1...30).map { "<tr id=\"n\($0)\"><td>\($0).</td><td id=\"c\($0)\">Endnote number \($0) here.</td></tr>" }.joined()
         let group = try S.styled("""
             <p>Claim<a epub:type="noteref" href="#n17">seventeenth</a>, <a epub:type="noteref" href="#n30">thirtieth</a>, \
             <a href="#n17">plain</a>, <a href="#c17">cell</a>.</p><table><tbody role="doc-footnote">\(rows)</tbody></table>
             """)
         XCTAssertEqual(facts(group, showing: "Endnote number 17 here.", links: ["seventeenth", "thirtieth", "plain", "cell"]), [
-            "shown in a cell", "keys n1", "seventeenth: note link to OPS/one.xhtml#n17", "thirtieth: note link to OPS/one.xhtml#n30",
+            "shown in a cell", "keys ", "seventeenth: note link to OPS/one.xhtml#n17", "thirtieth: note link to OPS/one.xhtml#n30",
             "plain: note link to OPS/one.xhtml#n17", "cell: internal link to OPS/one.xhtml#c17",
         ])
     }

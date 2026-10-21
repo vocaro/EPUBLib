@@ -592,10 +592,10 @@ final class SectionWriter {
         if ContentSemantics.isNoteReference(element) { return .note(href: resolved) }
         // A plain link to a note or its child is a note link; so is one to anything inside a
         // footnote hidden from the flow (`isInsideHiddenFootnote`), where there is nothing to
-        // navigate to.
+        // navigate to. An empty fragment names no element (`fragmentTarget`).
         if path == document.path, let fragment, let target = state.fragmentTarget(fragment),
            state.noteKind(target) != nil || target.parent.flatMap(state.noteKind) != nil
-            || (!fragment.isEmpty && state.isInsideHiddenFootnote(target)) {
+            || state.isInsideHiddenFootnote(target) {
             return .note(href: resolved)
         }
         return .internal(href: resolved)
@@ -610,11 +610,14 @@ final class SectionWriter {
         closeParagraph()
         lastInlineBox = nil
         if !isNote {
+            let isItem = ReaderAlignmentFrame.isItem(style, in: frames[frames.count - 1].style)
+            if isItem { separateMargins() }
             gap.add(resolve(style.margin.top))
-            let inset = resolve(style.padding.top) + Self.width(style.border.top)
-            if inset > 0 { gap.seal(inset) }
             let containing = frames.last?.format.edges
             sizingGap.add(style.margin.top, containing: containing)
+            if isItem { separateMargins() }
+            let inset = resolve(style.padding.top) + Self.width(style.border.top)
+            if inset > 0 { gap.seal(inset) }
             sizingGap.seal(style.padding.top, border: Self.width(style.border.top), containing: containing)
         }
         if isSection {
@@ -630,6 +633,13 @@ final class SectionWriter {
                                  keepWithNext: keep, keepTogether: style.breakInside == .avoid,
                                  firstParagraph: paragraphs.count, language: language))
         frames[frames.count - 1].inlineBox = inline
+    }
+
+    /// Fixes the margins so far: a flex or grid item's collapse with nothing
+    /// (`ReaderAlignmentFrame.isItem`).
+    private func separateMargins() {
+        gap.separate()
+        sizingGap.separate()
     }
 
     /// A sized inline box's place on the line it is written on: whether text or another such box
@@ -657,12 +667,16 @@ final class SectionWriter {
 
     private func exitBlock() {
         pendingPassageBoundary = pendingPassageBoundary || (frames.last?.style.display.isBlockLevel ?? false)
-        if let marker = pendingMarker, marker.frame == frames.count - 1 { openParagraph() } // An empty item still shows its marker.
+        if let marker = pendingMarker, marker.frame == frames.count - 1 {
+            // An empty item still shows its marker, but not in a note (`removeBareMarker`).
+            if isNote { pendingMarker = nil } else { openParagraph() }
+        }
         closeParagraph()
+        if isNote { removeBareMarker(of: frames.count - 1) }
         guard frames.count > 1 else { return }
         let frame = frames.removeLast()
         lastInlineBox = frame.inlineBox.map { ($0, frames.count, paragraphs.count) }
-        if frame.format.itemAlignment.close() { state.report.report.flexGridSimplified = true }
+        if frame.format.itemAlignment.close(below: sizingGap) { state.report.report.flexGridSimplified = true }
         // `break-inside: avoid` keeps a box's paragraphs with each other, not its last with what follows.
         if frame.keepTogether, let last = paragraphs.indices.last, last >= frame.firstParagraph,
            paragraphs[last].keptTogetherBy == frames.count {
@@ -671,9 +685,12 @@ final class SectionWriter {
         if !isNote {
             let inset = resolve(frame.style.padding.bottom) + Self.width(frame.style.border.bottom)
             if inset > 0 { gap.seal(inset) }
-            gap.add(resolve(frame.style.margin.bottom))
             sizingGap.seal(frame.style.padding.bottom, border: Self.width(frame.style.border.bottom), containing: frame.format.edges.parent)
+            let isItem = ReaderAlignmentFrame.isItem(frame.style, in: frames[frames.count - 1].style)
+            if isItem { separateMargins() }
+            gap.add(resolve(frame.style.margin.bottom))
             sizingGap.add(frame.style.margin.bottom, containing: frame.format.edges.parent)
+            if isItem { separateMargins() }
         }
         if isSection, frame.style.breakAfter == .page || frame.style.breakAfter == .column { pendingPageBreak = true }
     }
@@ -734,7 +751,9 @@ final class SectionWriter {
         if style.requiresFlowBox && boxes.count < 8 {
             boxes.append(ReaderFlowBoxConstraint(style: style, containing: containing, replaced: replaced, inline: inline))
         }
-        let itemAlignment = parent.map { ReaderAlignmentFrame(style: style, parent: $0.format.itemAlignment) } ?? (isSection ? .root : .none)
+        let itemAlignment = parent.map {
+            ReaderAlignmentFrame(style: style, parent: $0.format.itemAlignment, contentEdge: sizingGap.operands.count)
+        } ?? (isSection ? .root : .none)
         return BlockFormat(boxes: boxes, flow: ReaderParagraphFlow(style: style, scope: scope), scope: scope,
                            itemAlignment: itemAlignment, edges: ReaderParagraphEdges(style: style, parent: parent?.format.edges),
                            alignment: alignment, endAligned: endAligned, float: style.float, direction: direction,
@@ -775,7 +794,7 @@ final class SectionWriter {
         var paragraph = Paragraph(start: buffer.count, format: frame.format,
                                   indentsFirstLine: paragraphs.count == frame.firstParagraph,
                                   separatorAttributes: frameAttributes())
-        paragraph.alignmentItem = frame.format.itemAlignment.paragraphItem()
+        paragraph.alignmentItem = frame.format.itemAlignment.paragraphItem(above: dynamicGap)
         if let previous = paragraphs.indices.last {
             if !pendingPassageBoundary {
                 let space = pendingPassageSpace
@@ -1032,7 +1051,25 @@ final class SectionWriter {
             lineStart = false
             lastWasCollapsedSpace = marker.suffix
         }
+        paragraphs[paragraphs.count - 1].marker = (marker.frame, buffer.count)
         lastScalar = buffer.lastScalar
+    }
+
+    /// In a note, a list item that shows nothing has no marker. What an item of a note holds may
+    /// be shown on its own (a nested note captured apart), and a marker with nothing after it
+    /// stands for nothing. An item's marker waits for its content, so it is dropped when the
+    /// item closes with none (`exitBlock`), but it is written on a line of its own when a
+    /// nested item comes first: that line goes when nothing else came of the item either.
+    private func removeBareMarker(of frame: Int) {
+        guard paragraphs.count == frames[frame].firstParagraph + 1, let marker = paragraphs[paragraphs.count - 1].marker,
+              marker.frame == frame, marker.end == buffer.count else { return }
+        let start = paragraphs.removeLast().start
+        while buffer.count > start { buffer.removeLast() }
+        // The separator before it, and the spacing it gave the paragraph before.
+        if let previous = paragraphs.indices.last {
+            buffer.removeLast()
+            paragraphs[previous].spacingAfter = 0
+        }
     }
 
     // MARK: Inline content
@@ -1697,7 +1734,7 @@ final class SectionWriter {
             next.start = location + offset + 1
             next.indentsFirstLine = false; next.spacingBefore = 0; next.spacingAfter = 0
             next.sizingBefore = nil; next.sizingAfter = nil
-            next.pageBreakBefore = false; next.markerWidth = nil; next.hasNext = false; next.continuation = true
+            next.pageBreakBefore = false; next.markerWidth = nil; next.marker = nil; next.hasNext = false; next.continuation = true
             next.soleAttachment = false; next.factoryStyle = nil; next.hasText = false
             paragraphs.append(next)
             subStart = next.start
@@ -1861,6 +1898,8 @@ private struct MarginGap {
         fixed += positive + negative + inset
         positive = 0; negative = 0
     }
+    /// The margins so far are fixed with nothing between (`ReaderParagraphGap.separate()`).
+    mutating func separate() { seal(0) }
     var value: CGFloat { max(0, fixed + positive + negative) }
 }
 
@@ -1940,6 +1979,8 @@ private struct Paragraph {
     var hasNext = false
     /// An outside list marker's width, which hangs before the content.
     var markerWidth: CGFloat?
+    /// The list marker that opens the paragraph: its item's block frame and where it ends.
+    var marker: (frame: Int, end: Int)?
     /// The flex or grid item holding the paragraph.
     var alignmentItem: ReaderAlignmentItem?
     /// Hidden labels' own paragraph, of no height and outside the flow (`flushSpokenParagraph`).

@@ -60,9 +60,23 @@ final class ReaderAlignmentContainer: @unchecked Sendable {
     /// The containing block's height, for percentage heights.
     let containing: ReaderHeightScope?
     let depth: Int
+    /// The builder's gap at the container's content edge, as a count of its operands: what is
+    /// added after it, before the first line, lies inside the box.
+    private let contentEdge: Int
 
     // Tallied while the builder walks the container; read once it has closed.
     fileprivate(set) var itemCount = 0
+    /// The margins, borders and padding between the content edge and the first line, and
+    /// between the last line and the content edge: the first and last items' own and those of
+    /// the boxes inside them. Flex and grid items keep their margins (`ReaderAlignmentFrame`),
+    /// so all of it is the container's content (CSS Flexbox 1, 9.2; CSS Grid 1, 11.5).
+    private(set) var leading = ReaderParagraphGap()
+    fileprivate(set) var trailing = ReaderParagraphGap()
+    /// Items that rendered no paragraph, in source order, each after the last item before it
+    /// that did (nil when none did). An empty box is still an item (CSS Flexbox 1, 4; CSS
+    /// Grid 1, 6): it takes its share of the free space and its gaps.
+    private(set) var emptyItems: [(item: ReaderAlignmentItem, after: ReaderAlignmentItem?)] = []
+    fileprivate var lastItem: ReaderAlignmentItem?
     fileprivate var anonymous: ReaderAlignmentItem?
     fileprivate var hasFlowBoxes = false
     fileprivate var hasReordering = false
@@ -77,10 +91,23 @@ final class ReaderAlignmentContainer: @unchecked Sendable {
     private(set) var hasEffect = false
 
     init(style: ComputedStyle, parentItem: ReaderAlignmentItem?, ownItem: ReaderAlignmentItem?,
-         containing: ReaderHeightScope?) {
+         containing: ReaderHeightScope?, contentEdge: Int) {
         self.style = style; self.parentItem = parentItem; self.ownItem = ownItem; self.containing = containing
+        self.contentEdge = contentEdge
         depth = (parentItem?.container.depth ?? 0) + 1
     }
+
+    /// Records the space above the first line, from the builder's gap where it opens.
+    fileprivate func noteFirstLine(after gap: ReaderParagraphGap) {
+        leading = ReaderParagraphGap(operands: Array(gap.operands.dropFirst(contentEdge)))
+    }
+
+    fileprivate func noteEmpty(_ item: ReaderAlignmentItem) {
+        emptyItems.append((item, lastItem))
+    }
+
+    /// Every item, those that rendered nothing included.
+    private var allItemCount: Int { itemCount + emptyItems.count }
 
     var isRightToLeft: Bool { style.direction == .rtl }
     /// The box has a height of its own to align within: a `height` or a `min-height`.
@@ -116,10 +143,10 @@ final class ReaderAlignmentContainer: @unchecked Sendable {
         } else {
             layout = .single
         }
-        if hasReordering, itemCount > 1 { isSimplified = true }
+        if hasReordering, allItemCount > 1 { isSimplified = true }
         if hasTooDeepNesting { isSimplified = true }
         guard layout != .block else { return }
-        let hasGap = layout == .stack && itemCount > 1 && alignment.rowGap != .zero
+        let hasGap = layout == .stack && allItemCount > 1 && alignment.rowGap != .zero
         hasEffect = hasHeight || hasGap || hasItemAlignment || containerSide != .start
         // Floats and positioned boxes have their own geometry, which alignment cannot measure.
         if hasFlowBoxes {
@@ -153,18 +180,32 @@ final class ReaderAlignmentItem: @unchecked Sendable {
 
     init(container: ReaderAlignmentContainer, style: ComputedStyle?) { self.container = container; self.style = style }
 
-    /// The item rendered a paragraph: only such items count, as an empty box takes no room.
-    fileprivate func noteContent() {
+    /// The item rendered a paragraph, whose line is the first of the item and, for the
+    /// container, of the first item to render one. `gap` is the builder's, above that line.
+    fileprivate func noteContent(above gap: ReaderParagraphGap) {
         guard !hasContent else { return }
         hasContent = true
+        if container.itemCount == 0 { container.noteFirstLine(after: gap) }
         container.itemCount += 1
-        if let style {
-            if style.boxAlignment.order != 0 { container.hasReordering = true }
-            if style.boxAlignment.hasGridPlacement { container.hasPlacement = true }
-            if style.margin.left == .auto || style.margin.right == .auto || style.boxAlignment.alignSelf != .auto
-                || style.boxAlignment.justifySelf != .auto { container.hasItemAlignment = true }
-        }
-        container.parentItem?.noteContent()
+        container.lastItem = self
+        noteStyle()
+        // Alignment across the line moves content, which an empty item has none of.
+        if let style, style.margin.left == .auto || style.margin.right == .auto || style.boxAlignment.alignSelf != .auto
+            || style.boxAlignment.justifySelf != .auto { container.hasItemAlignment = true }
+        container.parentItem?.noteContent(above: gap)
+    }
+
+    /// The item's box closed without a paragraph.
+    fileprivate func noteClosed() {
+        guard !hasContent else { return }
+        container.noteEmpty(self)
+        noteStyle()
+    }
+
+    private func noteStyle() {
+        guard let style else { return }
+        if style.boxAlignment.order != 0 { container.hasReordering = true }
+        if style.boxAlignment.hasGridPlacement { container.hasPlacement = true }
     }
 
     /// This item or the one around it that is `container`'s, nil when it is not inside it.
@@ -194,6 +235,8 @@ struct ReaderAlignmentFrame {
     private var item: ReaderAlignmentItem?
     /// The frame is a container: its children and bare text are items.
     private var container: ReaderAlignmentContainer?
+    /// The frame is an item of its parent's container.
+    private var ownItem: ReaderAlignmentItem?
     private var heights: ReaderHeightScope?
     private var isEnabled = false
     /// Inside a float, positioned box or sized inline-block, which lays out by its own geometry.
@@ -211,8 +254,17 @@ struct ReaderAlignmentFrame {
 
     private init() {}
 
-    /// A block box inside `parent`.
-    init(style: ComputedStyle, parent: ReaderAlignmentFrame) {
+    /// Whether a block box in `parent`'s box is a flex or grid item, as opposed to a box laid
+    /// out by its own geometry (a float or positioned box) or a box in block flow. An item's
+    /// margins collapse with nothing: not its container's, its siblings' or its content's (CSS
+    /// Flexbox 1, 3 and 4; CSS Grid 1, 5.1 and 6). Outside a section too.
+    static func isItem(_ style: ComputedStyle, in parent: ComputedStyle) -> Bool {
+        parent.blockifiesChildren && !style.requiresFlowBox
+    }
+
+    /// A block box inside `parent`. `contentEdge` is the builder's gap at its content edge, as
+    /// a count of operands (`ReaderAlignmentContainer.leading`).
+    init(style: ComputedStyle, parent: ReaderAlignmentFrame, contentEdge: Int) {
         guard parent.isEnabled else { return }
         isEnabled = true
         heights = style.height == .auto ? nil : ReaderHeightScope(height: style.height, parent: parent.heights)
@@ -230,7 +282,6 @@ struct ReaderAlignmentFrame {
             while let current = enclosing { current.hasFlowBoxes = true; enclosing = current.parentItem?.container }
             return
         }
-        var ownItem: ReaderAlignmentItem?
         if let outer = parent.container {
             ownItem = ReaderAlignmentItem(container: outer, style: style)
             outer.anonymous = nil
@@ -240,16 +291,17 @@ struct ReaderAlignmentFrame {
         }
         guard style.blockifiesChildren else { return }
         if (item?.container.depth ?? 0) < ReaderAlignmentContainer.maximumDepth {
-            container = ReaderAlignmentContainer(style: style, parentItem: item, ownItem: ownItem, containing: parent.heights)
+            container = ReaderAlignmentContainer(style: style, parentItem: item, ownItem: ownItem, containing: parent.heights,
+                                                 contentEdge: contentEdge)
         } else {
             item?.container.hasTooDeepNesting = true
         }
     }
 
-    /// The item of a paragraph opened in this frame.
-    func paragraphItem() -> ReaderAlignmentItem? {
+    /// The item of a paragraph opened in this frame. `gap` is the builder's, above its line.
+    func paragraphItem(above gap: ReaderParagraphGap) -> ReaderAlignmentItem? {
         let item = container?.anonymousItem() ?? item
-        item?.noteContent()
+        item?.noteContent(above: gap)
         return item
     }
 
@@ -264,8 +316,11 @@ struct ReaderAlignmentFrame {
     }
 
     /// The frame's box has closed; true when its container is shown without its layout.
-    func close() -> Bool {
+    /// `gap` is the builder's below the box's last line, before its own bottom edges.
+    func close(below gap: ReaderParagraphGap) -> Bool {
+        ownItem?.noteClosed()
         guard let container else { return false }
+        container.trailing = gap
         container.close()
         return container.isSimplified
     }

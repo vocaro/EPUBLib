@@ -288,6 +288,46 @@ final class NoteReachabilityTests: XCTestCase {
         try activate("missing note")
         try await reader.wait("missing fragment navigation") { reader.section == 1 }
     }
+
+    /// An empty note opened an empty popover, a reference to the first of several items in a note that stays in the
+    /// flow opened all of them, and a link to `#` opened a note with an empty id
+    /// (https://github.com/vocaro/EPUBLib/issues/284). Each navigates now, and `#` to the top of the document.
+    func testAnEmptyNoteTheFirstItemOfSeveralAndTheTopOfADocumentAreNavigatedTo() async throws {
+        let filler = (1...60).map { "<p>Filler paragraph \($0) of the notes document.</p>" }.joined()
+        let reader = try SessionCoverageReader(SessionCoverageBook.epub([
+            .init("one", """
+                <p><a epub:type='noteref' href='notes.xhtml#empty'>empty note</a> \
+                <a epub:type='noteref' href='notes.xhtml#n1'>first item</a> <a href='notes.xhtml#'>notes top</a></p>
+                """),
+            .init("notes", """
+                <p>Notes opening.</p>\(filler)<aside epub:type='footnote' id='empty'><a epub:type='backlink' href='one.xhtml'>↩</a></aside>\
+                <aside epub:type='endnote' id=''><p id='n1'>Endnote 1.</p><p id='n2'>Endnote 2.</p></aside>
+                """, linear: false),
+        ]), mounted: false)
+        let host = NoteSessionHost(session: reader.session)
+        defer { closeNote(reader.session.canvas); reader.close(); host.close() }
+        try await reader.settle()
+        let canvas = try XCTUnwrap(reader.session.canvas)
+        let source = try XCTUnwrap(reader.session.book.section(0))
+        let targets: [(label: String, id: String?)] = [("empty note", "empty"), ("first item", "n1"), ("notes top", nil)]
+        for (label, target) in targets {
+            let link = try XCTUnwrap(SectionContentSupport.link(label, in: source))
+            reader.session.canvas(canvas, didActivate: link, at: .init(section: 0, offset: 0),
+                                  rect: CGRect(x: 100, y: 100, width: 20, height: 20))
+            try await reader.wait(label) { reader.section == 1 }
+            let notes = try XCTUnwrap(reader.session.book.section(1))
+            XCTAssertNil(shownNoteText(canvas), label)
+            // The target is on screen: an empty id is none, so `#` is the document's start.
+            let offset = try target.map { try XCTUnwrap(notes.anchors[$0], label) } ?? 0
+            let range = try XCTUnwrap(reader.session.visibleRange, label)
+            XCTAssertEqual(range.start.section, 1, label)
+            XCTAssertLessThanOrEqual(range.start.offset, offset, label)
+            XCTAssertTrue(range.end.section > 1 || offset < range.end.offset, "\(offset) past \(range) for \(label)")
+            if target == nil { XCTAssertEqual(range.start.offset, 0, label) }
+            try await reader.session.send(.navigate(href: "OPS/one.xhtml"))
+            try await reader.wait("return to source") { reader.section == 0 }
+        }
+    }
 }
 
 /// A real session and canvas, with a plain UIKit presenter. SwiftUI hosting is exercised by

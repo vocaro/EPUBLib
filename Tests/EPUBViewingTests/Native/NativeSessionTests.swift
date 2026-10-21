@@ -535,6 +535,32 @@ import XCTest
         XCTAssertEqual(session.drawnHighlights.first { $0.id == "h" }?.range, range)
     }
 
+    func testARangeEndingWithTheSectionsLastImageResolvesToTheSameRange() async throws {
+        // Nothing follows the image in the document, not even white space.
+        let (session, window, events) = try open(Fixture.epub(overrides: [
+            "OPS/one.xhtml": chapter("<p>Alpha <img src=\"pic.png\" alt=\"a picture\"/></p>"),
+            "OPS/pic.png": "not really a png",
+        ]))
+        defer { session.close(); window.close() }
+        try await wait("ready") { events().contains(.ready) }
+        let section = try XCTUnwrap(session.book.section(0))
+        XCTAssertTrue(section.document.nodes.last?.isHTML("img") == true)
+        let image = try XCTUnwrap(section.map.spans.last)
+        XCTAssertTrue(image.isUnit)
+        XCTAssertEqual(image.location + image.length, section.string.length)
+        // The passage with the image, and the image alone, which came back empty and so unresolved.
+        for (id, lower) in [("passage", 0), ("image", image.location)] {
+            let range = ReaderTextRange(section: 0, lower..<section.string.length)
+            session.canvas(try XCTUnwrap(session.canvas), didChangeSelection: ReaderSelection(range: range, text: ""))
+            XCTAssertEqual(session.selection?.range, range, id)
+            let selected = try lastSelection(events())
+            try await session.send(.setHighlights([EPUBHighlight(id: id, location: selected.location)]))
+            try await wait("highlight \(id)") { session.drawnHighlights.contains { $0.id == id } }
+            XCTAssertEqual(session.drawnHighlights.first { $0.id == id }?.range, range, id)
+        }
+        XCTAssertFalse(events().contains { if case .notice = $0 { return true }; return false })
+    }
+
     func testABareSectionBookmarkRestoresToThatSection() async throws {
         let (session, window, events) = try open(Fixture.epub(overrides: ["OPS/two.xhtml": chapter("")]))
         defer { session.close(); window.close() }

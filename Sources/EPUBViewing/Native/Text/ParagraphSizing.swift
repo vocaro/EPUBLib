@@ -80,6 +80,8 @@ struct ReaderParagraphGap: Sendable {
         let containing: ReaderParagraphEdges?
         let border: CGFloat
         let seals: Bool
+        /// Seals with nothing between: the margins either side do not adjoin (`separate()`).
+        var isBoundary = false
     }
     var operands: [Operand] = []
     var isDynamic: Bool { operands.contains { ReaderParagraphEdges.dynamic($0.length) || $0.containing?.isDynamic == true } }
@@ -92,13 +94,19 @@ struct ReaderParagraphGap: Sendable {
             operands.append(Operand(length: length, containing: containing, border: border, seals: true))
         }
     }
+    /// The margins so far are fixed, as padding fixes them, with no padding: a flex or grid
+    /// item's margins collapse with nothing (`ReaderAlignmentFrame.isItem`).
+    mutating func separate() {
+        guard operands.last?.isBoundary != true else { return }
+        operands.append(Operand(length: .zero, containing: nil, border: 0, seals: true, isBoundary: true))
+    }
     func resolve(viewport: CGSize) -> CGFloat {
         var fixed: CGFloat = 0, positive: CGFloat = 0, negative: CGFloat = 0
         for operand in operands {
             let reference = operand.containing?.geometry(viewport: viewport).content ?? viewport.width
             let value = ReaderParagraphEdges.resolve(operand.length, reference: reference, viewport: viewport) + operand.border
             if operand.seals {
-                if value > 0 { fixed += positive + negative + value; positive = 0; negative = 0 }
+                if value > 0 || operand.isBoundary { fixed += positive + negative + max(0, value); positive = 0; negative = 0 }
             } else if value > 0 { positive = max(positive, value) } else { negative = min(negative, value) }
         }
         return min(600, max(0, fixed + positive + negative))

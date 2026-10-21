@@ -2,6 +2,7 @@ import CoreGraphics
 import EPUBCore
 import EPUBReading
 import EPUBTestSupport
+import UniformTypeIdentifiers
 import XCTest
 @testable import EPUBViewing
 #if os(macOS)
@@ -336,6 +337,206 @@ final class RichMediaSVGCoverageTests: XCTestCase {
         let files = ["d.svg": Data(drawing.utf8)]
         XCTAssertEqual(try image("<p><img src='d.svg' alt='I'/></p>", files: files).0?.source.format, .svg)
         XCTAssertEqual(try image("<p><object data='d.svg' type='image/svg+xml'>Fallback</object></p>", files: files).0?.source.format, .svg)
+    }
+
+    // MARK: Images in data: URLs — EPUB 3.3 §3.7 (#657)
+
+    private static func isRed(_ pixel: [UInt8]) -> Bool { pixel[0] > 200 && pixel[1] < 60 && pixel[2] < 60 && pixel[3] == 255 }
+
+    /// A 30 × 10 drawing: an `<image>` with `image`'s attributes in its left third, blue in the rest.
+    private static func drawing(_ image: String) -> String {
+        "<svg \(ns) width='30' height='10'><image \(image) width='10' height='10'/><rect x='10' width='20' height='10' fill='blue'/></svg>"
+    }
+
+    /// That `attachment` is a drawing (`drawing(_:)`) whose left third is red where `image` is
+    /// true and empty where it is false, and whose rest is blue.
+    private func assertDraws(_ attachment: ReaderImageAttachment?, image: Bool, _ message: String,
+                             file: StaticString = #filePath, line: UInt = #line) throws {
+        let source = try XCTUnwrap(attachment?.source, message, file: file, line: line)
+        XCTAssertEqual(source.format, .svg, message, file: file, line: line)
+        let bitmap = try XCTUnwrap(source.decode(maxPixelSize: 30), message, file: file, line: line)
+        let left = RichMediaImages.rgba(bitmap, x: 5, y: 5)
+        XCTAssertTrue(image ? Self.isRed(left) : left[3] == 0, "\(message): \(left)", file: file, line: line)
+        XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 20, y: 5), [0, 0, 255, 255], message, file: file, line: line)
+    }
+
+    /// An SVG `<image>` whose `href` is a `data:` URL draws its image, as a browser does: in a
+    /// drawing in the document, in one from the archive, and in one inside another; named by
+    /// `href` or `xlink:href`; a bitmap or a drawing; in the forms the data: URL processor reads.
+    /// The URL is never resolved, so nothing is counted unreadable, or refused as remote.
+    func testAnImageInADataURLIsDrawnInAnSVG() throws {
+        let red = RichMediaImages.solid(width: 10, height: 10, red: 1, green: 0, blue: 0)
+        let b64 = red.base64EncodedString()
+        let square = "<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><rect width='10' height='10' fill='red'/></svg>"
+        let escaped = try XCTUnwrap(square.addingPercentEncoding(withAllowedCharacters: .alphanumerics))
+        for reference in ["href='data:image/png;base64,\(b64)'", "xlink:href='data:image/png;base64,\(b64)'",
+                          "href=' DATA:Image/PNG;Base64,\(b64.prefix(8))&#10;\(b64.dropFirst(8))'",
+                          "href='data:image/png,\(red.map { String(format: "%%%02X", $0) }.joined())'",
+                          "href='data:image/svg+xml,\(escaped)'",
+                          "href='data:image/svg+xml;base64,\(Data(square.utf8).base64EncodedString())'"] {
+            let message = String(reference.prefix(40))
+            let files = ["d.svg": Data(Self.drawing(reference).utf8)]
+            let inline = try image("<p>\(Self.drawing(reference))</p>")
+            try assertDraws(inline.0, image: true, "inline, " + message)
+            let archived = try image("<p><img src='d.svg' alt='Drawing'/></p>", files: files)
+            try assertDraws(archived.0, image: true, "from the archive, " + message)
+            // An empty rectangle keeps the outer drawing from being a single-image wrapper.
+            let nested = try image("<p><svg \(Self.ns) width='30' height='10'><image href='d.svg' width='30' height='10'/><rect width='0' height='0'/></svg></p>", files: files)
+            try assertDraws(nested.0, image: true, "inside a drawing, " + message)
+            for text in [inline.1, archived.1, nested.1] {
+                XCTAssertEqual(text.report.unsupportedElements, [:], message)
+                XCTAssertEqual(text.report.unreadableResources, 0, message)
+                XCTAssertEqual(text.report.remoteResourcesRefused, 0, message)
+            }
+        }
+    }
+
+    /// An SVG that is only an `<image>` in a `data:` URL shows that image, as one from the archive
+    /// is shown: a bitmap as itself, a drawing drawn, and neither by its fallback text. Each is
+    /// known in the image cache by the position of its `<image>`. One that is no usable image
+    /// shows the SVG's label and is counted unreadable, as a wrapped archive image that is missing.
+    func testAnSVGThatIsOnlyAnImageInADataURLShowsIt() throws {
+        let red = RichMediaImages.solid(width: 60, height: 80, red: 1, green: 0, blue: 0).base64EncodedString()
+        let blue = RichMediaImages.solid(width: 60, height: 80, red: 0, green: 0, blue: 1).base64EncodedString()
+        let square = "<svg xmlns='http://www.w3.org/2000/svg' width='60' height='80'><rect width='60' height='80' fill='red'/></svg>"
+        let escaped = try XCTUnwrap(square.addingPercentEncoding(withAllowedCharacters: .alphanumerics))
+        func wrapper(_ reference: String) -> String {
+            "<div><svg \(Self.ns) viewBox='0 0 60 80'><title>Cover</title><image width='60' height='80' \(reference)/></svg></div>"
+        }
+        let text = try build(wrapper("href='data:image/png;base64,\(red)'") + wrapper("xlink:href='data:image/png;base64,\(blue)'")
+                             + wrapper("href='data:image/svg+xml,\(escaped)'"))
+        let images = text.richMediaImages
+        XCTAssertEqual(images.map(\.source.format), [.bitmap, .bitmap, .svg])
+        XCTAssertEqual(images.map(\.source.pixelSize), [CGSize(width: 60, height: 80), CGSize(width: 60, height: 80), CGSize(width: 60, height: 80)])
+        XCTAssertEqual(images.map(\.path), ["", "", ""], "none has an archive path")
+        XCTAssertEqual(images.map(\.alternative), [.text("Cover"), .text("Cover"), .text("Cover")])
+        XCTAssertEqual(Set(images.map(\.source.key)).count, 3)
+        let pixels = try images.map { RichMediaImages.rgba(try XCTUnwrap($0.source.decode(maxPixelSize: 80)), x: 30, y: 40) }
+        if pixels.count == 3 {
+            XCTAssertTrue(Self.isRed(pixels[0]), "\(pixels[0])")
+            XCTAssertGreaterThan(pixels[1][2], pixels[1][0], "the second is blue")
+            XCTAssertTrue(Self.isRed(pixels[2]), "\(pixels[2])")
+        }
+        XCTAssertFalse(text.richMediaPlain.contains("Cover"), "no fallback text is shown")
+        XCTAssertEqual(text.report.unreadableResources, 0)
+        XCTAssertEqual(text.report.unsupportedElements, [:])
+        for reference in ["href='data:image/png;base64'", "href='data:text/plain;base64,\(red)'", "href='data:image/png;base64,AAAA'"] {
+            let (image, text) = try image(wrapper(reference))
+            XCTAssertNil(image, reference)
+            XCTAssertEqual(text.richMediaPlain, "Cover", reference)
+            XCTAssertEqual(text.report.unreadableResources, 1, reference)
+            XCTAssertEqual(text.report.remoteResourcesRefused, 0, reference)
+        }
+    }
+
+    /// An `<image>` whose `data:` URL is no usable image is left out of its drawing as an archive
+    /// image that cannot be decoded is, and disclosed as one: a URL the processor cannot read, one
+    /// whose type is not an image's, bytes no decoder reads, a bitmap with more pixels than one
+    /// image may have, and a drawing that cannot be drawn. It is no resource from the internet,
+    /// and is not counted as one refused.
+    func testAnImageInADataURLThatIsNoUsableImageIsLeftOutOfItsDrawing() throws {
+        let png = RichMediaImages.solid(width: 10, height: 10).base64EncodedString()
+        let huge = RichMediaImages.headerOnlyPNG(width: 4097, height: 4097)
+        XCTAssertGreaterThan(4097 * 4097, SVGContent.maximumTotalImagePixels)
+        for href in ["data:image/png;base64", "data:text/plain;base64,\(png)", "data:,\(png)", "data:image/png;base64,AAAA",
+                     "data:image/png;base64,\(huge.base64EncodedString())", "data:image/svg+xml,%3Csvg%3E"] {
+            let message = String(href.prefix(40))
+            let inline = try image("<p>\(Self.drawing("href='\(href)'"))</p>")
+            try assertDraws(inline.0, image: false, "inline, " + message)
+            let archived = try image("<p><img src='d.svg' alt='Drawing'/></p>", files: ["d.svg": Data(Self.drawing("href='\(href)'").utf8)])
+            try assertDraws(archived.0, image: false, "from the archive, " + message)
+            for text in [inline.1, archived.1] {
+                XCTAssertEqual(text.report.unsupportedElements, ["svg:image": 1], message)
+                XCTAssertEqual(text.report.unreadableResources, 0, message)
+                XCTAssertEqual(text.report.remoteResourcesRefused, 0, message)
+            }
+        }
+    }
+
+    /// Images in `data:` URLs are held to the bounds of archive images: the pixels a drawing's
+    /// images have together, and the work its preparation may do, which counts a URL's bytes as
+    /// it counts a file's and knows a URL given twice as it knows a path.
+    func testImagesInDataURLsKeepTheBoundsOfArchiveImages() throws {
+        // Each image is inlined at 2,048 pixels on its long side at most, and a drawing's images
+        // have 16 Mi pixels together at most: the fifth of five such is left out.
+        let large = RichMediaImages.solid(width: 2048, height: 2048, red: 1, green: 0, blue: 0).base64EncodedString()
+        let five = (0..<5).map { "<image x='\($0 * 10)' width='10' height='10' href='data:image/png;base64,\(large)'/>" }.joined()
+        let (drawing, text) = try image("<p><svg \(Self.ns) width='50' height='10'>\(five)</svg></p>")
+        let bitmap = try XCTUnwrap(drawing?.source.decode(maxPixelSize: 50))
+        XCTAssertEqual((0..<5).map { Self.isRed(RichMediaImages.rgba(bitmap, x: $0 * 10 + 5, y: 5)) }, [true, true, true, true, false])
+        XCTAssertEqual(text.report.unsupportedElements, ["svg:image": 1])
+
+        let red = RichMediaImages.solid(width: 10, height: 10, red: 1, green: 0, blue: 0)
+        let blue = RichMediaImages.solid(width: 10, height: 10, red: 0, green: 0, blue: 1)
+        let three = "<svg \(Self.ns) width='30' height='10'><image width='10' height='10' href='data:image/png;base64,\(red.base64EncodedString())'/>"
+            + "<image x='10' width='10' height='10' xlink:href='data:image/png;base64,\(red.base64EncodedString())'/>"
+            + "<image x='20' width='10' height='10' href='data:image/png;base64,\(blue.base64EncodedString())'/></svg>"
+        let root = try ContentDocument.parse(Data(three.utf8), path: "OPS/d.svg", asContent: false).root
+        let publication = try RichMediaBook(body: "<p>Preparation</p>").publication
+        let context = SVGImagePreparation(), report = SectionReportBox()
+        XCTAssertNotNil(SVGContent.serialize(root, resolve: { XCTFail("resolved \($0)"); return nil }, publication: publication,
+                                             report: report, imagePreparation: context))
+        XCTAssertEqual(context.visits, 2, "the URL given twice is prepared once")
+        XCTAssertEqual(context.cacheHits, 1)
+        XCTAssertEqual(report.report.unsupportedElements, [:])
+        var limits = SVGImagePreparation.Limits()
+        limits.sourceBytes = red.count + blue.count - 1
+        let limited = SVGImagePreparation(limits: limits), limitedReport = SectionReportBox()
+        XCTAssertNotNil(SVGContent.serialize(root, resolve: { _ in nil }, publication: publication, report: limitedReport, imagePreparation: limited))
+        XCTAssertEqual(limitedReport.report.unsupportedElements, ["svg:image": 1], "the blue image's bytes are past what is left")
+    }
+
+    /// The renderer is given the drawing as it is prepared: an image in a `data:` URL reaches it
+    /// as the PNG its bytes decode to, so one of a type the renderer does not read itself is
+    /// drawn, and the prepared drawing passes the second screening (`SVGRenderer`). The first
+    /// screens the drawing as the book has it, `data:` images and all. A drawing in a `data:` URL
+    /// has no base in the archive, inside a drawing as anywhere: a reference in it names no file,
+    /// though there is one at that path.
+    func testAnImageInADataURLReachesTheRendererAsAPreparedPNGAndNoArchiveFile() throws {
+        let red = RichMediaImages.bitmap(width: 10, height: 10) { context, rect in
+            context.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+            context.fill(rect)
+        }
+        let bmp = try XCTUnwrap(RichMediaImages.encode([red], as: .bmp))
+        let raw = Self.drawing("href='data:image/bmp;base64,\(bmp.base64EncodedString())'")
+        XCTAssertNil(source(raw), "the renderer's own entry point reads no BMP")
+        try assertDraws(try image("<p>\(raw)</p>").0, image: true, "BMP")
+        let book = try RichMediaBook(body: "<p>Prepared</p>", files: ["pic.png": RichMediaImages.solid(width: 10, height: 10)])
+        let prepared = try XCTUnwrap(SVGContent.serialize(try ContentDocument.parse(Data(raw.utf8), path: "OPS/d.svg", asContent: false).root,
+                                                          resolve: { _ in nil }, publication: book.publication))
+        XCTAssertTrue(String(decoding: prepared, as: UTF8.self).contains("href=\"data:image/png;base64,"))
+        XCTAssertFalse(String(decoding: prepared, as: UTF8.self).contains("image/bmp"))
+        XCTAssertTrue(SVGContent.preparedImagesAreBounded(try ContentDocument.parse(prepared, path: "prepared.svg", asContent: false).root))
+        XCTAssertNotNil(source(String(decoding: prepared, as: UTF8.self)))
+        // The first screening reads a `data:` image's own size: one with no width or height that
+        // spans the drawing many times over is refused before anything is prepared.
+        let wide = RichMediaImages.solid(width: 100, height: 100).base64EncodedString()
+        let (refused, refusal) = try image("<p><svg \(Self.ns) width='10' height='10'><title>Wide</title><image href='data:image/png;base64,\(wide)'/><rect width='0' height='0'/></svg></p>")
+        XCTAssertNil(refused)
+        XCTAssertEqual(refusal.richMediaPlain, "Wide")
+        XCTAssertEqual(refusal.report.unsupportedElements, ["svg": 1])
+
+        let inner = "<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><image href='pic.png' width='5' height='10'/>"
+            + "<image href='/OPS/pic.png' width='5' height='10'/><rect x='5' width='5' height='10' fill='lime'/></svg>"
+        let nested = Self.drawing("href='data:image/svg+xml,\(try XCTUnwrap(inner.addingPercentEncoding(withAllowedCharacters: .alphanumerics)))'")
+        var resolved: [String] = []
+        let report = SectionReportBox()
+        XCTAssertNotNil(SVGContent.serialize(try ContentDocument.parse(Data(nested.utf8), path: "OPS/d.svg", asContent: false).root,
+                                             resolve: { resolved.append($0); return "OPS/" + $0 }, publication: book.publication, report: report))
+        XCTAssertEqual(resolved, [], "nothing in or round the drawing in the data: URL is resolved")
+        XCTAssertEqual(report.report.unsupportedElements, ["svg:image": 2])
+        let pic = RichMediaImages.solid(width: 10, height: 10)
+        for (body, files) in [("<p>\(nested)</p>", ["pic.png": pic]), ("<p><img src='d.svg' alt='D'/></p>", ["pic.png": pic, "d.svg": Data(nested.utf8)])] {
+            let (drawing, text) = try image(body, files: files)
+            let bitmap = try XCTUnwrap(drawing?.source.decode(maxPixelSize: 30), body)
+            XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 2, y: 5)[3], 0, "\(body): the archive picture is not drawn")
+            let lime = RichMediaImages.rgba(bitmap, x: 8, y: 5)
+            XCTAssertTrue(lime[1] > 200 && lime[0] < 60 && lime[3] == 255, "\(body): the rest of the inner drawing is, \(lime)")
+            XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 20, y: 5), [0, 0, 255, 255], body)
+            XCTAssertEqual(text.report.unsupportedElements, ["svg:image": 2], body)
+            XCTAssertEqual(text.report.unreadableResources, 0, body)
+            XCTAssertEqual(text.report.remoteResourcesRefused, 0, body)
+        }
     }
 
     // MARK: Robustness

@@ -27,7 +27,7 @@ final class ReaderTextContainer: NSTextContainer {
     /// so the layout manager restores this much as that fragment's top margin.
     var alignmentLead: CGFloat = 0
     /// Less than any line or box is tall, more than sums of their heights are out by.
-    private static let edgeSlack: CGFloat = 0.01
+    static let edgeSlack: CGFloat = 0.01
     /// The planned paragraph whose lines are being placed, and how far the plan's coordinates
     /// are from this container's at its first line (`lineFragmentRect`).
     private var planned: (paragraph: Int, shift: CGFloat)?

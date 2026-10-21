@@ -148,13 +148,73 @@ final class NavigationDocumentCoverageTests: XCTestCase {
     }
 
     func testAnImageLabelReadsAsItsAlternativeText() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/83")
         // EPUB Reading Systems 3.3 §7: outside HTML a reader should "replace unsupported non-text
         // elements in headings and labels with their alternative text" (W3C test nav-non-text_img).
         let entries = try contents("<ol><li><a href=\"one.xhtml\"><img src=\"one.png\" alt=\"The First Chapter\"/></a></li>"
             + "<li><a href=\"two.xhtml\">Part <img src=\"two.png\" alt=\"Two\"/></a></li></ol>")
         XCTAssertEqual(entries.map(\.href), ["OPS/one.xhtml", "OPS/two.xhtml"])
         XCTAssertEqual(entries.map(\.title), ["The First Chapter", "Part Two"])
+    }
+
+    func testAnImagesAltIsPreferredToItsTitleWhichStandsInWithoutOne() throws {
+        // RS 3.3 §7 prefers `alt` where an image has both (W3C test nav-non-text_img_title). An
+        // empty `alt` says the image adds nothing, whatever its `title`; one with neither adds
+        // nothing either.
+        let entries = try contents("<ol><li><a href=\"one.xhtml\"><img src=\"one.png\" alt=\"The First Chapter\" title=\"A drawn one\"/></a></li>"
+            + "<li><a href=\"two.xhtml\"><img src=\"two.png\" title=\"The Second Chapter\"/></a></li>"
+            + "<li><a href=\"three.xhtml\">Chapter <img src=\"rule.png\" alt=\"\" title=\"A rule\"/>Three<img src=\"three.png\"/></a></li></ol>")
+        XCTAssertEqual(entries.map(\.title), ["The First Chapter", "The Second Chapter", "Chapter Three"])
+    }
+
+    func testAnImageInAHeadingALandmarkAndAPageReadsAsItsAlternativeText() throws {
+        let book = try book(nav: """
+            <nav epub:type="toc"><ol><li><span><img src="part.png" alt="Part One"/></span><ol><li><a href="one.xhtml">One</a></li></ol></li></ol></nav>
+            <nav epub:type="landmarks"><ol><li><a epub:type="cover" href="one.xhtml"><img src="cover.png" alt="Cover"/></a></li></ol></nav>
+            <nav epub:type="page-list"><ol><li><a href="one.xhtml#p1">page <img src="xii.png" alt="xii"/></a></li></ol></nav>
+            """)
+        XCTAssertEqual(book.tableOfContents, [Item(title: "Part One", children: [Item(title: "One", href: "OPS/one.xhtml")])])
+        XCTAssertEqual(book.landmarks, [EPUBLandmark(types: ["cover"], title: "Cover", href: "OPS/one.xhtml")])
+        XCTAssertEqual(book.pageList, [EPUBPageListEntry(label: "page xii", href: "OPS/one.xhtml#p1")])
+    }
+
+    func testEveryEmbeddedElementInALabelReadsAsItsAlternativeText() throws {
+        // A drawing's `title` element and a formula's `alttext` are their alternatives where no
+        // `alt` or `title` is given them, and any embedded element's `title` is one. Without one,
+        // a drawing's text, a formula's characters and an object's fallback are read, as before.
+        // An image is read where it stands inside a picture or a span, and white space round its
+        // alternative is collapsed with the label's. Another element's `title` is no alternative.
+        let svg = "xmlns=\"http://www.w3.org/2000/svg\"", math = "xmlns=\"http://www.w3.org/1998/Math/MathML\""
+        let entries = try contents("<ol>"
+            + "<li><a href=\"one.xhtml\"><svg \(svg)><title>Chapter One</title><desc>A drawn numeral</desc><text>I</text></svg></a></li>"
+            + "<li><a href=\"two.xhtml\"><svg \(svg)><text>Chapter</text> <text>Two</text></svg></a></li>"
+            + "<li><a href=\"three.xhtml\">Solving <math \(math) alttext=\"x squared\"><msup><mi>x</mi><mn>2</mn></msup></math></a></li>"
+            + "<li><a href=\"four.xhtml\">Solving <math \(math)><msup><mi>x</mi><mn>2</mn></msup></math></a></li>"
+            + "<li><a href=\"five.xhtml\"><object data=\"five.svg\" type=\"image/svg+xml\">Chapter Five</object> <video src=\"five.mp4\" title=\"on film\">No video</video></a></li>"
+            + "<li><a href=\"six.xhtml\"><span>Chapter <picture><source srcset=\"six.webp\"/><img src=\"six.png\" alt=\" \tSix\"/></picture></span>: The End</a></li>"
+            + "<li><a href=\"seven.xhtml\"><abbr title=\"Chapter\">Ch.</abbr> 7</a></li>"
+            + "</ol>")
+        XCTAssertEqual(entries.map(\.title), ["Chapter One", "Chapter Two", "Solving x squared", "Solving x2", "Chapter Five on film",
+                                              "Chapter Six: The End", "Ch. 7"])
+    }
+
+    func testALinkOrHeadingWhoseLabelIsEmptyReadsAsItsTitle() throws {
+        // EPUB 3.3 §7.3 has a link or heading holding embedded content with no text alternative
+        // carry its label in a `title`, and foliate-js reads that `title` where the label is
+        // empty, as here, read as a label is. A label that is not empty stands, whatever its
+        // link's `title` says.
+        let book = try book(nav: "<nav epub:type=\"toc\"><ol>"
+            + "<li><a href=\"one.xhtml\" title=\"  Chapter\tOne \"><img src=\"one.png\"/></a></li>"
+            + "<li><span title=\"Part Two\"><svg xmlns=\"http://www.w3.org/2000/svg\"><circle r=\"1\"/></svg></span>"
+            + "<ol><li><a href=\"two.xhtml\" title=\"A tooltip\">Two <img src=\"two.png\"/></a></li></ol></li>"
+            + "<li><a href=\"three.xhtml\" title=\"Three\"><img src=\"three.png\" alt=\"\"/> </a></li>"
+            + "<li><a href=\"four.xhtml\" title=\" \"><img src=\"four.png\"/></a></li></ol></nav>"
+            + "<nav epub:type=\"landmarks\"><ol><li><a epub:type=\"cover\" href=\"one.xhtml\" title=\"Cover\"><img src=\"cover.png\"/></a></li></ol></nav>"
+            + "<nav epub:type=\"page-list\"><ol><li><a href=\"one.xhtml#p1\" title=\"1\"><img src=\"1.png\"/></a></li></ol></nav>")
+        XCTAssertEqual(book.tableOfContents, [Item(title: "Chapter One", href: "OPS/one.xhtml"),
+                                              Item(title: "Part Two", children: [Item(title: "Two", href: "OPS/two.xhtml")]),
+                                              Item(title: "Three", href: "OPS/three.xhtml"), Item(title: "", href: "OPS/four.xhtml")])
+        XCTAssertEqual(book.landmarks, [EPUBLandmark(types: ["cover"], title: "Cover", href: "OPS/one.xhtml")])
+        XCTAssertEqual(book.pageList, [EPUBPageListEntry(label: "1", href: "OPS/one.xhtml#p1")])
     }
 
     func testNamedCharacterReferencesUnderAnXHTMLDoctypeDoNotVanishFromALabel() throws {

@@ -161,19 +161,21 @@ final class SectionContentRobustnessCoverageTests: XCTestCase {
                 let text = H.build(document: document, rules: [(".w", { _ in styled += 1 })])
                 XCTAssertEqual(styled, walks * 1_000, "\(padding) elements in front")
                 XCTAssertEqual(text.string.string, "Text")
-                XCTAssertEqual(Set(text.notes.keys).subtracting(["e"]), Set((0..<190).map { EPUBElementID("n\($0)") }))
-                // The innermost notes show the content; the ones further out stay empty.
-                XCTAssertEqual((0..<190).filter { text.notes["n\($0)"]?.length != 0 }, Array((190 - shown)..<190), "\(padding) elements in front")
+                // The innermost notes show the content. The ones further out show nothing, and a note that shows
+                // nothing is not kept (https://github.com/vocaro/EPUBLib/issues/284).
+                XCTAssertEqual(Set(text.notes.keys), Set(((190 - shown)..<190).map { EPUBElementID("n\($0)") }), "\(padding) elements in front")
+                XCTAssertFalse(text.notes.values.contains { $0.length == 0 })
             }
         }
     }
 
     func testNotesHoldingOnlyOtherNotesTakeNothingFromTheNotesThemselves() throws {
         // What a note with nothing of its own repeats of the notes nested in it comes from a budget of its own. 190
-        // such notes are captured before the note of 300,000 units they hold, which is still whole, and all are keys.
+        // such notes are captured before the note of 300,000 units they hold, which is still whole and a key, as are
+        // the notes that repeat it. The ones further out show nothing and are not kept.
         let open = (0..<190).map { "<aside epub:type='footnote' id='n\($0)'>" }.joined(), close = String(repeating: "</aside>", count: 190)
         let chain = H.build(document: try H.document(open + "<p>" + String(repeating: "word ", count: 60_000) + "</p>" + close))
-        XCTAssertEqual(chain.notes.count, 190)
+        XCTAssertEqual(chain.notes.count, SectionBuildState.wholeNoteDepth + 1)
         XCTAssertEqual((0..<190).filter { chain.notes["n\($0)"]?.length == 299_999 }, Array((189 - SectionBuildState.wholeNoteDepth)..<190))
         // Sixteen notes marked by two elements each, 200,000 units a note: more than one budget would hold of the
         // notes and of what their outer elements repeat of them together.

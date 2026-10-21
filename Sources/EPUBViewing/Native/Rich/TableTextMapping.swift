@@ -71,6 +71,20 @@ extension SectionText {
         return isEnd ? map.endPosition(at: position.offset, in: document) : map.position(at: position.offset, in: document)
     }
 
+    /// The DOM range of a rendered range within this section, each end in the map it lies in
+    /// (`domPosition`), running forwards as `TextMap.domRange` makes one: a range holding only
+    /// generated text runs from the text before it to the text after it. A position when the
+    /// range is empty.
+    func domRange(_ range: ReaderTextRange) -> (start: DOMPosition, end: DOMPosition)? {
+        guard range.start.tableCell != nil || range.end.tableCell != nil else {
+            return map.domRange(range.start.offset..<max(range.start.offset, range.end.offset), in: document)
+        }
+        guard let start = domPosition(range.start) else { return nil }
+        guard range.end.tableCell != nil || range.end.offset > range.start.offset else { return (start, start) }
+        guard let end = domPosition(range.end, isEnd: true) else { return nil }
+        return end < start ? (end, start) : (start, end)
+    }
+
     /// Old bookmarks naming a table element still use the attachment unit. Only CFIs naming
     /// a cell or its descendants enter cell space.
     func renderedPosition(_ position: DOMPosition, isEnd: Bool = false) -> ReaderTextPosition {

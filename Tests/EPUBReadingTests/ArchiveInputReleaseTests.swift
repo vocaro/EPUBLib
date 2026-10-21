@@ -156,14 +156,15 @@ final class ArchiveInputReleaseTests: XCTestCase {
         let record = try XCTUnwrap(Fixture.directoryOffset(of: chapter, in: deflated))
         let content = try XCTUnwrap(Fixture.dataOffset(of: chapter, in: deflated))
         // An entry that says it inflates to one byte, read with a limit a byte under what it
-        // does inflate to: the refusal is thrown from inside ZIPFoundation's inflating.
+        // does inflate to: the refusal is thrown from inside the inflating.
         let size = try XCTUnwrap(files[chapter]).count
         assertRefusedAndReleased(stating(le(UInt32(1)), at: record + 24, in: deflated), limits: limits { $0.resourceBytes = size - 1 },
                                  as: .limitExceeded(chapter), "an entry that inflates past the limit")
         assertRefusedAndReleased(stating(le(UInt32(0x1234_5678)), at: record + 16, in: deflated), as: .invalidArchive("CRC: \(chapter)"),
                                  "an inflated entry whose checksum does not match")
-        // ZIPFoundation's own errors, which are not yet typed (#74): only that they are errors.
-        assertRefusedAndReleased(stating(Data(repeating: 0xFF, count: 24), at: content, in: deflated), as: nil, "a stream that does not inflate")
+        assertRefusedAndReleased(stating(Data(repeating: 0xFF, count: 24), at: content, in: deflated),
+                                 as: .invalidArchive("\(chapter): corruptedData"), "a stream that does not inflate")
+        // ZIPFoundation's own error, which is not yet typed (#74): only that it is one.
         var entries = Fixture.storedEntries(files)
         let index = try XCTUnwrap(entries.firstIndex { $0.name == Data(chapter.utf8) })
         entries[index].method = 12 // bzip2

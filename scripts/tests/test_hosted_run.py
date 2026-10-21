@@ -18,7 +18,9 @@ if args[:2] == ["run", "list"] and "--status" in args:
         sys.stderr.write("could not read the queue\\n")
         sys.exit(1)
     status = args[args.index("--status") + 1]
-    print(json.dumps([run for run in scenario.get("runs", []) if run["status"] == status]))
+    repository = args[args.index("--repo") + 1] if "--repo" in args else None
+    runs = scenario.get("repository_runs", {}).get(repository, scenario.get("runs", []))
+    print(json.dumps([run for run in runs if run["status"] == status]))
 elif args[0] == "api" and "/commits/" in args[1]:
     ref = args[1].split("/commits/")[1]
     if ref not in scenario["commits"]:
@@ -36,12 +38,21 @@ else:
     sys.stderr.write(f"fake gh: unexpected {args}\\n")
     sys.exit(9)
 '''
-GIT = f'''import sys
+GIT = f'''import json, os, sys
+from pathlib import Path
 args = sys.argv[1:]
 if args == ["branch", "--show-current"]:
     print({BRANCH!r})
 elif args == ["rev-parse", "HEAD"]:
     print({HEAD!r})
+elif args == ["config", "--local", "--get-all", "vocaroEngineering.hostedRepository"]:
+    scenario = json.loads(Path(os.environ["FAKE_GH"]).read_text())
+    if scenario.get("local_config_fails"):
+        sys.stderr.write("cannot read enrollment")
+        sys.exit(128)
+    names = scenario.get("local_repositories", [])
+    for name in names: print(name)
+    sys.exit(0 if names else 1)
 else:
     raise AssertionError(args)
 '''
@@ -164,3 +175,28 @@ class HostedRunTests(ScriptTestCase):
             with self.subTest(arguments=arguments):
                 calls = self.invoke({}, arguments, 2, False, [message])
                 self.assertEqual(calls, [])
+
+    def test_private_queues_are_additive_local_enrollment(self):
+        own = "vocaro/EPUBLib"
+        private = "example/private-project"
+        calls = self.invoke({"local_repositories": [private, own, private],
+                             "repository_runs": {own: [run_of(1, "in_progress")],
+                                                 private: [run_of(2, "queued", "other")]}},
+                            ["voiceover-mac.yml"], 1, False,
+                            ["keeps to one while any run is waiting"])
+        queued = [call[call.index("--repo") + 1] for call in calls if "--repo" in call]
+        self.assertEqual(queued.count(own), 5)
+        self.assertEqual(queued.count(private), 5)
+
+    def test_other_repository_branch_names_do_not_count_as_ours(self):
+        private = "example/private-project"
+        self.invoke({"local_repositories": [private],
+                     "repository_runs": {"vocaro/EPUBLib": [],
+                                         private: [run_of(1, "in_progress"), run_of(2, "in_progress")]}},
+                    ["voiceover-mac.yml"], shows=["Started run 999"])
+
+    def test_invalid_or_unreadable_local_enrollment_never_queries_or_dispatches(self):
+        for scenario, message in [({"local_repositories": ["invalid"]}, "Invalid local hosted"),
+                                  ({"local_config_fails": True}, "Cannot read local hosted")]:
+            calls = self.invoke(scenario, ["voiceover-mac.yml"], 1, False, [message])
+            self.assertEqual(calls, [])
