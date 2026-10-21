@@ -2347,6 +2347,14 @@ changes.
   `max-height` caps a definite `height`, `box-sizing: border-box` takes the vertical padding
   and border out of it, and content taller than the box is never clipped: it flows as blocks.
   The height used is at most one viewport, so a box that opens a page stays on that page.
+- **Items.** Every in-flow child is an item, an empty one such as a `flex: 1` spacer included.
+  An item's margins collapse with nothing, as CSS Flexbox 1 (sections 3 and 4) and CSS Grid 1
+  (sections 5.1 and 6) have it: not with its container's, its siblings' or those of what it
+  holds, with or without a height to align in. Its margins, borders and padding, and those of
+  what it holds above its first line and below its last, are content of the container, so they
+  come out of the free space and are kept, as the box's own space, where the box starts a page.
+  An empty item has its gaps and its own margins and padding, and takes its share of the free
+  space by `flex-grow`, `auto` margins, `justify-content` and a grid's stretched rows.
 - **Down the page.** In a column flex container the free space goes first to items with
   `flex-grow` (a grown item keeps its content at its top), then to `auto` top and bottom margins,
   then by `justify-content`: `flex-start`, `center`, `flex-end`, `space-between`, `space-around`
@@ -3430,9 +3438,10 @@ Go: the native viewer is the bundled engine.
 - Flex and grid alignment covers the single-column subset described above. Side-by-side row
   items, wrapping and reversed flex, multi-column and explicitly placed grids, `order` and
   inline flex or grid containers render as blocks in reading order with a disclosure. Within
-  the subset: margins between items still collapse as block margins do; `flex-shrink`,
-  `flex-basis`, `align-content` in flex, `column-gap`, percentage gaps, baseline alignment and
-  `aspect-ratio` are not laid out; `box-sizing` applies to heights only; start-aligned items
+  the subset: `flex-shrink`, `flex-basis`, `align-content` in flex, `column-gap`, percentage
+  gaps, baseline alignment, `aspect-ratio` and an empty item's own `height` are not laid out;
+  empty items beside a row's only item with content do not move it, which is placed as if alone;
+  `box-sizing` applies to heights only; start-aligned items
   and items holding images, tables or formulas keep their block-flow width and placement; a
   box taller than one viewport is treated as one viewport tall; and a container holding a float
   or positioned box is left in block flow. `min()`, `max()` and `clamp()` heights choose their

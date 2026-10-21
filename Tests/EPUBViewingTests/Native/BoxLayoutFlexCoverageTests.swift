@@ -537,13 +537,11 @@ import UIKit
         BuilderHarness.assertMapRoundTrips(stacked)
     }
 
-    // MARK: Expected product defects
+    // MARK: An item's own space
 
     /// CSS Flexbox 9.2 and 9.7: an item's outer size includes its own padding and border, so they
-    /// are content of the container and come out of its free space. The reader measures the
-    /// item's lines alone and puts its padding outside the box's height.
+    /// are content of the container and come out of its free space.
     func testAnItemsOwnPaddingIsPartOfTheContainersContent() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/154")
         let (section, view) = try scrolled("<p>Before.</p><div class='box'><div class='item'><p>Line.</p></div></div><p>After.</p>",
                                            css: ".box { \(column); justify-content:center; height:400px } .item { padding:40px 0 }")
         let top = H.frame("Before.", in: section, view: view).maxY
@@ -554,7 +552,6 @@ import UIKit
     /// CSS Flexbox 4: a flex item establishes an independent formatting context, so the margins
     /// of what it holds stay inside it (CSS 2.2 8.3.1) and count as the container's content.
     func testMarginsNestedInsideTheFirstAndLastItemsStayInsideTheBox() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/154")
         let (section, view) = try scrolled("<p>Before.</p><div class='box'><div class='item'><p class='m'>Line.</p></div></div><p>After.</p>",
                                            css: ".box { \(column); justify-content:center; height:400px } .m { margin:16px 0 }")
         let top = H.frame("Before.", in: section, view: view).maxY
@@ -565,7 +562,6 @@ import UIKit
     /// CSS Flexbox 4 and 9.7: every in-flow child is a flex item, an empty one too, and takes
     /// its share of the free space: the spacer that pushes a footer to the bottom.
     func testAnEmptyGrowingItemTakesTheFreeSpace() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/154")
         let (section, view) = try scrolled("<div class='box'><p>Top line.</p><div class='spacer'></div><p>Bottom line.</p></div><p>After.</p>",
                                            css: ".box { \(column); height:400px } .spacer { flex:1 }")
         XCTAssertEqual(H.frame("Top line.", in: section, view: view).minY, 0, accuracy: tolerance)
@@ -576,10 +572,128 @@ import UIKit
     /// CSS Box Alignment 3, 6.1 and 6.3: `left` and `right` are values of `justify-*` only.
     /// `align-items: right` is invalid, so the earlier declaration stands.
     func testAlignItemsAndAlignSelfRejectLeftAndRight() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/154")
         for value in ["right", "left"] {
             assert(try single("display:flex; flex-direction:column; align-items:center; align-items:\(value)").item, .centre, "align-items:\(value) is invalid")
             assert(try single("display:flex; flex-direction:column; align-items:center", item: "align-self:\(value)").item, .centre, "align-self:\(value) is invalid")
+            assert(try single("display:grid; height:300px; align-content:end; align-content:\(value)").item, .bottom, "align-content:\(value) is invalid")
+            assert(try single("display:grid; height:300px; place-items:end start; place-items:\(value)").item, .bottom, "place-items:\(value) is invalid")
         }
+        assert(try single(column + "; justify-content:flex-end; justify-content:baseline").item, .bottom, "justify-content has no baseline")
+        assert(try single(column + "; justify-content:flex-end; justify-content:safe stretch").item, .bottom, "safe goes only before a position")
+    }
+
+    /// The same rule at every edge and depth: whatever lies between the content edge and the
+    /// first or last line (an item's border, a nested container's padding, the margins inside
+    /// an item, a percentage of the width shown) is content of the box.
+    func testBordersNestedBoxesAndPercentagesAtTheEdgesAreContent() throws {
+        let body = "<p>Before.</p><div class='box'><div class='item'><p>Line.</p></div></div><p>After.</p>"
+        let box = ".box { \(column); justify-content:center; height:400px } "
+        // The middle of the line below the middle of the box, by half the difference above and below it.
+        let cases: [(String, CGFloat)] = [
+            (".item { border-top:10px solid black; border-bottom:10px solid black; padding:15px 0 }", 0),
+            (".item { display:flex; flex-direction:column; padding:25px 0 } .item p { margin:15px 0 }", 0),
+            (".item { margin-top:20px } .item p { margin-top:10px }", 15),
+            (".item { padding-bottom:30px; margin-bottom:10px }", -20),
+        ]
+        for (css, below) in cases {
+            let (section, view) = try scrolled(body, css: box + css)
+            let top = H.frame("Before.", in: section, view: view).maxY
+            XCTAssertEqual(H.frame("After.", in: section, view: view).minY, top + 400, accuracy: tolerance, css)
+            XCTAssertEqual(H.frame("Line.", in: section, view: view).midY, top + 200 + below, accuracy: tolerance, css)
+        }
+        // Vertical padding refers to the width, at the width shown: 10% of 300 and of 500 points.
+        for width: CGFloat in [300, 500] {
+            let (section, view) = try scrolled(body, css: box + ".item { padding:10% 0 }", size: CGSize(width: width, height: 600))
+            let top = H.frame("Before.", in: section, view: view).maxY
+            XCTAssertEqual(H.frame("After.", in: section, view: view).minY, top + 400, accuracy: tolerance, "\(width)")
+            XCTAssertEqual(H.frame("Line.", in: section, view: view).midY, top + 200, accuracy: tolerance, "\(width)")
+        }
+    }
+
+    /// CSS Flexbox 3 and 4, CSS Grid 5.1 and 6: a flex or grid container's margins do not collapse
+    /// with its items', and an item, an independent formatting context, keeps its own apart from
+    /// its siblings' and its content's. Block flow collapses the same margins.
+    func testMarginsOfItemsCollapseWithNothing() throws {
+        let body = "<p class='before'>Before.</p><div class='box'><div class='one'><p class='inner'>One.</p></div>"
+            + "<p class='two'>Two.</p></div><p>After.</p>"
+        let css = ".before { margin-bottom:12px } .one { margin:20px 0 } .inner { margin:7px 0 } .two { margin:30px 0 5px }"
+        func gaps(_ container: String) throws -> (above: CGFloat, between: CGFloat, below: CGFloat) {
+            let (section, view) = try scrolled(body, css: ".box { \(container) } " + css)
+            let frames = ["Before.", "One.", "Two.", "After."].map { H.frame($0, in: section, view: view) }
+            return (frames[1].minY - frames[0].maxY, frames[2].minY - frames[1].maxY, frames[3].minY - frames[2].maxY)
+        }
+        for container in ["display:flex; flex-direction:column", "display:grid", "display:flex"] {
+            let result = try gaps(container)
+            XCTAssertEqual(result.above, 12 + 20 + 7, accuracy: 0.5, container)
+            XCTAssertEqual(result.between, 7 + 20 + 30, accuracy: 0.5, container)
+            XCTAssertEqual(result.below, 5, accuracy: 0.5, container)
+        }
+        let block = try gaps("display:block")
+        XCTAssertEqual(block.above, 20, accuracy: 0.5); XCTAssertEqual(block.between, 30, accuracy: 0.5)
+        // With a height to align in, every one of those margins is content of the box.
+        let (section, view) = try scrolled(body, css: ".box { \(column); justify-content:center } " + css)
+        let before = H.frame("Before.", in: section, view: view), one = H.frame("One.", in: section, view: view)
+        let two = H.frame("Two.", in: section, view: view)
+        let free = 300 - (27 + one.height + 57 + two.height + 5)
+        XCTAssertEqual(one.minY - before.maxY, 12 + 27 + free / 2, accuracy: tolerance)
+        XCTAssertEqual(H.frame("After.", in: section, view: view).minY, before.maxY + 12 + 300, accuracy: tolerance)
+    }
+
+    /// CSS Flexbox 4 and CSS Grid 6: an empty child is an item like any other. It takes its share
+    /// of the free space by growth, auto margins, `justify-content` and a grid's stretched rows,
+    /// and has its gaps, margins and padding.
+    func testEmptyItemsTakePartInTheLayout() throws {
+        func layout(_ body: String, _ css: String) throws -> (a: CGRect, b: CGRect?, after: CGFloat) {
+            let (section, view) = try scrolled("<div class='box'>\(body)</div><p>After.</p>", css: css)
+            let b = body.contains("B.") ? H.frame("B.", in: section, view: view) : nil
+            return (H.frame("A.", in: section, view: view), b, H.frame("After.", in: section, view: view).minY)
+        }
+        let e = "<div class='e'></div>"
+        // space-between among three: the empty one is last, at the bottom.
+        var result = try layout("<p>A.</p><p>B.</p>" + e, ".box { \(column); justify-content:space-between }")
+        var free = 300 - result.a.height - result.b!.height
+        XCTAssertEqual(result.a.minY, 0, accuracy: tolerance)
+        XCTAssertEqual(result.b!.minY, result.a.maxY + free / 2, accuracy: tolerance, "space-between counts the empty item")
+        XCTAssertEqual(result.after, 300, accuracy: tolerance)
+        // An auto margin on an empty item takes the free space.
+        result = try layout("<p>A.</p>" + e + "<p>B.</p>", ".box { \(column); justify-content:center } .e { margin-top:auto }")
+        XCTAssertEqual(result.a.minY, 0, accuracy: tolerance); XCTAssertEqual(result.b!.maxY, 300, accuracy: tolerance)
+        // A gap either side, with or without a height.
+        for container in ["display:flex; flex-direction:column; gap:20px", column + "; justify-content:flex-end; gap:20px"] {
+            result = try layout("<p>A.</p>" + e + "<p>B.</p>", ".box { \(container) }")
+            XCTAssertEqual(result.b!.minY - result.a.maxY, 40, accuracy: 0.5, container)
+        }
+        result = try layout("<p>A.</p>" + e, ".box { display:flex; flex-direction:column; gap:20px }")
+        XCTAssertEqual(result.after - result.a.maxY, 20, accuracy: 0.5, "a gap before an empty last item")
+        // Documented: an empty item's own height is not laid out.
+        result = try layout("<p>A.</p>" + e + "<p>B.</p>", ".box { display:flex; flex-direction:column } .e { height:50px }")
+        XCTAssertEqual(result.b!.minY, result.a.maxY, accuracy: 0.5)
+        // Its padding is content of the box, last item or not.
+        result = try layout("<p>A.</p>" + e, ".box { \(column); justify-content:center } .e { padding:10px 0 }")
+        XCTAssertEqual(result.a.minY, (300 - result.a.height - 20) / 2, accuracy: tolerance)
+        XCTAssertEqual(result.after, 300, accuracy: tolerance)
+        // A grid's auto rows share the free space equally, an empty row included (CSS Grid 1,
+        // 11.8): the first row is its line and half of the rest.
+        result = try layout("<p>A.</p>" + e, ".box { display:grid; height:300px; align-items:center }")
+        XCTAssertEqual(result.a.midY, (result.a.height + (300 - result.a.height) / 2) / 2, accuracy: tolerance)
+        XCTAssertEqual(result.after, 300, accuracy: tolerance)
+        // A reversed column shows the empty item on the other side of the one with content.
+        result = try layout(e + "<p>A.</p>", ".box { display:flex; flex-direction:column-reverse; height:300px } .e { flex:1 }")
+        XCTAssertEqual(result.a.minY, 0, accuracy: tolerance, "the growing item is below")
+        result = try layout("<p>A.</p>" + e, ".box { display:flex; flex-direction:column-reverse; height:300px; justify-content:flex-end } .e { flex:1 }")
+        XCTAssertEqual(result.a.maxY, 300, accuracy: tolerance, "the growing item is above")
+    }
+
+    /// The space inside a box above its first line is the box's own, as its alignment space is:
+    /// a box that starts a page at an unforced break keeps it.
+    func testTheSpaceInsideABoxAboveItsFirstLineIsKeptAtAPageStart() throws {
+        let section = try H.build("<p style='margin-bottom:500px'>Before the box.</p><div class='box'><div class='item'><p>Centred after prose.</p></div></div><p>After the box.</p>",
+                                  css: H.reset + ".box { \(column); justify-content:center; height:100vh } .item { padding:40px 0 } .item p { margin-top:16px }")
+        let paged = AlignmentHarness.paged("Centred after prose.", in: section, size: size)
+        XCTAssertEqual(paged.page, 1)
+        // 56 points above the line and 40 below it inside the box: its middle is 8 below the page's.
+        XCTAssertEqual(paged.frame.midY, 308, accuracy: tolerance)
+        XCTAssertEqual(AlignmentHarness.paged("After the box.", in: section, size: size).page, 2, "the box fills its page")
+        H.pages(section, size: size)
     }
 }
