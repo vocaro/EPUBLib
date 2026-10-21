@@ -486,7 +486,8 @@ struct CSSSelectorParser {
             count += 1
             guard count <= Self.maximumSimpleSelectors else { throw .tooComplex }
         }
-        guard hasType || count > 0 else { throw .invalid }
+        // A pseudo-element written alone (`::before`) is that of `*` (Selectors 4 §3.7).
+        guard hasType || count > 0 || pseudoElement != nil else { throw .invalid }
         return (compound, specificity, pseudoElement)
     }
 

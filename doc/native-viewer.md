@@ -1467,11 +1467,13 @@ continues to describe the authored spine resource.
   with `quotes`; and `counter()` and `counters()`, with `counter-reset`, `counter-increment`
   and `counter-set` (CSS Lists 3 §4) in the counter styles `list-style-type` has
   ([#131](https://github.com/vocaro/EPUBLib/issues/131)). A pseudo-element is styled by its
-  own rules and inherits from its element. `none`, `normal`, a rule with no `content` and
-  `display: none` generate nothing. The marks around a `q` are generated the same way, from
-  the user-agent sheet's `q::before` and `q::after` as HTML gives them, so a book's `quotes`,
-  and the reset stylesheets that write `q:before, q:after { content: none }`, apply to them as
-  they do in a browser. Before, the marks were drawn whatever the book's styles said.
+  own rules and inherits from its element. One written alone, as in `*, ::before, ::after`, is
+  that of any element (Selectors 4 §3.7, [#110](https://github.com/vocaro/EPUBLib/issues/110)).
+  `none`, `normal`, a rule with no `content` and `display: none` generate nothing. The marks
+  around a `q` are generated the same way, from the user-agent sheet's `q::before` and
+  `q::after` as HTML gives them, so a book's `quotes`, and the reset stylesheets that write
+  `q:before, q:after { content: none }`, apply to them as they do in a browser. Before, the
+  marks were drawn whatever the book's styles said.
   - **Where it stands.** An inline box is written in its line, and white space collapses
     across it as across the book's text. A block box is a paragraph of its own. A box that
     floats or is positioned is written in its line, with the disclosure of the boxes left in
@@ -3426,5 +3428,4 @@ Go: the native viewer is the bundled engine.
   `list-item` do not change a list's numbering; and a counter style that `list-style-type`
   lacks (`@counter-style`, `symbols()`, `hiragana`…) is decimal. `::first-letter`,
   `::first-line`, `::marker` and the other pseudo-elements are not rendered: their rules are
-  dropped, and that is not disclosed. A pseudo-element written alone, as in
-  `*, ::before, ::after`, drops its rule ([#110](https://github.com/vocaro/EPUBLib/issues/110)).
+  dropped, and that is not disclosed.
