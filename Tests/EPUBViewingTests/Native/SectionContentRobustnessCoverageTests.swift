@@ -161,7 +161,7 @@ final class SectionContentRobustnessCoverageTests: XCTestCase {
                 let text = H.build(document: document, rules: [(".w", { _ in styled += 1 })])
                 XCTAssertEqual(styled, walks * 1_000, "\(padding) elements in front")
                 XCTAssertEqual(text.string.string, "Text")
-                XCTAssertEqual(Set(text.notes.keys).subtracting(["e"]), Set((0..<190).map { "n\($0)" }))
+                XCTAssertEqual(Set(text.notes.keys).subtracting(["e"]), Set((0..<190).map { EPUBElementID("n\($0)") }))
                 // The innermost notes show the content; the ones further out stay empty.
                 XCTAssertEqual((0..<190).filter { text.notes["n\($0)"]?.length != 0 }, Array((190 - shown)..<190), "\(padding) elements in front")
             }

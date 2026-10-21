@@ -208,6 +208,30 @@ import XCTest
         XCTAssertEqual(reader.events.count, count, "\(reader.events.dropFirst(count))")
     }
 
+    /// A fragment names the element whose id has its code units, as `getElementById` finds it:
+    /// `caf&#xE9;` and `cafe&#x301;` are two ids, though `String` compares them equal.
+    func testNavigationShowsTheElementWhoseIdHasTheFragmentsExactCodeUnits() async throws {
+        let reader = try open(SessionCoverageBook.epub([
+            Section("one", "<h1>One</h1><p id=\"caf&#xE9;\">The composed place.</p>\(SessionCoverageBook.filler(80))"
+                + "<p id=\"cafe&#x301;\">The decomposed place.</p>\(SessionCoverageBook.filler(80))"),
+            Section("two", "<h1>Two</h1>"),
+        ]))
+        try await reader.settle()
+        let section = try XCTUnwrap(reader.session.book.section(0))
+        func place(_ id: String) throws -> ReaderTextPosition {
+            section.renderedPosition(DOMPosition(try XCTUnwrap(section.document.element(id: id), id), 0))
+        }
+        let composed = try place("caf\u{E9}"), decomposed = try place("cafe\u{301}")
+        XCTAssertGreaterThan(decomposed.offset, composed.offset + 1_000)
+        for (fragment, shown, hidden) in [("caf%C3%A9", composed, decomposed), ("cafe%CC%81", decomposed, composed)] {
+            try await reader.session.send(.navigate(href: "OPS/two.xhtml"))
+            try await reader.wait("chapter two") { reader.section == 1 }
+            try await reader.session.send(.navigate(href: "OPS/one.xhtml#" + fragment))
+            try await reader.wait("the place by \(fragment)") { reader.isVisible(shown) }
+            XCTAssertFalse(reader.isVisible(hidden), fragment)
+        }
+    }
+
     // MARK: Page turns
 
     /// "stops at the book's ends; skips nonlinear sections as foliate-js did."
