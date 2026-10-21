@@ -12,8 +12,8 @@ What was seen, what was fixed and what is still unverified is on
 [below](#names-values-and-states), and [testing](testing.md#reader-controls-probe) has the probe
 that operated them.
 
-Add the toolbar inside the host's `NavigationStack` on iPhone/iPad or window on Mac. The sample
-contains this compiled integration example:
+Add the toolbar inside the host's `NavigationStack` on iPhone/iPad or window on Mac.
+`Examples/VoiceOverVerification/Shared` contains this compiled integration example:
 
 <!-- snippet:toolbar -->
 ```swift
@@ -319,7 +319,7 @@ All controls use native SwiftUI buttons, text fields and menus, semantic labels 
 keyboard traversal. There are no page-turn shortcuts on the toolbar. Apply `epubReaderPageControls(.hostOnly)`
 to the retained reading surface to disable direct input while keeping toolbar commands available,
 or provide custom `EPUBPageControls` keyboard bindings in the host's integration code.
-The sample reader uses the default input settings. Native reader key handlers
+The verification host's reader uses the default input settings. Native reader key handlers
 remain on the sibling reading surface, so focus in search uses normal editing keys. Hosts retain
 ownership of persistence, library/import management, selection actions and app-specific shortcuts.
 

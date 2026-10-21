@@ -26,7 +26,11 @@ struct ReaderTextRange: Hashable, Sendable {
     init(section: Int, _ range: Range<Int>) {
         start = .init(section: section, offset: range.lowerBound); end = .init(section: section, offset: range.upperBound)
     }
-    var isEmpty: Bool { start == end }
+    /// The range holds no rendered character: its end is not after its start. Content that
+    /// renders nothing maps to an empty range at its section's start or end, and to a reversed
+    /// one between rendered text (`SearchResultBuilder.isRendered`). Neither is a passage to
+    /// select, draw or list, wherever in its section that content sits.
+    var isEmpty: Bool { !(start < end) }
 }
 
 /// A heading and where it is in the book: its section, and its characters in that section's

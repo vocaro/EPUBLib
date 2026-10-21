@@ -605,11 +605,14 @@ final class SectionWriter {
         closeParagraph()
         lastInlineBox = nil
         if !isNote {
+            let isItem = ReaderAlignmentFrame.isItem(style, in: frames[frames.count - 1].style)
+            if isItem { separateMargins() }
             gap.add(resolve(style.margin.top))
-            let inset = resolve(style.padding.top) + Self.width(style.border.top)
-            if inset > 0 { gap.seal(inset) }
             let containing = frames.last?.format.edges
             sizingGap.add(style.margin.top, containing: containing)
+            if isItem { separateMargins() }
+            let inset = resolve(style.padding.top) + Self.width(style.border.top)
+            if inset > 0 { gap.seal(inset) }
             sizingGap.seal(style.padding.top, border: Self.width(style.border.top), containing: containing)
         }
         if isSection {
@@ -625,6 +628,13 @@ final class SectionWriter {
                                  keepWithNext: keep, keepTogether: style.breakInside == .avoid,
                                  firstParagraph: paragraphs.count, language: language))
         frames[frames.count - 1].inlineBox = inline
+    }
+
+    /// Fixes the margins so far: a flex or grid item's collapse with nothing
+    /// (`ReaderAlignmentFrame.isItem`).
+    private func separateMargins() {
+        gap.separate()
+        sizingGap.separate()
     }
 
     /// A sized inline box's place on the line it is written on: whether text or another such box
@@ -657,7 +667,7 @@ final class SectionWriter {
         guard frames.count > 1 else { return }
         let frame = frames.removeLast()
         lastInlineBox = frame.inlineBox.map { ($0, frames.count, paragraphs.count) }
-        if frame.format.itemAlignment.close() { state.report.report.flexGridSimplified = true }
+        if frame.format.itemAlignment.close(below: sizingGap) { state.report.report.flexGridSimplified = true }
         // `break-inside: avoid` keeps a box's paragraphs with each other, not its last with what follows.
         if frame.keepTogether, let last = paragraphs.indices.last, last >= frame.firstParagraph,
            paragraphs[last].keptTogetherBy == frames.count {
@@ -666,9 +676,12 @@ final class SectionWriter {
         if !isNote {
             let inset = resolve(frame.style.padding.bottom) + Self.width(frame.style.border.bottom)
             if inset > 0 { gap.seal(inset) }
-            gap.add(resolve(frame.style.margin.bottom))
             sizingGap.seal(frame.style.padding.bottom, border: Self.width(frame.style.border.bottom), containing: frame.format.edges.parent)
+            let isItem = ReaderAlignmentFrame.isItem(frame.style, in: frames[frames.count - 1].style)
+            if isItem { separateMargins() }
+            gap.add(resolve(frame.style.margin.bottom))
             sizingGap.add(frame.style.margin.bottom, containing: frame.format.edges.parent)
+            if isItem { separateMargins() }
         }
         if isSection, frame.style.breakAfter == .page || frame.style.breakAfter == .column { pendingPageBreak = true }
     }
@@ -729,7 +742,9 @@ final class SectionWriter {
         if style.requiresFlowBox && boxes.count < 8 {
             boxes.append(ReaderFlowBoxConstraint(style: style, containing: containing, replaced: replaced, inline: inline))
         }
-        let itemAlignment = parent.map { ReaderAlignmentFrame(style: style, parent: $0.format.itemAlignment) } ?? (isSection ? .root : .none)
+        let itemAlignment = parent.map {
+            ReaderAlignmentFrame(style: style, parent: $0.format.itemAlignment, contentEdge: sizingGap.operands.count)
+        } ?? (isSection ? .root : .none)
         return BlockFormat(boxes: boxes, flow: ReaderParagraphFlow(style: style, scope: scope), scope: scope,
                            itemAlignment: itemAlignment, edges: ReaderParagraphEdges(style: style, parent: parent?.format.edges),
                            alignment: alignment, endAligned: endAligned, float: style.float, direction: direction,
@@ -770,7 +785,7 @@ final class SectionWriter {
         var paragraph = Paragraph(start: buffer.count, format: frame.format,
                                   indentsFirstLine: paragraphs.count == frame.firstParagraph,
                                   separatorAttributes: frameAttributes())
-        paragraph.alignmentItem = frame.format.itemAlignment.paragraphItem()
+        paragraph.alignmentItem = frame.format.itemAlignment.paragraphItem(above: dynamicGap)
         if let previous = paragraphs.indices.last {
             if !pendingPassageBoundary {
                 let space = pendingPassageSpace
@@ -1856,6 +1871,8 @@ private struct MarginGap {
         fixed += positive + negative + inset
         positive = 0; negative = 0
     }
+    /// The margins so far are fixed with nothing between (`ReaderParagraphGap.separate()`).
+    mutating func separate() { seal(0) }
     var value: CGFloat { max(0, fixed + positive + negative) }
 }
 

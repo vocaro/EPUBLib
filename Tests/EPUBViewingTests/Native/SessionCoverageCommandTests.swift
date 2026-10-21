@@ -625,41 +625,45 @@ import XCTest
         XCTAssertNil(reader.session.selection)
     }
 
+    /// A second chapter holding `hidden` at its start, in its middle and at its end, each with the
+    /// step of `hidden` in its body. Content that renders nothing maps to an empty range at a
+    /// section's start or end, and to a reversed one between rendered text (#158).
+    private func placements(of hidden: String) -> [(label: String, step: Int, body: String)] {
+        [("at its section's start", 2, hidden + "<p>Second chapter.</p>" + SessionCoverageBook.filler(20)),
+         ("in its section's middle", 4, "<p>Second chapter.</p>" + hidden + SessionCoverageBook.filler(20)),
+         ("at its section's end", 44, "<p>Second chapter.</p>" + SessionCoverageBook.filler(20) + hidden)]
+    }
+
     /// A passage found only in content that renders nothing is a place to go, not a passage to
-    /// select, and not a miss.
+    /// select, and not a miss, wherever in its section that content sits.
     func testLocateShowsWhereAPassageFoundOnlyInHiddenContentIs() async throws {
-        let reader = try open(SessionCoverageBook.epub([
-            Section("one", "<p>Opening words.</p>\(SessionCoverageBook.filler(20))"),
-            Section("two", "<p>Second chapter.</p><p style=\"display:none\">Hidden lantern phrase kept from readers.</p>"
-                + SessionCoverageBook.filler(20)),
-        ]))
-        try await reader.settle()
-        for highlight in [true, false] {
-            try await reader.session.send(.navigate(href: "OPS/one.xhtml"))
-            try await reader.wait("chapter one") { reader.section == 0 }
-            let count = reader.events.count
-            try await reader.session.send(.locate(text: "Hidden lantern phrase", highlight: highlight))
-            try await reader.wait("the hidden passage's document") { reader.section == 1 }
-            try await Task.sleep(for: .milliseconds(300))
-            XCTAssertNil(reader.session.selection, "content that renders nothing cannot be selected")
-            XCTAssertNil(reader.session.canvas?.currentSelection)
-            XCTAssertTrue(reader.notices(since: count).isEmpty, "it was found: \(reader.notices(since: count))")
-            XCTAssertTrue(reader.selections(since: count).allSatisfy { $0 == nil })
+        for (label, _, body) in placements(of: "<p style=\"display:none\">Hidden lantern phrase kept from readers.</p>") {
+            let reader = try open(SessionCoverageBook.epub([
+                Section("one", "<p>Opening words.</p>\(SessionCoverageBook.filler(20))"), Section("two", body),
+            ]))
+            try await reader.settle()
+            for highlight in [true, false] {
+                try await reader.session.send(.navigate(href: "OPS/one.xhtml"))
+                try await reader.wait("\(label): chapter one") { reader.section == 0 }
+                let count = reader.events.count
+                try await reader.session.send(.locate(text: "Hidden lantern phrase", highlight: highlight))
+                try await reader.wait("\(label): the hidden passage's document") { reader.section == 1 }
+                try await Task.sleep(for: .milliseconds(300))
+                XCTAssertNil(reader.session.selection, "\(label): content that renders nothing cannot be selected")
+                XCTAssertNil(reader.session.canvas?.currentSelection, label)
+                XCTAssertTrue(reader.notices(since: count).isEmpty, "\(label): it was found: \(reader.notices(since: count))")
+                XCTAssertTrue(reader.selections(since: count).allSatisfy { $0 == nil }, label)
+            }
+            reader.close()
         }
     }
 
     /// `NativeSession.locate`: "A match inside content that renders nothing of its own (a hidden
-    /// footnote) is a place to go, not a passage to select; one that renders is preferred."
-    /// Where in its section the hidden content sits cannot change which occurrence is chosen.
+    /// footnote) … is a place to go, not a passage to select; one that renders and shows is
+    /// preferred." Where in its section the hidden content sits cannot change which occurrence is
+    /// chosen.
     func testLocatePrefersARenderedOccurrenceWhereverAnEarlierHiddenOneSitsInItsSection() async throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/158")
-        let hidden = "<p style=\"display:none\">Twice told tale, kept from readers.</p>"
-        let placements = [
-            ("at its section's start", hidden + "<p>Second chapter.</p>" + SessionCoverageBook.filler(20)),
-            ("in its section's middle", "<p>Second chapter.</p>" + hidden + SessionCoverageBook.filler(20)),
-            ("at its section's end", "<p>Second chapter.</p>" + SessionCoverageBook.filler(20) + hidden),
-        ]
-        for (label, body) in placements {
+        for (label, _, body) in placements(of: "<p style=\"display:none\">Twice told tale, kept from readers.</p>") {
             let reader = try open(SessionCoverageBook.epub([
                 Section("one", "<p>Opening words.</p>\(SessionCoverageBook.filler(20))"), Section("two", body),
                 Section("three", "<p>Third chapter.</p>\(SessionCoverageBook.filler(20))<p>Twice told tale in the open.</p>"),
@@ -671,6 +675,7 @@ import XCTest
                 + "not to the one where it renders")
             if reader.section == 2 {
                 try await reader.wait("\(label): the selected passage") { reader.selections().last??.text == "Twice told tale" }
+                XCTAssertEqual(reader.selections().last??.location.href, "OPS/three.xhtml", label)
             }
             XCTAssertTrue(reader.notices().isEmpty, "\(label): \(reader.notices())")
             reader.close()
@@ -804,6 +809,38 @@ import XCTest
         try await reader.session.send(.setHighlights([]))
         XCTAssertTrue(reader.session.drawnHighlights.isEmpty, "an empty array removes them")
         XCTAssertEqual(reader.events.count, count)
+    }
+
+    /// A highlight or saved range whose passage is only content that renders nothing has nothing
+    /// to draw, wherever in its section that content sits: between rendered text it maps to a
+    /// reversed range, which holds no more than the empty one it maps to at a section's start
+    /// or end (#158).
+    func testAPassageOnlyInHiddenContentIsRefusedWhereverItSitsInItsSection() async throws {
+        for (label, step, body) in placements(of: "<p style=\"display:none\">Twice told tale, kept from readers.</p>") {
+            let reader = try open(SessionCoverageBook.epub([
+                Section("one", "<p>Opening words.</p>\(SessionCoverageBook.filler(20))"), Section("two", body),
+            ]))
+            try await reader.settle()
+            let id = reader.publication.id
+            let opening = bookmark("epubcfi(/6/2!/4/2,/1:0,/1:7)"), tale = bookmark("epubcfi(/6/4!/4/\(step),/1:0,/1:15)")
+            var count = reader.events.count
+            try await reader.session.send(.setHighlights([
+                EPUBHighlight(id: "opening", location: EPUBLocation(publicationID: id, bookmark: opening)),
+                EPUBHighlight(id: "hidden", location: EPUBLocation(publicationID: id, bookmark: tale)),
+                EPUBHighlight(id: "across", location: EPUBLocation(publicationID: id, bookmark: opening, rangeBookmarks: [opening, tale])),
+            ]))
+            XCTAssertEqual(reader.session.drawnHighlights.filter { $0.kind == .annotation }.map(\.id), ["opening"], label)
+            XCTAssertEqual(reader.notices(since: count).sorted(), [
+                "a highlight's passage could not be found in this book: across",
+                "a highlight's passage could not be found in this book: hidden",
+            ], label)
+
+            // A range across documents is restored only when each document's part of it renders.
+            count = reader.events.count
+            try await reader.session.send(.restore(EPUBLocation(publicationID: id, bookmark: opening, rangeBookmarks: [opening, tale])))
+            XCTAssertEqual(reader.notices(since: count), ["the saved position could not be found in this book"], label)
+            reader.close()
+        }
     }
 
     /// "No partial annotation is drawn while a section is building": a highlight sent the moment

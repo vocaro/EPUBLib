@@ -20,7 +20,11 @@ final class SectionContentTextMapCoverageTests: XCTestCase {
         ("quotes", "<p>x <q>y <q>z</q></q>.</p>"),
         ("isolates", "<p>a <bdo dir='rtl'>b</bdo> <span dir='rtl'>c</span></p>"),
         ("images", "<p>a <img src='picture.png' alt='I'/> b</p><img src='picture.png' alt='J'/><p>c</p>"),
+        ("final image", "<p>See <img src='picture.png' alt='I'/></p>"),
+        ("quoted final image", "<p>a <q><img src='picture.png' alt='I'/></q></p>"),
+        ("list after an image", "<p>a</p><ol><li><img src='picture.png' alt='I'/></li><li/></ol>"),
         ("rule", "<p>a</p><hr/><p>b</p>"),
+        ("final rule", "<p>a</p><hr/>"),
         ("hidden", "<p>a <span hidden=''>h</span> b</p><div hidden=''>x</div><p>c</p>"),
         ("notes", "<p>a<a epub:type='noteref' href='#n'>1</a></p><aside epub:type='footnote' id='n'>note</aside><p>b</p>"),
         ("pre", "<pre>\n a\n\n\tb\n</pre><p>c</p>"),
@@ -126,29 +130,67 @@ final class SectionContentTextMapCoverageTests: XCTestCase {
     }
 
     func testARangeEndingWithTheDocumentsLastImageIncludesIt() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/129")
         // Markup with nothing after its last image, not even white space (a minified cover or figure page).
         // "A range ending with an image, table or formula includes it" (`TextMap.endPosition`).
         let text = try H.build("<p>See <img src='picture.png' alt='I'/></p>")
         XCTAssertEqual(text.string.string, "See [I]")
-        XCTAssertTrue(text.document.nodes.last?.isHTML("img") == true)
+        let image = try XCTUnwrap(text.document.nodes.last)
+        XCTAssertTrue(image.isHTML("img"))
         let end = try XCTUnwrap(text.map.endPosition(at: 7, in: text.document))
+        XCTAssertEqual(end, text.document.end)
+        XCTAssertEqual(end, DOMPosition(image, 1), "just after the image")
         XCTAssertEqual(text.map.location(of: end, isEnd: true), 7, "the range's end came back before the image")
+        // The text's end as a position is after the image too, not at its start.
+        XCTAssertEqual(text.map.position(at: 7, in: text.document), end)
+        XCTAssertEqual(text.map.location(of: end), 7)
+        // As a CFI: the paragraph's virtual `after` index, which names the same place.
+        for (range, path) in [(0..<7, "/4/2,/1:0,/4"), (4..<7, "/4/2,/2,/4"), (7..<7, "/4/2/4")] {
+            let dom = try XCTUnwrap(text.map.domRange(range, in: text.document))
+            XCTAssertEqual(EPUBCFI.localPath(from: dom.start, to: dom.end, in: text.document, assertingIDs: false), path, "\(range)")
+            let resolved = try XCTUnwrap(EPUBCFI.resolve(localPath: path, in: text.document), path)
+            XCTAssertEqual([text.map.location(of: resolved.start), text.map.location(of: resolved.end, isEnd: true)],
+                           [range.lowerBound, range.upperBound], path)
+        }
+
+        // A rule as the last node, its parent the body.
+        let rule = try H.build("<p>a</p><hr/>")
+        XCTAssertEqual(rule.string.string, "a\n—")
+        let ruleEnd = try XCTUnwrap(rule.map.endPosition(at: 3, in: rule.document))
+        XCTAssertEqual(ruleEnd, rule.document.end)
+        XCTAssertEqual(rule.map.location(of: ruleEnd, isEnd: true), 3, "the rule 2..<3 came back as 2..<2")
+        let dom = try XCTUnwrap(rule.map.domRange(2..<3, in: rule.document))
+        let path = EPUBCFI.localPath(from: dom.start, to: dom.end, in: rule.document)
+        XCTAssertEqual(path, "/4,/4,/6")
+        XCTAssertEqual(EPUBCFI.resolve(localPath: path, in: rule.document)?.end, ruleEnd)
     }
 
     func testARangeOfOnlyGeneratedTextIsNeverAnInvertedDOMRange() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/129")
         // A selection can hold nothing but a list marker, a quotation mark or a paragraph break. Its DOM range
-        // (`position(at:)` to `endPosition(at:)`, as the session makes a CFI) must still run forwards.
+        // (`domRange`, as the session makes a CFI) must still run forwards: from the end of the text before it
+        // to the start of the text after it, where the document generates it.
         let text = try H.build("<p>A</p><ol><li>B</li></ol><p>He said <q>hi</q>.</p>")
         XCTAssertEqual(text.string.string, "A\n1.\tB\nHe said “hi”.")
-        for range in [2..<4, 2..<3, 1..<2, 1..<5, 15..<16] {
-            let start = try XCTUnwrap(text.map.position(at: range.lowerBound, in: text.document))
-            let end = try XCTUnwrap(text.map.endPosition(at: range.upperBound, in: text.document))
+        let a = try XCTUnwrap(S.textNode("A", in: text)), b = try XCTUnwrap(S.textNode("B", in: text))
+        let said = try XCTUnwrap(S.textNode("He said ", in: text)), hi = try XCTUnwrap(S.textNode("hi", in: text))
+        let expected = [(2..<4, DOMPosition(a, 1), DOMPosition(b, 0)), (2..<3, DOMPosition(a, 1), DOMPosition(b, 0)),
+                        (1..<2, DOMPosition(a, 1), DOMPosition(b, 0)), (1..<5, DOMPosition(a, 1), DOMPosition(b, 0)),
+                        (15..<16, DOMPosition(said, 8), DOMPosition(hi, 0))]
+        for (range, before, after) in expected {
+            let (start, end) = try XCTUnwrap(text.map.domRange(range, in: text.document))
             let selected = (text.string.string as NSString).substring(with: NSRange(location: range.lowerBound, length: range.count))
             XCTAssertFalse(end < start, "\"\(S.escape(selected))\" at \(range) runs from node \(start.node.order):\(start.offset) "
                 + "back to node \(end.node.order):\(end.offset)")
+            XCTAssertEqual(start, before, "\"\(S.escape(selected))\" at \(range)")
+            XCTAssertEqual(end, after, "\"\(S.escape(selected))\" at \(range)")
+            // It comes back holding the generated text and none of the book's.
+            let lower = text.map.location(of: start), upper = text.map.location(of: end, isEnd: true)
+            XCTAssertTrue(lower <= range.lowerBound && upper >= range.upperBound, "\(range) came back as \(lower)..<\(upper)")
+            XCTAssertEqual(text.mappedText(in: lower..<max(lower, upper)).trimmingCharacters(in: .newlines), "",
+                           "\(range) came back as \(lower)..<\(upper)")
         }
+        // A range holding the book's text keeps its ends: one ending before a paragraph break ends in its node.
+        XCTAssertEqual(try XCTUnwrap(text.map.domRange(0..<2, in: text.document)).end, DOMPosition(a, 1))
+        XCTAssertEqual(try XCTUnwrap(text.map.domRange(2..<6, in: text.document)).start, DOMPosition(b, 0))
     }
 
     // MARK: Passage text

@@ -18,6 +18,8 @@ final class ReaderBoxGeometry: NSObject {
         var scope: UUID? = nil
         /// Glyph column inside the float's margins and padding.
         var contentFrame: CGRect? = nil
+        /// A sized inline block's run, by the run's first region (`ReaderBoxLayout.InlineRow`).
+        var run: Int? = nil
     }
     struct Paragraph {
         var range: NSRange
@@ -90,19 +92,28 @@ final class ReaderBoxGeometry: NSObject {
     }
 
     /// Build once; page construction repeatedly asks for the same indivisible groups.
+    /// A box's group is its source and that of the lines in its rows: a line that only meets
+    /// them, as the container sets it (`ReaderTextContainer.edgeSlack`), is not beside it.
+    /// Groups that share source are one, and so are the rows of one run of sized inline blocks
+    /// (#280); other groups that only meet are not. The rows of a definition list with floated
+    /// terms are a group each, and a list longer than a page breaks between rows and keeps its
+    /// floats (#149).
     func formGroups() {
         groups.removeAll(keepingCapacity: true)
         groupBounds.removeAll(keepingCapacity: true)
         guard regions.contains(where: { !$0.reserved }) else { return }
         let index = GroupLineIndex(paragraphs.flatMap(\.lines))
-        let candidates = regions.filter { !$0.reserved }.map { region -> NSRange in
-            guard let wrapped = index.range(overlapping: region.frame) else { return region.range }
-            return NSUnionRange(region.range, wrapped)
-        }.sorted { $0.location < $1.location }
+        let candidates = regions.filter { !$0.reserved }.map { region -> (range: NSRange, run: Int?) in
+            let rows = region.frame.insetBy(dx: 0, dy: min(ReaderTextContainer.edgeSlack, region.frame.height / 4))
+            guard let wrapped = index.range(overlapping: rows) else { return (region.range, region.run) }
+            return (NSUnionRange(region.range, wrapped), region.run)
+        }.sorted { $0.range.location < $1.range.location }
+        var run: Int?
         for candidate in candidates {
-            if let last = groups.last, last.upperBound >= candidate.location {
-                groups[groups.count - 1] = NSUnionRange(last, candidate)
-            } else { groups.append(candidate) }
+            if let last = groups.last, last.upperBound > candidate.range.location || candidate.run != nil && candidate.run == run {
+                groups[groups.count - 1] = NSUnionRange(last, candidate.range)
+            } else { groups.append(candidate.range) }
+            run = candidate.run
         }
         for group in groups { groupBounds[group] = lineBounds(of: group) }
         // Reserved inline prefixes also affect visual bounds. Assign each region directly to
@@ -503,7 +514,7 @@ enum ReaderBoxLayout {
                             plan.regions.append(.init(range: boxRange, frame: frame, side: style.float,
                                 wrapsEarlierText: style.isOutOfFlow && (style.positionTop != .auto || style.positionBottom != .auto),
                                 scope: box.containing?.id,
-                                contentFrame: CGRect(x: x, y: frame.minY, width: width, height: height)))
+                                contentFrame: CGRect(x: x, y: frame.minY, width: width, height: height), run: placed?.firstRegion))
                             pending.place(boxRange)
                             if let taken = inlineRow, row?.reserved == nil, let source = row?.source {
                                 row?.reserved = plan.regions.count
