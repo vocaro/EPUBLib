@@ -549,7 +549,12 @@ continues to describe the authored spine resource.
   image-drawn attachment per row so pages can break between any two rows; rows a rowspan
   joins, and the header, keep with the next row and share a page when they fit. `colspan`/
   `rowspan` honoured (`rowspan="0"` spans one row, as WebKit does); a spanning cell is drawn in
-  each row it covers. Oversized rows continue across pages using complete cell glyph lines;
+  each row it covers. Consecutive columns spanned by exactly the same cells, and declared by no
+  `col` or `colgroup`, are laid out as one (CSS Tables 3 §3.3.2, track merging): the 98 columns
+  a title row's `colspan="100"` runs past over a two-column body add one border spacing to the
+  table, not 98 ([#140](https://github.com/vocaro/EPUBLib/issues/140)). The model keeps the
+  columns HTML forms, and an assistive technology is given those. Oversized rows continue
+  across pages using complete cell glyph lines;
   a line crossing a rowspan boundary is finished in its preceding row and never drawn twice.
   A continuation sharing a page with following rows or prose uses the displayed page’s exact
   bounds; overflowing content advances to the next page once, without laying out the whole
@@ -1476,11 +1481,13 @@ continues to describe the authored spine resource.
   with `quotes`; and `counter()` and `counters()`, with `counter-reset`, `counter-increment`
   and `counter-set` (CSS Lists 3 §4) in the counter styles `list-style-type` has
   ([#131](https://github.com/vocaro/EPUBLib/issues/131)). A pseudo-element is styled by its
-  own rules and inherits from its element. `none`, `normal`, a rule with no `content` and
-  `display: none` generate nothing. The marks around a `q` are generated the same way, from
-  the user-agent sheet's `q::before` and `q::after` as HTML gives them, so a book's `quotes`,
-  and the reset stylesheets that write `q:before, q:after { content: none }`, apply to them as
-  they do in a browser. Before, the marks were drawn whatever the book's styles said.
+  own rules and inherits from its element. One written alone, as in `*, ::before, ::after`, is
+  that of any element (Selectors 4 §3.7, [#110](https://github.com/vocaro/EPUBLib/issues/110)).
+  `none`, `normal`, a rule with no `content` and `display: none` generate nothing. The marks
+  around a `q` are generated the same way, from the user-agent sheet's `q::before` and
+  `q::after` as HTML gives them, so a book's `quotes`, and the reset stylesheets that write
+  `q:before, q:after { content: none }`, apply to them as they do in a browser. Before, the
+  marks were drawn whatever the book's styles said.
   - **Where it stands.** An inline box is written in its line, and white space collapses
     across it as across the book's text. A block box is a paragraph of its own. A box that
     floats or is positioned is written in its line, with the disclosure of the boxes left in
@@ -3435,5 +3442,4 @@ Go: the native viewer is the bundled engine.
   `list-item` do not change a list's numbering; and a counter style that `list-style-type`
   lacks (`@counter-style`, `symbols()`, `hiragana`…) is decimal. `::first-letter`,
   `::first-line`, `::marker` and the other pseudo-elements are not rendered: their rules are
-  dropped, and that is not disclosed. A pseudo-element written alone, as in
-  `*, ::before, ::after`, drops its rule ([#110](https://github.com/vocaro/EPUBLib/issues/110)).
+  dropped, and that is not disclosed.
