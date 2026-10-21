@@ -234,7 +234,6 @@ final class TableCoverageTextMappingTests: XCTestCase {
     /// Blocks of a passage are a line break apart, as everywhere else a selection is read
     /// (`mappedText`): one between the prose and the table, not two.
     func testAPassageBetweenProseAndACellHasOneLineBreakBetweenItsBlocks() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/144")
         let (_, section, table) = try fixture("<p>Before table.</p><table><tr><td>Alpha</td><td>Beta</td></tr></table><p>After table.</p>")
         XCTAssertEqual(section.string.string, "Before table.\n\u{FFFC}\nAfter table.")
         XCTAssertEqual(section.mappedText(in: 7..<21), "table.\nAlpha\tBeta\nAfter", "the same selection without cell endpoints")
@@ -242,6 +241,46 @@ final class TableCoverageTextMappingTests: XCTestCase {
         XCTAssertEqual(section.tablePassage(into), "table.\nAlpha\tBe")
         let out = ReaderTextRange(start: try TableCoverage.position(in: table, cell: "Alpha", offset: 3), end: ReaderTextPosition(section: 0, offset: 21))
         XCTAssertEqual(section.tablePassage(out), "ha\tBeta\nAfter")
+    }
+
+    /// The same from a table into another, past a caption below the first and one above the
+    /// second: the prose and the captions read as they do without cell endpoints, with the
+    /// section's own breaks around them. A passage starting where the table does has none.
+    func testAPassageAcrossTablesAndTheirCaptionsHasOneLineBreakBetweenItsBlocks() throws {
+        let (_, section, _) = try fixture("""
+        <table><tr><td>one</td><td>two</td></tr><caption style="caption-side: bottom">Below</caption></table><p>Between.</p>\
+        <table><caption>Above</caption><tr><td>three</td><td>four</td></tr></table>
+        """)
+        let tables = TableCoverage.tables(in: section.string)
+        XCTAssertEqual(tables.count, 2)
+        XCTAssertEqual(section.string.string, "\u{FFFC}\nBelow\nBetween.\nAbove\n\u{FFFC}")
+        let across = ReaderTextRange(start: try TableCoverage.position(in: tables[0], cell: "two", offset: 1),
+                                     end: try TableCoverage.position(in: tables[1], cell: "three", offset: 2))
+        XCTAssertEqual(section.tablePassage(across), "wo\nBelow\nBetween.\nAbove\nth")
+        let atTable = ReaderTextRange(start: ReaderTextPosition(section: 0, offset: try TableCoverage.offset(ofRow: 0, in: tables[1])),
+                                      end: try TableCoverage.position(in: tables[1], cell: "four", offset: 2))
+        XCTAssertEqual(section.tablePassage(atTable), "three\tfo")
+        let fromCaption = ReaderTextRange(start: ReaderTextPosition(section: 0, offset: 17), end: atTable.end)
+        XCTAssertEqual(section.tablePassage(fromCaption), "Above\nthree\tfo")
+    }
+
+    /// A table of one column written footer first is a grid (`TableContent`), so its footer is
+    /// read, located and selected after its body, as a wider table's is.
+    func testAOneColumnTableWrittenFooterFirstIsReadAndLocatedBodyFirst() throws {
+        let (_, section, table) = try fixture("""
+        <p>Before</p><table><tfoot><tr><td>Source: survey</td></tr></tfoot><tbody><tr><td>Finding one</td></tr><tr><td>Finding two</td></tr></tbody></table>
+        """)
+        XCTAssertEqual(section.string.readerPlainText(), "Before\nFinding one\nFinding two\nSource: survey")
+        let range = ReaderTextRange(start: try TableCoverage.position(in: table, cell: "Finding two", offset: 8),
+                                    end: try TableCoverage.position(in: table, cell: "Source: survey", offset: 6))
+        XCTAssertLessThan(range.start, range.end, "the footer is after the body it is drawn below")
+        XCTAssertEqual(section.tablePassage(range), "two\tSource")
+        let into = ReaderTextRange(start: ReaderTextPosition(section: 0, offset: 3), end: try TableCoverage.position(in: table, cell: "Finding one", offset: 7))
+        XCTAssertEqual(section.tablePassage(into), "ore\nFinding")
+        let found = try self.range(of: "Source", in: section).range
+        XCTAssertEqual(found.start, try TableCoverage.position(in: table, cell: "Source: survey", offset: 0))
+        XCTAssertEqual(found.start.offset, try TableCoverage.offset(ofRow: 2, in: table))
+        BuilderHarness.assertMapRoundTrips(section)
     }
 
     func testAPassageFromOneTableIntoAnotherReadsBothAndWhatLiesBetween() throws {

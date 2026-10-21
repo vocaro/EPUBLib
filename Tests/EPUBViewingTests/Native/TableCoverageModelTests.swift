@@ -505,16 +505,59 @@ final class TableCoverageModelTests: XCTestCase {
         XCTAssertGreaterThan(layout.rowHeights[0], 0)
     }
 
-    /// Rendering nests at most eight levels; past that a cell is shown as its plain text. The
-    /// words of separate cells are still separate words.
+    /// Tables are drawn at most eight levels deep; past that the tables in a cell flow as text.
+    /// The words of separate cells are still separate words.
     func testTablesNestedPastTheRenderingDepthKeepTheirCellsApart() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/144")
         var markup = "<table><tr><td>leaf</td><td>twig</td></tr></table>"
         for level in 0..<10 { markup = "<table><tr><td>\(markup)</td><td>level\(level)</td></tr></table>" }
         let text = try plain(markup)
         let words = text.split(whereSeparator: \.isWhitespace).map(String.init)
         for word in ["leaf", "twig"] + (0..<10).map({ "level\($0)" }) {
             XCTAssertTrue(words.contains(word), "\(word) is not a word of \(text.debugDescription)")
+        }
+    }
+
+    /// Past that depth a cell, and what a table holds outside its cells, is written as within it,
+    /// its tables flowing as text: inline markup joins its words, what the reader leaves out
+    /// (scripts, controls, encodings, unchosen branches, what has no box, footnotes) stays out
+    /// and is reported as it is within, and what it shows for an element (a formula, a ruby, the
+    /// label of a box hidden from sight) is shown.
+    func testContentPastTheRenderingDepthReadsAsItDoesWithinIt() throws {
+        let content = """
+        v1<b>v2</b>v3 <script>z1</script><template>z2</template><select><option>z3</option></select><textarea>z4</textarea>\
+        <iframe>z5</iframe><video>w6</video><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>w7</mi><annotation>z8</annotation></math>\
+        <epub:switch><epub:case required-namespace="urn:example">z9</epub:case><epub:default>w10</epub:default></epub:switch>\
+        <epub:trigger action="show" ref="v1">z11</epub:trigger>\
+        <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">w12</span>\
+        <ruby>w13<rp>(</rp><rt>w14</rt><rp>)</rp></ruby> <span style="display: none">z15</span><aside epub:type="footnote" id="note">z16</aside>\
+        <p>w17</p><div>w18<p>w19</p></div><ul><li>w20</li></ul><table><tr><td>w21</td><td>w22</td></tr></table>
+        """
+        func read(_ markup: String, wrappers: Int) throws -> (words: [String], unsupported: [String: Int]) {
+            var markup = markup
+            for _ in 0..<wrappers { markup = "<table><tr><td>\(markup)</td><td>x</td></tr></table>" }
+            let section = try TableCoverage.section(markup)
+            XCTAssertEqual(section.notes["note"]?.string, "z16", "inside \(wrappers) tables")
+            return (section.string.readerPlainText().split(whereSeparator: \.isWhitespace).map(String.init).filter { $0 != "x" && $0 != "y" },
+                    section.report.unsupportedElements)
+        }
+        for (name, markup) in [
+            ("in a cell", "<table><tr><td>\(content)</td><td>y</td></tr></table>"),
+            ("outside the cells", "<table><tr><td>y</td><td>y</td></tr>\(content)</table>"),
+        ] {
+            let within = try read(markup, wrappers: 2), past = try read(markup, wrappers: 10)
+            XCTAssertFalse(within.words.contains { $0.contains("z") }, "\(name): \(within.words)")
+            XCTAssertTrue(within.words.contains("v1v2v3"), "\(name): \(within.words)")
+            XCTAssertEqual(past.words, within.words, name)
+            XCTAssertEqual(past.unsupported, within.unsupported, name)
+            XCTAssertFalse(within.unsupported.isEmpty, name)
+        }
+        // An unnamed footnote in a note's table is part of that note at any depth.
+        for wrappers in [2, 10] {
+            var markup = "<table><tr><td>n1 <aside epub:type='footnote'>n2</aside></td><td>n3</td></tr><p>n4 <aside epub:type='footnote'>n5</aside></p></table>"
+            for _ in 0..<wrappers { markup = "<table><tr><td>\(markup)</td><td>n0</td></tr></table>" }
+            let section = try TableCoverage.section("<p>Text<a epub:type='noteref' href='#n'>1</a>.</p><aside epub:type='footnote' id='n'>\(markup)</aside>")
+            let words = Set(section.notes["n"]?.readerPlainText().split(whereSeparator: \.isWhitespace).map(String.init) ?? [])
+            XCTAssertEqual(words, ["n0", "n1", "n2", "n3", "n4", "n5"], "inside \(wrappers) tables")
         }
     }
 
@@ -562,9 +605,46 @@ final class TableCoverageModelTests: XCTestCase {
     /// CSS 2.2 §17.2: the footer group is displayed after all other rows. A callout written the
     /// HTML 4 way, `tfoot` before `tbody`, reads body first in a browser.
     func testAOneColumnTableWithItsFooterWrittenFirstReadsTheBodyFirst() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/144")
         let text = try plain("<table><tfoot><tr><td>Source: survey</td></tr></tfoot><tbody><tr><td>Finding one</td></tr><tr><td>Finding two</td></tr></tbody></table>")
         XCTAssertEqual(text, "Finding one\nFinding two\nSource: survey")
+    }
+
+    /// Text flows in document order, so a table of one column whose parts are shown in another
+    /// order is drawn as a grid, which shows them in that order: CSS 2.2 §17.2 puts the header
+    /// group first and the footer group last, and §17.4 a caption on its own side of the rows.
+    /// Written in the order it is shown in, it flows.
+    func testAOneColumnTableReadsEveryPartInTheOrderItIsShown() throws {
+        for (name, body, expected) in [
+            ("footer first", "<table><tfoot><tr><td>Foot</td></tr></tfoot><tbody><tr><td>Body</td></tr></tbody></table>", "Body\nFoot"),
+            ("rows, footer, body", "<table><tr><td>One</td></tr><tfoot><tr><td>Foot</td></tr></tfoot><tbody><tr><td>Two</td></tr></tbody></table>",
+             "One\nTwo\nFoot"),
+            ("header last", "<table><tbody><tr><td>Body</td></tr></tbody><thead><tr><th>Head</th></tr></thead></table>", "Head\nBody"),
+            ("caption after the rows", "<table><tr><td>Body</td></tr><caption>Cap</caption></table>", "Cap\nBody"),
+            ("caption below, written first", "<table><caption style='caption-side: bottom'>Cap</caption><tr><td>Body</td></tr></table>", "Body\nCap"),
+            ("caption aligned below, written first", "<table><caption align='bottom'>Cap</caption><tr><td>Body</td></tr></table>", "Body\nCap"),
+        ] {
+            let section = try TableCoverage.section("<p>Before</p>\(body)<p>After</p>")
+            XCTAssertEqual(section.string.readerPlainText(), "Before\n\(expected)\nAfter", name)
+            let table = try XCTUnwrap(TableCoverage.tables(in: section.string).first, name)
+            XCTAssertEqual(table.columnCount, 1, name)
+            for available: CGFloat in [40, 400] {
+                let layout = table.layout(available: available, viewportHeight: 300)
+                XCTAssertTrue(layout.size.width > 0 && layout.size.height > 0, "\(name) at \(available)")
+                XCTAssertLessThanOrEqual(layout.size.width * layout.scale, available + 0.5, "\(name) at \(available)")
+            }
+            BuilderHarness.assertMapRoundTrips(section)
+        }
+        for (name, body, expected) in [
+            ("every group", "<table><thead><tr><th>Head</th></tr></thead><tbody><tr><td>Body</td></tr></tbody><tfoot><tr><td>Foot</td></tr></tfoot></table>",
+             "Head\nBody\nFoot"),
+            ("captions on both sides", "<table><caption>Cap</caption><tr><td>Body</td></tr><caption style='caption-side: bottom'>Below</caption></table>",
+             "Cap\nBody\nBelow"),
+            ("an empty footer first", "<table><tfoot></tfoot><tbody><tr><td>Body</td></tr></tbody></table>", "Body"),
+        ] {
+            let section = try TableCoverage.section("<p>Before</p>\(body)<p>After</p>")
+            XCTAssertTrue(TableCoverage.tables(in: section.string).isEmpty, "\(name) is drawn as a table")
+            XCTAssertEqual(section.string.readerPlainText(), "Before\n\(expected)\nAfter", name)
+        }
     }
 
     func testEveryRowSpanningAllColumnsStillShowsItsText() throws {

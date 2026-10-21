@@ -181,7 +181,10 @@ extension SectionText {
             }.joined(separator: "\t")
         }
         // Mixed body/cell endpoints keep the body's mapped passage and replace only the
-        // endpoint table's row attachment equivalence with its precise cell portion.
+        // endpoint table's row attachment equivalence with its precise cell portion. The body
+        // runs from just after the table's last row, or up to its first, so it holds the
+        // section's own separator between the table and what is beside it: the parts join
+        // with nothing more, as `mappedText` reads the same range without cell endpoints.
         var lower = range.start.offset, upper = range.end.offset, prefix = "", suffix = ""
         if let endpoint = range.start.tableCell, let model = table(for: range.start), model.cells.indices.contains(endpoint.cell) {
             prefix = (endpoint.cell..<model.cells.count).map { index in
@@ -197,7 +200,6 @@ extension SectionText {
             }.joined(separator: "\t")
             upper = rows.first { $0.row.table === model }?.offset ?? upper
         }
-        let body = mappedText(in: lower..<max(lower, upper))
-        return [prefix, body, suffix].filter { !$0.isEmpty }.joined(separator: "\n")
+        return prefix + mappedText(in: lower..<max(lower, upper)) + suffix
     }
 }

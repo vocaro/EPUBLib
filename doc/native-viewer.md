@@ -83,7 +83,8 @@ continues to describe the authored spine resource.
    Layout-only separators around floated, positioned and sized inline boxes add no false DOM
    block break. Native selections, Copy and host actions use that same passage mapping,
    including precise table selections ([#127](https://github.com/vocaro/EPUBLib/issues/127),
-   [#128](https://github.com/vocaro/EPUBLib/issues/128)).
+   [#128](https://github.com/vocaro/EPUBLib/issues/128)), whose cells and the prose beside
+   them are one line break apart ([#144](https://github.com/vocaro/EPUBLib/issues/144)).
 4. **Positions** (`EPUBCFI`, `SpineCFIs`, `TextSearch`). Swift ports of foliate-js
    `epubcfi.js`, `search.js` and `text-walker.js` (MIT) over `ContentDocument`, producing and
    resolving the same CFIs foliate-js produced (but for the ID assertions under
@@ -618,10 +619,18 @@ continues to describe the authored spine resource.
   [#138](https://github.com/vocaro/EPUBLib/issues/138)). Table construction keeps large style,
   preparation and placement temporaries outside recursive cell rendering to fit the production
   task-thread stack through both written and anonymous cells
-  ([#329](https://github.com/vocaro/EPUBLib/issues/329)). A single non-table glyph line taller
+  ([#329](https://github.com/vocaro/EPUBLib/issues/329)). Tables are drawn eight levels deep.
+  Past that a cell's content is written as a shallower cell's is, with the tables in it flowing
+  as text, one column as blocks and wider ones as rows of tab-separated cells: its words stay
+  apart, and what the reader leaves out of it, shows for it and reports is the same
+  ([#144](https://github.com/vocaro/EPUBLib/issues/144)). A single non-table glyph line taller
   than a page is fitted as a whole.
   One-column tables, which books use as callout boxes, flow as ordinary text: a table is a grid
-  when the cells written in its rows take more than one column. Nothing a table holds is
+  when the cells written in its rows take more than one column. Text flows in document order,
+  so a table of one column is a grid too when its parts are written in another order than they
+  are shown in: a footer group before the body (as HTML 4 had it), a header group after it, or
+  a caption on the other side of the rows from where it is written
+  ([#144](https://github.com/vocaro/EPUBLib/issues/144)). Nothing a table holds is
   dropped. XHTML is parsed as XML, which repairs no tree, so content written outside a table's
   rows and cells arrives where it was written, and a grid gives it the anonymous rows and cells
   of CSS 2.2 §17.2.1: a row around what a table or a row group holds outside its rows (text,
@@ -2516,6 +2525,12 @@ The following are the defaults. Host commands and accessibility actions stay ena
 - Paginated: a tap or click within 56 pt of either edge (except on a link, an image, a press-and-hold or
   while text is selected), a horizontal swipe (not while text is selected), and on macOS a
   trackpad gesture or wheel tick turns a page. Continuous scroll scrolls natively.
+  A trackpad gesture turns one page once it has moved 4 points, and its momentum none. A wheel
+  tick is 4 points or more, after which the wheel turns nothing for 450 ms, as the WebKit
+  reader did. A notched wheel's movement comes in lines, which count 40 points each, WebKit's
+  and Chromium's line step, so one notch turned slowly, a tenth of a line, is a tick, and a
+  wheel spun fast still turns a page each 450 ms
+  ([#163](https://github.com/vocaro/EPUBLib/issues/163)).
 - Keys (all flows): Left/Page Up previous, Right/Page Down/Space next, Shift-Space previous.
   In continuous scroll a page turn scrolls by one viewport less a line. A backward turn
   refines the newly shown text through the line that was first and keeps that line at the

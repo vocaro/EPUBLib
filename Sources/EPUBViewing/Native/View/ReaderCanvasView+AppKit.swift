@@ -453,16 +453,18 @@ extension ReaderCanvasView: NSTextViewDelegate {
     /// In paginated flow a trackpad gesture or wheel tick turns a page; the columns do not scroll.
     override func scrollWheel(with event: NSEvent) {
         guard imageInspector == nil, configuration.flow == .paginated, configuration.pageControls.wheelEnabled else { return super.scrollWheel(with: event) }
-        // Line-based mouse wheels report lines; scale them to points as WebKit did.
-        let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
+        // Line-based mouse wheels report lines; count them in points as WebKit did.
+        func points(_ delta: CGFloat) -> CGFloat {
+            event.hasPreciseScrollingDeltas ? delta : ReaderWheelPageTurner.points(lines: delta)
+        }
         let phase: ReaderWheelPageTurner.Phase =
             if !event.momentumPhase.isEmpty { .momentum }
             else if event.phase.contains(.began) || event.phase.contains(.mayBegin) { .began }
             else if event.phase.contains(.changed) { .changed }
             else if !event.phase.isEmpty { .ended }
             else { .none }
-        guard let forward = wheelTurner.direction(deltaX: -event.scrollingDeltaX * scale,
-                                                  deltaY: -event.scrollingDeltaY * scale, phase: phase,
+        guard let forward = wheelTurner.direction(deltaX: -points(event.scrollingDeltaX),
+                                                  deltaY: -points(event.scrollingDeltaY), phase: phase,
                                                   isRightToLeft: configuration.isRightToLeft,
                                                   at: event.timestamp) else { return }
         turnPageFromInput(forward: forward)

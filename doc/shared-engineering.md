@@ -4,7 +4,8 @@ Common rules, technical lessons and reusable engineering tools are maintained in
 [vocaro/apple-engineering](https://github.com/vocaro/apple-engineering) repository. Clone it as
 `apple-engineering` beside this checkout with
 `git clone https://github.com/vocaro/apple-engineering.git`, or set
-`VOCARO_ENGINEERING_ROOT` to its location. No private repository access is needed for the toolkit.
+`VOCARO_ENGINEERING_ROOT` to its location. A worktree of this repository, such as a session's,
+uses the clone beside its main checkout. No private repository access is needed for the toolkit.
 
 ```sh
 python3 scripts/eng doctor
