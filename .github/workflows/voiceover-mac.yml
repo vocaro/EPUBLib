@@ -101,21 +101,11 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
-      - name: Check access to the shared engineering tools
-        env:
-          ENGINEERING_READ_KEY: ${{ secrets.VOCARO_ENGINEERING_SSH_KEY }}
-        run: |
-          if [ -z "$ENGINEERING_READ_KEY" ]; then
-            echo "::error::Configure the read-only VOCARO_ENGINEERING_SSH_KEY deploy key for vocaro/apple-engineering"
-            exit 1
-          fi
-
       - name: Read the shared engineering checkout
         uses: actions/checkout@v7
         with:
           repository: vocaro/apple-engineering
           ref: main
-          ssh-key: ${{ secrets.VOCARO_ENGINEERING_SSH_KEY }}
           path: .build/engineering-toolkit
           persist-credentials: false
 

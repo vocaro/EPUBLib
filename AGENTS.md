@@ -6,8 +6,8 @@ Before work, run `python3 scripts/eng instructions` to read the common rules and
 capabilities, then follow the project-specific instructions below. `engineering.json` locates
 the shared `apple-engineering` checkout; set `VOCARO_ENGINEERING_ROOT` for another location.
 Before shared device, foreground or runner use, run `python3 scripts/eng policy refresh` and
-read this project's current main instructions. Ordinary public Swift package builds do not
-link the private engineering toolkit.
+read this project's current main instructions. Shipping Swift targets do not link the
+engineering toolkit, which is public and MIT licensed.
 
 Working rules for agents in this repository. Build and test commands are in
 [doc/testing.md](doc/testing.md).

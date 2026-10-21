@@ -1,8 +1,10 @@
 # Shared engineering
 
-Common rules, technical lessons and reusable engineering tools are maintained in the private
+Common rules, technical lessons and reusable engineering tools are maintained in the public MIT-licensed
 [vocaro/apple-engineering](https://github.com/vocaro/apple-engineering) repository. Clone it as
-`apple-engineering` beside this checkout, or set `VOCARO_ENGINEERING_ROOT` to its location.
+`apple-engineering` beside this checkout with
+`git clone https://github.com/vocaro/apple-engineering.git`, or set
+`VOCARO_ENGINEERING_ROOT` to its location. No private repository access is needed for the toolkit.
 
 ```sh
 python3 scripts/eng doctor
@@ -19,7 +21,11 @@ requirements, corpus admission, historical measurements and release decisions re
 
 ## Runtime and test support
 
-The public shipping products have no dependency on the private toolkit or runtime packages. The VoiceOver workflow reads the toolkit with a read-only deploy key; ordinary public package builds remain self-contained.
+The public shipping products have no dependency on the engineering toolkit or private runtime
+packages. The VoiceOver workflow checks out the public toolkit without an SSH key or custom
+secret; ordinary public package builds remain self-contained. Public queue enrollment stays in
+engineering.json; account-specific private queues are enrolled through local Git configuration
+as described in the toolkit's [public access guide](https://github.com/vocaro/apple-engineering/blob/main/guides/public-access.md).
 
 ## Updates and new repositories
 

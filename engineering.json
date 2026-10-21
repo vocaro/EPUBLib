@@ -23,7 +23,7 @@
         "-v"
       ],
       "resource": "light",
-      "minimumTests": 43
+      "minimumTests": 46
     },
     "docs": {
       "command": [
@@ -39,9 +39,6 @@
   "integration": "pull-request",
   "hostedRepositories": [
     "vocaro/EPUBLib",
-    "vocaro/Pagepour",
-    "vocaro/studywright",
-    "vocaro/PDFReflowLib",
     "vocaro/MathMLLayout"
   ],
   "voiceover": {
