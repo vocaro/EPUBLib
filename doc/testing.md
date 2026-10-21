@@ -1665,7 +1665,8 @@ the runner's `ax:` steps:
 
 ```sh
 VOICEOVER_READER_PID=$(pgrep -x VoiceOverVerificationMac)
-xcrun swift scripts/voiceover-ax-observer.swift "$VOICEOVER_READER_PID" 60 \
+VOCARO_AX_ALLOWED_BUNDLES=org.epubreaderlib.voiceoververify.mac \
+xcrun swift "$(python3 scripts/eng source voiceover-ax-observer.swift)" "$VOICEOVER_READER_PID" 60 \
   lines next lines previous larger smaller width=600 width=1100 \
   > .build/voiceover/ax-events.log
 ```
@@ -1950,7 +1951,7 @@ Text, "When encountering a link/attachment", which can be Speak, Change Pitch, P
 Nothing. A transcript holds speech and neither tones nor pitch, so every hosted run reads the
 setting and writes it to `runner.txt` as `LINK VERBOSITY`. On the runner it is Speak, the
 setting of a Mac whose VoiceOver has never been configured. The workflow's `links` input
-chooses another. `scripts/voiceover-link-verbosity.swift` does both through VoiceOver
+chooses another. the shared `src/swift/VoiceOver/voiceover-link-verbosity.swift` does both through VoiceOver
 Utility's own window and refuses to run anywhere but on a hosted runner. Do not write the
 setting with `defaults`: a `com.apple.VoiceOver4/default` domain written before VoiceOver had
 ever run left it silent for the whole run, `ERROR 3` after every key.
@@ -2447,7 +2448,7 @@ without it:
    certificate or secret, and the image's own privacy grants were enough for the UI test.
 6. The runner script reads a missing `voiceOverOnOffKey` as off when no `VoiceOver` process
    exists, which is the state of a Mac that has never run VoiceOver.
-7. `scripts/voiceover-link-verbosity.swift` opens VoiceOver Utility to read, and when the
+7. the shared `src/swift/VoiceOver/voiceover-link-verbosity.swift` opens VoiceOver Utility to read, and when the
    `links` input asks to choose, how VoiceOver announces a link ([Links](#links)). Written
    with `defaults` instead, the setting left VoiceOver silent.
 
