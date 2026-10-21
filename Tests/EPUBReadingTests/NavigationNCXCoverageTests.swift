@@ -190,6 +190,19 @@ final class NavigationNCXCoverageTests: XCTestCase {
                                                          "OPS/my%20chapter%20%C3%A9.xhtml"])
     }
 
+    func testNCXAndGuideTargetsAreReadPastTheWhiteSpaceRoundThem() throws {
+        // As a navigation document's links are, and as URL parsing reads every reference
+        // (https://github.com/vocaro/EPUBLib/issues/76).
+        let document = ncx("<navMap>" + point("a", "One", " one.xhtml#start ") + point("b", "Two", "&#9;two.xhtml&#13;&#10;", order: 2) + "</navMap>"
+            + "<pageList><pageTarget><navLabel><text>1</text></navLabel><content src=\"\n  two.xhtml#p1\n\"/></pageTarget></pageList>")
+        let guide = "<guide><reference type=\"cover\" title=\"Cover\" href=\" one.xhtml \"/></guide>"
+        let book = try EPUBPublication.open(data: Fixture.packageVariant(
+            epub2: true, opf: { $0.replacingOccurrences(of: "</package>", with: guide + "</package>") }, ncx: { _ in document }))
+        XCTAssertEqual(book.tableOfContents.map(\.href), ["OPS/one.xhtml#start", "OPS/two.xhtml"])
+        XCTAssertEqual(book.pageList, [EPUBPageListEntry(label: "1", href: "OPS/two.xhtml#p1")])
+        XCTAssertEqual(book.landmarks, [EPUBLandmark(types: ["cover"], title: "Cover", href: "OPS/one.xhtml")])
+    }
+
     // By `Character` a "/", "\", ":", "#" or "." takes a mark, selector or joiner after it into
     // itself and is not found (https://github.com/vocaro/EPUBLib/issues/181).
     func testNCXAndGuideTargetsAreResolvedWhateverMarkFollowsTheirSeparatorsAndDots() throws {

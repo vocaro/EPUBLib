@@ -108,9 +108,13 @@ Faults that leave a book readable are read past instead. Apart from `lostEntries
 Archive), the publication model has no channel for warnings, so this list is where they are
 disclosed:
 
-- **References.** No reference leaves the container: a leading `/` names the container root and
-  `..` stops there (EPUB Reading Systems 3.3 §4.1.1). A query is dropped. The container's rootfile
-  path is the exception: it names the package document or nothing, and is refused in these forms.
+- **References.** The white space round a reference is read past, as URL parsing strips the C0
+  controls and spaces at its ends, so a contents link written `href=" one.xhtml"` names
+  `one.xhtml`; white space inside it, outside ASCII or written as an escape is part of the name
+  ([#76](https://github.com/vocaro/EPUBLib/issues/76)). No reference leaves the container: a
+  leading `/` names the container root and `..` stops there (EPUB Reading Systems 3.3 §4.1.1). A
+  query is dropped. The container's rootfile path is the exception: it names the package document
+  or nothing, and is refused in these forms.
 - **Manifest.** An item repeated verbatim counts once. An item whose file the archive lacks and a
   remote item, which is never fetched, are left out of `resources`; the spine still needs every
   document it names. An href that matches no entry names the one entry that differs only in case,
@@ -200,8 +204,9 @@ disclosed:
   space in an ASCII-compatible document, and so as one of the run of whitespace it stands in.
 
 `EPUBWriting` holds what it writes to the stricter rules: a path with a colon is refused, and so
-is a navigation or stylesheet href with a query, a leading `/` or a step above the root. Either
-href is written as the declared path it was checked against, not as it was spelled. The package
+is a navigation or stylesheet href with white space round it, a query, a leading `/` or a step
+above the root. Either href is written as the declared path it was checked against, not as it
+was spelled. The package
 does not otherwise repair malformed EPUBs, validate the full EPUB specification, synthesize page numbers
 or provide DRM support. Standard IDPF
 and Adobe font obfuscation are decoded for resource access, including the viewer's embedded fonts. Media overlays,

@@ -85,6 +85,21 @@ final class ContainerDocumentCoverageTests: XCTestCase {
                        ["My Books/one.xhtml", "My Books/two.xhtml"], "written %20")
     }
 
+    func testARootfilePathIsReadPastTheWhiteSpaceRoundIt() throws {
+        // As URL parsing reads it (https://github.com/vocaro/EPUBLib/issues/76). Written as an
+        // escape, white space is a character of the name (testARootfilePathIsJudgedOnlyOnceDecoded).
+        for fullPath in [" OPS/book.opf", "OPS/book.opf ", "&#9;OPS/book.opf&#13;&#10;", "\n  OPS/book.opf\n"] {
+            let book = try EPUBPublication.open(data: Fixture.packageVariant(container: container("<rootfiles><rootfile full-path=\"\(fullPath)\"/></rootfiles>")))
+            XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/two.xhtml"], fullPath.debugDescription)
+        }
+        // White space alone names the container root's file no more than an empty value does, and
+        // none hides what a rootfile path may not be.
+        for fullPath in ["", "  ", "&#9;", " /OPS/book.opf", "OPS/book.opf/ ", " ../OPS/book.opf", " OPS//book.opf", "OPS/book.opf#x "] {
+            assertOpening(try Fixture.packageVariant(container: container("<rootfiles><rootfile full-path=\"\(fullPath)\"/></rootfiles>")),
+                          throws: .invalidXML("container rootfile"), fullPath.debugDescription)
+        }
+    }
+
     func testARootfilePathIsDecodedOnce() throws {
         let cases: [(folder: String, package: String, fullPath: String)] = [
             // Any octet, in either case of hexadecimal digit.

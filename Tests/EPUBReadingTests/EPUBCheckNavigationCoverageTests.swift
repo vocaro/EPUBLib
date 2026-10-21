@@ -25,9 +25,9 @@ final class EPUBCheckNavigationCoverageTests: XCTestCase {
     // MARK: Links
 
     func testALinkWithWhitespaceAroundItsHrefNamesTheSameResource() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/76")
         // Valid for EPUBCheck (its issue 156): an HTML `href` is a URL "potentially surrounded by
-        // spaces", and URL parsing strips leading and trailing whitespace.
+        // spaces", and URL parsing strips leading and trailing whitespace
+        // (https://github.com/vocaro/EPUBLib/issues/76).
         let book = try open(nav: toc("<li><a href=\" one.xhtml#start\">One</a></li><li><a href=\"two.xhtml \n\">Two</a></li>"))
         XCTAssertEqual(book.tableOfContents.map(\.href), ["OPS/one.xhtml#start", "OPS/two.xhtml"])
     }
