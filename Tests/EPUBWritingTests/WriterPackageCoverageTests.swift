@@ -88,17 +88,16 @@ struct WriterPackageCoverageTests {
         #expect(publication.pageList == [.init(label: "<1>", href: "EPUB/one.xhtml#p&1")])
     }
 
-    // The writer takes IDs and media types as given. Whatever it accepts must be escaped, so the
-    // manifest and spine still agree when read back.
-    @Test func resourceIDsAndMediaTypesWithMarkupCharactersAreEscapedWhereverTheyAreWritten() async throws {
-        let odd = EPUBResource(id: "a\"b'c<d>&e", path: "EPUB/one.xhtml", mediaType: "application/xhtml+xml", properties: ["x&y", "a<b"])
-        let data = EPUBResource(id: "&amp;", path: "EPUB/data.bin", mediaType: "application/x-odd;v=\"1\"&<2>")
-        let documents: [EPUBPackageWriter.Document]
-        do { documents = try generate(resources: [odd, data], spine: [.init(resource: odd)]) } catch is EPUBWritingError { return }
+    // The writer takes media types and properties as given, and refuses an ID that is not an XML
+    // name, so an ID holds no markup character (https://github.com/vocaro/EPUBLib/issues/96). What
+    // it accepts must be escaped, so the manifest and spine still agree when read back.
+    @Test func mediaTypesAndPropertiesWithMarkupCharactersAreEscapedWhereverTheyAreWritten() async throws {
+        let odd = EPUBResource(id: "c", path: "EPUB/one.xhtml", mediaType: "application/xhtml+xml", properties: ["x&y", "a<b"])
+        let data = EPUBResource(id: "d", path: "EPUB/data.bin", mediaType: "application/x-odd;v=\"1\"&<2>")
+        let documents = try generate(resources: [odd, data], spine: [.init(resource: odd)])
         let items = try opf(documents).named("item")
-        #expect(items.map { $0.attributes["id"] } == ["nav", odd.id, data.id])
+        #expect(items.map { $0.attributes["properties"] } == ["nav", "a<b x&y", nil])
         #expect(items.last?.attributes["media-type"] == data.mediaType)
-        #expect(try opf(documents).named("itemref").map { $0.attributes["idref"] } == [odd.id])
         let publication = try await reopened(documents, content: [odd.path: WriterCoverage.xhtml("<p>Text</p>"), data.path: Data([0])])
         #expect(Array(publication.resources.dropFirst()) == [odd, data])
         #expect(publication.spine == [.init(resource: odd)])
@@ -122,13 +121,6 @@ struct WriterPackageCoverageTests {
                 sourceLocation: sourceLocation)
     }
     private func titles(_ items: [EPUBNavigationItem]) -> [String] { items.flatMap { [$0.title] + titles($0.children) } }
-    /// `id`, or `plain` where the writer refuses it. An ID that is no XML name is the caller's to
-    /// choose, as above, and what the writer accepts it must escape; one it came to refuse
-    /// (https://github.com/vocaro/EPUBLib/issues/96) it would not write.
-    private func accepted(_ id: String, or plain: String) -> String {
-        let resource = EPUBResource(id: id, path: one.path, mediaType: one.mediaType)
-        do { _ = try generate(resources: [resource], spine: [.init(resource: resource)]); return id } catch { return plain }
-    }
 
     @Test func markupCharactersFollowedByAMarkAreEscapedInEveryTextValueAndReadBackScalarForScalar() async throws {
         // The issue's three; a "]]>", which text may not hold, closed by such a ">"; quotes; a "<"
@@ -161,8 +153,8 @@ struct WriterPackageCoverageTests {
     @Test func quotesAndMarkupCharactersFollowedByAMarkAreEscapedInEveryAttributeValue() async throws {
         for m in WriterCoverage.clusteringMarks {
             let value = "q\"\(m)a'\(m)l<\(m)g>\(m)e&\(m)"
-            let odd = EPUBResource(id: accepted("i" + value, or: "c"), path: "EPUB/one.xhtml", mediaType: "application/xhtml+xml", properties: ["p" + value])
-            let data = EPUBResource(id: accepted("d" + value, or: "d"), path: "EPUB/data.bin", mediaType: "application/x-odd;" + value)
+            let odd = EPUBResource(id: "c", path: "EPUB/one.xhtml", mediaType: "application/xhtml+xml", properties: ["p" + value])
+            let data = EPUBResource(id: "d", path: "EPUB/data.bin", mediaType: "application/x-odd;" + value)
             let fragment = "a&\(m)b'\(m)"
             let documents = try generate(WriterCoverage.facts(languages: [value]), resources: [odd, data], spine: [.init(resource: odd)],
                                           contents: [.init(title: "Start", href: "EPUB/one.xhtml#" + fragment)])
@@ -217,8 +209,8 @@ struct WriterPackageCoverageTests {
             // all of them together as every value there is one of.
             let texts = Array(cases[start..<min(start + 256, cases.count)]), all = texts.joined(separator: " ")
             let first = "from U+" + String((after + before)[start].value, radix: 16)
-            let marked = EPUBResource(id: accepted("i" + all, or: "c"), path: "EPUB/one.xhtml", mediaType: "application/xhtml+xml", properties: ["p" + texts.joined()])
-            let data = EPUBResource(id: accepted("d" + all, or: "d"), path: "EPUB/data.bin", mediaType: "application/x-odd;" + all)
+            let marked = EPUBResource(id: "c", path: "EPUB/one.xhtml", mediaType: "application/xhtml+xml", properties: ["p" + texts.joined()])
+            let data = EPUBResource(id: "d", path: "EPUB/data.bin", mediaType: "application/x-odd;" + all)
             let facts = EPUBPackageMetadata(metadata: .init(title: all, authors: texts, languages: [all]), identifier: all,
                                             modificationDate: WriterCoverage.date, summary: all, keywords: texts)
             let documents = try generate(facts, resources: [marked, data], spine: [.init(resource: marked)],
@@ -315,10 +307,12 @@ struct WriterPackageCoverageTests {
         #expect(package.named("meta").compactMap { $0.attributes["property"] }.sorted() == ["dcterms:modified", "rendition:layout"])
     }
 
+    // An empty language is left out, as the reader leaves it out of what it reads
+    // (https://github.com/vocaro/EPUBLib/issues/96), and a list left with none is `und`.
     @Test func aMissingLanguageIsWrittenAsUndeterminedInThePackageAndNavigation() throws {
-        for (languages, expected) in [([String](), "und"), (["pt-BR"], "pt-BR")] {
+        for (languages, expected) in [([String](), "und"), ([""], "und"), ([" ", "\u{A0}\n"], "und"), (["pt-BR"], "pt-BR"), (["", "pt-BR"], "pt-BR")] {
             let documents = try generate(WriterCoverage.facts(languages: languages))
-            #expect(try opf(documents).named("dc:language").map(\.text) == [expected])
+            #expect(try opf(documents).named("dc:language").map(\.text) == [expected], "\(languages)")
             let html = try #require(try nav(documents).elements.first)
             #expect(html.attributes["xml:lang"] == expected && html.attributes["lang"] == expected)
         }
@@ -459,17 +453,15 @@ struct WriterPackageCoverageTests {
     // doc/writing.md: "navigation must resolve to a declared resource", and bad targets throw. An
     // entry with neither a target nor children cannot be written validly (EPUB 3.3, 7.3: "An ol
     // (ordered list) element MUST follow a span element"), but leaving it out, and with it a parent
-    // left childless, loses the caller's contents without a word.
+    // left childless, loses the caller's contents without a word. It is refused, in the contents
+    // and in the page list (https://github.com/vocaro/EPUBLib/issues/96).
     @Test func anUnlinkedContentsEntryWithoutChildrenIsRefusedOrWrittenNeverSilentlyDropped() throws {
-        try withKnownIssue("https://github.com/vocaro/EPUBLib/issues/96") {
-            let contents: [EPUBNavigationItem] = [.init(title: "Start", href: "EPUB/one.xhtml"),
-                                                  .init(title: "Part without chapters", children: [.init(title: "Unlinked leaf")])]
-            let documents: [EPUBPackageWriter.Document]
-            do { documents = try generate(contents: contents) } catch is EPUBWritingError { return }
-            let toc = try nav(documents)
-            let labels = toc.elements.filter { $0.name == "a" || $0.name == "span" }.map(\.text)
-            #expect(labels == ["Start", "Part without chapters", "Unlinked leaf"])
-        }
+        let contents: [EPUBNavigationItem] = [.init(title: "Start", href: "EPUB/one.xhtml"),
+                                              .init(title: "Part without chapters", children: [.init(title: "Unlinked leaf")])]
+        let refused = EPUBWritingError.invalidPublication("navigation entry without a target: Unlinked leaf")
+        #expect(throws: refused) { try generate(contents: contents) }
+        #expect(throws: refused) { try generate(pages: [.init(title: "1", href: "EPUB/one.xhtml"), .init(title: "Unlinked leaf")]) }
+        #expect(throws: EPUBWritingError.invalidPublication("empty contents")) { try generate(contents: []) }
     }
 
     @Test func resourcePathsWithSpacesHashesPercentSignsAndNonASCIIRoundTrip() async throws {
@@ -581,9 +573,19 @@ struct WriterPackageCoverageTests {
                 try generate(resources: [resource], spine: [.init(resource: resource)], contents: [])
             }
         }
-        for id in ["", "nav"] {
+        // An ID that is not an XML name without a colon by the character classes EPUBCheck holds
+        // it to, those of XML 1.0 before its fifth edition, or that the writer gives its own
+        // (https://github.com/vocaro/EPUBLib/issues/96); and a media type with nothing in it.
+        for id in ["", "nav", "book-id", "1 chapter", "7", "a:b", "-x", ".x", " x", "x ", "x\u{0}", "x\u{1}", "\u{300}x", "x\u{2041}", "x\u{FFFE}",
+                   "\u{2170}", "a\u{203F}b", "\u{10000}x"] {
             let resource = EPUBResource(id: id, path: "EPUB/one.xhtml", mediaType: "application/xhtml+xml")
-            #expect(throws: EPUBWritingError.invalidPublication("duplicate or invalid resource: EPUB/one.xhtml"), "\(id)") {
+            #expect(throws: EPUBWritingError.invalidPublication("duplicate or invalid resource: EPUB/one.xhtml"), "\(id.debugDescription)") {
+                try generate(resources: [resource], spine: [.init(resource: resource)], contents: [])
+            }
+        }
+        for mediaType in ["", " ", "\u{A0}"] {
+            let resource = EPUBResource(id: "x", path: "EPUB/one.xhtml", mediaType: mediaType)
+            #expect(throws: EPUBWritingError.invalidPublication("duplicate or invalid resource: EPUB/one.xhtml"), "\(mediaType.debugDescription)") {
                 try generate(resources: [resource], spine: [.init(resource: resource)], contents: [])
             }
         }
@@ -670,14 +672,17 @@ struct WriterPackageCoverageTests {
 
     // The package document gives its dc:identifier the XML ID "book-id" (and the navigation
     // document reserves "nav" in the manifest, which is refused). XML IDs are unique within a
-    // document, and `unique-identifier` must resolve to the dc:identifier alone.
+    // document, and `unique-identifier` must resolve to the dc:identifier alone. "book-id" is
+    // refused as "nav" is (https://github.com/vocaro/EPUBLib/issues/96).
     @Test func aResourceIDEqualToThePackageIdentifierElementIDIsRefusedOrKeptUnique() throws {
-        try withKnownIssue("https://github.com/vocaro/EPUBLib/issues/96") {
-            let resource = EPUBResource(id: "book-id", path: "EPUB/one.xhtml", mediaType: "application/xhtml+xml")
-            let documents: [EPUBPackageWriter.Document]
-            do { documents = try generate(resources: [resource], spine: [.init(resource: resource)]) } catch is EPUBWritingError { return }
-            let ids = try opf(documents).elements.compactMap { $0.attributes["id"] }
-            #expect(Set(ids).count == ids.count, "the package document repeats an XML ID: \(ids)")
+        let resource = EPUBResource(id: "book-id", path: "EPUB/one.xhtml", mediaType: "application/xhtml+xml")
+        #expect(throws: EPUBWritingError.invalidPublication("duplicate or invalid resource: EPUB/one.xhtml")) {
+            try generate(resources: [resource], spine: [.init(resource: resource)])
+        }
+        // A fallback to it names no manifest item.
+        let fallback = EPUBResource(id: "c", path: "EPUB/one.xhtml", mediaType: "application/xhtml+xml", fallbackID: "book-id")
+        #expect(throws: EPUBWritingError.invalidPublication("fallback references an undeclared resource: book-id")) {
+            try generate(resources: [fallback], spine: [.init(resource: fallback)])
         }
     }
 }
