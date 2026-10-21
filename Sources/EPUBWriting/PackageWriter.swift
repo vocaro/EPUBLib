@@ -46,33 +46,34 @@ public enum EPUBPackageWriter {
         // combining mark is another character, and no prefix of the path is "EPUB/".
         func inPackage(_ path: String) -> Bool { path.utf8.starts(with: "EPUB/".utf8) }
         // "nav" is the navigation document's manifest ID, and "book-id" the unique identifier's.
-        var ids: Set<String> = ["nav"]
+        // IDs compare by code unit, as an IDREF names an item: `caf\u{E9}` and `cafe\u{301}` are two.
+        var ids: Set<EPUBElementID> = ["nav"]
         var paths: Set<String> = ["EPUB/nav.xhtml", "EPUB/package.opf", "META-INF/container.xml", "mimetype"]
         for resource in resources {
-            guard isName(resource.id), resource.id != "book-id", ids.insert(resource.id).inserted, !isEmpty(resource.mediaType),
+            guard isName(resource.id), resource.id != "book-id", ids.insert(EPUBElementID(resource.id)).inserted, !isEmpty(resource.mediaType),
                   ResourceReference.isSafePath(resource.path), inPackage(resource.path),
                   paths.insert(resource.path).inserted else {
                 throw EPUBWritingError.invalidPublication("duplicate or invalid resource: \(resource.path)")
             }
         }
         for resource in resources {
-            if let fallback = resource.fallbackID, !ids.contains(fallback) {
+            if let fallback = resource.fallbackID, !ids.contains(EPUBElementID(fallback)) {
                 throw EPUBWritingError.invalidPublication("fallback references an undeclared resource: \(fallback)")
             }
         }
-        let byID = Dictionary(uniqueKeysWithValues: resources.map { ($0.id, $0) })
-        var checked: Set<String> = []
+        let byID = Dictionary(uniqueKeysWithValues: resources.map { (EPUBElementID($0.id), $0) })
+        var checked: Set<EPUBElementID> = []
         for resource in resources {
-            var next: EPUBResource? = resource, current: Set<String> = []
-            while let item = next, !checked.contains(item.id) {
-                guard current.insert(item.id).inserted else {
+            var next: EPUBResource? = resource, current: Set<EPUBElementID> = []
+            while let item = next, !checked.contains(EPUBElementID(item.id)) {
+                guard current.insert(EPUBElementID(item.id)).inserted else {
                     throw EPUBWritingError.invalidPublication("cyclic manifest fallback: \(item.id)")
                 }
                 next = item.fallbackID.flatMap { byID[$0] }
             }
             checked.formUnion(current)
         }
-        guard spine.allSatisfy({ resources.contains($0.resource) }) else {
+        guard spine.allSatisfy({ byID[$0.resource.id] == $0.resource }) else {
             throw EPUBWritingError.invalidPublication("spine references an undeclared resource")
         }
         // An empty value in a list is left out, as the reader leaves it out of what it reads.

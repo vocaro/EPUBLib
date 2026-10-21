@@ -158,23 +158,23 @@ enum SVGContent {
     /// The id a `<use>` names, read as the renderer reads it: after leading white space a `#`,
     /// then all that precedes the first space. An id may end in other white space, so no more is
     /// trimmed: a `<use>` whose target is not found here is one whose expansion is not counted.
-    static func fragment(_ element: ContentNode) -> String? {
+    static func fragment(_ element: ContentNode) -> EPUBElementID? {
         guard let reference = element.attribute("href") ?? element.attribute("href", namespace: ContentNamespace.xlink) else { return nil }
         let rest = reference.utf8.drop { $0 == 0x20 || $0 == 0x09 || $0 == 0x0A || $0 == 0x0D }
         guard rest.first == UInt8(ascii: "#") else { return nil }
         let id = String(decoding: rest.dropFirst().prefix { $0 != 0x20 }, as: UTF8.self)
-        return id.isEmpty ? nil : id
+        return id.isEmpty ? nil : EPUBElementID(id)
     }
 
     /// The elements a reference by id can mean. The renderer takes an element's id from its first
     /// attribute named `id` in any namespace, and resolves a `<use>` to the first element with an
     /// id but a marker property to the last. Every element with the id in any such attribute is
     /// kept, so that whichever the renderer picks is counted.
-    static func elementsByID(_ nodes: [ContentNode]) -> [String: [ContentNode]] {
-        var ids: [String: [ContentNode]] = [:]
+    static func elementsByID(_ nodes: [ContentNode]) -> [EPUBElementID: [ContentNode]] {
+        var ids: [EPUBElementID: [ContentNode]] = [:]
         for node in nodes {
             for attribute in node.attributes where attribute.name == "id" && ids[attribute.value]?.last !== node {
-                ids[attribute.value, default: []].append(node)
+                ids[EPUBElementID(attribute.value), default: []].append(node)
             }
         }
         return ids
@@ -333,7 +333,7 @@ enum SVGContent {
     }
 
     /// What a property value can name: nothing, the element with one id, or an element not known.
-    private enum Reference: Equatable { case none, id(String), unknown }
+    private enum Reference: Equatable { case none, id(EPUBElementID), unknown }
 
     /// The properties a declaration can set that this check reads.
     private struct Property: OptionSet {
@@ -373,7 +373,7 @@ enum SVGContent {
     /// one more for each. And a marker painted with `context-fill` or `context-stroke` copies the
     /// stops of the shape's paint server for each: with such a marker in the SVG, a shape whose
     /// fill or stroke names a paint server bears no marker.
-    static func markerVerdict(_ svg: ContentNode, nodes: [ContentNode], ids: [String: [ContentNode]],
+    static func markerVerdict(_ svg: ContentNode, nodes: [ContentNode], ids: [EPUBElementID: [ContentNode]],
                               stepBudget: Int = markerStepBudget) -> MarkerVerdict {
         guard nodes.contains(where: { $0.name == "marker" }) else { return (true, 0, 0) }
         let refused: MarkerVerdict = (false, 0, 0)
@@ -389,7 +389,7 @@ enum SVGContent {
         }
 
         // Rule 4, and the part of rule 3 inside a marker: the size of each, by every id it has.
-        var sizes: [String: Int] = [:]
+        var sizes: [EPUBElementID: Int] = [:]
         var largest = 0
         func measure(_ node: ContentNode, above: Int) -> Bool {
             guard node.name == "marker" else {
@@ -605,7 +605,7 @@ enum SVGContent {
     /// drawn or not, for its one step. What bounds that is the expansion limit, which counts 32
     /// bytes or more for each child of each element the walk visits, as often as it visits it,
     /// and which `isWithinRenderingLimits` applies before it calls this.
-    static func copyVerdict(_ svg: ContentNode, nodes: [ContentNode], ids: [String: [ContentNode]],
+    static func copyVerdict(_ svg: ContentNode, nodes: [ContentNode], ids: [EPUBElementID: [ContentNode]],
                             stepBudget: Int = markerStepBudget,
                             resourceReferences: [ObjectIdentifier: [ContentNode]]? = nil,
                             markerResourceReferences: [(source: ContentNode, target: ContentNode)] = [],
@@ -671,7 +671,7 @@ enum SVGContent {
         /// What an id names among the gradients.
         enum Named { case one(ContentNode), several }
         let gradients = nodes.filter { $0.name == "linearGradient" || $0.name == "radialGradient" }
-        var named: [String: Named] = [:]
+        var named: [EPUBElementID: Named] = [:]
         var painted: [ObjectIdentifier: Int] = [:]
         var largestGradient = 0
         for gradient in gradients {
@@ -709,7 +709,7 @@ enum SVGContent {
         // By every id a gradient has, and where several gradients share one, the most any of
         // them paints with: a `fill` or a `stroke` is charged what the id it names has here, and
         // one that is not read as naming one id, the largest gradient.
-        var gradientStops: [String: Int] = [:]
+        var gradientStops: [EPUBElementID: Int] = [:]
         for gradient in gradients {
             let count = painted[ObjectIdentifier(gradient)] ?? 0
             for attribute in gradient.attributes where attribute.name == "id" {
@@ -1497,7 +1497,7 @@ enum SVGContent {
             cursor += 1
         }
         guard end > start, cursor < bytes.count, bytes[cursor] == UInt8(ascii: ")") else { return .unknown }
-        return .id(String(decoding: bytes[start..<end], as: UTF8.self))
+        return .id(EPUBElementID(String(decoding: bytes[start..<end], as: UTF8.self)))
     }
 
     /// Whether a `text-decoration` value names a line the renderer draws (`underline`, `overline` or

@@ -14,8 +14,8 @@ final class SectionContentInvarianceCoverageTests: XCTestCase {
     private struct Snapshot: Equatable {
         let string: String
         let map: TextMap
-        let anchors: [String: Int]
-        let notes: [String: String]
+        let anchors: [EPUBElementID: Int]
+        let notes: [EPUBElementID: String]
         /// The runs `visibility: hidden` hides (`.readerHidden`).
         let hidden: [NSRange]
         init(_ text: SectionText) {
