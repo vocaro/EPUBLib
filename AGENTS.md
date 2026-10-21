@@ -149,6 +149,10 @@ Every session's worktree shares one `.git`, and `main` gains commits several tim
   pull request's changes as well, 187 lines for a change of 30, and the tree a test then ran
   on was neither main's nor the branch's. To take your own change out, reverse the patch of
   your own commit, and see that `git diff origin/main` is empty before calling the tree main's.
+- Name the exact branches when one command acts on several. On 2026-10-20 a loop over the
+  branches matching `claude/issue-` also caught `claude/issue-triage-…`, another session's,
+  and merged `main` into it; soon after, that branch was gone and its worktree detached. Act
+  on the list of refs you made, taken from your own records.
 - A pull request that a brief names as open may have merged since the brief was written. Look
   on GitHub before building on its branch, and once it has merged, build on `main`.
 - Fetch before the last verification, not only the first, and do not chase `main`. On
