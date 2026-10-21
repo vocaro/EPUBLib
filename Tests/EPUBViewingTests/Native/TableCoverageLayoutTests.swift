@@ -545,7 +545,7 @@ final class TableCoverageLayoutTests: XCTestCase {
                 let attachment = TableRowAttachment(table: table, row: row)
                 guard attachment.height(width: 300, viewportHeight: 600) > layout.height(ofRow: row) + 5 else { continue }
                 extended += 1
-                let image = try assertDecorated(attachment, cells: [spanning], fill: variant.fill, from: row == span.row ? margin : 1,
+                let image = try assertDecorated(attachment, cells: [spanning], fill: variant.fill, from: row == span.row ? margin : 0,
                                                 "\(variant.name) row \(row)")
                 // In the band below the row's slice, the cell of the next row in the second column is not drawn.
                 let next = try XCTUnwrap(table.rowCells[row + 1].first { table.cells[$0].row == row + 1 && $0 != spanning }, variant.name)
@@ -574,14 +574,15 @@ final class TableCoverageLayoutTests: XCTestCase {
         let margin = Int(layout.cellFrames[0].minY + table.cells[0].borders.widths.top) + 3
         for piece in extended {
             try assertDecorated(TableRowAttachment(table: table, row: 0, fragment: piece, layout: layout), cells: [0, 1],
-                                fill: [255, 0, 0, 255], from: piece.top > layout.rowTops[0] ? 1 : margin, "the piece from \(piece.top)")
+                                fill: [255, 0, 0, 255], from: piece.top > layout.rowTops[0] ? 0 : margin, "the piece from \(piece.top)")
         }
     }
 
     /// Every pixel row of a row's image from `top` to its foot has `fill` in the padding of
     /// each of `cells`, and the table's border at its left and right edges. Returns the image.
-    /// A row that goes on from the one above is read from its second pixel row: `pixels` draws
-    /// into a whole number of pixels, which leaves the first only partly covered.
+    /// The image is a fractional number of points tall and the bitmap `pixels` draws it into a
+    /// whole number of pixels, so the bitmap's first and last pixel rows straddle the image's
+    /// edges, part covered on the Mac or on iOS. Neither is read.
     @discardableResult
     private func assertDecorated(_ row: TableRowAttachment, cells: [Int], fill: [UInt8], from top: Int, _ message: String,
                                  file: StaticString = #filePath, line: UInt = #line) throws -> CGImage {
@@ -596,7 +597,7 @@ final class TableCoverageLayoutTests: XCTestCase {
         let outer = row.table.borders.widths
         let edges = [Int(outer.left / 2), Int(layout.size.width - outer.right / 2)]
         var bare: [String] = [], open: [String] = []
-        for y in top..<image.height {
+        for y in max(1, top)..<(image.height - 1) {
             if let pixel = xs.map({ RichImageTests.rgba(image, x: $0, y: y) }).first(where: { $0 != fill }) { bare.append("\(y): \(pixel)") }
             if let pixel = edges.map({ RichImageTests.rgba(image, x: $0, y: y) }).first(where: { $0[3] < 100 }) { open.append("\(y): \(pixel)") }
         }
