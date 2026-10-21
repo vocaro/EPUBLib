@@ -317,17 +317,22 @@ struct TableLayout {
 
 extension TableModel {
     /// Draws one row's slice of the table into the current graphics context (top-left origin,
-    /// flipped, as a view draws), whose origin is the slice's top-left on its line. A cell
-    /// spanning rows has its decoration clipped to the slice; cell glyphs are drawn as complete
-    /// lines belonging to this continuation, using the same layout that measured them.
+    /// flipped, as a view draws), whose origin is the slice's top-left on its line. Decoration is
+    /// clipped to the fragment; cell glyphs are drawn as complete lines belonging to this
+    /// continuation, using the same layout that measured them.
+    ///
+    /// A fragment taller than its slice finishes a line that crosses the slice's foot. The
+    /// table's decoration and that of the row's own cells go on through that band, as their
+    /// boxes do: a spanning cell keeps its background, and the table its border, to the line's
+    /// foot. The next row's cells are not drawn there; they are drawn in the next row (#141).
     func draw(row: Int, layout: TableLayout, fragment: TableRowFragment, in context: CGContext) {
         guard row < rows.count else { return }
-        let top = fragment.top, bottom = fragment.bottom
+        let top = fragment.top
         context.saveGState()
         defer { context.restoreGState() }
         context.scaleBy(x: layout.scale * fragment.fitScale, y: layout.scale * fragment.fitScale)
         context.translateBy(x: layout.originX, y: -top)
-        let slice = CGRect(x: 0, y: top, width: layout.size.width, height: bottom - top)
+        let slice = CGRect(x: 0, y: top, width: layout.size.width, height: fragment.height)
         context.saveGState()
         context.clip(to: slice.insetBy(dx: -1, dy: 0))
         let tableRect = CGRect(origin: .zero, size: layout.size)

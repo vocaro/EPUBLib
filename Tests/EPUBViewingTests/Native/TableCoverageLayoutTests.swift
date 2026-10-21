@@ -499,7 +499,6 @@ final class TableCoverageLayoutTests: XCTestCase {
     /// crosses into the next row. The table does not stop there: its border and the spanning
     /// cell's background run on to the next row, as the cell's box does (CSS 2.2 §17.5.1).
     func testARowExtendedToFinishASpanningCellsLineKeepsItsBorderAndBackgroundToItsEnd() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/141")
         let table = try TableCoverage.table("""
         <table border="1" cellpadding="4"><tr><td rowspan="2" bgcolor="#ff0000">line one<br/>line two<br/>line three</td><td>a</td></tr>
         <tr><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>
@@ -520,6 +519,90 @@ final class TableCoverageLayoutTests: XCTestCase {
         }
         XCTAssertEqual(bare, [], "pixel rows of the \(image.height) where the spanning cell has no background")
         XCTAssertEqual(open, [], "pixel rows of the \(image.height) where the table has no left border")
+    }
+
+    /// The same whatever shades the spanning cell and borders the table: the cell's own
+    /// `background-color`, its row's background, collapsed borders, and a cell spanning three
+    /// rows, whose lines crossing either boundary are each finished in the row above it. The
+    /// next row's own cells are left to its own image (#141).
+    func testEveryRowExtendedToFinishASpanningCellsLineIsDecoratedToItsEnd() throws {
+        let three = "line one<br/>line two<br/>line three", five = "one<br/>two<br/>three<br/>four<br/>five"
+        let below = "<tr><td bgcolor='#0000ff'>b</td></tr>"
+        let variants: [(name: String, markup: String, css: String, fill: [UInt8])] = [
+            ("background-color", "<tr><td rowspan='2' class='span'>\(three)</td><td>a</td></tr>\(below)", ".span { background-color: #ff0000; }", [255, 0, 0, 255]),
+            ("row background", "<tr bgcolor='#00ff00'><td rowspan='2'>\(three)</td><td>a</td></tr>\(below)", "", [0, 255, 0, 255]),
+            ("collapsed borders", "<tr><td rowspan='2' bgcolor='#ff0000'>\(three)</td><td>a</td></tr>\(below)", "table { border-collapse: collapse; }", [255, 0, 0, 255]),
+            ("three rows", "<tr><td rowspan='3' bgcolor='#ff0000'>\(five)</td><td>a</td></tr>\(below)\(below)", "", [255, 0, 0, 255]),
+        ]
+        for variant in variants {
+            let table = try TableCoverage.table("<table border='1' cellpadding='4'>\(variant.markup)<tr><td>c</td><td>d</td></tr></table>", css: variant.css)
+            let layout = table.layout(available: 300, viewportHeight: 600)
+            let spanning = try XCTUnwrap(table.cells.firstIndex { $0.rowSpan > 1 }, variant.name)
+            let span = table.cells[spanning]
+            let margin = Int(layout.cellFrames[spanning].minY + span.borders.widths.top) + 3
+            var extended = 0
+            for row in span.row..<(span.row + span.rowSpan - 1) {
+                let attachment = TableRowAttachment(table: table, row: row)
+                guard attachment.height(width: 300, viewportHeight: 600) > layout.height(ofRow: row) + 5 else { continue }
+                extended += 1
+                let image = try assertDecorated(attachment, cells: [spanning], fill: variant.fill, from: row == span.row ? margin : 1,
+                                                "\(variant.name) row \(row)")
+                // In the band below the row's slice, the cell of the next row in the second column is not drawn.
+                let next = try XCTUnwrap(table.rowCells[row + 1].first { table.cells[$0].row == row + 1 && $0 != spanning }, variant.name)
+                let x = Int(layout.cellFrames[next].minX + table.cells[next].borders.widths.left) + 1
+                let band = Int(layout.height(ofRow: row).rounded(.up))..<image.height
+                XCTAssertFalse(band.isEmpty, variant.name)
+                XCTAssertEqual(band.filter { RichImageTests.rgba(image, x: x, y: $0) == [0, 0, 255, 255] }, [],
+                               "\(variant.name) row \(row): pixel rows where the next row's cell is drawn")
+            }
+            XCTAssertEqual(extended, span.rowSpan - 1, "\(variant.name): a line crosses out of every row the cell spans but its last")
+        }
+    }
+
+    /// A row too tall for a page goes on in pieces, each cut above a line that would cross the
+    /// page's foot. A line of another cell that crosses the cut is finished above it, and the
+    /// piece is decorated to that line's foot, as a row extended for a spanning cell's line is.
+    func testAPieceOfATallRowExtendedToFinishALineIsDecoratedToItsEnd() throws {
+        let lines = (1...12).map { "line \($0)" }.joined(separator: "<br/>")
+        let table = try TableCoverage.table("""
+        <table border="1" cellpadding="4"><tr><td bgcolor="#ff0000">\(lines)</td><td bgcolor="#ff0000" class="low">\(lines)</td></tr></table>
+        """, css: ".low { padding-top: 10px; }")
+        let layout = table.layout(available: 300, viewportHeight: 600)
+        let pieces = layout.fragments(ofRow: 0, maximumHeight: 100)
+        let extended = pieces.filter { $0.height > $0.bottom - $0.top + 2 }
+        XCTAssertFalse(extended.isEmpty, "no piece is taller than its slice: \(pieces.map { [$0.top, $0.bottom, $0.height] })")
+        let margin = Int(layout.cellFrames[0].minY + table.cells[0].borders.widths.top) + 3
+        for piece in extended {
+            try assertDecorated(TableRowAttachment(table: table, row: 0, fragment: piece, layout: layout), cells: [0, 1],
+                                fill: [255, 0, 0, 255], from: piece.top > layout.rowTops[0] ? 1 : margin, "the piece from \(piece.top)")
+        }
+    }
+
+    /// Every pixel row of a row's image from `top` to its foot has `fill` in the padding of
+    /// each of `cells`, and the table's border at its left and right edges. Returns the image.
+    /// A row that goes on from the one above is read from its second pixel row: `pixels` draws
+    /// into a whole number of pixels, which leaves the first only partly covered.
+    @discardableResult
+    private func assertDecorated(_ row: TableRowAttachment, cells: [Int], fill: [UInt8], from top: Int, _ message: String,
+                                 file: StaticString = #filePath, line: UInt = #line) throws -> CGImage {
+        let layout = row.layout(width: 300, viewportHeight: 600)
+        XCTAssertEqual(layout.scale, 1, message, file: file, line: line)
+        XCTAssertEqual(layout.originX, 0, message, file: file, line: line)
+        let (image, _) = try pixels(row, width: 300)
+        let xs = cells.map { Int(layout.cellFrames[$0].minX + row.table.cells[$0].borders.widths.left) + 1 }
+        for (cell, x) in zip(cells, xs) {
+            XCTAssertLessThan(CGFloat(x) + 1, layout.contentFrames[cell].minX, "\(message): in the padding", file: file, line: line)
+        }
+        let outer = row.table.borders.widths
+        let edges = [Int(outer.left / 2), Int(layout.size.width - outer.right / 2)]
+        var bare: [String] = [], open: [String] = []
+        for y in top..<image.height {
+            if let pixel = xs.map({ RichImageTests.rgba(image, x: $0, y: y) }).first(where: { $0 != fill }) { bare.append("\(y): \(pixel)") }
+            if let pixel = edges.map({ RichImageTests.rgba(image, x: $0, y: y) }).first(where: { $0[3] < 100 }) { open.append("\(y): \(pixel)") }
+        }
+        XCTAssertEqual(bare, [], "\(message): pixel rows of the \(image.height) where a cell has no background", file: file, line: line)
+        XCTAssertEqual(open, [], "\(message): pixel rows of the \(image.height) where the table has no side border", file: file, line: line)
+        return image
     }
 
     /// CSS 2.2 §17.6.2.1: where collapsed borders meet, the wider one is drawn.
