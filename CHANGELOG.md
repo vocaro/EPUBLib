@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Read a package or navigation document the same way on every run when two prefixes for one namespace give an element two attributes of one name, such as two `epub:type`s on a `nav`, and read an element's namespace declarations in text extraction in document order, where which attribute was read, and so which `nav` gave the contents, changed from run to run ([#213](https://github.com/vocaro/EPUBLib/issues/213)).
 - Refuse an empty title, identifier, contents or navigation label, a contents entry with neither a target nor entries, and a resource ID that is not an XML name, and leave out an empty author, language, summary or keyword, where the writer wrote each into a package EPUBCheck rejects or dropped the entry without a word ([#96](https://github.com/vocaro/EPUBLib/issues/96)).
 - Refuse in strict text extraction a name that Namespaces in XML forbids, such as `<:p>` or `script:`, and read it in recovery as the native reader does, where it was read as `p` or `script` and its text restructured or dropped ([#178](https://github.com/vocaro/EPUBLib/issues/178)).
 - Match CFI ID assertions by their exact code units, and leave out an ID assertion that would make an issued bookmark one `restore` refuses ([#105](https://github.com/vocaro/EPUBLib/issues/105)).

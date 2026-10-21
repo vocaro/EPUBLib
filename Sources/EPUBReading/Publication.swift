@@ -566,6 +566,10 @@ private final class XMLTree: NSObject, XMLParserDelegate {
         let local = String(name.split(separator: ":").last ?? Substring(name))
         func isDeclaration(_ key: String) -> Bool { key == "xmlns" || key.hasPrefix("xmlns:") }
         var namespaces = scopes.last ?? ["xml": XMLNamespace.xml]
+        // XMLParser gives no document order, and a dictionary's changes from run to run. Two
+        // prefixes for one namespace give two attributes one name, which Namespaces in XML forbids
+        // and XMLParser reads on; of those, the one whose qualified name sorts last is kept (#213).
+        let attributes = attributes.sorted { $0.key < $1.key }
         for (key, value) in attributes where isDeclaration(key) {
             namespaces[key == "xmlns" ? "" : String(key.dropFirst(6))] = value
         }
