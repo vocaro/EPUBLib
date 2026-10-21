@@ -517,7 +517,7 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
     private func facts(_ text: SectionText, showing phrase: String, links words: [String]) -> [String] {
         let inCell = TableCoverage.tables(in: text.string).contains { $0.cells.contains { $0.content.string.contains(phrase) } }
         let shown = inCell ? "in a cell" : text.string.string.contains(phrase) ? "in the flow" : "nowhere"
-        return ["shown \(shown)", "keys " + text.notes.keys.sorted().joined(separator: " ")] + words.map { word in
+        return ["shown \(shown)", "keys " + text.notes.keys.sorted().map(\.string).joined(separator: " ")] + words.map { word in
             switch S.link(word, in: text) {
             case .note(let href)?: "\(word): note link to \(href)"
             case .internal(let href)?: "\(word): internal link to \(href)"
@@ -664,6 +664,43 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
         XCTAssertEqual(text.anchors["dup"], 0)
         XCTAssertEqual(text.anchors["xid"], H.location(of: "third", in: text))
         XCTAssertEqual(text.anchors["late"], H.location(of: "fourth", in: text))
+    }
+
+    /// Ids compare code unit for code unit, as `getElementById` compares them: `caf&#xE9;` and
+    /// `cafe&#x301;` are two ids, though `String` compares them equal. So are two such names.
+    func testCanonicallyEquivalentIdsAndNamesAreTwoAnchors() throws {
+        let text = try H.build("""
+            <p id="caf&#xE9;">composed</p><p id="cafe&#x301;">decomposed</p>\
+            <p><a name="na&#xEF;ve">first</a> <a name="nai&#x308;ve">second</a></p>
+            """)
+        XCTAssertEqual(text.anchors.count, 4)
+        XCTAssertEqual(text.anchors["caf\u{E9}"], H.location(of: "composed", in: text))
+        XCTAssertEqual(text.anchors["cafe\u{301}"], H.location(of: "decomposed", in: text))
+        XCTAssertEqual(text.anchors["na\u{EF}ve"], H.location(of: "first", in: text))
+        XCTAssertEqual(text.anchors["nai\u{308}ve"], H.location(of: "second", in: text))
+    }
+
+    /// A note is named by its own ids alone: one whose id is canonically equivalent to another's
+    /// is a second note, and a link to either shows that one.
+    func testCanonicallyEquivalentIdsNameTwoNotes() throws {
+        let text = try H.build("""
+            <p>T<a epub:type="noteref" href="#n&#xE9;">one</a> U<a epub:type="noteref" href="#ne%CC%81">two</a></p>\
+            <aside epub:type="footnote" id="n&#xE9;"><p>Composed.</p></aside>\
+            <aside epub:type="footnote" id="ne&#x301;"><p>Decomposed.</p></aside>
+            """)
+        XCTAssertEqual(text.notes.count, 2)
+        XCTAssertEqual(text.notes["n\u{E9}"]?.string, "Composed.")
+        XCTAssertEqual(text.notes["ne\u{301}"]?.string, "Decomposed.")
+    }
+
+    /// A link goes where its own href says: hrefs that differ in code units alone are resolved
+    /// one by one, not once for both.
+    func testLinksToCanonicallyEquivalentIdsKeepTheirOwnTargets() throws {
+        let text = try H.build("""
+            <p><a href="#caf&#xE9;">first</a> <a href="#cafe&#x301;">second</a></p><p id="caf&#xE9;">x</p><p id="cafe&#x301;">y</p>
+            """)
+        XCTAssertEqual(S.link("first", in: text), .internal(href: "OPS/one.xhtml#caf%C3%A9"))
+        XCTAssertEqual(S.link("second", in: text), .internal(href: "OPS/one.xhtml#cafe%CC%81"))
     }
 
     func testIdsInContentThatIsNotRenderedAnchorAtTheNextRenderedCharacter() throws {
