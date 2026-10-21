@@ -563,6 +563,36 @@ struct WriterPackageCoverageTests {
         }
     }
 
+    // A doubled slash is an empty segment, and a `..` after it removes it rather than the name
+    // before it, as URL parsing reads the target as given
+    // (https://github.com/vocaro/EPUBLib/issues/605). With both one.xhtml and a/one.xhtml
+    // declared, the target is checked, written and read back as the one a browser reaches.
+    @Test func aDoubleDotAfterAnEmptySegmentRemovesItInTheTargetCheckedWrittenAndReadBack() async throws {
+        let nested = EPUBResource(id: "nested", path: "EPUB/a/one.xhtml", mediaType: "application/xhtml+xml")
+        // Each target as given, and the link it is written as in EPUB/nav.xhtml.
+        let targets = [("EPUB/a//../one.xhtml", "a/one.xhtml"), ("EPUB/a///../../one.xhtml#start", "a/one.xhtml#start"),
+                       ("EPUB/a/.//../one.xhtml", "a/one.xhtml"), ("EPUB/a/b//../../one.xhtml", "a/one.xhtml"),
+                       ("EPUB//../one.xhtml", "one.xhtml"), ("EPUB/a//one.xhtml", "a/one.xhtml")]
+        let root = try #require(URL(string: "https://reader.invalid/"))
+        for (given, written) in targets {
+            let url = URL(string: given, relativeTo: root)?.absoluteURL
+            let path = url?.path(percentEncoded: false).split(separator: "/").joined(separator: "/")
+            #expect(path == "EPUB/" + written.split(separator: "#")[0], "\(given) as a browser reads it")
+        }
+        let documents = try generate(resources: [one, nested], spine: [one, nested].map { .init(resource: $0) },
+                                     contents: targets.map { .init(title: "Entry", href: $0.0) },
+                                     pages: targets.map { .init(title: "1", href: $0.0) })
+        #expect(try nav(documents).named("a").compactMap { $0.attributes["href"] } == (targets + targets).map(\.1))
+        let content = [one.path: WriterCoverage.xhtml("<p id=\"start\">One</p>"), nested.path: WriterCoverage.xhtml("<p id=\"start\">Nested</p>")]
+        let publication = try await reopened(documents, content: content)
+        #expect(publication.tableOfContents.map(\.href) == targets.map { "EPUB/" + $0.1 })
+        #expect((publication.pageList ?? []).map(\.href) == targets.map { "EPUB/" + $0.1 })
+        // The name a `..` no longer removes is checked: here a colon, which no written path holds.
+        #expect(throws: EPUBPublicationError.unsafePath("EPUB/c:x//../one.xhtml")) {
+            try generate(resources: [one, nested], contents: [.init(title: "t", href: "EPUB/c:x//../one.xhtml")])
+        }
+    }
+
     // MARK: Refused input
 
     @Test func unsafeReservedAndOutOfPackageResourcePathsAndIDsAreRefused() {
