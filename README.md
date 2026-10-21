@@ -47,8 +47,7 @@ Open a book with `EPUBPublication.open(at:)` off the main actor. To show it, cre
 `EPUBReader().makeSession(publication:selectionAction:onEvent:)`, retain it, and mount
 `EPUBReaderView(session:)`. Once the session emits `.ready`, send it commands such as `.nextPage`
 or `.navigate(href:)`. The [host integration guide](doc/integration.md) walks through each step
-with compiled examples, and the [sample app](doc/sample.md) is a complete reader for iPhone, iPad
-and Mac.
+with compiled examples.
 
 ## Documentation
 
@@ -57,7 +56,6 @@ and Mac.
 - [Reader controls](doc/reader-controls.md): the optional toolbar, control strip and search results.
 - [Text extraction](doc/text-extraction.md): section text, headings and positions without a reader.
 - [Writing](doc/writing.md): generating EPUB 3 packages and archives.
-- [Sample app](doc/sample.md): a runnable reader for iPhone, iPad and Mac.
 - [Architecture](doc/architecture.md): products, the publication model, supported input and
   security.
 - [Native viewer](doc/native-viewer.md): the reader's design, decisions and limitations.

@@ -421,6 +421,11 @@ final class RichImageTests: XCTestCase {
         image.draw(in: CGRect(origin: .zero, size: size))
         NSGraphicsContext.current = previous
         #else
+        // UIImage.draw expects UIKit's top-left coordinates: in the bitmap's own it is drawn
+        // upside down. Flipped, it is upright and placed as the Mac's is, its foot on the
+        // bitmap's (#141).
+        context.translateBy(x: 0, y: size.height)
+        context.scaleBy(x: 1, y: -1)
         UIGraphicsPushContext(context)
         image.draw(in: CGRect(origin: .zero, size: size))
         UIGraphicsPopContext()

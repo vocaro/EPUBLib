@@ -13,8 +13,7 @@
   Project Authors) that macOS and iOS install; neither package distributes the font.
   Its speech vocabulary includes material adapted from MathCAT (MIT) and Speech Rule Engine
   (Apache-2.0). Readable copies of all required licenses and notices are retained unchanged in
-  [Vendor/MathMLLayout](../Vendor/MathMLLayout), from tag `0.3.1`; the sample apps bundle that
-  folder. Applications distributing EPUBViewing must include these copies in their own
+  [Vendor/MathMLLayout](../Vendor/MathMLLayout), from tag `0.3.1`. Applications distributing EPUBViewing must include these copies in their own
   acknowledgments or accompanying documentation; SwiftPM does not bundle them automatically.
 - **resvg 0.48.1** — MIT/Apache-2.0 — https://github.com/linebender/resvg.
   The native viewer bundles static Apple libraries in `Vendor/Resvg/Resvg.xcframework`.

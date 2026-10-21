@@ -359,6 +359,39 @@ final class PositionCFIResolutionCoverageTests: XCTestCase {
         for cfi in ["/4/2/2/1:0", "/4/2/2/2", "/4/2/4/1", "/4/2/4/0"] { XCTAssertNil(resolve(cfi, in: document), cfi) }
     }
 
+    /// A document whose last node is an element, an image or a rule with nothing after it, ends
+    /// just after that element (`ContentDocument.end`), not at its start: the virtual `after`
+    /// index names that end, and it is written as the element's parent's `after` index.
+    func testADocumentEndingWithAnElementEndsJustAfterIt() throws {
+        let figure = try page("<p>See <img src=\"x.png\" alt=\"picture\"/></p>")
+        let image = try element("img", in: figure), see = try text("See ", in: figure)
+        XCTAssertEqual(figure.end, DOMPosition(image, 1))
+        for cfi in ["/4/2/4", "/4/4", "/6"] {
+            XCTAssertEqual(resolve(cfi, in: figure)?.first, DOMPosition(image, 1), "\(cfi): after the image, not at its start")
+        }
+        XCTAssertEqual(resolve("/4/2/3", in: figure)?.first, DOMPosition(image), "the empty last chunk: the last child's start")
+        XCTAssertEqual(path(figure.end, in: figure), "/4/2/4")
+        XCTAssertEqual(path(DOMPosition(see), figure.end, in: figure), "/4/2,/1:0,/4")
+        XCTAssertEqual(path(DOMPosition(image), figure.end, in: figure), "/4/2,/2,/4", "a range of the image alone")
+        XCTAssertEqual(resolve("/4/2,/2,/4", in: figure), [DOMPosition(image), DOMPosition(image, 1)])
+        XCTAssertEqual(string(resolve("/4/2,/1:0,/4", in: figure), in: figure), "See ")
+
+        let rule = try page("<p>a</p><hr/>")
+        XCTAssertEqual(path(rule.end, in: rule), "/4/6", "the body's after index")
+        XCTAssertEqual(resolve("/4/6", in: rule)?.first, DOMPosition(try element("hr", in: rule), 1))
+
+        let empty = try parse("<html \(Self.xhtml)><head><title>T</title></head><body/></html>")
+        XCTAssertEqual(empty.end, DOMPosition(try XCTUnwrap(empty.body), 1))
+        XCTAssertEqual(path(empty.end, in: empty), "/6", "the root's after index")
+        XCTAssertEqual(resolve("/6", in: empty)?.first, empty.end)
+
+        // Just after an element that something follows is the next node's start, and is written as it.
+        let middle = try page("<p>a<img src=\"x.png\" alt=\"picture\"/>b</p>")
+        let inner = try element("img", in: middle), b = try text("b", in: middle)
+        XCTAssertEqual(middle.position(after: inner), DOMPosition(b))
+        XCTAssertEqual(path(DOMPosition(inner, 1), in: middle), path(DOMPosition(b), in: middle))
+    }
+
     func testRangesOfEveryShapeAreWrittenAsFoliateWroteThem() throws {
         let document = try page("<h1 id=\"t\">Title</h1><p id=\"one\">Alpha <em>beta</em> gamma</p><p>Delta<img src=\"i.png\" alt=\"i\"/></p>")
         let title = try text("Title", in: document), alpha = try text("Alpha ", in: document), beta = try text("beta", in: document)

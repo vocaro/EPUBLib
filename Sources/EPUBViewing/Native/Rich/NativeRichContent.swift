@@ -47,14 +47,9 @@ struct NativeRichContent: RichContentFactory {
         let found: (source: ReaderImageSource, intrinsic: CGSize, svg: ContentNode?)?
         // The image's bytes where they are SVG, for its words and its disclosure if it is not drawn.
         let svgData: Data?, svgPath: String
-        if let url = DataURL(reference, maximumBytes: Self.maximumDataURLBytes), url.mediaType.hasPrefix("image/") {
-            // An image the document holds itself is shown and bounded as one in the archive is,
-            // its type standing for a manifest's, and has no path: it is known by its element's
-            // position. `resolve` counts any other `data:` URL unreadable (#134).
-            let isSVG = ImageType.mediaType(of: url.body) == nil && ImageType.isSVG(url.body, path: "", mediaType: url.mediaType)
-            let key = context.publication.id + "\u{0}" + context.document.path + "\u{0}\(element.order)"
-            found = decodedImage(url.body, path: "", isSVG: isSVG, key: key, style: style, context: context)
-            svgData = isSVG ? url.body : nil
+        if let url = Self.imageDataURL(reference) {
+            found = decodedImage(url, heldBy: element, style: style, context: context)
+            svgData = Self.isSVG(url) ? url.body : nil
             svgPath = ""
         } else {
             guard let path = context.resolve(reference) else { return fallback() }
@@ -93,8 +88,14 @@ struct NativeRichContent: RichContentFactory {
         discloseSVG(element, context: context)
         let widthHint = element.attribute("width"), heightHint = element.attribute("height")
         if let image = SVGContent.wrappedImage(element), let reference = SVGContent.href(image), !reference.hasPrefix("#") {
-            guard let path = context.resolve(reference) else { return nothing() }
-            guard let resolved = resolvedImage(at: path, style: style, context: context) else {
+            let found: (source: ReaderImageSource, intrinsic: CGSize, svg: ContentNode?)?
+            if let url = Self.imageDataURL(reference) {
+                found = decodedImage(url, heldBy: image, style: style, context: context)
+            } else {
+                guard let path = context.resolve(reference) else { return nothing() }
+                found = resolvedImage(at: path, style: style, context: context)
+            }
+            guard let resolved = found else {
                 context.report.report.unreadableResources += 1
                 return nothing()
             }
@@ -168,6 +169,27 @@ struct NativeRichContent: RichContentFactory {
             }
         }
         return nil
+    }
+
+    /// The image a document holds itself in a `data:` URL, as EPUB 3.3 §3.7 permits: nil where the
+    /// reference is no `data:` URL, and where the URL's type, which stands for a manifest's, is
+    /// not an image's. `resolve` counts such a `data:` URL unreadable (#134).
+    private static func imageDataURL(_ reference: String) -> DataURL? {
+        guard let url = DataURL(reference, maximumBytes: maximumDataURLBytes), url.mediaType.hasPrefix("image/") else { return nil }
+        return url
+    }
+
+    private static func isSVG(_ url: DataURL) -> Bool {
+        ImageType.mediaType(of: url.body) == nil && ImageType.isSVG(url.body, path: "", mediaType: url.mediaType)
+    }
+
+    /// The image in a `data:` URL, shown and bounded as one in the archive is. It has no path: it
+    /// is known by the position of `element`, the element that holds the URL (an `<img>`, or the
+    /// `<image>` an SVG wraps, #657).
+    private func decodedImage(_ url: DataURL, heldBy element: ContentNode, style: ComputedStyle,
+                              context: RichContentContext) -> (source: ReaderImageSource, intrinsic: CGSize, svg: ContentNode?)? {
+        let key = context.publication.id + "\u{0}" + context.document.path + "\u{0}\(element.order)"
+        return decodedImage(url.body, path: "", isSVG: Self.isSVG(url), key: key, style: style, context: context)
     }
 
     /// An image's bytes as the reader draws them: SVG sanitized for the static renderer, or a
