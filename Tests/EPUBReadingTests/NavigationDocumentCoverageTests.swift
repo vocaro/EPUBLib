@@ -318,6 +318,21 @@ final class NavigationDocumentCoverageTests: XCTestCase {
         XCTAssertEqual(book.landmarks, [EPUBLandmark(types: ["bodymatter"], title: "Start", href: "OPS/one.xhtml")])
     }
 
+    // Two prefixes for the OPS namespace give a nav two `type` attributes of one name, which
+    // Namespaces in XML forbids and XMLParser reads on, handing on a dictionary whose order changes
+    // from run to run. The one whose qualified name sorts last, `b:type`, is read every time (#213).
+    func testTwoTypeAttributesOfOneNameOnANavAreReadTheSameWayEveryRun() throws {
+        for (a, b) in [("toc", "landmarks"), ("landmarks", "toc")] {
+            let nav = "<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:a=\"http://www.idpf.org/2007/ops\" "
+                + "xmlns:b=\"http://www.idpf.org/2007/ops\"><head><title>Contents</title></head><body>"
+                + "<nav a:type=\"\(a)\" b:type=\"\(b)\"><ol><li><a href=\"one.xhtml\">One</a></li></ol></nav>"
+                + "<nav a:type=\"\(b)\" b:type=\"\(a)\"><ol><li><a href=\"two.xhtml\">Two</a></li></ol></nav></body></html>"
+            let book = try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in nav }))
+            XCTAssertEqual(book.tableOfContents.map(\.title), [b == "toc" ? "One" : "Two"], b)
+            XCTAssertEqual(book.landmarks.map(\.title), [b == "landmarks" ? "One" : "Two"], b)
+        }
+    }
+
     func testAnEPUB3BookWhoseNavigationFileIsAbsentReadsItsNCX() throws {
         let ncx = try EPUBPublication.open(data: Fixture.epub(epub2: true)).tableOfContents
         let book = try EPUBPublication.open(data: Fixture.packageVariant(adding: ["OPS/nav.xhtml": nil]))

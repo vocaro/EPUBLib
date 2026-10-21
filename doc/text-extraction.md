@@ -106,6 +106,8 @@ libxml2 reports and reads on: an element or attribute name that begins or ends w
 holds a second one (`<:p>`, `script:`, `a:b:c`), and a processing instruction's target with a
 colon. The native reader reads such a section as HTML, and recovery reads it as the reader does:
 `<:p>` is text and `<script:>` an unknown element ([#178](https://github.com/vocaro/EPUBLib/issues/178)).
+An `xmlns:` attribute is such a name and declares nothing, so beside `xmlns` it gives the same
+result on every run, whichever of the two comes first ([#213](https://github.com/vocaro/EPUBLib/issues/213)).
 A prefix that is never declared names no namespace, and its element is read by its local name.
 Entity declarations and internal DTD subsets always fail.
 Ordinary external

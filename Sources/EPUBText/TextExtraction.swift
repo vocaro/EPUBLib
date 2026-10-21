@@ -253,10 +253,10 @@ private final class XHTMLTextReader {
                 case Int32(XML_READER_TYPE_ELEMENT.rawValue):
                     let name = string(xmlTextReaderConstName(reader))
                     let empty = xmlTextReaderIsEmptyElement(reader) == 1
-                    var attributes: [String: String] = [:]
+                    var attributes: [(String, String)] = []
                     if xmlTextReaderMoveToFirstAttribute(reader) == 1 {
                         repeat {
-                            attributes[string(xmlTextReaderConstName(reader))] = string(xmlTextReaderConstValue(reader))
+                            attributes.append((string(xmlTextReaderConstName(reader)), string(xmlTextReaderConstValue(reader))))
                         } while xmlTextReaderMoveToNextAttribute(reader) == 1
                         xmlTextReaderMoveToElement(reader)
                     }
@@ -325,7 +325,7 @@ private final class XHTMLTextReader {
             var descends = false
             switch node.pointee.type {
             case XML_ELEMENT_NODE:
-                var attributes: [String: String] = [:]
+                var attributes: [(String, String)] = []
                 var attribute = node.pointee.properties
                 while let property = attribute {
                     var value = ""
@@ -334,7 +334,7 @@ private final class XHTMLTextReader {
                         if let content = text.pointee.content { value += string(content) }
                         part = text.pointee.next
                     }
-                    attributes[qualified(property.pointee.name, property.pointee.ns)] = value
+                    attributes.append((qualified(property.pointee.name, property.pointee.ns), value))
                     attribute = property.pointee.next
                 }
                 // libxml2's HTML parser has split an element's name already, at its first colon
@@ -392,15 +392,19 @@ private final class XHTMLTextReader {
         return (String(name[..<colon]), String(name[name.index(after: colon)...]))
     }
 
-    private func start(_ name: (prefix: String, local: String), attributes: [String: String]) throws {
+    /// `declared` holds an element's attributes in document order. Its declarations are read in
+    /// that order, not a dictionary's, which changes from run to run (#213).
+    private func start(_ name: (prefix: String, local: String), attributes declared: [(String, String)]) throws {
         guard stack.count < limits.depth else { throw EPUBTextExtractionError.limitExceeded("depth") }
         guard elements < limits.elementCount else { throw EPUBTextExtractionError.limitExceeded("elementCount") }
         elements += 1
         var namespaces = stack.last?.namespaces ?? [:]
-        for (key, value) in attributes {
+        for (key, value) in declared {
             if key == "xmlns" { namespaces[""] = value }
             else if case let (prefix, local) = Self.split(key), prefix == "xmlns" { namespaces[local] = value }
         }
+        // XML refuses a repeated name, and libxml2's HTML parser keeps the first.
+        let attributes = Dictionary(declared, uniquingKeysWith: { first, _ in first })
         let (prefix, local) = name
         var uri = namespaces[prefix] ?? ""
         if recovered, prefix.isEmpty, uri.isEmpty || uri == "http://www.w3.org/1999/xhtml", local == "math", stack.last?.math == nil {

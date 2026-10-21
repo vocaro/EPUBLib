@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Read a package or navigation document the same way on every run when two prefixes for one namespace give an element two attributes of one name, such as two `epub:type`s on a `nav`, and read an element's namespace declarations in text extraction in document order, where which attribute was read, and so which `nav` gave the contents, changed from run to run ([#213](https://github.com/vocaro/EPUBLib/issues/213)).
 - Report `limitExceeded("depth")` in strict text extraction for a well-formed section nested deeper than libxml2's cap of 257 levels, as recovery does, where a caller's depth limit above that gave `malformedContent` ([#91](https://github.com/vocaro/EPUBLib/issues/91)).
 - Show an image given in a `data:` URL, base64 or percent-encoded, as one from the archive is and within the same bounds, where it showed its alternative text and was disclosed as an image that could not be shown ([#134](https://github.com/vocaro/EPUBLib/issues/134)).
 - Honour `clear` on a block that holds other blocks, on a float and on a `br`, starting the block's content, the float or the line after the break below the earlier floats it names, where only a paragraph's own block was cleared and the rest stayed beside the float ([#151](https://github.com/vocaro/EPUBLib/issues/151)).
