@@ -7,8 +7,9 @@ import Foundation
 /// is dropped. The type is what precedes the first comma, and the body what follows it,
 /// percent-decoded and, where the type ends in `;base64`, decoded as forgiving base64, which
 /// reads past white space and needs no padding. The images of a section
-/// (`NativeRichContent.image`) and those inside a drawing the renderer is given
-/// (`SVGContent.preparedImagesAreBounded`) are read by it.
+/// (`NativeRichContent.image`), those inside a drawing in a book (`SVGContent.serialize`) and
+/// those inside a drawing the renderer is given (`SVGContent.preparedImagesAreBounded`) are read
+/// by it.
 struct DataURL {
     /// The essence of the URL's MIME type, `type/subtype` in lower case: `text/plain` where it
     /// names none or one that does not parse.

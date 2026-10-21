@@ -74,7 +74,7 @@ To turn pages with your own controls, or change the built-in gestures and keys, 
 ## A complete reader
 
 Import `EPUBCore`, `EPUBReading`, `EPUBViewing`, `Foundation` and `Observation`. The following is
-the sample app's compiled lifecycle code:
+compiled lifecycle code, from the reader screen in `Examples/VoiceOverVerification/Shared`:
 
 <!-- snippet:lifecycle -->
 ```swift
@@ -201,7 +201,7 @@ a session exists. React to readiness before sending style, navigation or restora
 For an application receiving rapid navigation changes, serialize them and associate work with
 its own current document/navigation identity so old work cannot affect a newly opened book.
 
-The sample owns security-scoped access until import finishes and cancels expansion when another
+That code owns security-scoped access until import finishes and cancels expansion when another
 book opens. `EPUBPublication.open` also accepts an optional `onProgress` callback with cumulative
 expanded bytes; it runs synchronously on the importing thread and must return promptly.
 
@@ -332,7 +332,8 @@ struct PageControlsExample: View {
 <!-- /snippet -->
 
 The example switches between host-only input and custom zones with Command-Shift-N/P
-shortcuts while the book stays mounted. The sample reader uses the default input settings.
+shortcuts while the book stays mounted. The verification host's reader uses the default input
+settings.
 The modifier is specific to the native reader; other engines can choose their own input API.
 
 - `edgeTapsEnabled`, `touchSwipesEnabled` and `wheelEnabled` independently enable each input

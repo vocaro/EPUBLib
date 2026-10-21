@@ -79,15 +79,15 @@ final class EPUBCheckNavigationCoverageTests: XCTestCase {
         XCTAssertEqual(book.tableOfContents.last?.children.map(\.title), ["Chapter 2"])
     }
 
-    func testAnEntryLabelledByAnImageIsStillListedWithItsTarget() throws {
-        // Valid for EPUBCheck when the image has alternative text. The alternative text is not
-        // read into the title (a SHOULD of EPUB Reading Systems 3.3, 7), but the entry is kept.
+    func testAnEntryLabelledByAnImageIsListedWithItsTargetAndAlternativeText() throws {
+        // Valid for EPUBCheck when the image has alternative text, which is read into the title
+        // in the image's place (a SHOULD of EPUB Reading Systems 3.3, 7).
         let book = try open(nav: toc("""
             <li><a href="one.xhtml" title="Chapter One"><img src="one.png" alt="Chapter One"/></a></li>\
             <li><a href="two.xhtml">Chapter <img src="two.png" alt="Two"/></a></li>
             """))
         XCTAssertEqual(book.tableOfContents.map(\.href), ["OPS/one.xhtml", "OPS/two.xhtml"])
-        XCTAssertEqual(book.tableOfContents.last?.title, "Chapter")
+        XCTAssertEqual(book.tableOfContents.map(\.title), ["Chapter One", "Chapter Two"])
     }
 
     // MARK: Structure
