@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep marked documentation snippets identical to compiled sample code. --write regenerates."""
+"""Keep marked documentation snippets identical to the compiled example code. --write regenerates."""
 import argparse
 from pathlib import Path
 import re
@@ -9,7 +9,7 @@ parser.add_argument("--write", action="store_true")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 snippets = {}
-for source in (root / "Examples/ReaderSample/Shared").glob("*.swift"):
+for source in (root / "Examples/VoiceOverVerification/Shared").glob("*.swift"):
     for name, code in re.findall(r"// snippet:start (\w+)\n(.*?)// snippet:end \1", source.read_text(), re.S):
         assert name not in snippets, f"Duplicate snippet {name}"
         snippets[name] = code.rstrip()

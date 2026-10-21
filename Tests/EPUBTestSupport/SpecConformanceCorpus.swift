@@ -194,10 +194,11 @@ public enum SpecConformanceCorpus {
             .link(0, phrase: "Click to access 2nd content document", spineIndex: 2),
             .rendered(2, "Test passes if the navigation link leads here.")),
         "nav-non-text_img": .init("epub-rs#confreq-nav-alt-text",
-            note: "SHOULD: the second entry's label is its image's alt text (\"Description of the Abbey of Sénanque\"); the reader gives an empty title",
+            .toc(["Start page", "Description of the Abbey of S\u{E9}nanque"]),
             .tocTargets(["EPUB/content_001.xhtml", "EPUB/senanque.xhtml"])),
+        // The image's title is "Image of the Abbey"; alt is preferred.
         "nav-non-text_img_title": .init("epub-rs#confreq-nav-alt-text",
-            note: "SHOULD: alt is preferred over title for the label; the reader gives an empty title",
+            .toc(["Start page", "Description of the Abbey of S\u{E9}nanque"]),
             .tocTargets(["EPUB/content_001.xhtml", "EPUB/senanque.xhtml"])),
         "nav-spine_in-spine": .init("epub-rs#confreq-nav-spine",
             .spine(["EPUB/nav.xhtml", "EPUB/content_001.xhtml", "EPUB/content_002.xhtml"]),

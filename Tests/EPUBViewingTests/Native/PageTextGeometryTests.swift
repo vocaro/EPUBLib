@@ -331,11 +331,14 @@ import UIKit
         let local = NSRange(location: sourceOffset - page.range.location, length: 1)
         let row = try XCTUnwrap(Self.rawLines(in: view, intersecting: local).first)
         #if os(iOS)
-        // Frozen UIKit main places this row inside the first page. Its different native
-        // metrics do not exercise the delayed first-fragment proposal from macOS.
-        XCTAssertEqual(page.range.location, 0)
-        XCTAssertGreaterThan(local.location, 0)
-        XCTAssertEqual(row.frame.minY, 155.8, accuracy: 0.5)
+        // Frozen UIKit main placed this row inside the first page, at 155.8: there the groups of
+        // the two absolute boxes before the table only met the group of the two fixed boxes
+        // after them, which is taller than a page, were joined to it, and all four went to flow.
+        // The absolute boxes are now placed (#149), the table's first row is set below the lower
+        // one, and this row opens the next page at its top, as it opens its page on the Mac.
+        XCTAssertEqual(page.range.location, sourceOffset, "The delayed row opens the displayed page")
+        XCTAssertEqual(Self.rawLines(in: view, intersecting: view.shownCharacters).first?.range.location, local.location)
+        XCTAssertEqual(row.frame.minY, 0, accuracy: 0.5)
         #else
         XCTAssertEqual(page.range.location, sourceOffset, "The delayed row opens the displayed page")
         XCTAssertEqual(Self.rawLines(in: view, intersecting: view.shownCharacters).first?.range.location, local.location)

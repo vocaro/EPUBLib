@@ -39,12 +39,13 @@ enum SearchResultBuilder {
 
     /// Whether a match's range holds rendered characters. Content that renders nothing maps to
     /// an empty range, or to a reversed one when rendered text surrounds it: its start falls on
-    /// the next rendered character and its end after the previous one.
-    static func isRendered(_ range: ReaderTextRange) -> Bool { range.start < range.end }
+    /// the next rendered character and its end after the previous one. `ReaderTextRange.isEmpty`
+    /// is the one test of both, which selections and highlights make too.
+    static func isRendered(_ range: ReaderTextRange) -> Bool { !range.isEmpty }
 
     /// Whether a match's range is a result: it holds rendered characters, and none that
     /// `visibility: hidden` hides in the flow (`SectionText.holdsHiddenText`), which a browser
-    /// does not find either.
+    /// does not find either. `.locate` selects only such a match.
     static func isListed(_ range: ReaderTextRange, in text: SectionText) -> Bool {
         isRendered(range) && !text.holdsHiddenText(range)
     }
