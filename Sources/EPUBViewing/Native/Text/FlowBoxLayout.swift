@@ -11,7 +11,12 @@ import AppKit
 struct ReaderFlowBoxConstraint: Sendable {
     let id = UUID()
     let style: ComputedStyle
+    /// The nearest positioned box around this one, or the section's root: an absolutely
+    /// positioned box's containing block.
     let containing: ReaderBoxScope?
+    /// The edges of the block the box is in, whose content box is the containing block of a
+    /// float or a sized inline box (CSS 2.2 10.1); nil for a box that opens a text of its own.
+    let block: ReaderParagraphEdges?
     let replaced: Bool
     let width: ComputedStyle.Length
     let minimum: ComputedStyle.Length
@@ -22,8 +27,9 @@ struct ReaderFlowBoxConstraint: Sendable {
     /// A sized inline box's place on its line; nil for a float or a positioned box.
     let inline: ReaderInlineBox?
 
-    init(style: ComputedStyle, containing: ReaderBoxScope? = nil, replaced: Bool = false, inline: ReaderInlineBox? = nil) {
-        self.style = style; self.containing = containing; self.replaced = replaced; self.inline = inline
+    init(style: ComputedStyle, containing: ReaderBoxScope? = nil, block: ReaderParagraphEdges? = nil, replaced: Bool = false,
+         inline: ReaderInlineBox? = nil) {
+        self.style = style; self.containing = containing; self.block = block; self.replaced = replaced; self.inline = inline
         width = style.width; minimum = style.minWidth; maximum = style.maxWidth
         side = style.float
         centers = style.float == .none && style.margin.left == .auto && style.margin.right == .auto

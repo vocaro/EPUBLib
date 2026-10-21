@@ -310,11 +310,16 @@ final class ReaderTextContainer: NSTextContainer {
             guard !obstacles.isEmpty else { return rect }
             var intervals = [(rect.minX, rect.maxX)]
             for obstacle in obstacles {
+                // A line beside a float is shortened on the float's side (CSS 2.2 9.5): nothing is
+                // set between a left float and the line's start, or a right one and the line's
+                // end, where a float in an indented block leaves room. Other boxes are cut out.
+                let minX = obstacle.side == .left ? -CGFloat.infinity : obstacle.frame.minX
+                let maxX = obstacle.side == .right ? CGFloat.infinity : obstacle.frame.maxX
                 intervals = intervals.flatMap { left, right -> [(CGFloat, CGFloat)] in
-                    if obstacle.frame.maxX <= left || obstacle.frame.minX >= right { return [(left, right)] }
+                    if maxX <= left || minX >= right { return [(left, right)] }
                     var pieces: [(CGFloat, CGFloat)] = []
-                    if obstacle.frame.minX > left { pieces.append((left, obstacle.frame.minX)) }
-                    if obstacle.frame.maxX < right { pieces.append((obstacle.frame.maxX, right)) }
+                    if minX > left { pieces.append((left, minX)) }
+                    if maxX < right { pieces.append((maxX, right)) }
                     return pieces
                 }
             }

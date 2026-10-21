@@ -504,7 +504,6 @@ import UIKit
     /// CSS 2.2 9.5 and 10.1: a float moves to the edge of its containing block, the content box
     /// of its nearest block container, not to the edge of the column.
     func testAFloatInsideAnIndentedBlockSitsAtThatBlocksContentEdge() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/150")
         for (side, edge) in [("left", CGFloat(40)), ("right", 320)] {
             let (section, view) = try layout("<blockquote><figure>Alpha box.</figure><p>\(H.prose)</p></blockquote>",
                                              css: "blockquote { margin:0 40px } figure { float:\(side); width:100px; height:60px }")
@@ -529,29 +528,121 @@ import UIKit
 
     /// The same paragraph with and without a float before it: its margins are its own. With a
     /// float in the section the reader's text container takes over line placement, and for a
-    /// right-to-left paragraph with margins that placement leaves the column.
+    /// right-to-left paragraph with margins that placement left the column.
+    ///
+    /// The margins are measured on the text without the space that ends each wrapped line. CSS
+    /// removes that space (CSS Text 3, 4.1.3), and TextKit hangs it past the line's end: here
+    /// into the left margin, by 2.7 points on a line whose text fills it, so a bound on the
+    /// selectable text allowed for 2 points and failed by 0.7 (#150). Without the space the bound
+    /// is the margin itself.
     func testRightToLeftProseWithMarginsKeepsThemInASectionWithAFloat() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/150")
         let column = CGSize(width: 400, height: 600)
         let css = "figure { float:left; width:100px; height:40px } .m { margin:0 30px 0 50px }"
-        /// The horizontal extent of the paragraph's selectable text, over all of its lines.
-        func extent(_ section: SectionText, _ view: ReaderTextView) -> CGRect {
+        /// The horizontal extent of the paragraph's selectable text over all of its lines: with
+        /// the space each wrapped line ends with, and without it.
+        func extent(_ section: SectionText, _ view: ReaderTextView) -> (selectable: CGRect, text: CGRect) {
             var bounds = CGRect.null
             for line in H.lines(in: view, intersecting: H.range(arabic, in: section)) {
                 for frame in view.segmentFrames(for: line.range) { bounds = bounds.union(frame) }
             }
-            return bounds
+            return (bounds, H.ink(arabic, in: section, view: view).reduce(CGRect.null) { $0.union($1) })
         }
         let (plain, plainView) = try layout("<div dir='rtl'><p class='m'>\(arabic)</p></div>", css: css, size: column)
         let alone = extent(plain, plainView)
-        XCTAssertGreaterThanOrEqual(alone.minX, 48, "without a float the text keeps its 50-point left margin")
-        XCTAssertEqual(alone.maxX, 370, accuracy: 1.5, "and starts at its 30-point right margin")
+        XCTAssertGreaterThanOrEqual(alone.text.minX, 49.5, "without a float the text keeps its 50-point left margin")
+        XCTAssertEqual(alone.text.maxX, 370, accuracy: 1.5, "and starts at its 30-point right margin")
         let (section, view) = try layout("<div dir='rtl'><figure>Alpha box.</figure><p class='m'>\(arabic)</p></div>", css: css, size: column)
         let beside = extent(section, view)
-        XCTAssertLessThanOrEqual(beside.maxX, 400.5, "no line may leave the 400-point column")
-        XCTAssertEqual(beside.maxX, 370, accuracy: 1.5, "with a float before it the paragraph still starts at its 30-point right margin")
-        XCTAssertGreaterThanOrEqual(beside.minX, 48, "and keeps its 50-point left margin")
+        XCTAssertGreaterThanOrEqual(beside.selectable.minX, -0.5, "no line may leave the 400-point column, its last space included")
+        XCTAssertLessThanOrEqual(beside.selectable.maxX, 400.5, "no line may leave the 400-point column, its last space included")
+        XCTAssertEqual(beside.text.maxX, 370, accuracy: 1.5, "with a float before it the paragraph still starts at its 30-point right margin")
+        XCTAssertGreaterThanOrEqual(beside.text.minX, 49.5, "and keeps its 50-point left margin")
         XCTAssertEqual(view.visibleText, section.string.string)
+    }
+
+    /// A drop cap in a block quotation: the initial is at the quotation's content edge, beside
+    /// its word, and not in the quotation's margin 40 points from it (#150). So it is in pages.
+    func testADropCapInAnIndentedBlockStandsAtItsWord() throws {
+        let (section, view) = try layout("<blockquote><p><span class='cap'>D</span>rop cap words. \(H.prose)</p></blockquote>",
+                                         css: "blockquote { margin:0 40px } .cap { float:left; font-size:48px }")
+        let cap = try XCTUnwrap(H.region("D", in: section, view: view))
+        XCTAssertEqual(cap.frame.minX, 40, accuracy: 0.5, "at the quotation's content edge")
+        let words = H.frame("rop cap", in: section, view: view)
+        XCTAssertEqual(words.minX, cap.frame.maxX, accuracy: 1, "the word continues at the initial's edge")
+        XCTAssertEqual(words.minY, cap.frame.minY, accuracy: 1)
+        let lines = proseLines(H.prose, around: cap, in: section, view: view)
+        XCTAssertTrue(lines.beside.allSatisfy { $0.minX >= cap.frame.maxX - 0.5 && $0.maxX <= 320.5 }, "\(lines.beside)")
+        XCTAssertTrue(lines.below.allSatisfy { abs($0.minX - 40) < 0.5 && $0.maxX <= 320.5 }, "below it the quotation's own edges: \(lines.below)")
+        let (paginator, pages) = H.pages(section, size: size)
+        let page = H.pageView(paginator, page: try XCTUnwrap(pages.first))
+        let opening = try XCTUnwrap(H.lines(in: page).first { NSIntersectionRange($0.range, H.range("rop cap", in: section)).length > 0 })
+        XCTAssertEqual(opening.frame.minX, cap.frame.maxX, accuracy: 1, "the page sets the word where the section does")
+    }
+
+    /// Both sides of a right-to-left block quotation: a left float at its left content edge and a
+    /// right float at its right one, with the prose between them.
+    func testFloatsInsideAnIndentedRightToLeftBlockSitAtItsContentEdges() throws {
+        let (section, view) = try layout("<blockquote dir='rtl'><figure class='l'>Alpha box.</figure><figure class='r'>Beta box.</figure><p>\(arabic)</p></blockquote>",
+                                         css: "blockquote { margin:0 30px 0 50px } figure { width:80px; height:40px } .l { float:left } .r { float:right }")
+        let left = try XCTUnwrap(H.region("Alpha box.", in: section, view: view))
+        let right = try XCTUnwrap(H.region("Beta box.", in: section, view: view))
+        XCTAssertEqual(left.frame.minX, 50, accuracy: 0.5)
+        XCTAssertEqual(right.frame.maxX, 330, accuracy: 0.5)
+        let lines = proseLines(arabic, around: left, in: section, view: view)
+        XCTAssertFalse(lines.beside.isEmpty)
+        XCTAssertTrue(lines.beside.allSatisfy { $0.minX >= left.frame.maxX - 0.5 && $0.maxX <= right.frame.minX + 0.5 }, "\(lines.beside)")
+        XCTAssertTrue(lines.below.allSatisfy { $0.minX >= 49.5 && $0.maxX <= 330.5 }, "\(lines.below)")
+        XCTAssertFalse(H.overlaps(H.ink(arabic, in: section, view: view), [left.frame, right.frame]))
+    }
+
+    /// A float's percentages are of its containing block's width (CSS 2.2 10.2 and 10.3.5), and
+    /// percentage margins on that block are resolved at the column's size, as its prose has them.
+    func testAFloatInAnIndentedBlockTakesItsPercentagesFromThatBlock() throws {
+        for (side, width) in [("left", CGFloat(300)), ("right", 300), ("left", 600), ("right", 600)] {
+            let label = "\(side) \(width)"
+            let (section, view) = try layout("<blockquote><figure>Alpha box.</figure><p>\(H.prose)</p></blockquote>",
+                css: "blockquote { margin:0 10% } figure { float:\(side); width:50%; height:60px }", size: CGSize(width: width, height: 600))
+            let region = try XCTUnwrap(H.region("Alpha box.", in: section, view: view), label)
+            XCTAssertEqual(region.frame.width, width * 0.4, accuracy: 0.6, "half of the quotation's content width: \(label)")
+            XCTAssertEqual(side == "left" ? region.frame.minX : region.frame.maxX, width * (side == "left" ? 0.1 : 0.9), accuracy: 0.6, label)
+            let lines = proseLines(H.prose, around: region, in: section, view: view)
+            XCTAssertFalse(lines.beside.isEmpty, label)
+            XCTAssertTrue(lines.beside.allSatisfy { side == "left" ? abs($0.minX - region.frame.maxX) < 1 : abs($0.minX - width * 0.1) < 1 }, "\(label) \(lines.beside)")
+            XCTAssertTrue(lines.below.allSatisfy { abs($0.minX - width * 0.1) < 1 }, "\(label) \(lines.below)")
+        }
+    }
+
+    /// CSS 2.2 9.5: a line beside a float is shortened on the float's side, so no text is set
+    /// between a left float and the line's start, or between a right float and its end. A float
+    /// in an indented block, or in a positioned container with a margin, leaves room there for
+    /// the prose after the block, and that prose was set in it, on the far side of the float.
+    func testProseBesideAFloatIsNeverSetOnTheFloatsOuterSide() throws {
+        for (container, side) in [("blockquote", "left"), ("blockquote", "right"), ("div class='p'", "left"), ("div class='p'", "right")] {
+            let label = "\(container) \(side)"
+            let (section, view) = try layout("<\(container)><figure>Alpha box.</figure><p>Short.</p></\(container.prefix { $0 != " " })><p>\(H.prose)</p>",
+                css: "blockquote { margin:0 80px } .p { position:relative; margin-\(side):80px } figure { float:\(side); width:100px; height:120px }")
+            let region = try XCTUnwrap(H.region("Alpha box.", in: section, view: view), label)
+            XCTAssertEqual(side == "left" ? region.frame.minX : region.frame.maxX, side == "left" ? 80 : 280, accuracy: 0.5, label)
+            let lines = proseLines(H.prose, around: region, in: section, view: view)
+            XCTAssertFalse(lines.beside.isEmpty, label)
+            for line in lines.beside {
+                if side == "left" { XCTAssertGreaterThanOrEqual(line.minX, region.frame.maxX - 0.5, "\(label): \(line)") }
+                else { XCTAssertLessThanOrEqual(line.maxX, region.frame.minX + 0.5, "\(label): \(line)") }
+            }
+            XCTAssertTrue(lines.below.contains { $0.minX < 1 && $0.width > 300 }, "the full column below it: \(label)")
+            XCTAssertFalse(H.overlaps(H.ink(H.prose, in: section, view: view), [region.frame]), label)
+            XCTAssertEqual(view.visibleText, section.string.string, label)
+        }
+    }
+
+    /// A sized inline box's percentage width is of its block's content width as well.
+    func testAnInlineBlockInAnIndentedBlockTakesItsPercentageWidthFromThatBlock() throws {
+        let (section, view) = try layout("<blockquote><p>Lead <span class='i'>Inline box.</span> after.</p></blockquote>",
+                                         css: "blockquote { margin:0 40px } .i { display:inline-block; width:50%; height:30px }")
+        let region = try XCTUnwrap(H.region("Inline box.", in: section, view: view))
+        XCTAssertEqual(region.frame.width, 140, accuracy: 0.6, "half of the quotation's 280-point content width")
+        XCTAssertGreaterThan(region.frame.minX, H.frame("Lead", in: section, view: view).maxX - 0.5)
+        XCTAssertLessThanOrEqual(region.frame.maxX, 320.5)
     }
 
     /// CSS Logical Properties 1, 3.1: `inline-start` and `inline-end` map to left and right by
