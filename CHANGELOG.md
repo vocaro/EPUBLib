@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Match CFI ID assertions by their exact code units, and leave out an ID assertion that would make an issued bookmark one `restore` refuses ([#105](https://github.com/vocaro/EPUBLib/issues/105)).
 - Draw nothing in the room of a rule, image, SVG drawing, formula or table that `visibility: hidden` hides, nor of the words shown where an image or formula cannot be, and draw what sets `visibility: visible` again inside it ([#132](https://github.com/vocaro/EPUBLib/issues/132)).
 - Resolve `vmin` and `vmax` against the smaller and the larger side of the reading viewport, where they were read as `vw` and `vh` and wrong in a viewport wider than it is tall, and a rule's or a table's width in viewport units against that viewport rather than its own line ([#123](https://github.com/vocaro/EPUBLib/issues/123)).
 - Apply a rule whose selector names `epub:type` with an escaped colon, such as `[epub\:type~="footnote"]`, in a section read as HTML, where most such rules never applied ([#111](https://github.com/vocaro/EPUBLib/issues/111)).

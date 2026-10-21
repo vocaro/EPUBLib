@@ -131,7 +131,9 @@ final class ContentDocument: @unchecked Sendable {
     /// A fallback XHTML DOM requires a resource assertion so its positions cannot be confused
     /// with positions in the original document under the same package spine itemref.
     let cfiResource: String?
-    private let ids: [String: ContentNode]
+    /// By the ID's code units, as `getElementById` compares them. A `String` key would be
+    /// compared by canonical equivalence, making `caf\u{E9}` and `cafe\u{301}` one ID.
+    private let ids: [[UInt8]: ContentNode]
 
     private init(path: String, root: ContentNode, nodes: [ContentNode], recovered: Bool,
                  canResolveCFIs: Bool = true, cfiResource: String? = nil, origin: Origin = .authored) {
@@ -139,8 +141,10 @@ final class ContentDocument: @unchecked Sendable {
         self.origin = origin
         self.canResolveCFIs = canResolveCFIs
         self.cfiResource = cfiResource
-        var ids: [String: ContentNode] = [:]
-        for node in nodes where node.isElement { if let id = node.id, ids[id] == nil { ids[id] = node } }
+        var ids: [[UInt8]: ContentNode] = [:]
+        for node in nodes where node.isElement {
+            if let id = node.id.map({ Array($0.utf8) }), ids[id] == nil { ids[id] = node }
+        }
         self.ids = ids
     }
 
@@ -162,8 +166,8 @@ final class ContentDocument: @unchecked Sendable {
                             .map { String(format: "%02x", $0) }.joined(), origin: origin)
     }
 
-    /// First element with this `id` in document order (`getElementById`).
-    func element(id: String) -> ContentNode? { ids[id] }
+    /// First element with this `id` in document order, code unit for code unit (`getElementById`).
+    func element(id: String) -> ContentNode? { ids[Array(id.utf8)] }
     var head: ContentNode? { root.elementChildren.first { $0.isHTML("head") } }
     var body: ContentNode? { root.elementChildren.first { $0.isHTML("body") } }
     /// Document language: `xml:lang`/`lang` on the root or body.

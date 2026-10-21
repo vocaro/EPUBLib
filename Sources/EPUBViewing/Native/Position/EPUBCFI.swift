@@ -27,6 +27,10 @@ import Foundation
 ///   node or into an element without children, and an empty path name nothing: nil.
 /// A range whose end precedes its start collapses to its end, as DOM ranges do.
 ///
+/// Writing departs from foliate only where foliate wrote a CFI that `isWellFormed` refuses: an
+/// ID holding a character it refuses is not asserted (`elementID`), and `SpineCFIs` writes a CFI
+/// that its ID assertions make too long without any.
+///
 /// XML and qualified XML-shaped HTML match Foliate's DOM. Documents requiring unqualified
 /// HTML tree repair cannot issue or resolve CFIs, even when their libxml2 indices happen to
 /// exist: that coincidence can otherwise silently select a different passage.
@@ -96,11 +100,7 @@ enum EPUBCFI {
         var isEscaped = false
         var isClosed = false
         for scalar in cfi.unicodeScalars {
-            switch scalar.value {
-            case 0x00...0x1F, 0x7F...0x9F, 0x2028, 0x2029: return false
-            default: break
-            }
-            guard !isClosed else { return false }
+            guard !isRefused(scalar), !isClosed else { return false }
             if isEscaped {
                 isEscaped = false
                 continue
@@ -131,6 +131,15 @@ enum EPUBCFI {
             if step.id == nil, step.side == nil, step.text == [""] { overhead += 2 }
         }
         return length - overhead <= maximumLength
+    }
+
+    /// A character `isWellFormed` refuses anywhere in a CFI: a C0 or C1 control, or a line or
+    /// paragraph separator.
+    private static func isRefused(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x00...0x1F, 0x7F...0x9F, 0x2028, 0x2029: true
+        default: false
+        }
     }
 
     // MARK: - Parsing
@@ -447,26 +456,35 @@ enum EPUBCFI {
         return index
     }
 
-    /// `Element.id`: the `id` attribute in no namespace, `xml:id` not included.
+    /// The ID a written step asserts: `Element.id`, the `id` attribute in no namespace, `xml:id`
+    /// not included. An ID holding a character `isWellFormed` refuses is not asserted, and the
+    /// step's index alone names its element. The CFI grammar takes such a character only as it
+    /// is (`^` escapes its delimiters, nothing else), so with the assertion every CFI into the
+    /// element would be one the reader refuses to restore.
     private static func elementID(_ node: ContentNode) -> String? {
-        guard node.isElement, let id = node.attribute("id"), !id.isEmpty else { return nil }
+        guard node.isElement, let id = node.attribute("id"), !id.isEmpty,
+              !id.unicodeScalars.contains(where: isRefused) else { return nil }
         return id
     }
 
-    /// `getElementById`, which matches `id` attributes only (`element(id:)` also has `xml:id`).
+    /// `getElementById`, which matches `id` attributes only (`element(id:)` also has `xml:id`),
+    /// code unit for code unit: `String` equality is canonical equivalence, under which
+    /// `caf\u{E9}` and `cafe\u{301}` would be one ID.
     private static func element(id: String, in document: ContentDocument) -> ContentNode? {
+        func hasID(_ node: ContentNode) -> Bool { node.isElement && node.attribute("id")?.utf8.elementsEqual(id.utf8) == true }
         guard let element = document.element(id: id) else { return nil }
-        if element.attribute("id") == id { return element }
-        return document.nodes.first { $0.isElement && $0.attribute("id") == id }
+        return hasID(element) ? element : document.nodes.first(where: hasID)
     }
 
-    /// foliate `nodeToParts`: the steps from the root element down to `node`.
-    private static func steps(to node: ContentNode, offset: Int?, indices: ChildIndexCache? = nil) -> [Expression.Step] {
+    /// foliate `nodeToParts`: the steps from the root element down to `node`, without ID
+    /// assertions when `assertingIDs` is false.
+    private static func steps(to node: ContentNode, offset: Int?, indices: ChildIndexCache? = nil,
+                              assertingIDs: Bool = true) -> [Expression.Step] {
         var steps: [Expression.Step] = []
         var current = node, currentOffset = offset
         while let parent = current.parent {
             let index = indices?.index(of: current, in: parent) ?? cfiIndex(of: current, in: parent)
-            steps.append(Expression.Step(index: index, id: elementID(current),
+            steps.append(Expression.Step(index: index, id: assertingIDs ? elementID(current) : nil,
                                          offset: currentOffset))
             currentOffset = nil
             guard parent.parent != nil else { break }
@@ -477,27 +495,29 @@ enum EPUBCFI {
 
     /// A position's steps. foliate threw for the root element itself, which has no step; its
     /// start is its first child's start here.
-    private static func steps(for position: DOMPosition, indices: ChildIndexCache? = nil) -> [Expression.Step] {
+    private static func steps(for position: DOMPosition, indices: ChildIndexCache? = nil,
+                              assertingIDs: Bool = true) -> [Expression.Step] {
         var node = position.node, offset = position.offset
         if node.parent == nil {
             guard let first = node.children.first else { return [] }
             node = first; offset = 0
         }
         if node.isText { offset = min(max(offset, 0), node.utf16Length) }
-        return steps(to: node, offset: offset, indices: indices)
+        return steps(to: node, offset: offset, indices: indices, assertingIDs: assertingIDs)
     }
 
     /// foliate `fromRange` within one content document: a local path (no `epubcfi(` wrapper, no
     /// package step), a position when `start == end`, else a range. Reversed ends are swapped.
     /// `indices` speeds up writing many paths into `document`; the path is the same without it.
+    /// Without `assertingIDs` the steps' indices alone name the range.
     static func localPath(from start: DOMPosition, to end: DOMPosition, in document: ContentDocument,
-                          indices: ChildIndexCache? = nil) -> String {
+                          indices: ChildIndexCache? = nil, assertingIDs: Bool = true) -> String {
         guard document.canResolveCFIs else { return "" }
         let (start, end) = end < start ? (end, start) : (start, end)
-        var startSteps = steps(for: start, indices: indices)
+        var startSteps = steps(for: start, indices: indices, assertingIDs: assertingIDs)
         if !startSteps.isEmpty { startSteps[0].resource = document.cfiResource }
         if start == end { return pathString([startSteps]) }
-        var endSteps = steps(for: end, indices: indices)
+        var endSteps = steps(for: end, indices: indices, assertingIDs: assertingIDs)
         if !endSteps.isEmpty { endSteps[0].resource = document.cfiResource }
         return innerString(buildRange(from: Expression(path: [startSteps]), to: Expression(path: [endSteps])))
     }
@@ -570,14 +590,16 @@ enum EPUBCFI {
         }
     }
 
-    /// foliate `fromElements`: CFIs for sorted sibling elements, with their IDs asserted.
-    static func fromElements(_ elements: [ContentNode]) -> [String] {
+    /// foliate `fromElements`: CFIs for sorted sibling elements, with their IDs asserted unless
+    /// `assertingIDs` is false.
+    static func fromElements(_ elements: [ContentNode], assertingIDs: Bool = true) -> [String] {
         guard let parent = elements.first?.parent, let slots = slots(of: parent) else { return [] }
-        let parts = steps(to: parent, offset: nil)
+        let parts = steps(to: parent, offset: nil, assertingIDs: assertingIDs)
         var results: [String] = []
         for (index, slot) in slots.enumerated() where results.count < elements.count {
             if case .node(let node) = slot, node === elements[results.count] {
-                results.append(string(Expression(path: [parts + [Expression.Step(index: index, id: elementID(node))]])))
+                let id = assertingIDs ? elementID(node) : nil
+                results.append(string(Expression(path: [parts + [Expression.Step(index: index, id: id)]])))
             }
         }
         return results
