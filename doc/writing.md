@@ -68,6 +68,9 @@ ordered file-backed entries, placing `mimetype` first. The `mimetype` entry's so
 exactly the 20 bytes `application/epub+zip`. Any other content, a trailing line end or space
 included, is refused with `EPUBWritingError.invalidPublication("invalid mimetype")` before an
 archive is created or a source consumed ([#97](https://github.com/vocaro/EPUBLib/issues/97)).
+The entry is written from the bytes checked, and its source is closed after the check and not
+read again, so a source appended to or replaced afterwards, while `progress(0)` runs, does not
+change the archive ([#604](https://github.com/vocaro/EPUBLib/issues/604)).
 It stores the exact mimetype uncompressed, deflates other entries, checks cancellation between
 entries and archive chunks, enforces the uncompressed content-byte budget and removes an
 unfinished archive on failure or cancellation. The destination must be a new local file.
