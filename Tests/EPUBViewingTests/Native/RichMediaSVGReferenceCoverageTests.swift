@@ -373,6 +373,7 @@ final class RichMediaSVGReferenceCoverageTests: XCTestCase {
             ("through xlink:href", ringClosed(by: "<use xlink:href='#q'/>", definitions: "<defs>\(rect) id='q' mask='url(#a)'/></defs>")),
             ("through href where xlink:href names another", ringClosed(by: "<use xlink:href='#z' href='#q'/>", definitions: "<defs>\(rect) id='q' mask='url(#a)'/>\(rect) id='z'/></defs>")),
             ("through the first of two with one id", ringClosed(by: "<use href='#q'/>", definitions: "<defs>\(rect) id='q' mask='url(#a)'/>\(rect) id='q'/></defs>")),
+            ("through an id with a combining mark", ringClosed(by: "<use href='#e&#x301;'/>", definitions: "<defs>\(rect) id='&#xE9;'/>\(rect) id='e&#x301;' mask='url(#a)'/></defs>")),
         ]
         for (name, body) in followed { XCTAssertFalse(try passes(body), name) }
         // The last mask with an id is the one a reference means, and xml:id is an id.
@@ -398,6 +399,12 @@ final class RichMediaSVGReferenceCoverageTests: XCTestCase {
             ("a shape in an element the renderer does not know", ringClosed(by: "<frob>\(rect) mask='url(#a)'/></frob>\(rect)/>")),
             ("a shape in a symbol nothing uses", ringClosed(by: "<symbol>\(rect) mask='url(#a)'/></symbol>\(rect)/>")),
             ("a span of text", ringClosed(by: "<text x='1' y='5' font-family='Arial' font-size='4' fill='white'>x<tspan mask='url(#a)'>y</tspan></text>\(rect)/>")),
+            // The renderer compares ids code unit for code unit: `e&#x301;` is not `&#xE9;`,
+            // though `String` compares them equal.
+            ("an id canonically equivalent to the first mask's", ringClosed(by: "\(rect) mask='url(#e&#x301;)'/>")
+                .replacingOccurrences(of: "<mask id='a'>", with: "<mask id='&#xE9;'>")
+                .replacingOccurrences(of: "<rect width='5' height='5' mask='url(#a)'/>", with: "<rect width='5' height='5' mask='url(#&#xE9;)'/>")),
+            ("a use of an id canonically equivalent to the shape's", ringClosed(by: "<use href='#e&#x301;'/>\(rect)/>", definitions: "<defs>\(rect) id='&#xE9;' mask='url(#a)'/></defs>")),
         ]
         for (name, body) in ignored { XCTAssertNotNil(source(body), name) }
     }

@@ -1,3 +1,4 @@
+import EPUBCore
 import Foundation
 
 /// Amplification before and during usvg's conversion. The CSS reader is shared with the reference
@@ -49,7 +50,7 @@ enum SVGRenderingCostScreen {
         }
     }
     private struct Key: Hashable { var node: ObjectIdentifier; var depth: Int }
-    private struct Resource: Hashable { var role: SVGReferenceScreen.Role; var id: String }
+    private struct Resource: Hashable { var role: SVGReferenceScreen.Role; var id: EPUBElementID }
     private struct Style {
         var copies = 0
         var declarationWork = 0
@@ -64,7 +65,7 @@ enum SVGRenderingCostScreen {
         return verdict(svg, nodes: nodes, ids: SVGContent.elementsByID(nodes))
     }
 
-    static func verdict(_ svg: ContentNode, nodes: [ContentNode], ids: [String: [ContentNode]]) -> Verdict {
+    static func verdict(_ svg: ContentNode, nodes: [ContentNode], ids: [EPUBElementID: [ContentNode]]) -> Verdict {
         typealias Subject = SVGReferenceScreen.Subject
         var styles: [Subject: Style] = [:]
         var attributeBytes: [String: Int] = [:]
@@ -148,7 +149,7 @@ enum SVGRenderingCostScreen {
             var targets: [ObjectIdentifier: ContentNode] = [:]
             let candidates = references.targets + (references.inherits ? allResources.map { (role: $0.role, id: $0.id) } : [])
             for target in candidates where target.role == .mask || target.role == .clipPath {
-                resourceLookups += 1 + target.id.utf8.count
+                resourceLookups += 1 + target.id.string.utf8.count
                 if resourceLookups > SVGContent.maximumExpandedBytes {
                     return refused(bytes: SVGContent.maximumExpandedBytes + 1)
                 }
