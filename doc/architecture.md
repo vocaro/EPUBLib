@@ -215,12 +215,13 @@ disclosed:
   ([#184](https://github.com/vocaro/EPUBLib/issues/184)). In a document that is not UTF-16 or
   UTF-32, both are left as the parser finds them when its XML declaration is written in EBCDIC,
   names an encoding that is not on a fixed list of those that keep every byte below 0x80 as
-  ASCII (UTF-8, US-ASCII, ISO 8859, Windows 1250 to 1258, KOI8-R, Mac OS Roman, TIS-620, EUC-JP
-  and GB2312), or neither names one nor ends within the document's first 1,024 bytes. There the
-  parser drops every named reference beyond XML's five under a DOCTYPE that names an external
-  subset, and refuses the document for one without such a DOCTYPE or with `standalone="yes"`:
-  so a Shift_JIS, GBK, Big5 or EUC-KR document still loses `&eacute;` from a title or label, or
-  is not read. A C0 control character XML forbids, copied from PDF text into a title, reads as a
+  ASCII (UTF-8, US-ASCII, ISO 8859, Windows 874 and 1250 to 1258, KOI8-R, Mac OS Roman, TIS-620,
+  EUC-JP, EUC-KR and GB2312), or neither names one nor ends within the document's first 1,024
+  bytes. There the parser drops every named reference beyond XML's five under a DOCTYPE that
+  names an external subset, and refuses the document for one without such a DOCTYPE or with
+  `standalone="yes"`: so a Shift_JIS, GBK or Big5 document still loses `&eacute;` from a title
+  or label, or is not read, as does one that names EUC-KR `ks_c_5601-1987` or `korean`, which the
+  parser reads as Windows 949. A C0 control character XML forbids, copied from PDF text into a title, reads as a
   space in an ASCII-compatible document, and so as one of the run of whitespace it stands in.
 
 `EPUBWriting` holds what it writes to the stricter rules: a path with a colon is refused, and so

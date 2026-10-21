@@ -712,18 +712,21 @@ private enum BrowserMarkup {
     private static let declarationLimit = 1024
     /// Names an XML declaration gives, in lower case, to encodings known to keep every byte below
     /// 0x80 for its ASCII character: UTF-8, US-ASCII, the parts of ISO 8859, the Windows code
-    /// pages 1250 to 1258, KOI8-R, Mac OS Roman, TIS-620, EUC-JP and GB2312.
+    /// pages 874 and 1250 to 1258, KOI8-R, Mac OS Roman, TIS-620, EUC-JP, EUC-KR and GB2312.
     private static let asciiTransparentEncodings: Set<String> = {
         var names: Set = ["utf-8", "utf8", "us-ascii", "ascii", "iso-8859-6-e", "iso-8859-6-i", "iso-8859-8-e", "iso-8859-8-i"]
         for part in 1...16 where part != 12 { // ISO 8859 has no part 12.
             names.formUnion(["iso-8859-\(part)", "iso_8859-\(part)", "iso8859-\(part)"])
         }
         for number in 1...10 where number != 7 { names.insert("latin\(number)") }
-        for page in 1250...1258 { names.formUnion(["windows-\(page)", "cp\(page)", "x-cp\(page)"]) }
+        for page in [874] + Array(1250...1258) { names.formUnion(["windows-\(page)", "cp\(page)", "x-cp\(page)"]) }
         // The parser reads no byte below 0x80 in these as part of a character of two or three
-        // bytes, nor as anything but its ASCII character (#184).
+        // bytes, nor as anything but its ASCII character (#184). It reads `ks_c_5601-1987`,
+        // `korean`, `iso-ir-149` and `csksc56011987` as Windows 949, whose second byte may be an
+        // ASCII letter, so those names for EUC-KR are not here.
         names.formUnion(["koi8-r", "cskoi8r", "macintosh", "mac", "csmacintosh", "x-mac-roman", "tis-620", "tis620",
-                         "euc-jp", "eucjp", "x-euc-jp", "cseucpkdfmtjapanese", "gb2312", "csgb2312", "euc-cn", "euccn"])
+                         "euc-jp", "eucjp", "x-euc-jp", "cseucpkdfmtjapanese", "euc-kr", "euckr", "cseuckr",
+                         "gb2312", "csgb2312", "euc-cn", "euccn"])
         return names
     }()
 

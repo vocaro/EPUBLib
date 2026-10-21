@@ -550,15 +550,15 @@ final class PackageMetadataCoverageTests: XCTestCase {
         }
     }
 
-    func testNamedCharacterReferencesAreDecodedInKOI8RMacRomanTIS620EUCJPAndGB2312() throws {
+    func testNamedCharacterReferencesAreDecodedInKOI8RMacRomanTIS620Windows874EUCJPEUCKRAndGB2312() throws {
         // The parser reads no byte below 0x80 in these as part of another character either, so
         // their references are rewritten as Latin-1's are, in the package and in the document the
         // contents come from. Left to the parser, a name was dropped under a DOCTYPE, as in
         // `Les Misrables`, and refused without one or with `standalone="yes"` (#184).
         let documents: [(encoding: String, letter: [UInt8], read: String)] = [
             ("KOI8-R", [0xF6], "\u{416}"), ("cskoi8r", [0xF6], "\u{416}"), ("macintosh", [0x8E], "\u{E9}"), ("x-mac-roman", [0x8E], "\u{E9}"),
-            ("TIS-620", [0xA1], "\u{E01}"), ("EUC-JP", [0xC6, 0xFC], "\u{65E5}"), ("GB2312", [0xD6, 0xD0], "\u{4E2D}"),
-            ("EUC-CN", [0xD6, 0xD0], "\u{4E2D}"),
+            ("TIS-620", [0xA1], "\u{E01}"), ("windows-874", [0x80, 0xA1], "\u{20AC}\u{E01}"), ("EUC-JP", [0xC6, 0xFC], "\u{65E5}"),
+            ("EUC-KR", [0xB0, 0xA1], "\u{AC00}"), ("GB2312", [0xD6, 0xD0], "\u{4E2D}"), ("EUC-CN", [0xD6, 0xD0], "\u{4E2D}"),
         ]
         let doctypes = ["OPS/book.opf": Self.oebDoctype, "OPS/nav.xhtml": #"<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">"#,
                         "OPS/toc.ncx": #"<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">"#]
