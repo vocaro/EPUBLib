@@ -62,6 +62,28 @@ final class ReaderParagraphEdges: @unchecked Sendable {
         return (outer.left + left, outer.right + right, content)
     }
 
+    /// How far the lines of this block's paragraphs keep from the column's left and right edges
+    /// at `viewport`: its content edges, which a float or sized inline box in the block is placed
+    /// and sized against (CSS 2.2 10.1). Edges that depend on the viewport are resolved at its
+    /// size (`ReaderParagraphSizing`), others as written (`SectionWriter`); where the two edges
+    /// together pass the limit of that resolution, both are cut in proportion.
+    func lineInsets(viewport: CGSize) -> (left: CGFloat, right: CGFloat) {
+        let geometry = geometry(viewport: viewport)
+        return Self.limit(left: geometry.left, right: geometry.right,
+                          to: isDynamic ? viewport.width / 3 : Self.writtenIndentLimit)
+    }
+
+    /// The most a paragraph's two indents take together as written, at the nominal column.
+    static let writtenIndentLimit: CGFloat = 200
+
+    /// `left` and `right`, at least zero, cut in proportion where together they pass `limit`.
+    static func limit(left: CGFloat, right: CGFloat, to limit: CGFloat) -> (left: CGFloat, right: CGFloat) {
+        let left = max(0, left), right = max(0, right)
+        guard left + right > limit else { return (left, right) }
+        let scale = limit / (left + right)
+        return (left * scale, right * scale)
+    }
+
     static func border(_ border: ComputedStyle.Border) -> CGFloat {
         border.isVisible && border.width.isFinite ? min(border.width, 100) : 0
     }
@@ -137,12 +159,9 @@ final class ReaderParagraphSizing: NSObject, @unchecked Sendable {
     func resolve(viewport: CGSize) -> NSParagraphStyle {
         let style = base.mutableCopy() as! NSMutableParagraphStyle
         let rtl = style.baseWritingDirection == .rightToLeft
-        let geometry = edges.geometry(viewport: viewport)
-        var left = max(0, geometry.left), right = max(0, geometry.right)
-        let limit = viewport.width / 3
-        if left + right > limit { let scale = limit / (left + right); left *= scale; right *= scale }
-        var oldLeft = max(0, nominalLeft), oldRight = max(0, nominalRight)
-        if oldLeft + oldRight > 200 { let scale = 200 / (oldLeft + oldRight); oldLeft *= scale; oldRight *= scale }
+        let (left, right) = edges.lineInsets(viewport: viewport)
+        let (oldLeft, oldRight) = ReaderParagraphEdges.limit(left: nominalLeft, right: nominalRight,
+                                                             to: ReaderParagraphEdges.writtenIndentLimit)
         let oldHead = rtl ? oldRight : oldLeft, head = rtl ? right : left
         let tail = rtl ? left : right, oldTail = rtl ? oldLeft : oldRight
         style.headIndent += head - oldHead

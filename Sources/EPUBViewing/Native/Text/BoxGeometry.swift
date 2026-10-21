@@ -263,6 +263,18 @@ enum ReaderBoxLayout {
             left = min(max(0, left), viewport.width - width)
             return CGRect(x: left, y: 0, width: width, height: viewport.height)
         }
+        // A scope narrower than the column, or moved along it, has its paragraphs set in its frame.
+        func isScoped(_ frame: CGRect) -> Bool { frame.minX > 0 || frame.width < viewport.width }
+        // The containing block of a float or a sized inline box: the content box of the block it
+        // is in (CSS 2.2 10.1), where that block's own lines are set. Those are in the frame of a
+        // scope that has one, and otherwise between the block's content edges.
+        func blockFrame(_ box: ReaderFlowBoxConstraint) -> CGRect {
+            let scope = scopeFrame(box.containing)
+            guard !isScoped(scope), let block = box.block else { return scope }
+            let insets = block.lineInsets(viewport: viewport)
+            let left = min(insets.left, viewport.width - 1)
+            return CGRect(x: left, y: 0, width: max(1, viewport.width - left - insets.right), height: viewport.height)
+        }
         while index < ranges.count {
             let range = ranges[index]
             let flow = text.attribute(.readerParagraphFlow, at: range.location, effectiveRange: nil) as? ReaderParagraphFlow
@@ -310,7 +322,7 @@ enum ReaderBoxLayout {
                     let rtl = paragraphStyle.baseWritingDirection == .rightToLeft
                     x = max(0, rtl ? -paragraphStyle.tailIndent : paragraphStyle.headIndent)
                     width = max(1, viewport.width - x - max(0, rtl ? paragraphStyle.headIndent : -paragraphStyle.tailIndent))
-                    let containing = scopeFrame(box.containing)
+                    let containing = style.isOutOfFlow ? scopeFrame(box.containing) : blockFrame(box)
                     if style.float != .none || !box.replaced && !style.isOutOfFlow {
                         func edge(_ value: ComputedStyle.Length) -> CGFloat {
                             max(0, min(containing.width / 3, value.resolve(reference: containing.width, viewport: viewport) ?? 0))
@@ -511,7 +523,8 @@ enum ReaderBoxLayout {
                                 row = placed
                                 inlineRow = taken
                             }
-                            plan.regions.append(.init(range: boxRange, frame: frame, side: style.float,
+                            // A box positioned out of the flow does not float (CSS 2.2 9.7).
+                            plan.regions.append(.init(range: boxRange, frame: frame, side: style.isOutOfFlow ? .none : style.float,
                                 wrapsEarlierText: style.isOutOfFlow && (style.positionTop != .auto || style.positionBottom != .auto),
                                 scope: box.containing?.id,
                                 contentFrame: CGRect(x: x, y: frame.minY, width: width, height: height), run: placed?.firstRegion))
@@ -554,7 +567,7 @@ enum ReaderBoxLayout {
             let tableFloor = table ? plan.regions.map(\.frame.maxY).max() ?? base : base
             let start = max(base, tableFloor)
             let column = box.map { scopeFrame($0.containing) } ?? flow.map { scopeFrame($0.scope) }
-            let scoped = column.map { $0.minX > 0 || $0.width < viewport.width } ?? false
+            let scoped = column.map(isScoped) ?? false
             if scoped { setEdges(text, range: range, x: column!.minX, width: column!.width, viewport: viewport) }
             // After the last box/relative column, ordinary prose no longer needs a visual
             // preflight once it clears the exclusions. Leave that tail to TextKit's lazy layout.

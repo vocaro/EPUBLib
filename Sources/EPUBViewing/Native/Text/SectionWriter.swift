@@ -64,7 +64,7 @@ final class SectionWriter {
     /// Nominal column the percentages of a section resolve against.
     static let nominalColumn: CGFloat = 600
     private static let nominalViewport = CGSize(width: 600, height: 800)
-    private static let maximumIndent: CGFloat = 200
+    private static let maximumIndent = ReaderParagraphEdges.writtenIndentLimit
     private static let maximumGap: CGFloat = 600
 
     private let state: SectionBuildState
@@ -749,7 +749,8 @@ final class SectionWriter {
         let containing = parent?.format.scope
         let scope = style.position != .static || containing == nil ? ReaderBoxScope(style: style, left: left, right: right, parent: containing) : containing!
         if style.requiresFlowBox && boxes.count < 8 {
-            boxes.append(ReaderFlowBoxConstraint(style: style, containing: containing, replaced: replaced, inline: inline))
+            boxes.append(ReaderFlowBoxConstraint(style: style, containing: containing, block: parent?.format.edges,
+                                                 replaced: replaced, inline: inline))
         }
         let itemAlignment = parent.map {
             ReaderAlignmentFrame(style: style, parent: $0.format.itemAlignment, contentEdge: sizingGap.operands.count)

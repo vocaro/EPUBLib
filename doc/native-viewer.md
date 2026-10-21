@@ -2196,6 +2196,18 @@ what follows it. On a float, `clear` moves that float alone below the earlier fl
 side (CSS 2.2 9.5.2), and on a `br` it moves the line after the break, as browsers do
 ([#151](https://github.com/vocaro/EPUBLib/issues/151)).
 
+A float, and a sized `inline-block`, is placed and sized in its containing block: the content
+box of the block it is in, between the content edges where that block's own lines are set
+(CSS 2.2 10.1). A drop cap in an indented block quotation stands at the quotation's edge beside
+its word, and a float's percentages are of the quotation's width, whose own percentage margins
+are resolved at the column's size, as for its prose. A line beside a float is shortened on the
+float's side (CSS 2.2 9.5): no text is set between a left float and the line's start, or
+between a right float and the line's end, so the prose after an indented block or a positioned
+container is not set in its margin, on the far side of a float it holds
+([#150](https://github.com/vocaro/EPUBLib/issues/150)). In a positioned container narrower than
+the column, or moved along it, the paragraphs and floats of the blocks inside it are set in the
+container's content box, without the margins of the blocks between.
+
 A sized `inline-block` is set on its block's line. It starts where the text or the box before
 it ends, a space after it where the source has white space between the two, and at the start
 of the block's next line when the one it would be on is full. A box that opens its block takes
