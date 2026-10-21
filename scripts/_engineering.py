@@ -12,10 +12,41 @@ def project_root(source):
     raise RuntimeError("No engineering.json above the project adapter")
 
 
-def toolkit_root(root):
+def main_checkout(root):
+    """The main checkout of the repository that root is a linked worktree of, or None.
+
+    A linked worktree's .git is a file naming its directory inside the repository's .git, whose
+    commondir file leads back to that .git: the parent of `git rev-parse --git-common-dir`.
+    It is read without running Git, which the script tests replace with fake commands on PATH.
+    """
+    try:
+        line = (Path(root) / ".git").read_text().strip()
+    except OSError:  # the main checkout's .git is a directory
+        return None
+    if not line.startswith("gitdir:"):
+        return None
+    private = Path(root) / line.removeprefix("gitdir:").strip()
+    try:
+        common = private / (private / "commondir").read_text().strip()
+    except OSError:  # a submodule's .git file names a repository of its own
+        return None
+    return common.resolve().parent
+
+
+def toolkit_location(root):
+    """VOCARO_ENGINEERING_ROOT, else toolkit.path beside this checkout or, from a linked
+    worktree such as a session's under .claude/worktrees, beside the main checkout (#701)."""
+    override = os.environ.get("VOCARO_ENGINEERING_ROOT")
+    if override:
+        return (Path(root) / override).resolve()
     config = json.loads((Path(root) / "engineering.json").read_text())
-    location = os.environ.get("VOCARO_ENGINEERING_ROOT") or config.get("toolkit", {}).get("path", "../apple-engineering")
-    result = (Path(root) / location).resolve()
+    location = config.get("toolkit", {}).get("path", "../apple-engineering")
+    candidates = [(base / location).resolve() for base in (Path(root), main_checkout(root)) if base is not None]
+    return next((path for path in candidates if (path / "src/python/vocaro_engineering").is_dir()), candidates[-1])
+
+
+def toolkit_root(root):
+    result = toolkit_location(root)
     if not (result / "src/python/vocaro_engineering").is_dir():
         raise RuntimeError(f"Shared engineering checkout missing: {result}; provision vocaro/apple-engineering or set VOCARO_ENGINEERING_ROOT")
     sys.path.insert(0, str(result / "src/python"))

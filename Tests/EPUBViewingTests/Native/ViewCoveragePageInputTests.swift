@@ -5,6 +5,7 @@ import XCTest
 @testable import EPUBViewing
 #if os(macOS)
 import AppKit
+import Carbon
 #else
 import UIKit
 #endif
@@ -171,9 +172,9 @@ import UIKit
 
     /// doc/integration.md: keys support "ASCII letters/digits" and modifiers "(`shift`, `command`,
     /// `option`, `control`) match exactly". AppKit's `charactersIgnoringModifiers` ignores every
-    /// modifier except Shift, so Shift-1 on a US keyboard arrives as "!".
+    /// modifier except Shift, so Shift-1 on a US keyboard arrives as "!" (#163). The key's
+    /// character without Shift comes from the layout in use, here a Mac's whose 1 is key 18.
     func testADigitBoundWithShiftTurnsThePageWhenItsKeyIsPressedWithShift() {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/163")
         let host = host([CanvasText.body("Keys")])
         let controls = EPUBPageControls(keyboardBindings: [.init(.character("1"), modifiers: .shift, action: .next),
                                                           .init(.character("2"), modifiers: [.command, .shift], action: .previous)])
@@ -183,6 +184,69 @@ import UIKit
         XCTAssertEqual(controls.direction(for: .character("1"), modifiers: .shift), true)
         XCTAssertEqual(ReaderTextView.pageTurnDirection(for: key(18, "!", .shift, in: host), controls: controls), true, "Shift-1")
         XCTAssertEqual(ReaderTextView.pageTurnDirection(for: key(19, "@", [.command, .shift], in: host), controls: controls), false, "Command-Shift-2")
+    }
+
+    /// A digit bound with Shift is the key that carries the digit, pressed with Shift, whatever
+    /// the layout: on a US, German or Russian keyboard the key that types the digit, where Shift
+    /// types a symbol, and on a French or Czech one the key whose Shift types it (#163). Each
+    /// event is the one the layout's own data makes, whichever layout this Mac has in use.
+    func testADigitBoundWithShiftIsTheKeyThatCarriesItInEachLayout() throws {
+        let host = host([CanvasText.body("Keys")])
+        for identifier in ["US", "German", "Russian", "Dvorak", "French", "Czech"] {
+            let layout = try XCTUnwrap(MacKeyboardLayout("com.apple.keylayout." + identifier), identifier)
+            func direction(_ code: UInt16, _ flags: NSEvent.ModifierFlags, _ controls: EPUBPageControls) -> Bool? {
+                let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+                                             windowNumber: host.window.windowNumber, context: nil,
+                                             characters: layout.characters(code, shift: flags.contains(.shift)),
+                                             charactersIgnoringModifiers: layout.characters(code, shift: flags.contains(.shift)),
+                                             isARepeat: false, keyCode: code)!
+                return ReaderTextView.pageTurnDirection(for: event, controls: controls,
+                                                        unshifted: { layout.characters($0.keyCode, shift: false) })
+            }
+            for digit in "0123456789" {
+                let code = try XCTUnwrap(MacKeyboardLayout.digitRow.first { layout.characters($0, shift: false) == String(digit)
+                                                                             || layout.characters($0, shift: true) == String(digit) },
+                                         "\(identifier) has a key for \(digit)")
+                let label = "\(identifier) key \(code) for \(digit)"
+                let shifted = EPUBPageControls(keyboardBindings: [.init(.character(digit), modifiers: .shift, action: .next),
+                                                                  .init(.character(digit), modifiers: [.command, .shift], action: .previous)])
+                XCTAssertEqual(direction(code, .shift, shifted), true, "\(label): Shift")
+                XCTAssertEqual(direction(code, [.shift, .capsLock], shifted), true, "\(label): Shift with Caps Lock")
+                XCTAssertEqual(direction(code, [.command, .shift], shifted), false, "\(label): Command-Shift")
+                XCTAssertNil(direction(code, [.option, .shift], shifted), "\(label): modifiers match exactly")
+                XCTAssertNil(direction(code, [], shifted), "\(label): without Shift")
+                // Where the key types the digit without Shift, a binding without Shift is that key alone.
+                guard layout.characters(code, shift: false) == String(digit) else { continue }
+                let plain = EPUBPageControls(keyboardBindings: [.init(.character(digit), action: .next)])
+                XCTAssertEqual(direction(code, [], plain), true, "\(label): alone")
+                XCTAssertNil(direction(code, .shift, plain), "\(label): Shift is a modifier of its own")
+            }
+            // Letters stay the layout's: a French keyboard's A is where a US keyboard's Q is.
+            guard let a = MacKeyboardLayout.letterKeys.first(where: { layout.characters($0, shift: false) == "a" }) else { continue }
+            let letters = EPUBPageControls(keyboardBindings: [.init(.character("a"), modifiers: .shift, action: .next)])
+            XCTAssertEqual(direction(a, .shift, letters), true, "\(identifier): Shift-A")
+            XCTAssertNil(direction(a, [], letters), "\(identifier): A")
+        }
+    }
+
+    /// The match above has one answer on every layout that comes with macOS: no key types two
+    /// different letters or digits with and without Shift, as Shift-a types "A".
+    func testNoKeyOfAMacLayoutTypesTwoLettersOrDigitsWithAndWithoutShift() throws {
+        let layouts = MacKeyboardLayout.installed()
+        XCTAssertGreaterThan(layouts.count, 100, "the layouts that come with macOS")
+        func letterOrDigit(_ characters: String) -> EPUBPageKey? {
+            characters.count == 1 ? EPUBPageKey.character(characters.first!).normalized : nil
+        }
+        var keys = 0
+        for layout in layouts {
+            for code in UInt16(0)..<128 {
+                guard let plain = letterOrDigit(layout.characters(code, shift: false)),
+                      let shifted = letterOrDigit(layout.characters(code, shift: true)) else { continue }
+                keys += 1
+                XCTAssertEqual(plain, shifted, "\(layout.identifier) key \(code)")
+            }
+        }
+        XCTAssertGreaterThan(keys, layouts.count, "keys that type a letter or digit both ways, as A does")
     }
 
     // MARK: Wheel
@@ -223,12 +287,18 @@ import UIKit
     /// is a tenth of a line (Chromium's `web_input_event_builders_mac.mm`, "Of Mice and Men");
     /// WebKit and Chromium make 4 pixels of it (40 a line), the 4 points the reader asks for.
     func testOneSlowNotchOfAMouseWheelTurnsThePage() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/163")
         let host = host([CanvasText.section(0, paragraphs: 30)])
         let canvas = host.canvas
         let first = try XCTUnwrap(canvas.visibleRange?.start)
         canvas.scrollWheel(with: try wheelNotch(lines: -0.1))
         XCTAssertGreaterThan(try XCTUnwrap(canvas.visibleRange?.start), first, "one notch down reads on")
+        // Back up, and sideways, one notch at a time (#163).
+        canvas.wheelTurner = ReaderWheelPageTurner()
+        canvas.scrollWheel(with: try wheelNotch(lines: 0.1))
+        XCTAssertEqual(canvas.visibleRange?.start, first, "one notch up goes back")
+        canvas.wheelTurner = ReaderWheelPageTurner()
+        canvas.scrollWheel(with: try wheelNotch(lines: -0.1, horizontal: true))
+        XCTAssertGreaterThan(try XCTUnwrap(canvas.visibleRange?.start), first, "one notch right reads on")
     }
 
     func testATrackpadGestureTurnsOnePageAndItsMomentumNone() throws {
@@ -565,5 +635,55 @@ import UIKit
     override func scrollWheel(with event: NSEvent) { events += 1 }
     override func mouseDown(with event: NSEvent) {}
     override func mouseUp(with event: NSEvent) {}
+}
+
+/// A keyboard layout that comes with macOS, read from its own data: what its keys type does not
+/// depend on the layout this Mac has in use, and nothing here changes that.
+struct MacKeyboardLayout {
+    /// The keys of 1 to 9 and 0 on a US keyboard, by key code.
+    static let digitRow: [UInt16] = [18, 19, 20, 21, 23, 22, 26, 28, 25, 29]
+    /// The keys of A to Z on a US keyboard, by key code.
+    static let letterKeys: [UInt16] = [0, 11, 8, 2, 14, 3, 5, 4, 34, 38, 40, 37, 46, 45, 31, 35, 12, 15, 1, 17, 32, 9, 13, 7, 16, 6]
+
+    let identifier: String
+    private let data: Data
+
+    private init?(_ source: TISInputSource) {
+        guard let identifier = TISGetInputSourceProperty(source, kTISPropertyInputSourceID),
+              let data = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }
+        self.identifier = Unmanaged<CFString>.fromOpaque(identifier).takeUnretainedValue() as String
+        self.data = Unmanaged<CFData>.fromOpaque(data).takeUnretainedValue() as Data
+    }
+
+    /// The installed layout with this identifier, such as `com.apple.keylayout.French`.
+    init?(_ identifier: String) {
+        guard let layout = Self.installed(matching: [kTISPropertyInputSourceID as String: identifier]).first else { return nil }
+        self = layout
+    }
+
+    /// Every keyboard layout that comes with macOS.
+    static func installed() -> [Self] {
+        installed(matching: [kTISPropertyInputSourceType as String: kTISTypeKeyboardLayout as String])
+            .filter { $0.identifier.hasPrefix("com.apple.keylayout.") }
+    }
+
+    private static func installed(matching properties: [String: String]) -> [Self] {
+        guard let list = TISCreateInputSourceList(properties as CFDictionary, true)?.takeRetainedValue() as? [TISInputSource] else { return [] }
+        return list.compactMap(Self.init)
+    }
+
+    /// What the key types with no modifier or with Shift alone, as a key event's
+    /// `charactersIgnoringModifiers` gives it; empty for a key the layout does not type with.
+    func characters(_ keyCode: UInt16, shift: Bool) -> String {
+        data.withUnsafeBytes { bytes in
+            guard let layout = bytes.bindMemory(to: UCKeyboardLayout.self).baseAddress else { return "" }
+            var deadKeys: UInt32 = 0, length = 0
+            var characters = [UniChar](repeating: 0, count: 8)
+            let status = UCKeyTranslate(layout, keyCode, UInt16(kUCKeyActionDown), shift ? UInt32(shiftKey >> 8) : 0,
+                                        UInt32(LMGetKbdType()), OptionBits(kUCKeyTranslateNoDeadKeysBit), &deadKeys,
+                                        characters.count, &length, &characters)
+            return status == noErr ? String(utf16CodeUnits: characters, count: length) : ""
+        }
+    }
 }
 #endif

@@ -27,13 +27,23 @@ python3 -m unittest discover -s scripts/tests -v
 ```
 
 They run copies of the scripts in temporary directories with fake tool commands,
-or stub application and probe calls in process; the simulator revision checks use real local
-Git repositories in those temporary directories. They need no network, GitHub login, build or
-running app, and never start VoiceOver or a hosted job. They cover queue refusals and dispatch
-arguments, per-session settings and Safari restrictions, session deadlines and reports, and
-the list state used when restoring VoiceOver ([#433](https://github.com/vocaro/EPUBLib/issues/433)),
-and simulator build revisions ([#504](https://github.com/vocaro/EPUBLib/issues/504)).
+or stub application and probe calls in process; the simulator revision and toolkit location
+checks use real local Git repositories and worktrees in those temporary directories. They need
+no network, GitHub login, build or running app, and never start VoiceOver or a hosted job. They
+cover queue refusals and dispatch arguments, per-session settings and Safari restrictions,
+session deadlines and reports, the list state used when restoring VoiceOver
+([#433](https://github.com/vocaro/EPUBLib/issues/433)), simulator build revisions
+([#504](https://github.com/vocaro/EPUBLib/issues/504)), and where the scripts find the shared
+toolkit ([#701](https://github.com/vocaro/EPUBLib/issues/701)).
 They do not establish what VoiceOver reads or does; that uses the speech lanes below.
+
+These checks and `scripts/eng` need the [shared engineering toolkit](shared-engineering.md), a
+clone of vocaro/apple-engineering at `toolkit.path` in `engineering.json`, `../apple-engineering`.
+It is looked for beside this checkout and then, from a session's worktree under
+`.claude/worktrees`, beside the repository's main checkout, so a session that shares the main
+checkout's clone sets nothing ([#701](https://github.com/vocaro/EPUBLib/issues/701)).
+`VOCARO_ENGINEERING_ROOT` names another clone and comes first; the checks give the copies of
+the scripts they run the clone they find.
 
 Run one gate at a time on this shared Mac, with its Mac and iOS suites one after the other.
 Coordinate full test runs between worktrees and keep build and test worker counts bounded.

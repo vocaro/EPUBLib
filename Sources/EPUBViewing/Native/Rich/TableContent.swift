@@ -10,7 +10,8 @@ import AppKit
 /// row, each in a paragraph of its own with no spacing, so paginated flow can break between any
 /// two rows; rows a rowspan joins, and the header, keep with the next row (`.readerKeepWithNext`)
 /// so they share a page when they fit. A table of one column is a layout box, not data: it returns nil, and the
-/// builder flows its content as ordinary blocks (selectable, and paginated line by line).
+/// builder flows its content as ordinary blocks (selectable, and paginated line by line), unless the flow would
+/// read its parts in another order than they are shown in (`isWrittenInDisplayOrder`).
 ///
 /// Nothing a grid holds is left out of it silently. Content written outside its rows and cells
 /// takes the anonymous rows and cells of CSS 2.2 §17.2.1, and the cells the grid has no slot
@@ -29,7 +30,7 @@ enum TableContent {
         var below = built.overflow
         for caption in built.captions {
             let captionStyle = context.style(caption, style)
-            let atBottom = captionStyle.captionSide == .bottom || caption.attribute("align")?.lowercased() == "bottom"
+            let atBottom = isBelow(caption, style: captionStyle)
             guard let text = self.caption(caption, style: captionStyle, atBottom: atBottom, context: context) else { continue }
             if atBottom { below.append(text); continue }
             output.append(text)
@@ -55,6 +56,11 @@ enum TableContent {
             output.addAttribute(.readerTableModel, value: model, range: NSRange(location: 0, length: output.length))
         }
         return output
+    }
+
+    /// Whether a caption is shown below the rows, by its own `caption-side` or `align`.
+    private static func isBelow(_ caption: ContentNode, style: ComputedStyle) -> Bool {
+        style.captionSide == .bottom || caption.attribute("align")?.lowercased() == "bottom"
     }
 
     private static func caption(_ element: ContentNode, style: ComputedStyle, atBottom: Bool,
@@ -103,6 +109,14 @@ enum TableContent {
     private enum Part {
         case element(ContentNode)
         case anonymous([ContentNode])
+
+        /// Where the part is written: its element's, or its first node's, document order.
+        var order: Int {
+            switch self {
+            case .element(let node): node.order
+            case .anonymous(let nodes): nodes[0].order
+            }
+        }
     }
     /// A cell waiting for its slot.
     private final class Cell {
@@ -273,6 +287,21 @@ enum TableContent {
             closeImplicit()
             groups = (head.map { [$0] } ?? []) + bodies + feet
 
+        }
+
+        /// Whether the parts that hold rows and the captions are written in the order they are
+        /// shown in: the captions above the rows, the header group, the bodies, the footer
+        /// groups, then the captions below (CSS 2.2 §17.2 and §17.4). HTML 4 had `tfoot` written
+        /// before `tbody`.
+        private var isWrittenInDisplayOrder: Bool {
+            var above: [Int] = [], below: [Int] = []
+            for caption in captions {
+                if TableContent.isBelow(caption, style: context.style(caption, style)) { below.append(caption.order) }
+                else { above.append(caption.order) }
+            }
+            let rows: [Int] = groups.filter { !$0.rows.isEmpty }.map { $0.element?.order ?? $0.rows[0].order }
+            let orders = above + rows + below
+            return zip(orders, orders.dropFirst()).allSatisfy { $0 < $1 }
         }
 
         /// A row's cells: those written, and with `anonymous` one around each run of other
@@ -464,9 +493,10 @@ enum TableContent {
             collectGroups()
             // A table is a grid when the cells written in its rows take more than one column. Whatever
             // else it holds joins a grid and never makes one: the content of a table that flows as
-            // text flows with it.
+            // text flows with it. Text flows in document order, so a table of one column is a grid
+            // too when it is written in another order than it is shown in, a footer before its body.
             arrangement = arrange(anonymous: false)
-            guard arrangement.writtenColumns > 1 else { return nil }
+            guard arrangement.writtenColumns > 1 || (arrangement.writtenColumns == 1 && !isWrittenInDisplayOrder) else { return nil }
             if hidesGeneratedContent { context.report.report.generatedContentOmitted = true }
             if arrangement.skippedAnonymous { arrangement = arrange(anonymous: true) }
             columnCount = arrangement.placed.map { $0.column + $0.columnSpan }.max() ?? 0
