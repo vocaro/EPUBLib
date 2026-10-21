@@ -375,6 +375,30 @@ final class StyleResolverTests: XCTestCase {
         XCTAssertEqual(result.styles[result.document.root.order]!.lineHeight, .multiple(2))
     }
 
+    /// An id selector matches the id with its code units, as `getElementById` compares them:
+    /// `#caf\E9` and `#cafe\301` name two ids, though `String` compares them equal. So it is for
+    /// a rule indexed under its subject's id, an id an ancestor must have, and one inside `:is()`.
+    func testIdSelectorsMatchTheIdsExactCodeUnits() throws {
+        let result = try styled("""
+            <p id="caf&#xE9;">composed</p><p id="cafe&#x301;">decomposed</p>
+            <div id="na&#xEF;ve"><p id="in-composed">x</p></div><div id="nai&#x308;ve"><p id="in-decomposed">y</p></div>
+            <p id="r&#xE9;sum&#xE9;">c</p><p id="re&#x301;sume&#x301;">d</p>
+            """, css: #"""
+            #caf\E9 { color: blue }
+            #cafe\301 { font-weight: 700 }
+            #nai\308 ve p { font-style: italic }
+            p:is(#re\301 sume\301) { text-align: right }
+            """#)
+        XCTAssertEqual(result.style("caf\u{E9}").color, color(0, 0, 1))
+        XCTAssertEqual(result.style("caf\u{E9}").fontWeight, 400)
+        XCTAssertNil(result.style("cafe\u{301}").color)
+        XCTAssertEqual(result.style("cafe\u{301}").fontWeight, 700)
+        XCTAssertFalse(result.style("in-composed").isItalic)
+        XCTAssertTrue(result.style("in-decomposed").isItalic)
+        XCTAssertEqual(result.style("r\u{E9}sum\u{E9}").textAlign, .start)
+        XCTAssertEqual(result.style("re\u{301}sume\u{301}").textAlign, .right)
+    }
+
     func testDefaultNamespaceAndHTMLCaseInsensitivity() throws {
         let result = try styled("""
             <p id="p">p</p><svg xmlns="http://www.w3.org/2000/svg"><text id="svgtext" class="c">t</text></svg>

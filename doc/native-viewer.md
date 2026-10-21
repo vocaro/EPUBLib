@@ -121,9 +121,15 @@ continues to describe the authored spine resource.
   nothing had shipped, so a host migrates its own stored ones by re-tagging them, since the CFI
   value names the same position. A CFI that no longer resolves (a changed book has a different
   publication ID and is rejected before that) produces a `.notice`.
+- **Element IDs.** Every lookup of an element by its ID compares the ID code unit for code unit,
+  as `getElementById` does, so `caf&#xE9;` and `cafe&#x301;` are two IDs although Swift strings
+  compare them equal: a section's anchors, legacy `<a name>` anchors and notes, the target of a
+  link or a `navigate(href:)` fragment, the TOC and page-list positions, CSS `#id` selectors, SVG
+  references, and the manifest IDs that choose a fallback. Tables of IDs are keyed by
+  `EPUBElementID`, which compares and hashes an ID's UTF-8 bytes. Class names and attribute
+  values in a selector still compare as strings ([#635](https://github.com/vocaro/EPUBLib/issues/635)).
 - **ID assertions.** An ID assertion names the element whose `id` has the same code units, as
-  `getElementById` compares them, so `caf&#xE9;` and `cafe&#x301;` are two IDs although Swift
-  strings compare them equal. Every CFI the reader issues passes the check `restore` applies to
+  every ID lookup does (above), so `caf&#xE9;` and `cafe&#x301;` are two IDs. Every CFI the reader issues passes the check `restore` applies to
   a bookmark (`EPUBCFI.isWellFormed`), which refuses a C0 or C1 control character, a line or
   paragraph separator, and a CFI longer than its 4,096-character budget. An ID holding one of
   those characters is therefore not asserted: the CFI grammar would take the character only as

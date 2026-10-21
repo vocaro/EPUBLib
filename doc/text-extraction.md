@@ -161,7 +161,10 @@ colophon is valid library behavior; whether it belongs in a study index is the h
 
 ## Positions
 
-`anchors` maps the first occurrence of each body element ID to an `EPUBTextMark`. `headings`
+`anchors` maps the first occurrence of each body element ID to an `EPUBTextMark`. It is keyed by
+`EPUBElementID`, which compares IDs code unit for code unit as `getElementById` does, so
+`caf&#xE9;` and `cafe&#x301;` are two anchors; `anchors[fragment]` looks one up by a `String`
+([#635](https://github.com/vocaro/EPUBLib/issues/635)). `headings`
 contains each XHTML heading in document order, with normalized text and its mark. A mark's
 `offset` counts UTF-8 bytes to the first text character after the element opens; `separator`
 counts the normalized space or newline immediately before that character. An empty element
