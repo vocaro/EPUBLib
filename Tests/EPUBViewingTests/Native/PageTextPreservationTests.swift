@@ -37,20 +37,20 @@ import UIKit
         let paginator = ReaderPaginator(text: section.string, size: CGSize(width: 250, height: 333.3))
         // On both platforms the fixed box (60) was drawn 9.5 below its own region, the forced
         // margin above the second float, which happened to cancel this page's 9.5 offset from its
-        // section. It now stands in its region, with the page's other lines: 44.95 became 35.45,
+        // section. It then stood in its region, with the page's other lines: 44.95 became 35.45,
         // which the owner approved on 2026-10-14 (#362).
+        //
+        // The second float's `break-before: page` now ends this page after the first float, and
+        // the second float and the fixed box open the next. The two floats share no line and no
+        // row, 9.5 points apart, and were one group only because their source met, which hid the
+        // forced break inside the group (#149). The page was 0..<114, with the first float's lines
+        // at 85.39 and 105.34 on the Mac and 85.75 and 106.05 on iOS; it now opens with them. The
+        // iOS values follow from those and the Mac's, and were not run on iOS.
         #if os(iOS)
-        // Captured from unchanged24400 on iOS27.0, not from the repaired candidate, but row 60.
-        assertFrozen(paginator, pageIndex: 0, range: NSRange(location: 0, length: 114), lines: [[0,6,0,85.74999999999994,38.02882555127144,20.299999999999997],[6,5,0,106.04999999999994,29.3380728662014,20.299999999999997],[11,9,0,215.74999999999994,57.87859809398651,20.299999999999997],[20,17,0,236.04999999999995,124.33645924925804,20.299999999999997],[37,11,0,256.34999999999997,72.0531495809555,20.299999999999997],[48,12,0,276.65,82.94416791200638,20.299999999999997],[60,19,0,35.45,123.77823588252068,20.299999999999997],[79,35,0,306.45,241.61593878269196,20.299999999999997]])
+        assertFrozen(paginator, pageIndex: 0, range: NSRange(location: 0, length: 11), lines: [[0,6,0,0,38.02882555127144,20.299999999999997],[6,5,0,20.299999999999997,29.3380728662014,20.299999999999997]])
         #else
-        assertFrozen(paginator, pageIndex: 0, range: NSRange(location: 0, length: 114), lines: [[0,6,0.0,85.39369885433715,38.02882555127144,19.94369885433715],
-[6,5,0.0,105.3373977086743,29.3380728662014,19.94369885433715],
-[11,9,0.0,215.39369885433717,57.87859809398651,19.94369885433715],
-[20,17,0.0,235.33739770867433,124.33645924925804,19.94369885433715],
-[37,11,0.0,255.2810965630115,72.0531495809555,19.94369885433715],
-[48,12,0.0,275.2247954173486,82.94416791200638,19.94369885433715],
-[60,19,0.0,35.45,123.77823588252068,19.94369885433715],
-[79,35,0.0,304.66849427168574,241.61593878269196,19.94369885433715]])
+        assertFrozen(paginator, pageIndex: 0, range: NSRange(location: 0, length: 11), lines: [[0,6,0.0,0.0,38.02882555127144,19.94369885433715],
+[6,5,0.0,19.94369885433715,29.3380728662014,19.94369885433715]])
         #endif
     }
 

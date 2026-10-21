@@ -714,22 +714,68 @@ import UIKit
 
     // MARK: Groups
 
+    /// A definition list of `count` rows, each a floated term and the definition beside it.
+    private func rows(_ count: Int, css: String = "") throws -> (section: SectionText, view: ReaderTextView) {
+        try layout("<dl>" + (0..<count).map { "<dt>Term\($0)</dt><dd>Meaning \($0).</dd>" }.joined() + "</dl>",
+                   css: "dl, dt, dd { margin:0; padding:0 } dt { float:left; width:80px } " + css)
+    }
+
     /// `doc/native-viewer.md`: "A box and the prose wrapping beside it stay together when they fit
     /// a page. Oversized groups … instead continue as native blocks". Each row here is one float
     /// and the one line beside it; rows that only touch are not one group.
     func testARunOfFloatAndTextRowsLongerThanAPageKeepsItsFloats() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/149")
-        func rows(_ count: Int) throws -> (SectionText, ReaderTextView) {
-            try layout("<dl>" + (0..<count).map { "<dt>Term\($0)</dt><dd>Meaning \($0).</dd>" }.joined() + "</dl>",
-                       css: "dl, dt, dd { margin:0; padding:0 } dt { float:left; width:80px }")
-        }
         for count in [5, 20, 40] { // 40 rows are about 890 points: more than one 600-point page.
             let (section, view) = try rows(count)
+            XCTAssertEqual(view.readerContainer.boxRegions.filter { !$0.reserved }.count, count, "\(count) rows: every term floats")
             for row in [0, count / 2, count - 1] {
                 let term = H.frame("Term\(row)", in: section, view: view), meaning = H.frame("Meaning \(row).", in: section, view: view)
                 XCTAssertEqual(meaning.minY, term.minY, accuracy: 1, "\(count) rows: definition \(row) is beside its term")
                 XCTAssertGreaterThanOrEqual(meaning.minX, 79, "\(count) rows: definition \(row) is right of the 80-point term")
             }
+            H.pages(section, size: size, "\(count) rows")
+        }
+    }
+
+    /// The run of rows above on pages: a page ends between two rows, and on every page each
+    /// definition is beside its term (#149).
+    func testARunOfFloatAndTextRowsLongerThanAPageBreaksBetweenRows() throws {
+        let count = 40
+        let (section, _) = try rows(count)
+        let (paginator, pages) = H.pages(section, size: size)
+        XCTAssertGreaterThan(pages.count, 1)
+        let views = pages.map { H.pageView(paginator, page: $0) }
+        for row in 0..<count {
+            let term = H.range("Term\(row)", in: section), meaning = H.range("Meaning \(row).", in: section)
+            let page = try XCTUnwrap(pages.firstIndex { NSLocationInRange(term.location, $0.range) })
+            XCTAssertTrue(NSLocationInRange(meaning.upperBound - 1, pages[page].range), "row \(row) is on one page")
+            func frame(_ range: NSRange) -> CGRect {
+                views[page].segmentFrames(for: NSRange(location: range.location - pages[page].range.location, length: range.length))
+                    .reduce(CGRect.null) { $0.union($1) }
+            }
+            let termFrame = frame(term), meaningFrame = frame(meaning)
+            XCTAssertFalse(termFrame.isNull || meaningFrame.isNull, "row \(row) is laid out on page \(page)")
+            XCTAssertEqual(meaningFrame.minY, termFrame.minY, accuracy: 1, "page \(page): definition \(row) is beside its term")
+            XCTAssertGreaterThanOrEqual(meaningFrame.minX, 79, "page \(page): definition \(row) is right of the term")
+            XCTAssertLessThanOrEqual(meaningFrame.maxY + pages[page].topSpacing, size.height + 0.75, "row \(row) fits page \(page)")
+        }
+    }
+
+    /// Terms taller than their definitions make rows that overlap: each definition after the first
+    /// starts beside the term above it, and each term below that one, so the run is one group.
+    /// Within a page it keeps its floats; longer than a page it continues as native blocks, every
+    /// character in reading order, as an oversized group does.
+    func testARunOfOverlappingRowsLongerThanAPageContinuesInFlow() throws {
+        for count in [5, 40] { // 30-point terms: 150 points for 5 rows, 1,200 for 40.
+            let (section, view) = try rows(count, css: "dt { height:30px }")
+            let regions = view.readerContainer.boxRegions.filter { !$0.reserved }
+            XCTAssertEqual(regions.count, count == 5 ? 5 : 0, "\(count) rows")
+            if count == 40 {
+                for row in [0, 20, 39] {
+                    XCTAssertGreaterThanOrEqual(H.frame("Meaning \(row).", in: section, view: view).minY,
+                                                H.frame("Term\(row)", in: section, view: view).maxY - 0.5, "reading order: row \(row)")
+                }
+            }
+            XCTAssertEqual(view.visibleText, section.string.string, "\(count) rows")
             H.pages(section, size: size, "\(count) rows")
         }
     }
