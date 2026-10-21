@@ -44,7 +44,7 @@ final class EPUBCFITests: XCTestCase {
     func testVirtualIndicesMapAsDocumented() {
         XCTAssertEqual(resolve("/4/0"), at(element("body")), "before: the indexed element's start")
         XCTAssertEqual(resolve("/4/2/2/2"), at(node(" three")), "after: the first node after the element")
-        XCTAssertEqual(resolve("/4/8"), at(element("div")), "after the last subtree: the document's last node")
+        XCTAssertEqual(resolve("/4/8"), at(element("div"), 1), "after the last subtree: the document's end, just after its last node")
         XCTAssertEqual(resolve("/4/4/1"), at(element("img", 0)), "first: the first child element")
         XCTAssertEqual(resolve("/4/4/5"), at(element("img", 1)), "last: the last child element")
         XCTAssertEqual(resolve("/0/4/2"), at(element("html")), "a virtual index ends the walk")
@@ -70,6 +70,7 @@ final class EPUBCFITests: XCTestCase {
         XCTAssertEqual(path(DOMPosition(node("One "), 2)), "/4/2[first]/1:2")
         XCTAssertEqual(path(DOMPosition(element("p"))), "/4/2[first]")
         XCTAssertEqual(path(DOMPosition(element("img", 1))), "/4/4/4")
+        XCTAssertEqual(path(document.end), "/4/8", "the document's end, after the empty div: the body's after index")
         XCTAssertEqual(path(DOMPosition(node("two"), 1), DOMPosition(node(" three"), 3)), "/4/2[first],/2/1:1,/3:3")
         XCTAssertEqual(path(DOMPosition(node(" three"), 3), DOMPosition(node("two"), 1)), "/4/2[first],/2/1:1,/3:3",
                        "reversed ends are swapped")

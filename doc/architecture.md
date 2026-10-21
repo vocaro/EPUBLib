@@ -20,10 +20,10 @@ retain their existing meaning. The reader's engine identifier is `org.epublib.re
 bookmark format `epublib-cfi-v1` (`EPUBReader.identifier`, `EPUBReader.bookmarkFormat`); both name
 the library, not a renderer. The WebKit reader's `org.epubreaderlib.foliate`/`epubcfi-v1`
 bookmarks are another engine's and are refused, but their CFI values name the same positions:
-a host migrates one by re-tagging it with the reader's identifier and format. The sample EPUB
-is generated deterministically by `scripts/make-sample.py`; adding the required modification
-timestamp changes its bytes and publication fingerprint, so positions saved against the older
-sample do not carry over ([#168](https://github.com/vocaro/EPUBLib/issues/168)).
+a host migrates one by re-tagging it with the reader's identifier and format. When the former
+sample app's book ([#700](https://github.com/vocaro/EPUBLib/issues/700)) gained the required
+modification timestamp, its bytes and publication fingerprint changed, so positions saved
+against the older book did not carry over ([#168](https://github.com/vocaro/EPUBLib/issues/168)).
 
 ## Publication model
 
@@ -61,7 +61,15 @@ as one space and none left at either end. EPUB Reading Systems 3.3 §5.3 require
 Core and `meta` values, and it is how a browser renders a link, so a title or a label its
 authoring tool wrapped and indented is one line. The values are the Dublin Core title, creators,
 languages and identifiers and the `rendition:layout` `meta`; the labels are a contents entry's
-link or heading, a landmark's link, a page-list link and an NCX `navLabel`. White space outside
+link or heading, a landmark's link, a page-list link and an NCX `navLabel`. An image, an SVG
+drawing, a formula or other embedded element in a label is read as its alternative text, as EPUB
+Reading Systems 3.3 §7 recommends: its `alt`, else its `title`, else a drawing's `title` element
+or a formula's `alttext`. One with none of these is read by its content, such as a formula's
+characters or an object's fallback, and an image without them adds nothing. A label that is empty
+then is its link or heading's own `title`, read as a label is, when it has one: EPUB 3.3 §7.3 has
+a link or heading holding embedded content with no text alternative carry its label there, and
+foliate-js reads it
+([#83](https://github.com/vocaro/EPUBLib/issues/83)). White space outside
 ASCII, a no-break or an ideographic space among it, is the author's character and is kept
 inside and at the ends of a value that holds anything else, but a value that is nothing but
 white space of any kind (Foundation's `whitespacesAndNewlines`, which counts the zero-width
@@ -69,8 +77,8 @@ space) is empty: some tools write a lone no-break space as a placeholder, and no
 one. A value left empty is not listed among the metadata; an entry whose label is left empty
 stays, without a title. `xml:space` changes nothing. ASCII whitespace is
 found as its byte, not by `Character`: a space followed by a combining mark is a space, and the
-mark is kept. An attribute's value is not such text, and a guide reference's `title` is read as
-written. A font obfuscation key is made from the identifier's text by its algorithm's own rule,
+mark is kept. An attribute's value is not such text, but for an alternative or `title` read into
+a label, and a guide reference's `title` is read as written. A font obfuscation key is made from the identifier's text by its algorithm's own rule,
 not from the value read here. IDPF's removes the space, tab, carriage return and line feed and
 nothing else (EPUB 3.3 §4.4.3), each as its byte: other white space is part of the key, at the
 identifier's ends too, and so is a mark after a space. Adobe's is the UUID whatever white space
@@ -174,18 +182,23 @@ disclosed:
   The directory pre-scan charges the exact size of each local header (30 fixed bytes plus its
   name and extra field) against the archive's byte count. Real, separate headers fit that
   budget; repeated large headers cannot multiply copying and ZIP64 field scans indefinitely.
-  ZIPFoundation 0.9.20's Apple decoder calls the consumer after every
-  `compression_stream_process`, including steps that produce no output. Each call uses at most
-  32 KiB of input and returns at most 32 KiB of output. Extraction therefore charges 32 KiB per
-  consumer call, credits actual expanded bytes, and grants one 32 KiB allowance per entry for a
-  partial final chunk. After admitting E entries and producing O bytes from an archive of A
-  bytes, successful calls are bounded by `floor((A + O) / 32768) + E`. The existing entry-count
-  and output limits still apply. The same consumer is used for stored data, whose full chunks
-  cost no extra input work and whose final partial chunk uses the entry allowance. The SDK's
-  `compression.h` contract says a successful processing call continues until its source is
-  exhausted, destination is full, or stream ends. Full output chunks pay for their call
-  entirely; input-exhausting partial output calls are covered by archive bytes, with the entry
-  allowance covering the final partial input/output chunk. This is a bound on processing
+  A deflated entry is inflated with zlib, the system's, not by ZIPFoundation 0.9.20, which
+  inflates with Apple's Compression framework. For some streams whose block header is damaged,
+  that decoder reads stack memory it has not set, so the same book was refused one way on one
+  open and another way on the next ([#583](https://github.com/vocaro/EPUBLib/issues/583)).
+  zlib refuses such a stream as damage, `invalidArchive("<path>: corruptedData")`, on every
+  open, as it does a stream cut short of its end. ZIPFoundation reads stored entries.
+  The inflater calls the consumer after every call to zlib's `inflate`, including steps that
+  produce no output. Each call uses at most 32 KiB of input and returns at most 32 KiB of
+  output. Extraction therefore charges 32 KiB per consumer call, credits actual expanded bytes,
+  and grants one 32 KiB allowance per entry for a partial final chunk. After admitting E
+  entries and producing O bytes from an archive of A bytes, successful calls are bounded by
+  `floor((A + O) / 32768) + E`. The existing entry-count and output limits still apply. The
+  same consumer is used for stored data, whose full chunks cost no extra input work and whose
+  final partial chunk uses the entry allowance. `zlib.h` says `inflate` continues until its
+  input is used up, its output is full, or the stream ends. Full output chunks pay for their
+  call entirely; input-exhausting partial output calls are covered by archive bytes, with the
+  entry allowance covering the final partial input/output chunk. This is a bound on processing
   steps, not a claim to observe the decoder's exact input offset. It stops repeated empty
   streams and streams shared through distinct headers while continuing to read early-ended
   streams and declared sizes beyond the archive. Refusing declared overlap would contradict

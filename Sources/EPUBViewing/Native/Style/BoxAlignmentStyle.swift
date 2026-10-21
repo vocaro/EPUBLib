@@ -161,16 +161,9 @@ extension CSSPropertyParser {
             return [(.flexDirection, .flexDirection(direction ?? .row)), (.flexWrap, .flag(wraps ?? false))]
         case "flex", "-webkit-flex", "-ms-flex":
             return flexGrow(shorthand: c).map { [(.flexGrow, .number($0))] }
-        case "place-content":
-            guard (1...2).contains(c.count), let align = c[0].ident.flatMap(contentAlignment),
-                  let justify = c[c.count - 1].ident.flatMap(contentAlignment) else { return nil }
-            return [(.alignContent, .contentAlignment(align)), (.justifyContent, .contentAlignment(justify))]
-        case "place-items", "place-self":
-            let isSelf = name == "place-self"
-            guard (1...2).contains(c.count), let align = c[0].ident.flatMap({ itemAlignment($0, auto: isSelf) }),
-                  let justify = c[c.count - 1].ident.flatMap({ itemAlignment($0, auto: isSelf) }) else { return nil }
-            return isSelf ? [(.alignSelf, .itemAlignment(align)), (.justifySelf, .itemAlignment(justify))]
-                : [(.alignItems, .itemAlignment(align)), (.justifyItems, .itemAlignment(justify))]
+        case "place-content": return place(c, .alignContent, .justifyContent)
+        case "place-items": return place(c, .alignItems, .justifyItems)
+        case "place-self": return place(c, .alignSelf, .justifySelf)
         case "gap", "grid-gap":
             guard (1...2).contains(c.count), c.allSatisfy({ gap($0) != nil }) else { return nil }
             return gap(c[0]).map { [(.rowGap, $0)] }
@@ -182,25 +175,30 @@ extension CSSPropertyParser {
     }
 
     static func alignmentValue(_ property: CSSProperty, _ c: [CSSComponent]) -> CSSValue? {
-        // `safe` and `unsafe` only choose what overflowing content does.
-        let words = c.filter { $0.ident != "safe" && $0.ident != "unsafe" }
-        let keyword: String? = if words.count == 1 { words[0].ident } else if words.count == 2, words[1].ident == "baseline",
-            words[0].ident == "first" || words[0].ident == "last" { "baseline" } else { nil }
+        let keyword = c.count == 1 ? c[0].ident : nil
         switch property {
         case .boxSizing:
-            switch c.count == 1 ? c[0].ident : nil {
+            switch keyword {
             case "border-box": return .flag(true)
             case "content-box": return .flag(false)
             default: return nil
             }
         case .flexDirection: return keyword.flatMap(flexDirection).map(CSSValue.flexDirection)
         case .flexWrap: return keyword.flatMap(flexWrap).map(CSSValue.flag)
-        case .justifyContent, .alignContent: return keyword.flatMap(contentAlignment).map(CSSValue.contentAlignment)
+        case .justifyContent, .alignContent:
+            return alignmentKeyword(c, for: property).flatMap(contentAlignment).map(CSSValue.contentAlignment)
         case .alignItems, .justifyItems:
-            // `justify-items: legacy` behaves as `normal` without the `<center>`-like inheritance.
-            if property == .justifyItems, c.contains(where: { $0.ident == "legacy" }) { return .itemAlignment(.normal) }
-            return keyword.flatMap { itemAlignment($0, auto: false) }.map(CSSValue.itemAlignment)
-        case .alignSelf, .justifySelf: return keyword.flatMap { itemAlignment($0, auto: true) }.map(CSSValue.itemAlignment)
+            // `justify-items: legacy`, alone or with `left`, `right` or `center`, behaves as
+            // `normal` without the `<center>`-like inheritance.
+            if property == .justifyItems, c.contains(where: { $0.ident == "legacy" }) {
+                let others = c.filter { $0.ident != "legacy" }
+                guard c.count - others.count == 1, others.count <= 1,
+                      others.allSatisfy({ ["left", "right", "center"].contains($0.ident ?? "") }) else { return nil }
+                return .itemAlignment(.normal)
+            }
+            return alignmentKeyword(c, for: property).flatMap { itemAlignment($0, auto: false) }.map(CSSValue.itemAlignment)
+        case .alignSelf, .justifySelf:
+            return alignmentKeyword(c, for: property).flatMap { itemAlignment($0, auto: true) }.map(CSSValue.itemAlignment)
         case .order:
             guard c.count == 1, case .token(.number(let value, _, _)) = c[0], value == value.rounded(), abs(value) <= 1_000_000 else { return nil }
             return .integer(Int(value))
@@ -233,6 +231,50 @@ extension CSSPropertyParser {
     }
 
     private static let maximumGridColumns = 64
+
+    /// The keyword a Box Alignment 3 value comes to (5.1, 6.1 and 6.2): a single keyword, a
+    /// position after `safe` or `unsafe` (which only choose what overflowing content does), or a
+    /// baseline with `first` or `last` in either order. `left` and `right` are positions along
+    /// the inline axis, valid for the `justify-` properties alone, and `justify-content` has no
+    /// baseline: for those the value is invalid and an earlier declaration stands. Whether the
+    /// keyword is one of the property's own is left to its mapping.
+    private static func alignmentKeyword(_ c: [CSSComponent], for property: CSSProperty) -> String? {
+        let words = c.compactMap(\.ident)
+        guard words.count == c.count else { return nil }
+        let keyword: String
+        switch words.count {
+        case 1:
+            keyword = words[0]
+        case 2 where Set(words) == ["first", "baseline"] || Set(words) == ["last", "baseline"]:
+            keyword = "baseline"
+        case 2 where ["safe", "unsafe"].contains(words[0])
+            && ["center", "start", "end", "self-start", "self-end", "flex-start", "flex-end", "left", "right"].contains(words[1]):
+            keyword = words[1]
+        default:
+            return nil
+        }
+        let isInline = property == .justifyContent || property == .justifyItems || property == .justifySelf
+        if !isInline, keyword == "left" || keyword == "right" { return nil }
+        if property == .justifyContent, keyword == "baseline" { return nil }
+        return keyword
+    }
+
+    /// `place-content`, `place-items` and `place-self`: the `align-` value, then the `justify-`
+    /// one, which is the first again when left out (Box Alignment 3, 5.3, 6.3 and 6.4), or
+    /// `start` for a baseline `justify-content` does not take. Either value can be two words,
+    /// so each place the second could begin is tried.
+    private static func place(_ c: [CSSComponent], _ align: CSSProperty, _ justify: CSSProperty) -> AlignmentPairs? {
+        guard (1...4).contains(c.count) else { return nil }
+        for split in 1...c.count {
+            let first = Array(c[..<split]), rest = Array(c[split...])
+            guard let alignValue = alignmentValue(align, first) else { continue }
+            let justifyValue = rest.isEmpty
+                ? alignmentValue(justify, first) ?? (justify == .justifyContent ? .contentAlignment(.start) : nil)
+                : alignmentValue(justify, rest)
+            if let justifyValue { return [(align, alignValue), (justify, justifyValue)] }
+        }
+        return nil
+    }
 
     private static func flexDirection(_ keyword: String) -> ComputedStyle.FlexDirection? {
         switch keyword {

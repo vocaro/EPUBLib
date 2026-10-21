@@ -131,11 +131,13 @@ enum ReaderAlignmentLayout {
         let paragraph: ReaderAlignmentParagraph
     }
 
-    /// One item's paragraphs, as entry indices.
+    /// One item's paragraphs, as entry indices. An empty item has none: it lies before the
+    /// entry `first`, and `last` is the one before that.
     private struct Run {
         let item: ReaderAlignmentItem
         let first: Int
         var last: Int
+        var isEmpty: Bool { last < first }
     }
 
     /// A supported container's paragraphs.
@@ -189,6 +191,20 @@ enum ReaderAlignmentLayout {
                     }
                 }
             }
+            // Empty items stack between the others. A row's only item is placed alone.
+            for index in groups.indices where groups[index].container.layout == .stack {
+                for empty in groups[index].container.emptyItems {
+                    var position = 0
+                    if let after = empty.after {
+                        guard let found = groups[index].items.lastIndex(where: { $0.item === after }) else { continue }
+                        position = found + 1
+                    }
+                    // After the empty items before it.
+                    while position < groups[index].items.count, groups[index].items[position].isEmpty { position += 1 }
+                    let boundary = position > 0 ? groups[index].items[position - 1].last + 1 : groups[index].first
+                    groups[index].items.insert(Run(item: empty.item, first: boundary, last: boundary - 1), at: position)
+                }
+            }
         }
 
         mutating func run() -> NSAttributedString {
@@ -201,9 +217,11 @@ enum ReaderAlignmentLayout {
             // must still replace the spacing it was given before.
             guard let result else { return NSMutableAttributedString(attributedString: source) }
             for (index, lead) in leads where lead > 0.01 {
-                // With the top padding and border of the boxes that start here: all of it is the
-                // boxes' own, between their top edge and their first line.
-                let edges = groups.reduce(CGFloat(0)) { $0 + ($1.first == index ? topEdge($1.container) : 0) }
+                // With the top padding and border of the outermost box that starts here, and what
+                // lies inside it above the line, the boxes within that start here included: all
+                // of it is the box's own, between its top edge and its first line.
+                let outer = groups.filter { $0.first == index }.min { $0.level < $1.level }
+                let edges = outer.map { topEdge($0.container) + inner($0.container).top } ?? 0
                 result.addAttribute(.readerAlignmentLead, value: NSNumber(value: Double(lead + edges)),
                                     range: NSRange(location: entries[index].range.location, length: 1))
             }
@@ -213,6 +231,12 @@ enum ReaderAlignmentLayout {
         private func topEdge(_ container: ReaderAlignmentContainer) -> CGFloat {
             max(0, ReaderParagraphEdges.resolve(container.style.padding.top, reference: viewport.width, viewport: viewport))
                 + ReaderParagraphEdges.border(container.style.border.top)
+        }
+
+        /// The margins, borders and padding inside the content box above the first line and
+        /// below the last: its first and last items' own, and what those hold.
+        private func inner(_ container: ReaderAlignmentContainer) -> (top: CGFloat, bottom: CGFloat) {
+            (container.leading.resolve(viewport: viewport), container.trailing.resolve(viewport: viewport))
         }
 
         // MARK: Paragraph styles
@@ -283,6 +307,32 @@ enum ReaderAlignmentLayout {
             update(entries[index].range) { $0.paragraphSpacing += amount }
         }
 
+        /// Space at a boundary of `group`: before the entry `boundary`, or after its last entry
+        /// when `boundary` is past it.
+        private mutating func addSpace(_ amount: CGFloat, at boundary: Int, in group: Group) {
+            if boundary <= group.first {
+                addLead(group.first, amount)
+            } else if boundary > group.last {
+                addSpace(after: group.last, amount, trailing: true)
+            } else {
+                addSpace(after: boundary - 1, amount)
+            }
+        }
+
+        /// The items of a stack from the top down, each with the boundaries above and below it
+        /// (`addSpace(_:at:in:)`). An empty item lies at one boundary. A reversed column has one
+        /// item with paragraphs (`ReaderAlignmentContainer.close()`); the empty ones change sides.
+        private func stacked(_ group: Group) -> [(run: Run, top: Int, bottom: Int)] {
+            let alignment = group.container.style.boxAlignment
+            let reversed = group.container.layout == .stack && !alignment.isGrid && alignment.direction.isReversed
+            var boundary = group.first
+            return (reversed ? group.items.reversed() : group.items).map { run in
+                guard !run.isEmpty else { return (run, boundary, boundary) }
+                boundary = run.last + 1
+                return (run, run.first, run.last + 1)
+            }
+        }
+
         // MARK: Across the line
 
         private func side(of item: ReaderAlignmentItem, in container: ReaderAlignmentContainer) -> Side {
@@ -325,7 +375,7 @@ enum ReaderAlignmentLayout {
             }
             let available = viewport.width - left - right
             guard available > 1 else { return }
-            for (run, side) in zip(group.items, sides) where side != .start {
+            for (run, side) in zip(group.items, sides) where side != .start && !run.isEmpty {
                 guard let outer = outerWidth(of: run, left: left, right: right, available: available) else { continue }
                 let free = available - outer
                 guard free > 0.5 else { continue }
@@ -451,28 +501,23 @@ enum ReaderAlignmentLayout {
             return exceeds ? nil : max(0, bottom - (top ?? 0))
         }
 
-        private func margin(_ length: ComputedStyle.Length?) -> CGFloat {
-            guard let length else { return 0 }
-            return max(0, ReaderParagraphEdges.resolve(length, reference: viewport.width, viewport: viewport))
-        }
-
         /// Adds a container's gaps, then shares out the block-axis space its content leaves.
         private mutating func alignAlong(_ index: Int) {
             let group = groups[index], container = group.container
             if container.layout == .stack, group.items.count > 1,
                let gap = container.style.boxAlignment.rowGap.resolve(reference: 0, viewport: viewport), gap.isFinite, gap > 0 {
-                for run in group.items.dropLast() { addSpace(after: run.last, min(gap, viewport.height)) }
+                for item in stacked(group).dropLast() { addSpace(min(gap, viewport.height), at: item.bottom, in: group) }
             }
             guard let target = targetHeight(container), let lines = contentHeight(group, limit: target) else { return }
-            // Space nested containers put outside their lines, and the outer items' own margins,
-            // are part of this container's content.
-            let content = lines + (leads[group.first] ?? 0) + (trails[group.last] ?? 0)
-                + margin(group.items.first?.item.style?.margin.top) + margin(group.items.last?.item.style?.margin.bottom)
+            // Space nested containers and gaps put outside the lines, and the items' margins,
+            // borders and padding there, are part of this container's content.
+            let inside = inner(container)
+            let content = lines + (leads[group.first] ?? 0) + (trails[group.last] ?? 0) + inside.top + inside.bottom
             var free = target - content
             let location = entries[group.first].range.location
             if opensPage(location) {
                 // What is already above the box (margins and padding) must leave it room on the page.
-                let above = max(0, style(at: location).paragraphSpacingBefore - (leads[group.first] ?? 0))
+                let above = max(0, style(at: location).paragraphSpacingBefore - (leads[group.first] ?? 0) - inside.top)
                 free = min(free, viewport.height - above - content)
             }
             guard free > 0.5 else { return }
@@ -481,10 +526,10 @@ enum ReaderAlignmentLayout {
 
         private mutating func distribute(_ free: CGFloat, in index: Int, depth: Int) {
             let group = groups[index], container = group.container, alignment = container.style.boxAlignment
-            let count = group.items.count
+            let items = stacked(group), count = items.count
             guard count > 0 else { return }
             var before = [CGFloat](repeating: 0, count: count), after = before, within = before
-            func itemStyle(_ item: Int) -> ComputedStyle? { group.items[item].item.style }
+            func itemStyle(_ item: Int) -> ComputedStyle? { items[item].run.item.style }
             func hasAutoMargin(_ item: Int) -> (top: Bool, bottom: Bool) {
                 (itemStyle(item)?.margin.top == .auto, itemStyle(item)?.margin.bottom == .auto)
             }
@@ -556,18 +601,21 @@ enum ReaderAlignmentLayout {
             }
             for item in 0..<count where within[item] > 0 {
                 // A stretched or grown item that is itself a container aligns inside its new
-                // height; any other keeps its content at its top.
-                let run = group.items[item]
-                if depth < ReaderAlignmentContainer.maximumDepth, let inner = nested[ObjectIdentifier(run.item)],
+                // height; any other keeps its content at its top. An empty one is all space.
+                let run = items[item].run
+                if depth < ReaderAlignmentContainer.maximumDepth, !run.isEmpty, let inner = nested[ObjectIdentifier(run.item)],
                    groups[inner].first == run.first, groups[inner].last == run.last {
                     distribute(within[item], in: inner, depth: depth + 1)
                 } else {
                     after[item] += within[item]
                 }
             }
-            addLead(group.first, before[0])
-            for item in 0..<(count - 1) { addSpace(after: group.items[item].last, after[item] + before[item + 1]) }
-            addSpace(after: group.last, after[count - 1], trailing: true)
+            var spaces: [Int: CGFloat] = [:]
+            for (item, slot) in items.enumerated() {
+                spaces[slot.top, default: 0] += before[item]
+                spaces[slot.bottom, default: 0] += after[item]
+            }
+            for boundary in spaces.keys.sorted() { addSpace(spaces[boundary]!, at: boundary, in: group) }
         }
     }
 

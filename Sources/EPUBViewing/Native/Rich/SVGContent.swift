@@ -1,4 +1,5 @@
 import CoreGraphics
+import CryptoKit
 import EPUBCore
 import EPUBReading
 import Foundation
@@ -8,12 +9,13 @@ import UniformTypeIdentifiers
 /// SVG for the rich-content factory. An SVG that only wraps one `<image>` (every cover and
 /// title page in the catalog) is shown as that image with the SVG's sizing. Any other SVG is
 /// serialized, sanitized, for the bundled static renderer: scripts, foreign content and every
-/// reference outside the document are removed, and archive images it uses are inlined, so the
-/// decoder can never reach anything but the bytes given to it.
+/// reference outside the document are removed, and the images it uses, from the archive or in
+/// `data:` URLs, are decoded and inlined, so the decoder can never reach anything but the bytes
+/// given to it.
 enum SVGContent {
     /// Bytes of serialized SVG the decoder is given at most.
     static let maximumBytes = 4 * 1024 * 1024
-    /// Bytes of archive images inlined into one SVG at most.
+    /// Bytes of images inlined into one SVG at most.
     static let maximumInlinedImageBytes = 8 * 1024 * 1024
     static let maximumNodes = 10_000
     static let maximumDepth = 64
@@ -1690,7 +1692,8 @@ enum SVGContent {
     }
 
     /// The SVG subtree as a standalone, sanitized document. `resolve` maps a reference to an
-    /// archive path; nil for anything that cannot be used.
+    /// archive path; nil for anything that cannot be used. An `<image>` in a `data:` URL is not
+    /// given to it: it is read from the URL's own bytes (`boundedDataImage`).
     static func serialize(_ svg: ContentNode, resolve: (String) -> String?, publication: EPUBPublication,
                           fontAliases: [String: String] = [:], report: SectionReportBox? = nil,
                           visitedImagePaths: Set<String> = [], imagePreparation: SVGImagePreparation? = nil) -> Data? {
@@ -1771,11 +1774,24 @@ enum SVGContent {
                 if local == "href" || local == "src" {
                     let reference = value.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !reference.hasPrefix("#") {
-                        guard node.name == "image", let path = resolve(reference),
-                              let (data, pixels) = boundedArchiveImage(at: path, publication: publication,
-                                  fontAliases: fontAliases, report: report, visited: visitedImagePaths,
-                                  preparation: preparation, maximumBytes: maximumInlinedImageBytes - inlined,
-                                  maximumPixels: maximumTotalImagePixels - imagePixels),
+                        // An image in a `data:` URL is read from the URL's own bytes, and is never
+                        // resolved: it names no archive file and is no refused resource (#657).
+                        let prepared: (Data, Int)?
+                        if node.name != "image" {
+                            prepared = nil
+                        } else if DataURL.isDataURL(reference) {
+                            prepared = boundedDataImage(reference, publication: publication, fontAliases: fontAliases,
+                                report: report, visited: visitedImagePaths, preparation: preparation,
+                                maximumBytes: maximumInlinedImageBytes - inlined, maximumPixels: maximumTotalImagePixels - imagePixels)
+                        } else if let path = resolve(reference) {
+                            prepared = boundedArchiveImage(at: path, publication: publication,
+                                fontAliases: fontAliases, report: report, visited: visitedImagePaths,
+                                preparation: preparation, maximumBytes: maximumInlinedImageBytes - inlined,
+                                maximumPixels: maximumTotalImagePixels - imagePixels)
+                        } else {
+                            prepared = nil
+                        }
+                        guard let (data, pixels) = prepared,
                               inlined + data.count <= maximumInlinedImageBytes,
                               pixels <= maximumTotalImagePixels - imagePixels else {
                             report?.report.unsupportedElements["svg:image", default: 0] += 1
@@ -1822,45 +1838,9 @@ enum SVGContent {
                 let prepared = preparation.image(at: candidate, ancestors: visited, fonts: fontAliases,
                     maximumBytes: maximumBytes, maximumPixels: maximumPixels,
                     load: { try? publication.data(at: candidate) }) { bytes in
-                    guard bytes.count <= maximumInlinedImageBytes, preparation.permitsWork() else { return nil }
-                    let localReport = SectionReportBox()
-                    let source: ReaderImageSource
-                    let svgResource = ImageType.mediaType(of: bytes) == nil && ImageType.isSVG(bytes, path: candidate,
-                        mediaType: publication.manifestResource(at: candidate)?.mediaType)
-                    if !svgResource, let bitmap = ReaderImageSource.bitmap(bytes, path: candidate, key: "svg-inline-" + candidate) {
-                        guard bitmap.pixelSize.width * bitmap.pixelSize.height <= CGFloat(maximumTotalImagePixels) else { return nil }
-                        source = bitmap
-                    } else {
-                        guard svgResource,
-                              let document = try? ContentDocument.parse(bytes, path: candidate, asContent: false),
-                              document.root.name == "svg", isSVG(document.root, root: document.root) else { return nil }
-                        let resolve: (String) -> String? = { reference in
-                            guard let resolved = try? ResourceReference.resolve(reference, relativeTo: candidate) else { return nil }
-                            return String(resolved.split(separator: "#", maxSplits: 1)[0]).removingPercentEncoding
-                        }
-                        guard let serialized = serialize(document.root, resolve: resolve, publication: publication,
-                            fontAliases: fontAliases, report: localReport, visitedImagePaths: visited.union([candidate]),
-                            imagePreparation: preparation), preparation.reserveRasterPixels(64 * 64),
-                            let svg = ReaderImageSource.svg(serialized, path: candidate, key: "svg-inline-" + candidate) else { return nil }
-                        source = svg
-                    }
-                    // ImageIO does not enlarge bitmaps; SVG's rasterizer does. Reserve the upper
-                    // bound before the actual decode, including its aspect ratio and rounding.
-                    let long = max(source.pixelSize.width, source.pixelSize.height)
-                    let scale = source.format == .bitmap ? min(1, 2048 / long) : 2048 / long
-                    let width = max(1, Int(ceil(source.pixelSize.width * scale)))
-                    let height = max(1, Int(ceil(source.pixelSize.height * scale)))
-                    guard height > 0, width <= maximumImagePixels / height,
-                          width * height <= maximumPixels, maximumBytes >= 128 else { preparation.refuse(); return nil }
-                    guard preparation.reserveRasterPixels(width * height), preparation.permitsWork(),
-                          let image = source.decode(maxPixelSize: 2048), image.height > 0,
-                          image.width <= maximumImagePixels / image.height else { return nil }
-                    let output = NSMutableData()
-                    guard preparation.permitsWork(),
-                          let destination = CGImageDestinationCreateWithData(output, UTType.png.identifier as CFString, 1, nil) else { return nil }
-                    CGImageDestinationAddImage(destination, image, nil)
-                    guard CGImageDestinationFinalize(destination), output.length <= maximumInlinedImageBytes else { return nil }
-                    return SVGImagePreparation.Image(data: output as Data, pixels: image.width * image.height, report: localReport.report)
+                    preparedImage(bytes, path: candidate, key: candidate, mediaType: publication.manifestResource(at: candidate)?.mediaType,
+                                  publication: publication, fontAliases: fontAliases, visited: visited, preparation: preparation,
+                                  maximumBytes: maximumBytes, maximumPixels: maximumPixels)
                 }
                 if let prepared { return prepared }
                 if !preparation.hasRemainingVisits { break }
@@ -1870,6 +1850,81 @@ enum SVGContent {
         guard let prepared else { return nil }
         SVGImagePreparation.replay(prepared.report, into: report)
         return (prepared.data, prepared.pixels)
+    }
+
+    /// The image a `data:` URL holds, read by the data: URL processor (`DataURL`) and prepared
+    /// as an archive image is (`preparedImage`), under the same memo and work budget, known by a
+    /// digest of the URL in place of a path. Its type stands for a manifest's, so one that is not
+    /// an image's is no image. Having no path, a drawing in it resolves no reference against the
+    /// archive, as the URL Standard parses none against a `data:` URL.
+    private static func boundedDataImage(_ reference: String, publication: EPUBPublication,
+                                         fontAliases: [String: String], report: SectionReportBox?,
+                                         visited: Set<String>, preparation: SVGImagePreparation,
+                                         maximumBytes: Int, maximumPixels: Int) -> (Data, Int)? {
+        // A key no archive path can be: a path has no NUL.
+        let key = "\u{0}data:" + SHA256.hash(data: Data(reference.utf8)).map { String(format: "%02x", $0) }.joined()
+        var mediaType = ""
+        let prepared = preparation.image(at: key, ancestors: visited, fonts: fontAliases,
+            maximumBytes: maximumBytes, maximumPixels: maximumPixels,
+            load: {
+                guard let url = DataURL(reference, maximumBytes: maximumInlinedImageBytes), url.mediaType.hasPrefix("image/") else { return nil }
+                mediaType = url.mediaType
+                return url.body
+            }) { bytes in
+            preparedImage(bytes, path: "", key: key, mediaType: mediaType, publication: publication, fontAliases: fontAliases,
+                          visited: visited, preparation: preparation, maximumBytes: maximumBytes, maximumPixels: maximumPixels)
+        }
+        guard let prepared else { return nil }
+        SVGImagePreparation.replay(prepared.report, into: report)
+        return (prepared.data, prepared.pixels)
+    }
+
+    /// An image's bytes as a drawing inlines them: a bitmap ImageIO reads, or an SVG sanitized
+    /// and drawn by the renderer, decoded within the drawing's pixel limits and written as PNG.
+    /// `key` names the image in the memo and among the ancestors of what a drawing in it draws.
+    /// An SVG resolves its references against `path`; one with no path resolves none.
+    private static func preparedImage(_ bytes: Data, path: String, key: String, mediaType: String?,
+                                      publication: EPUBPublication, fontAliases: [String: String],
+                                      visited: Set<String>, preparation: SVGImagePreparation,
+                                      maximumBytes: Int, maximumPixels: Int) -> SVGImagePreparation.Image? {
+        guard bytes.count <= maximumInlinedImageBytes, preparation.permitsWork() else { return nil }
+        let localReport = SectionReportBox()
+        let source: ReaderImageSource
+        let svgResource = ImageType.mediaType(of: bytes) == nil && ImageType.isSVG(bytes, path: path, mediaType: mediaType)
+        if !svgResource, let bitmap = ReaderImageSource.bitmap(bytes, path: path, key: "svg-inline-" + key) {
+            guard bitmap.pixelSize.width * bitmap.pixelSize.height <= CGFloat(maximumTotalImagePixels) else { return nil }
+            source = bitmap
+        } else {
+            guard svgResource,
+                  let document = try? ContentDocument.parse(bytes, path: path, asContent: false),
+                  document.root.name == "svg", isSVG(document.root, root: document.root) else { return nil }
+            let resolve: (String) -> String? = { reference in
+                guard !path.isEmpty, let resolved = try? ResourceReference.resolve(reference, relativeTo: path) else { return nil }
+                return String(resolved.split(separator: "#", maxSplits: 1)[0]).removingPercentEncoding
+            }
+            guard let serialized = serialize(document.root, resolve: resolve, publication: publication,
+                fontAliases: fontAliases, report: localReport, visitedImagePaths: visited.union([key]),
+                imagePreparation: preparation), preparation.reserveRasterPixels(64 * 64),
+                let svg = ReaderImageSource.svg(serialized, path: path, key: "svg-inline-" + key) else { return nil }
+            source = svg
+        }
+        // ImageIO does not enlarge bitmaps; SVG's rasterizer does. Reserve the upper
+        // bound before the actual decode, including its aspect ratio and rounding.
+        let long = max(source.pixelSize.width, source.pixelSize.height)
+        let scale = source.format == .bitmap ? min(1, 2048 / long) : 2048 / long
+        let width = max(1, Int(ceil(source.pixelSize.width * scale)))
+        let height = max(1, Int(ceil(source.pixelSize.height * scale)))
+        guard height > 0, width <= maximumImagePixels / height,
+              width * height <= maximumPixels, maximumBytes >= 128 else { preparation.refuse(); return nil }
+        guard preparation.reserveRasterPixels(width * height), preparation.permitsWork(),
+              let image = source.decode(maxPixelSize: 2048), image.height > 0,
+              image.width <= maximumImagePixels / image.height else { return nil }
+        let output = NSMutableData()
+        guard preparation.permitsWork(),
+              let destination = CGImageDestinationCreateWithData(output, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination), output.length <= maximumInlinedImageBytes else { return nil }
+        return SVGImagePreparation.Image(data: output as Data, pixels: image.width * image.height, report: localReport.report)
     }
 
     /// The CSS of a `style` attribute, or of a stylesheet (`sheet`), without its `filter`

@@ -30,15 +30,18 @@ import UIKit
         geometry.regions.append(.init(range: NSRange(location: 200, length: 5),
             frame: CGRect(x: 0, y: 390, width: 110, height: 20), side: .none, reserved: true))
         let lines = geometry.paragraphs.flatMap(\.lines)
+        // A line in a box's rows, by more than the container's slack, is beside it; groups that
+        // share source are one, and groups that only meet are not (#149).
+        let slack = ReaderTextContainer.edgeSlack
         let candidates = geometry.regions.filter { !$0.reserved }.map { region in
             lines.reduce(region.range) { source, line in
-                line.frame.maxY > region.frame.minY && line.frame.minY < region.frame.maxY
+                line.frame.maxY > region.frame.minY + slack && line.frame.minY < region.frame.maxY - slack
                     ? NSUnionRange(source, line.range) : source
             }
         }.sorted { $0.location < $1.location }
         var expected: [NSRange] = []
         for candidate in candidates {
-            if let last = expected.last, last.upperBound >= candidate.location {
+            if let last = expected.last, last.upperBound > candidate.location {
                 expected[expected.count - 1] = NSUnionRange(last, candidate)
             } else { expected.append(candidate) }
         }

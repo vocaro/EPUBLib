@@ -1,8 +1,9 @@
 import Foundation
 
-/// One SVG serialization's archive-image work, shared by all recursive image preparations.
-/// Successful and intrinsic-failure results are memoized by path, ancestors and font aliases;
-/// parent capacity refusals are not cached. Limits are checked before each costly phase.
+/// One SVG serialization's image work, shared by all recursive image preparations.
+/// Successful and intrinsic-failure results are memoized by path (for an image in a `data:` URL,
+/// a key that stands for its path), ancestors and font aliases; parent capacity refusals are
+/// not cached. Limits are checked before each costly phase.
 final class SVGImagePreparation {
     struct Image {
         let data: Data
