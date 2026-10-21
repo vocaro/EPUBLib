@@ -1130,20 +1130,6 @@ enum CSSPropertyParser {
         }
     }
 
-    /// Only the color of the final layer is honoured; images, positions and the rest are ignored.
-    private static func background(_ c: [CSSComponent]) -> Pairs? {
-        let layers = c.split(separator: .token(.comma), omittingEmptySubsequences: false)
-        guard let last = layers.last else { return nil }
-        var found: CSSColor?
-        for component in last {
-            if let value = color(component) {
-                guard found == nil else { return nil }
-                found = value
-            }
-        }
-        return [(.backgroundColor, .color(found ?? .rgba(ComputedStyle.Color(red: 0, green: 0, blue: 0, alpha: 0))))]
-    }
-
     private static func decorationLine(_ c: [CSSComponent]) -> ComputedStyle.Decoration? {
         var result: ComputedStyle.Decoration = []
         for component in c {

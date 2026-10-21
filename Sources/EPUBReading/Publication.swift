@@ -212,7 +212,11 @@ public struct EPUBPublication: Sendable {
             let encryption = try xml("META-INF/encryption.xml")
             let identifiers = metadataElements.filter { $0.name == "identifier" }
             let unique = identifiers.first { $0.attribute("id") == opf.attribute("unique-identifier") }
-            let identifier = unique?.keyText ?? ""
+            // IDPF's key is made from the unique identifier as written, less "specifically, the
+            // Unicode code points U+0020, U+0009, U+000D and U+000A" (EPUB 3.3 §4.4.3) and nothing
+            // else: white space outside ASCII is part of it, at its ends too. Each is removed as its
+            // UTF-8 byte, which is part of no other scalar, so a mark after a space is kept.
+            let idpfIdentifier = (unique?.content ?? "").utf8.filter { $0 != 0x20 && $0 != 0x09 && $0 != 0x0D && $0 != 0x0A }
             for encrypted in encryption.descendants("EncryptedData") {
                 guard let algorithm = encrypted.descendants("EncryptionMethod").first?.attribute("Algorithm"),
                       let uri = encrypted.descendants("CipherReference").first?.attribute("URI"),
@@ -226,14 +230,13 @@ public struct EPUBPublication: Sendable {
                 let prefixLength: Int
                 switch algorithm {
                 case "http://www.idpf.org/2008/embedding":
-                    let normalized = identifier.filter { !$0.isWhitespace }
-                    guard !normalized.isEmpty else { throw EPUBPublicationError.unsupportedEncryption }
-                    key = Array(Insecure.SHA1.hash(data: Data(normalized.utf8)))
+                    guard !idpfIdentifier.isEmpty else { throw EPUBPublicationError.unsupportedEncryption }
+                    key = Array(Insecure.SHA1.hash(data: idpfIdentifier))
                     prefixLength = 1040
                 case "http://ns.adobe.com/pdf/enc#RC":
                     // The key is the package's UUID: the unique identifier or, where that is
                     // not one, the first identifier that is.
-                    guard let uuid = ([unique].compactMap { $0 } + identifiers).lazy.compactMap({ uuidBytes($0.keyText) }).first else {
+                    guard let uuid = ([unique].compactMap { $0 } + identifiers).lazy.compactMap({ uuidBytes($0.content) }).first else {
                         contents[path] = nil
                         undecoded.insert(path)
                         if !isFont(mediaType: nil, path: path) { unproven.insert(path) }
@@ -322,7 +325,16 @@ public struct EPUBPublication: Sendable {
         var toc: [EPUBNavigationItem] = []
         var landmarks: [EPUBLandmark] = []
         var pages: [EPUBPageListEntry] = []
-        let ncx = spineNode.attribute("toc").flatMap { byID[$0] }
+        // The NCX is the item the spine's `toc` names or, where it names none the archive holds,
+        // the first of the NCX's media type that it does. OPF 2.0.1 §2.4 requires `toc`, but
+        // converters leave it out or name an item that is not there (#169). The item `toc` names
+        // is taken whatever media type it is declared with, as foliate-js and Readium take it. A
+        // book without a navigation document is refused when the NCX it names does not parse; one
+        // found by its media type was never needed to open the book, so it is ignored.
+        let namedNCX = spineNode.attribute("toc").flatMap { byID[$0] }
+        let ncx = namedNCX ?? resources.first {
+            $0.mediaType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "application/x-dtbncx+xml"
+        }
         // In either page list, as among landmarks, a page whose href does not resolve is left out
         // rather than refusing the book.
         func pageTargets(_ root: XMLNode, _ path: String) -> [EPUBPageListEntry] {
@@ -372,8 +384,7 @@ public struct EPUBPublication: Sendable {
                 }
                 pages = node.children.filter { $0.name == "ol" }.flatMap(entries)
             }
-        } else if let ncx {
-            let root = try xml(ncx.path)
+        } else if let ncx, let root = try namedNCX.map({ try xml($0.path) }) ?? (try? xml(ncx.path)) {
             func points(_ parent: XMLNode) -> [EPUBNavigationItem] {
                 parent.children.filter { $0.name == "navPoint" }.map { point in
                     let title = point.children.first { $0.name == "navLabel" }?.text ?? ""
@@ -435,8 +446,11 @@ public struct EPUBPublication: Sendable {
     }
 
     /// The sixteen bytes of a UUID, written with or without hyphens and with or without
-    /// `urn:uuid:` before it.
+    /// `urn:uuid:` before it, and with white space of any kind round it (Foundation's
+    /// `whitespacesAndNewlines`, by scalar). Adobe's key is the UUID, and its algorithm gives no
+    /// rule for the text round it, which adds no digit to it.
     private static func uuidBytes(_ identifier: String) -> [UInt8]? {
+        let identifier = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
         let text = identifier.lowercased().hasPrefix("urn:uuid:") ? identifier.dropFirst(9) : Substring(identifier)
         let digits = text.utf8.filter { $0 != 0x2D } // -
         guard digits.count == 32 else { return nil }
@@ -462,6 +476,9 @@ private final class XMLNode {
     let name: String
     let attributes: [AttributeName: String]
     var children: [XMLNode] = []
+    /// The text of the element and of everything inside it, as the parser gives it. A value is
+    /// read from it as `text`, and a font obfuscation key is made from it by its algorithm's own
+    /// rule, not from `text`.
     var content = ""
     /// The element's value or label: its text and that of everything inside it, with each run of
     /// ASCII whitespace (tab, line feed, form feed, carriage return, space) read as one space and
@@ -469,10 +486,9 @@ private final class XMLNode {
     /// `meta` values, and it is how a browser renders a navigation label. White space outside
     /// ASCII, a no-break or an ideographic space, is the author's character and stays wherever
     /// it is in a value that holds anything else. A value of nothing but white space of any kind
-    /// (Foundation's `whitespacesAndNewlines`, the set `keyText` trims, by scalar) is empty: a
-    /// lone no-break space is a tool's placeholder, and no host can show one. ASCII whitespace
-    /// is read by byte, not by `Character`: a space is one whatever mark follows it, and the
-    /// mark stays.
+    /// (Foundation's `whitespacesAndNewlines`, by scalar) is empty: a lone no-break space is a
+    /// tool's placeholder, and no host can show one. ASCII whitespace is read by byte, not by
+    /// `Character`: a space is one whatever mark follows it, and the mark stays.
     var text: String {
         guard !content.unicodeScalars.allSatisfy(CharacterSet.whitespacesAndNewlines.contains) else { return "" }
         var bytes: [UInt8] = []
@@ -485,10 +501,6 @@ private final class XMLNode {
         }
         return String(decoding: bytes, as: UTF8.self)
     }
-    /// The content without the white space of any kind at its ends: the identifier a font
-    /// obfuscation key is made from. What a key leaves out is its algorithm's rule, not the one
-    /// a value is read by, so a key does not start from `text`.
-    var keyText: String { content.trimmingCharacters(in: .whitespacesAndNewlines) }
     init(_ name: String, _ attributes: [AttributeName: String]) { self.name = name; self.attributes = attributes }
     /// The value of an attribute by local name; `namespace` nil matches an attribute in no namespace.
     func attribute(_ local: String, namespace: String? = nil) -> String? {
