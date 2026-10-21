@@ -64,6 +64,18 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
             "café — … ’ \u{1F600} é &bogus; ' a b")
     }
 
+    func testRecoveryReadsTheHTMLStandardsNamesAndKeepsAnUnknownNameAsWritten() throws {
+        // As the viewer recovers a section (#184): names are read from the HTML Standard's table,
+        // not from the HTML parser's own HTML 4 one, which lacks `&rcaron;` and `&check;` and has
+        // U+2329 and U+232A for `&lang;` and `&rang;`. A name neither has stays as written, in
+        // text and in attribute values.
+        let section = try recovered(page("<p id='&rcaron;&bogus;'>Dvo&rcaron;&aacute;k &lang;1&rang; &bogus;</b> <img alt='&check; &bogus;'/></p>",
+                                         head: "<title>&ccaron;&bogus;</title>"))
+        XCTAssertEqual(section.title, "\u{10D}&bogus;")
+        XCTAssertEqual(section.text, "Dvo\u{159}\u{E1}k \u{27E8}1\u{27E9} &bogus; \u{2713} &bogus;")
+        XCTAssertEqual(section.anchors, ["\u{159}&bogus;": EPUBTextMark(offset: 0, separator: 0)])
+    }
+
     func testRecoveryPreservesCombiningMarksInTextHeadingsAndAlternatives() throws {
         let section = try recovered(page("<h2 id='h'>Signs: \u{093E}</h2><p>acute:&nbsp;&#x301;</b>.</p>"
             + "<p><img id='image' alt=' \u{093F}'/></p><math alttext='&#xA0;&#x301;'><mi>Ignored</mi></math>",

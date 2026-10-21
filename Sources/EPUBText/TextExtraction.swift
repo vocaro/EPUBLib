@@ -269,9 +269,11 @@ private final class XHTMLTextReader {
     /// does, then walks the repaired tree through the same bounded extraction callbacks. The HTML
     /// parser loads no DTD or network resource and supports no entity declarations; in addition,
     /// `HTMLRecoverySource` refuses declaration syntax anywhere in the bytes it parses.
-    /// Input must be UTF-8 or a detectable UTF-16/32, as EPUB requires.
+    /// Input must be UTF-8 or a detectable UTF-16/32, as EPUB requires. Named references are
+    /// made numeric first, as the viewer makes them, so that they are read from the HTML
+    /// Standard's table and not from the parser's own, which is HTML 4's.
     static func recover(_ data: Data, path: String, limits: EPUBTextExtractionLimits) throws -> XHTMLTextReader {
-        guard let utf8 = SourceEncoding.utf8(data),
+        guard let utf8 = SourceEncoding.utf8(data).map(NamedCharacterReferences.numeric(in:)),
               let ampersands = HTMLLiteralAmpersands.prepared(utf8, limit: Int(Int32.max)),
               let source = HTMLRecoverySource.prepare(ampersands.data) else {
             throw EPUBTextExtractionError.malformedContent(path)
@@ -769,11 +771,11 @@ private enum HTMLRecoverySource {
     }
 }
 
-/// XHTML 1.x's named character references (`&nbsp;`, `&mdash;`) as numeric references, so
-/// the XML parser decodes them without loading the DOCTYPE's DTD. This mirrors the native
-/// viewer's translation. CDATA sections and comments are copied unchanged; XML's five
-/// predefined names and unknown names are left for the parser. UTF-16/32 documents are
-/// translated in their own encoding, retaining any byte-order mark.
+/// The HTML Standard's named character references (`&nbsp;`, `&rcaron;`) as numeric references,
+/// so the XML parser decodes them without loading the DOCTYPE's DTD. This mirrors the native
+/// viewer's translation and shares its table. CDATA sections and comments are copied unchanged;
+/// XML's five predefined names and unknown names are left for the parser. UTF-16/32 documents
+/// are translated in their own encoding, retaining any byte-order mark.
 private enum NamedCharacterReferences {
     static func numeric(in data: Data) -> Data {
         guard case let (encoding, mark)? = SourceEncoding.wide(data) else { return translate(data) ?? data }
@@ -813,8 +815,8 @@ private enum NamedCharacterReferences {
                 if end < bytes.count, bytes[end] == 0x3B, end > index + 1 { // ;
                     let name = String(decoding: bytes[(index + 1)..<end], as: UTF8.self)
                     if !["amp", "lt", "gt", "quot", "apos"].contains(name),
-                       let entity = name.withCString({ htmlEntityLookup(UnsafeRawPointer($0).assumingMemoryBound(to: xmlChar.self)) }) {
-                        output.append(contentsOf: Array("&#\(entity.pointee.value);".utf8))
+                       let reference = HTMLNamedCharacterReferences.numeric[name] {
+                        output.append(contentsOf: reference.utf8)
                         index = end + 1
                         changed = true
                         continue

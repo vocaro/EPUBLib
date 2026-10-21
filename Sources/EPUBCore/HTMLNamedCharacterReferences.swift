@@ -3,8 +3,8 @@
 // The HTML Standard's semicolon-terminated named character references, including
 // MathML names and references with two scalars. XML requires the semicolon.
 // Numeric output preserves XML escaping, including ampersands and less-than signs.
-enum HTMLNamedCharacterReferences {
-    static let numeric: [String: String] = [
+package enum HTMLNamedCharacterReferences {
+    package static let numeric: [String: String] = [
         "AElig": "&#198;",
         "AMP": "&#38;",
         "Aacute": "&#193;",

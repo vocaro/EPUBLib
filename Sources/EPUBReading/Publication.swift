@@ -5,7 +5,6 @@ import Foundation
 import FoundationXML
 #endif
 import ZIPFoundation
-import libxml2
 
 /// An immutable snapshot. Parsing and every engine read the same bytes even if the source file changes.
 /// Opening validates ZIP paths, declared sizes, CRCs and actual expanded sizes before returning.
@@ -597,12 +596,14 @@ private final class XMLTree: NSObject, XMLParserDelegate {
 
 /// What a browser reads in XHTML and an XML parser refuses, rewritten so that a navigation
 /// document reads here as the same file does as a content document: a `DOCTYPE` keyword in
-/// another case, and HTML's named character references (`&nbsp;`, `&eacute;`) as numeric ones.
+/// another case, and HTML's named character references (`&nbsp;`, `&rcaron;`) as numeric ones.
 /// The DTD a DOCTYPE names is never read. The references follow the native viewer's and text
-/// extraction's translation: CDATA sections and comments are copied unchanged, as processing
-/// instructions are here, XML's five predefined names and unknown names are left for the
-/// parser, and UTF-16/32 documents are rewritten in their own encoding, retaining any
-/// byte-order mark.
+/// extraction's translation, from the HTML Standard's table: CDATA sections and comments are
+/// copied unchanged, as processing instructions are here, XML's five predefined names are left
+/// for the parser, and UTF-16/32 documents are rewritten in their own encoding, retaining any
+/// byte-order mark. Unlike theirs, a name the table lacks (`&bogus;`) is not left for the parser,
+/// which would drop it or refuse the document, but kept as the text it spells, in element content
+/// and in an attribute value alike.
 ///
 /// The rewrite takes each byte below 0x80 for its ASCII character, so it is kept from a document
 /// whose declared encoding does not: in ISO-2022-JP, HZ or SCSU the bytes of `&pi;` may be parts
@@ -698,8 +699,8 @@ private enum BrowserMarkup {
     }
     private static let declarationLimit = 1024
     /// Names an XML declaration gives, in lower case, to encodings known to keep every byte below
-    /// 0x80 for its ASCII character: UTF-8, US-ASCII, the parts of ISO 8859 and the Windows code
-    /// pages 1250 to 1258.
+    /// 0x80 for its ASCII character: UTF-8, US-ASCII, the parts of ISO 8859, the Windows code
+    /// pages 1250 to 1258, KOI8-R, Mac OS Roman, TIS-620, EUC-JP and GB2312.
     private static let asciiTransparentEncodings: Set<String> = {
         var names: Set = ["utf-8", "utf8", "us-ascii", "ascii", "iso-8859-6-e", "iso-8859-6-i", "iso-8859-8-e", "iso-8859-8-i"]
         for part in 1...16 where part != 12 { // ISO 8859 has no part 12.
@@ -707,6 +708,10 @@ private enum BrowserMarkup {
         }
         for number in 1...10 where number != 7 { names.insert("latin\(number)") }
         for page in 1250...1258 { names.formUnion(["windows-\(page)", "cp\(page)", "x-cp\(page)"]) }
+        // The parser reads no byte below 0x80 in these as part of a character of two or three
+        // bytes, nor as anything but its ASCII character (#184).
+        names.formUnion(["koi8-r", "cskoi8r", "macintosh", "mac", "csmacintosh", "x-mac-roman", "tis-620", "tis620",
+                         "euc-jp", "eucjp", "x-euc-jp", "cseucpkdfmtjapanese", "gb2312", "csgb2312", "euc-cn", "euccn"])
         return names
     }()
 
@@ -720,6 +725,12 @@ private enum BrowserMarkup {
         func starts(_ token: [UInt8], at position: Int) -> Bool {
             position + token.count <= bytes.count && bytes[position..<position + token.count].elementsEqual(token)
         }
+        // A byte of a name as XML reads one, with every byte from 0x80 on taken for part of one of
+        // its characters: a letter, `_` or `:` first, and after it a digit, `-` or `.` as well.
+        func isNameByte(_ byte: UInt8, first: Bool) -> Bool {
+            byte >= 0x80 || byte == 0x3A || byte == 0x5F || (byte | 0x20 >= 0x61 && byte | 0x20 <= 0x7A)
+                || (!first && (byte == 0x2D || byte == 0x2E || (byte >= 0x30 && byte <= 0x39)))
+        }
         let verbatim = [("<![CDATA[", "]]>"), ("<!--", "-->"), ("<?", "?>")].map { (Array($0.0.utf8), Array($0.1.utf8)) }
         while index < bytes.count {
             if bytes[index] == 0x3C, let (open, close) = verbatim.first(where: { starts($0.0, at: index) }) { // <
@@ -731,16 +742,20 @@ private enum BrowserMarkup {
             }
             if bytes[index] == 0x26 {
                 var end = index + 1
-                while end < bytes.count, end - index <= 32,
-                      (bytes[end] >= 0x30 && bytes[end] <= 0x39) || (bytes[end] | 0x20 >= 0x61 && bytes[end] | 0x20 <= 0x7A) {
-                    end += 1
-                }
+                while end < bytes.count, isNameByte(bytes[end], first: end == index + 1) { end += 1 }
                 if end < bytes.count, bytes[end] == 0x3B, end > index + 1 { // ;
                     let name = String(decoding: bytes[(index + 1)..<end], as: UTF8.self)
-                    if !["amp", "lt", "gt", "quot", "apos"].contains(name),
-                       let entity = name.withCString({ htmlEntityLookup(UnsafeRawPointer($0).assumingMemoryBound(to: xmlChar.self)) }) {
-                        output.append(contentsOf: Array("&#\(entity.pointee.value);".utf8))
-                        index = end + 1
+                    if !["amp", "lt", "gt", "quot", "apos"].contains(name) {
+                        if let reference = HTMLNamedCharacterReferences.numeric[name] {
+                            output.append(contentsOf: reference.utf8)
+                            index = end + 1
+                        } else {
+                            // A name HTML does not know is kept as written, as a browser shows
+                            // it, where the parser would drop it or refuse the document: its `&`
+                            // is escaped and the rest copied as it stands.
+                            output.append(contentsOf: "&amp;".utf8)
+                            index += 1
+                        }
                         changed = true
                         continue
                     }

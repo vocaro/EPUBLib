@@ -400,6 +400,40 @@ final class PackageMetadataCoverageTests: XCTestCase {
         }
     }
 
+    func testHTMLsNamesAreReadFromItsStandardAndAnUnknownNameIsKeptAsWrittenInAPackage() throws {
+        // The table the content-document parsers read is the HTML Standard's, not HTML 4's:
+        // `&rcaron;` is only in it, and `&lang;` and `&rang;` are U+27E8 and U+27E9 there. A name
+        // it lacks is kept as a browser shows it, in an element and in an attribute value, where
+        // the parser drops it under a DOCTYPE and refuses it without one or with
+        // `standalone="yes"` (https://github.com/vocaro/EPUBLib/issues/184). XML's names stay.
+        let opf = String(decoding: try Fixture.files(epub2: true)["OPS/book.opf"]!, as: UTF8.self)
+            .replacingOccurrences(of: "A Test Book", with: "Dvo&rcaron;&aacute;k &lang;I&rang; &bogus; &AMP;&amp; &lt;&#65;&gt;")
+            .replacingOccurrences(of: "</package>", with: "<guide><reference type=\"text\" title=\"&rcaron;&bogus;&quot;&apos;\" href=\"one.xhtml\"/></guide></package>")
+        let documents = [Data((Self.oebDoctype + opf).utf8), Data(opf.utf8),
+                         Data(("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" + Self.oebDoctype + opf).utf8),
+                         try XCTUnwrap(("<?xml version=\"1.0\" encoding=\"UTF-16\"?>" + Self.oebDoctype + opf).data(using: .utf16))]
+        for (index, document) in documents.enumerated() {
+            let book = try EPUBPublication.open(data: Fixture.packageVariant(epub2: true, adding: ["OPS/book.opf": document]))
+            XCTAssertEqual(book.metadata.title, "Dvo\u{159}\u{E1}k \u{27E8}I\u{27E9} &bogus; && <A>", "document \(index)")
+            XCTAssertEqual(book.landmarks, [EPUBLandmark(types: ["text"], title: "\u{159}&bogus;\"'", href: "OPS/one.xhtml")], "document \(index)")
+        }
+    }
+
+    func testTheLimitOnAPackageIsOnItsBytesNotOnWhatItsReferencesAreRewrittenAs() throws {
+        // `&acE;` is rewritten as `&#8766;&#819;` and `&bogus;` as `&amp;bogus;`, each longer than
+        // it is written. A package is held to the limit as the book holds it, as before (#184).
+        let opf = String(decoding: try Fixture.files(epub2: true)["OPS/book.opf"]!, as: UTF8.self)
+            .replacingOccurrences(of: "A Test Book", with: String(repeating: "&acE;&bogus;", count: 1_000))
+        let data = try Fixture.packageVariant(epub2: true, opf: { _ in opf })
+        var limits = EPUBImportLimits()
+        limits.xmlBytes = opf.utf8.count
+        XCTAssertEqual(try EPUBPublication.open(data: data, limits: limits).metadata.title, String(repeating: "\u{223E}\u{333}&bogus;", count: 1_000))
+        limits.xmlBytes -= 1
+        XCTAssertThrowsError(try EPUBPublication.open(data: data, limits: limits)) {
+            XCTAssertEqual($0 as? EPUBPublicationError, .limitExceeded("OPS/book.opf"))
+        }
+    }
+
     func testTheDTDADoctypeNamesIsNotRead() throws {
         // A DTD on this disk declares a name of its own. Were the file ever read, its replacement
         // text would stand in the title, whatever a reference to that name reads as otherwise.
@@ -513,6 +547,39 @@ final class PackageMetadataCoverageTests: XCTestCase {
             let book = try EPUBPublication.open(data: Fixture.packageVariant(epub2: true, adding: ["OPS/book.opf": document]))
             XCTAssertEqual(book.metadata.title, "Les Mis\u{E9}rables \u{2014} I", declaration)
             XCTAssertEqual(book.metadata.authors, ["Test\(read) Author"], declaration)
+        }
+    }
+
+    func testNamedCharacterReferencesAreDecodedInKOI8RMacRomanTIS620EUCJPAndGB2312() throws {
+        // The parser reads no byte below 0x80 in these as part of another character either, so
+        // their references are rewritten as Latin-1's are, in the package and in the document the
+        // contents come from. Left to the parser, a name was dropped under a DOCTYPE, as in
+        // `Les Misrables`, and refused without one or with `standalone="yes"` (#184).
+        let documents: [(encoding: String, letter: [UInt8], read: String)] = [
+            ("KOI8-R", [0xF6], "\u{416}"), ("cskoi8r", [0xF6], "\u{416}"), ("macintosh", [0x8E], "\u{E9}"), ("x-mac-roman", [0x8E], "\u{E9}"),
+            ("TIS-620", [0xA1], "\u{E01}"), ("EUC-JP", [0xC6, 0xFC], "\u{65E5}"), ("GB2312", [0xD6, 0xD0], "\u{4E2D}"),
+            ("EUC-CN", [0xD6, 0xD0], "\u{4E2D}"),
+        ]
+        let doctypes = ["OPS/book.opf": Self.oebDoctype, "OPS/nav.xhtml": #"<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">"#,
+                        "OPS/toc.ncx": #"<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">"#]
+        for (encoding, letter, read) in documents {
+            for (standalone, withDoctype) in [("", true), (" standalone=\"yes\"", true), ("", false)] {
+                for epub2 in [false, true] {
+                    var files = try Fixture.files(epub2: epub2)
+                    // The package's title, and the first label of the document the contents come from.
+                    for (path, plain) in [("OPS/book.opf", "A Test Book"),
+                                          epub2 ? ("OPS/toc.ncx", "First Chapter") : ("OPS/nav.xhtml", "First <em>Chapter</em>")] {
+                        let parts = String(decoding: files[path]!, as: UTF8.self).components(separatedBy: plain)
+                        guard parts.count == 2 else { return XCTFail("\(plain) in \(path)") }
+                        let prolog = "<?xml version=\"1.0\" encoding=\"\(encoding)\"\(standalone)?>" + (withDoctype ? doctypes[path]! : "")
+                        files[path] = Data((prolog + parts[0] + "Les Mis&eacute;rables ").utf8) + Data(letter) + Data((" &bogus;" + parts[1]).utf8)
+                    }
+                    let book = try EPUBPublication.open(data: Fixture.archive(files))
+                    let message = "\(encoding)\(standalone), \(withDoctype ? "a DOCTYPE" : "none"), EPUB \(epub2 ? 2 : 3)"
+                    XCTAssertEqual(book.metadata.title, "Les Mis\u{E9}rables \(read) &bogus;", message)
+                    XCTAssertEqual(book.tableOfContents.first?.title, "Les Mis\u{E9}rables \(read) &bogus;", message)
+                }
+            }
         }
     }
 

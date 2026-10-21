@@ -96,8 +96,11 @@ script/style contexts after source rewriting ([#196](https://github.com/vocaro/E
 [testing](testing.md#attribute-parser-cost-probe) has the parser-only probe. Callers processing a whole book enforce
 their own cumulative text budget while iterating. `CancellationError` propagates during parsing.
 `EPUBTextExtractionError` distinguishes invalid spine indices, unsupported media types, malformed
-XHTML and exceeded limits. XHTML 1.x named character references such as `&nbsp;` and `&mdash;`
-are supported without loading a DTD. Their spelling inside CDATA and comments is left unchanged.
+XHTML and exceeded limits. Named character references such as `&nbsp;` and `&rcaron;` are read
+from the HTML Standard's table, the one the native reader uses, without loading a DTD
+([#184](https://github.com/vocaro/EPUBLib/issues/184)). Their spelling inside CDATA and comments
+is left unchanged. A name the table lacks, such as `&bogus;`, is malformed markup on the strict
+path; the native reader reads such a section as HTML, and recovery keeps the name as written.
 Malformed markup fails by default, and so does a name that Namespaces in XML forbids, which
 libxml2 reports and reads on: an element or attribute name that begins or ends with a colon or
 holds a second one (`<:p>`, `script:`, `a:b:c`), and a processing instruction's target with a
@@ -152,9 +155,9 @@ Unsafe declarations, exceeded limits, cancellation and well-formed documents wit
 XHTML structure remain errors. A parser halt at its built-in nesting cap returns
 `limitExceeded("depth")` instead of partial text, even with a larger caller limit; recovery is
 effectively capped at 255 levels. UTF-8 and detectable UTF-16/32 are supported; recovery does not
-guess other encodings. HTML5-only named references remain literal in recovery and fail on the
-strict path. The parser never loads external resources. This option concerns
-headless text extraction; it does not change reader CFIs or navigation parsing.
+guess other encodings. Recovery reads named references from the HTML Standard's table too, as the
+native reader does, not from libxml2's HTML 4 one. The parser never loads external resources. This
+option concerns headless text extraction; it does not change reader CFIs or navigation parsing.
 
 Hosts own section inclusion, chunking, embeddings, persistence and citation policy. Extracting a
 colophon is valid library behavior; whether it belongs in a study index is the host's decision.

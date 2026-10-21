@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Regenerate the viewer's XML-safe HTML named character references.
+"""Regenerate the XML-safe HTML named character references that the reader, text
+extraction and the viewer share.
 
 Fetch https://html.spec.whatwg.org/entities.json to a local file, then run:
     python3 scripts/generate-html-entities.py /path/to/entities.json
@@ -34,10 +35,10 @@ def main():
         "// The HTML Standard's semicolon-terminated named character references, including\n"
         "// MathML names and references with two scalars. XML requires the semicolon.\n"
         "// Numeric output preserves XML escaping, including ampersands and less-than signs.\n"
-        "enum HTMLNamedCharacterReferences {\n"
-        "    static let numeric: [String: String] = [\n"
+        "package enum HTMLNamedCharacterReferences {\n"
+        "    package static let numeric: [String: String] = [\n"
     )
-    output = Path(__file__).resolve().parents[1] / "Sources/EPUBViewing/Native/Document/HTMLNamedCharacterReferences.swift"
+    output = Path(__file__).resolve().parents[1] / "Sources/EPUBCore/HTMLNamedCharacterReferences.swift"
     output.write_text(header + "\n".join(rows) + "\n    ]\n}\n")
     print(f"Generated {len(rows)} named references")
 

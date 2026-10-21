@@ -207,6 +207,28 @@ final class NavigationDocumentCoverageTests: XCTestCase {
         }
     }
 
+    func testHTMLsNamesAreReadFromItsStandardAndAnUnknownNameIsKeptAsWritten() throws {
+        // The table the content-document parsers read is the HTML Standard's, not HTML 4's:
+        // `&rcaron;` and `&check;` are only in it, and `&lang;` and `&rang;` are U+27E8 and U+27E9
+        // there. A name it lacks is kept as a browser shows it, in a label and in an href, not
+        // dropped under a DOCTYPE nor refused without one, whatever characters its name holds
+        // (https://github.com/vocaro/EPUBLib/issues/184).
+        let nav = "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml#s&rcaron;&bogus;\">Dvo&rcaron;&aacute;k &check; &lang;1&rang; "
+            + "&bogus; &my-name_1.x; &AMP;&amp;&lt;&#65;</a></li></ol></nav>"
+        let contents = [Item(title: "Dvo\u{159}\u{E1}k \u{2713} \u{27E8}1\u{27E9} &bogus; &my-name_1.x; &&<A", href: "OPS/one.xhtml#s%C5%99&bogus;")]
+        for doctype in ["", "<!DOCTYPE html>", "<!DOCTYPE html SYSTEM \"about:legacy-compat\">", xhtml11,
+                        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" + xhtml11] {
+            let book = try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in doctype + Fixture.navigationDocument(nav) }))
+            XCTAssertEqual(book.tableOfContents, contents, doctype)
+        }
+        for (name, encoding) in [("UTF-16, little-endian", String.Encoding.utf16LittleEndian), ("UTF-16, big-endian", .utf16BigEndian)] {
+            let mark = encoding == .utf16LittleEndian ? Data([0xFF, 0xFE]) : Data([0xFE, 0xFF])
+            let document = try XCTUnwrap((xhtml11 + Fixture.navigationDocument(nav)).data(using: encoding))
+            let book = try EPUBPublication.open(data: Fixture.packageVariant(adding: ["OPS/nav.xhtml": mark + document]))
+            XCTAssertEqual(book.tableOfContents, contents, name)
+        }
+    }
+
     func testNamedCharacterReferencesInALabelAreDecodedBesideALabelWithATildeAndBrace() throws {
         // `~{` opens a two-byte run in the HZ encoding. This document is UTF-8, so a label that
         // holds a template expression is plain text and the references before it are references.
@@ -246,8 +268,9 @@ final class NavigationDocumentCoverageTests: XCTestCase {
         func document(_ label: String, list: String = "</ol>") -> String {
             "<!DOCTYPE html>" + Fixture.navigationDocument("<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">\(label)</a></li>\(list)</nav>")
         }
+        // A name HTML does not know is read as written (#184); a reference to what is no name is not.
         let documents = [
-            "a name HTML does not know": document("Chapter &bogus; 1"), "a bare ampersand": document("Tom & Jerry"),
+            "a reference to no name": document("Chapter &1st; 1"), "a bare ampersand": document("Tom & Jerry"),
             "a reference without its semicolon": document("A&nbsp B"), "an element left open": document("<em>Chapter 1"),
             "a list left open": document("Chapter 1", list: ""), "an unquoted attribute": document("<span class=x>Chapter 1</span>"),
             "a void element left open": document("Chapter<br>1"),
