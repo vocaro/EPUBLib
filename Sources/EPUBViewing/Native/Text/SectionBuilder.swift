@@ -65,7 +65,7 @@ enum SectionBuilder {
         let title = document.head?.elementChildren.first { $0.isHTML("title") }?.textContent
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
         return SectionText(spineIndex: request.spineIndex, href: item.resource.href, document: document,
-                           string: output.string, map: output.map, anchors: output.anchors, notes: state.notes,
+                           string: output.string, map: output.map, anchors: output.anchors, notes: state.shownNotes,
                            title: title?.isEmpty == false ? title : nil, report: state.report.report, layout: state.layout)
     }
 
@@ -102,7 +102,11 @@ final class SectionBuildState {
     /// Counters and quotes for generated content, shared by the section's writer and those it
     /// starts for table cells and captions.
     var generated = GeneratedContentState()
+    /// Every note captured, under each id that names it (`captureNote`).
     var notes: [EPUBElementID: NSAttributedString] = [:]
+    /// The notes captured that show something. A note that is empty or white space opens no
+    /// popover: a reference to it finds no note and navigates to it.
+    var shownNotes: [EPUBElementID: NSAttributedString] { notes.filter { !$0.value.string.allSatisfy(\.isWhitespace) } }
     /// The body's computed style: notes are styled like body text.
     var bodyStyle: ComputedStyle
     /// The publication's first language: a hint for typesetting text whose document declares
@@ -240,12 +244,42 @@ final class SectionBuildState {
         return names
     }()
 
-    func fragmentTarget(_ name: String) -> ContentNode? { document.element(id: name) ?? namedAnchors[name] }
+    /// The element a fragment names. An empty fragment names none, whatever carries an empty id:
+    /// `href="#"` is the top of the document.
+    func fragmentTarget(_ name: String) -> ContentNode? {
+        guard !name.isEmpty else { return nil }
+        return document.element(id: name) ?? namedAnchors[name]
+    }
 
+    /// The name a note may be captured under that an element carries: its id, or an eligible
+    /// legacy name. An empty id names nothing.
     private func noteName(of node: ContentNode) -> String? {
-        if let id = node.id { return id }
+        if let id = node.id { return id.isEmpty ? nil : id }
         guard let name = node.attribute("name"), namedAnchors[name] === node else { return nil }
         return name
+    }
+
+    /// Whether an element or one of its leading descendants carries a name.
+    private func leadsWithName(_ element: ContentNode) -> Bool {
+        var node: ContentNode? = element
+        while let current = node {
+            if noteName(of: current) != nil { return true }
+            node = current.children.first(where: \.isElement)
+        }
+        return false
+    }
+
+    /// Whether an element is one of several items, with more after it: a later sibling of its
+    /// name is named itself or by a leading descendant, and their parent holds no text of its
+    /// own. The paragraphs or list items of an endnotes section typed as one note are such
+    /// items. The cells of a table row are the parts of one item, and the elements in a
+    /// paragraph's text are among its words.
+    private func isOneOfSeveralItems(_ element: ContentNode) -> Bool {
+        guard let parent = element.parent, !element.isHTML("td"), !element.isHTML("th"),
+              !parent.children.contains(where: { $0.isText && !$0.text.allSatisfy(\.isWhitespace) }) else { return false }
+        return parent.children[(element.indexInParent + 1)...].contains {
+            $0.isElement && $0.name == element.name && $0.namespace == element.namespace && leadsWithName($0)
+        }
     }
 
     /// The nearest note at or around each element, by order (-1 for none), computed in one pass
@@ -294,18 +328,20 @@ final class SectionBuildState {
     private lazy var noteIDs: [Int: [String]] = {
         let enclosing = enclosingNote, hidden = insideHiddenFootnote
         var ids: [Int: [String]] = [:], taken = Set<EPUBElementID>()
-        // First each note's own id and those of its leading descendants, as far as a nested note.
+        // First each note's own id and those of its leading descendants, as far as a nested note,
+        // or in a note that stays in the flow as far as an item of several.
         for note in document.nodes where note.isElement && enclosing[note.order] == note.order {
             var leading: ContentNode? = note
-            while let node = leading, enclosing[node.order] == note.order {
+            while let node = leading, enclosing[node.order] == note.order,
+                  node === note || hidden[note.order] || !isOneOfSeveralItems(node) {
                 if let id = noteName(of: node), taken.insert(EPUBElementID(id)).inserted { ids[note.order, default: []].append(id) }
                 leading = node.children.first(where: \.isElement)
             }
         }
         // Then every other id inside a footnote hidden from the flow, for the nearest note
-        // around it. An empty id adds no name here.
+        // around it.
         for node in document.nodes where node.isElement && hidden[node.order] {
-            if let id = noteName(of: node), !id.isEmpty, taken.insert(EPUBElementID(id)).inserted { ids[enclosing[node.order], default: []].append(id) }
+            if let id = noteName(of: node), taken.insert(EPUBElementID(id)).inserted { ids[enclosing[node.order], default: []].append(id) }
         }
         return ids
     }()
@@ -341,11 +377,14 @@ final class SectionBuildState {
     /// child, and that one's, up to the first nested note): a reference may name the note's
     /// first paragraph or the number that opens it, and the note needs no id of its own. A
     /// reference to any other element of such a note navigates to it, since it can be read
-    /// there. A footnote hidden from the flow (`insideHiddenFootnote`) cannot, so it and every
-    /// note inside it are also named by every other id inside them that is not inside a note
-    /// nested further in. Ids inside a nested note name that note alone. A table part typed as
-    /// a footnote is not hidden on that account, since a table may draw it: unless a hidden
-    /// footnote is around it, it is named as a note that stays in the flow.
+    /// there. So does one to the first of several items in it (`isOneOfSeveralItems`), which
+    /// ends the leading descendants: the first paragraph or list item of an endnotes section
+    /// typed as one note names that item, as the later ones do, not the whole section. A
+    /// footnote hidden from the flow (`insideHiddenFootnote`) cannot be read there, so it and
+    /// every note inside it are also named by every other id inside them that is not inside a
+    /// note nested further in. Ids inside a nested note name that note alone. A table part
+    /// typed as a footnote is not hidden on that account, since a table may draw it: unless a
+    /// hidden footnote is around it, it is named as a note that stays in the flow.
     ///
     /// An id used more than once names one note. The notes that carry it themselves or on a
     /// leading descendant come first, in document order; then the hidden ones that hold it
@@ -364,6 +403,9 @@ final class SectionBuildState {
     /// that note and the `wholeNoteDepth` captured notes around it. A note deeper inside a
     /// stack of notes that hold only one another is left out of the outer ones, which stay
     /// empty. What the second rendering holds comes from a budget of its own.
+    ///
+    /// A note that shows nothing, white space at most, is captured all the same, so that it is
+    /// rendered once, but the section does not keep it (`shownNotes`).
     ///
     /// A note's rendering leaves the counters and quotes of generated content as they were
     /// (`generated`), since the section's walk reaches its content again, unless
