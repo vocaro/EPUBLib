@@ -284,6 +284,19 @@ final class GeneratedContentTests: XCTestCase {
             """)
         XCTAssertEqual(text.string.string, "1 a?")
     }
+
+    func testAPseudoElementWrittenAloneIsThatOfAnyElement() throws {
+        // Selectors 4 §3.7: with its compound omitted, `::before` is `*::before`, as the resets
+        // that write `*, ::before, ::after` rely on (#110).
+        let text = try S.styled("<section><p>a</p></section>", css: """
+            p::before { content: '> ' } @supports selector(::after) { p::after { content: ' <' } }
+            ::before { font-weight: bold } section > :after { font-style: italic }
+            """)
+        XCTAssertEqual(text.string.string, "> a <")
+        XCTAssertEqual(S.traits(">", in: text).intersection([.traitBold, .traitItalic]), .traitBold)
+        XCTAssertEqual(S.traits("<", in: text).intersection([.traitBold, .traitItalic]), .traitItalic)
+        XCTAssertEqual(S.traits("a", in: text).intersection([.traitBold, .traitItalic]), [], "nor do they style the element itself")
+    }
 }
 
 /// Generated words in a session: drawn and selected with the book's, and left out of what Copy,

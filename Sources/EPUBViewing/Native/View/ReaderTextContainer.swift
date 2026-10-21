@@ -291,6 +291,13 @@ final class ReaderTextContainer: NSTextContainer {
                 origin += max(0, paragraphStyle(at: 0)?.paragraphSpacingBefore ?? 0)
             }
         }
+        // The line after a `br` that clears floats starts below the earlier ones it names. The
+        // plan measured the paragraph here, so the section, its pages and the plan agree.
+        if index > 0, let text = layoutText, index < text.length, (text.string as NSString).character(at: index - 1) == 0x2028,
+           let clear = text.attribute(.readerClear, at: index, effectiveRange: nil) as? ComputedStyle.Clear,
+           let floor = ReaderBoxLayout.clearance(clear, of: boxRegions.filter { $0.range.upperBound <= sourceIndex }) {
+            rect.origin.y = max(rect.minY, floor - origin)
+        }
         while true {
             let global = rect.offsetBy(dx: 0, dy: origin)
             let scope = boxScope ?? boxPage?.geometry.paragraph(at: sourceIndex)?.scope

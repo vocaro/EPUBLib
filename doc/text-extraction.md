@@ -83,7 +83,10 @@ replacement point to that replacement; IDs in structural notation point to their
 Generated delimiters and escapes count toward the existing output budget and subsequent offsets.
 
 `EPUBTextExtractionLimits` bounds input bytes (default 4 MiB), UTF-8 bytes per output field (8 MiB), nesting
-(64 elements) and element count (100,000) per section. A fixed additional safety bound allows
+(64 elements) and element count (100,000) per section. Whatever the nesting limit, libxml2 reads
+no more than 257 levels, and a section nested deeper is `limitExceeded("depth")` on the strict
+path as in recovery; markup that is not well-formed before that depth is still `malformedContent`
+([#91](https://github.com/vocaro/EPUBLib/issues/91)). A fixed additional safety bound allows
 at most 1,024 attribute occurrences on one element, including namespace declarations, duplicate
 names and HTML boolean attributes. A linear preflight checks this before strict XML or HTML
 parsing; extraction reports `limitExceeded("attributesPerElement")`, and native content parsing
@@ -152,8 +155,8 @@ end tags, any DOCTYPE internal subset, and, outside what libxml2 reads as a comm
 unterminated CDATA section and a start tag's quoted attribute value that never ends.
 Unsafe declarations, exceeded limits, cancellation and well-formed documents without the expected
 XHTML structure remain errors. A parser halt at its built-in nesting cap returns
-`limitExceeded("depth")` instead of partial text, even with a larger caller limit; recovery is
-effectively capped at 255 levels. UTF-8 and detectable UTF-16/32 are supported; recovery does not
+`limitExceeded("depth")` instead of partial text, even with a larger caller limit; both paths
+are capped at 257 levels. UTF-8 and detectable UTF-16/32 are supported; recovery does not
 guess other encodings. HTML5-only named references remain literal in recovery and fail on the
 strict path. The parser never loads external resources. This option concerns
 headless text extraction; it does not change reader CFIs or navigation parsing.
