@@ -61,7 +61,15 @@ as one space and none left at either end. EPUB Reading Systems 3.3 §5.3 require
 Core and `meta` values, and it is how a browser renders a link, so a title or a label its
 authoring tool wrapped and indented is one line. The values are the Dublin Core title, creators,
 languages and identifiers and the `rendition:layout` `meta`; the labels are a contents entry's
-link or heading, a landmark's link, a page-list link and an NCX `navLabel`. White space outside
+link or heading, a landmark's link, a page-list link and an NCX `navLabel`. An image, an SVG
+drawing, a formula or other embedded element in a label is read as its alternative text, as EPUB
+Reading Systems 3.3 §7 recommends: its `alt`, else its `title`, else a drawing's `title` element
+or a formula's `alttext`. One with none of these is read by its content, such as a formula's
+characters or an object's fallback, and an image without them adds nothing. A label that is empty
+then is its link or heading's own `title`, read as a label is, when it has one: EPUB 3.3 §7.3 has
+a link or heading holding embedded content with no text alternative carry its label there, and
+foliate-js reads it
+([#83](https://github.com/vocaro/EPUBLib/issues/83)). White space outside
 ASCII, a no-break or an ideographic space among it, is the author's character and is kept
 inside and at the ends of a value that holds anything else, but a value that is nothing but
 white space of any kind (Foundation's `whitespacesAndNewlines`, which counts the zero-width
@@ -69,8 +77,8 @@ space) is empty: some tools write a lone no-break space as a placeholder, and no
 one. A value left empty is not listed among the metadata; an entry whose label is left empty
 stays, without a title. `xml:space` changes nothing. ASCII whitespace is
 found as its byte, not by `Character`: a space followed by a combining mark is a space, and the
-mark is kept. An attribute's value is not such text, and a guide reference's `title` is read as
-written. A font obfuscation key is made from the identifier's text by its algorithm's own rule,
+mark is kept. An attribute's value is not such text, but for an alternative or `title` read into
+a label, and a guide reference's `title` is read as written. A font obfuscation key is made from the identifier's text by its algorithm's own rule,
 not from the value read here. IDPF's removes the space, tab, carriage return and line feed and
 nothing else (EPUB 3.3 §4.4.3), each as its byte: other white space is part of the key, at the
 identifier's ends too, and so is a mark after a space. Adobe's is the UUID whatever white space
