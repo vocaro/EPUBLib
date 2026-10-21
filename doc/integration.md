@@ -222,7 +222,8 @@ and decomposing it adds no `/`, `\`, `.`, `:` or NUL. Pass the path whole to `UR
 combining mark is not a `/`. Foundation's `components(separatedBy:)` compares that way too, as
 does `range(of:)` unless told `.literal`.
 
-The names themselves are the book's, and the host still decides what to do with them:
+The names themselves are the book's, and the host still decides what to do with them
+([archive paths](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#archive-paths-need-byte-level-delimiters-and-deliberate-normalization)):
 
 - **Names a platform reserves, alters or does not allow.** A name that begins with a dot or holds
   control characters; a colon, which a book's file names may hold and which Windows reads as a

@@ -76,20 +76,19 @@ the strip needs: on an iPhone on its side at the larger text sizes, and at the l
 accessibility size on an iPad mini on its side or a small iPhone upright. The page buttons and
 the field stay on screen there, and a swipe on the strip brings the other groups up with the
 keyboard still up, wherever it starts: between the controls or on the field, a menu or the
-reading mode. A touch that rests on a control before it moves has pressed that control, as in
-any scroll view. With the room it needs the strip neither scrolls nor
+reading mode. With the room it needs the strip neither scrolls nor
 clips anything, and its frames are what they were before it could scroll. Its groups keep the
 height a stack gave them, so a label too long for its line is cut short and not wrapped. A
 strip with nothing in it that fills the width, such as one without `.search`, stays as wide as
 its groups. On a Mac the strip is as tall as its groups whatever it is offered: no keyboard
-takes its room and text is one size there, and a scroll view is a scroll area in the Mac's
-accessibility tree, one more container round the strip's controls: VoiceOver stops on it as a
-"scroll area" with no name and passes the controls by until the reader interacts with it.
+takes its room and text is one size there, and a scroll view would put one more container round
+the strip's controls in the Mac's accessibility tree
+([SwiftUI controls in each platform's tree](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/accessibility.md#swiftui-controls-take-different-shapes-in-each-platforms-tree)).
 
 The strip sets a layout priority of 1 on itself, so that a stack offers it the height it needs
-before the reader beside it; views of equal priority are each offered an equal share, and the
-strip would scroll in half the screen. Padding or a frame applied to the strip hides its
-priority from the stack. A host that applies one sets the priority again after it, as the
+before the reader beside it
+([layout priority](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/accessibility.md#a-layout-priority-is-seen-only-from-the-outermost-modifier)).
+A host that applies padding or a frame to the strip sets the priority again after it, as the
 sample does:
 
 ```swift
@@ -264,9 +263,10 @@ without `.searchResults`.
 
 For custom controls, `controls.searchResultSummary` is the indicator's text and
 `searchResultAccessibilityValue` its spoken form (“Match 27 of 27, last match, Second
-Chapter”), which the supplied match buttons also carry as their value. VoiceOver does not read
-that value again when it changes under its cursor, so a step said nothing until it was
-announced. `searchResultAnnouncement` is what is announced: the same words, then the text from
+Chapter”), which the supplied match buttons also carry as their value. `searchResultAnnouncement`
+is what is announced
+([VoiceOver does not reread a changed value](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-keeps-an-items-traits-and-actions-as-it-found-them)):
+the same words, then the text from
 the occurrence onward (“Match 27 of 27, last match, Second Chapter: needle at the end.”).
 `searchResultButtonLabel(forward:)` and `searchResultButtonHelp(forward:)` give the buttons'
 label and help; the help states a wrap or the first step. `searchResultAccessibilityLabel(for:)`
@@ -306,14 +306,17 @@ remain disabled until ready, after close/failure or while the surface is detache
 groups are hidden. Queued work rechecks lifecycle before submission; cancellation invalidates the
 queue, and a new book/model cannot receive old work. Already submitted commands cannot be undone.
 For strict ordering of host actions with toolbar actions, send both through the same controls model;
-direct `session.send` calls may interleave at suspension points.
+direct `session.send` calls may interleave at suspension points
+([submission is not completion](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/command-lifecycles.md#command-submission-is-not-completion)).
 
 The native session maintains `readerState` for direct commands, input navigation, remounts and
 close. Third-party sessions remain source-compatible via a default nil state; built-in controls
 are unavailable until they opt in. An engine can retain `EPUBReaderState`, expose it on the session,
 and update an `EPUBReaderStatus` using `state.update(_:)`. Publish lifecycle, capabilities, actual
 style, resolved effective appearance, location, optional turn boundaries, search feedback and the number of active commands.
-Update state before the corresponding event. Existing event callbacks remain host-owned.
+Update state before the corresponding event
+([publish state first](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/command-lifecycles.md#publish-state-before-the-event-that-reports-it)).
+Existing event callbacks remain host-owned.
 
 All controls use native SwiftUI buttons, text fields and menus, semantic labels and standard
 keyboard traversal. There are no page-turn shortcuts on the toolbar. Apply `epubReaderPageControls(.hostOnly)`
@@ -395,4 +398,5 @@ one, though Next Page is drawn on the left.
 Two things the tree shows that the source does not intend: the contents entries' "Current
 section" value is not exposed on iOS (the system menu shows a checkmark, which VoiceOver calls
 "selected"), and every result row holds a hidden checkmark image named "Selected", which
-VoiceOver did not stop on.
+VoiceOver did not stop on
+([SwiftUI controls in each platform's tree](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/accessibility.md#swiftui-controls-take-different-shapes-in-each-platforms-tree)).

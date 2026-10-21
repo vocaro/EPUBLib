@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Verify the independently selectable EPUB products and their headless dependency boundaries."""
+"""Verify the independently selectable EPUB products and their headless dependency boundaries.
+
+Method: https://github.com/vocaro/apple-engineering/blob/main/guides/packaging.md#swift-package-distribution-checks
+"""
 import json
 from pathlib import Path
 import re

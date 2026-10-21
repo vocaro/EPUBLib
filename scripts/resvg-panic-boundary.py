@@ -1,4 +1,8 @@
-"""Contain renderer panics inside Rust; never unwind across the C ABI."""
+"""Contain renderer panics inside Rust; never unwind across the C ABI.
+
+Method, for this script and resvg-panic-boundary.rs:
+https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#native-renderer-containment-needs-more-than-a-byte-limit
+"""
 from pathlib import Path
 import re
 
