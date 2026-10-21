@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Write the `mimetype` entry from the bytes the archive writer checked, and close its source once they are checked, where the source was read again after `progress(0)` and one appended to or replaced in between was archived unchecked ([#604](https://github.com/vocaro/EPUBLib/issues/604)).
 - Resolve `rem` in every property of the root element but its own `font-size` against the root's computed font size, where it was the reader's size, and a line height the root set in `rem` was passed wrong to the whole book ([#118](https://github.com/vocaro/EPUBLib/issues/118)).
 - Read a pseudo-element written alone, such as `::before` in `*, ::before, ::after`, as that of any element, as Selectors 4 says, where it was an invalid selector that dropped its whole rule ([#110](https://github.com/vocaro/EPUBLib/issues/110)).
 - Look up element IDs by their exact code units everywhere, as `getElementById` does: section anchors, links, notes and navigation, CSS `#id` selectors, SVG references, text extraction's `anchors` (now keyed by `EPUBElementID`) and the package's manifest IDs, which took canonically equivalent IDs such as `caf&#xE9;` and `cafe&#x301;` for one ([#635](https://github.com/vocaro/EPUBLib/issues/635)).
