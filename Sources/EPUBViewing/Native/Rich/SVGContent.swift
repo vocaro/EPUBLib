@@ -1727,7 +1727,12 @@ enum SVGContent {
                 case "<": result += "&lt;"
                 case ">": result += "&gt;"
                 case "\"" where attribute: result += "&quot;"
+                // A parser reads a literal tab or line end in an attribute value as a space, and a
+                // literal carriage return in text as a line feed. Written as references, each is
+                // read back as it stands here, so a class list or an `href` means what it did.
+                case "\t" where attribute: result += "&#9;"
                 case "\n" where attribute: result += "&#10;"
+                case "\r": result += "&#13;"
                 default: result.unicodeScalars.append(character)
                 }
             }

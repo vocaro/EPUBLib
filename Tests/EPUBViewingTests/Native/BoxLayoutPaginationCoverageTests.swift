@@ -350,6 +350,51 @@ private final class BoxMarginFragments: NSObject, NSTextLayoutManagerDelegate {
         XCTAssertLessThanOrEqual((lines.map(\.frame.maxY).max() ?? 0) + pages[index].topSpacing, small.height + 0.75, "the page's last line is inside its column")
     }
 
+    /// What clears a float through its container or a `br` (#151) follows the float when the
+    /// float would cross the foot of a page and moves whole to the next: it is below the float
+    /// there, at the column's edge, as far below it as in the section's own layout. Where the
+    /// cleared text opens a page instead, its first line is at that page's top.
+    func testTextClearingAFloatThroughItsContainerOrALineBreakIsBelowItOnEveryPage() throws {
+        let bodies = [("container", "<figure>Alpha box.</figure><p>Short.</p><div class='c'><p>Cleared words. \(H.prose)</p></div>"),
+                      ("line break", "<figure>Alpha box.</figure><p>Short.<br style='clear:both'/>Cleared words. \(H.prose)</p>")]
+        for (name, body) in bodies {
+            let section = try build("<p class='lead'>Lead words.</p>" + body,
+                                    css: ".lead { margin-bottom:480px } figure { float:left; width:100px; height:200px } .c { clear:both }")
+            let whole = H.view(section.string, size: size)
+            let caption = H.frame("Alpha box.", in: section, view: whole), cleared = H.frame("Cleared words.", in: section, view: whole)
+            XCTAssertGreaterThanOrEqual(cleared.minY, try XCTUnwrap(H.region("Alpha box.", in: section, view: whole)).frame.maxY - 0.5, name)
+            XCTAssertEqual(cleared.minX, 0, accuracy: 0.5, name)
+            let (paginator, pages) = H.pages(section, size: size, name)
+            let float = try paged("Alpha box.", in: section, paginator, pages: pages)
+            let after = try paged("Cleared words.", in: section, paginator, pages: pages)
+            XCTAssertEqual(float.page, 1, "the float moves whole to the next page: \(name)")
+            XCTAssertEqual(after.page, float.page, name)
+            XCTAssertEqual(after.frame.minY - float.frame.minY, cleared.minY - caption.minY, accuracy: 1, "as in the section: \(name)")
+            XCTAssertEqual(after.frame.minX, 0, accuracy: 0.5, name)
+            XCTAssertEqual(H.frame("Short.", in: section, view: whole).minY, caption.minY, accuracy: 1, "beside the float: \(name)")
+            assertLinesFit(after.view, page: pages[after.page], size: size, name)
+        }
+        for (name, body) in bodies {
+            var checked = false
+            // A margin under the first paragraph moves the float down to the foot of the first page.
+            for margin in stride(from: 300, through: 400, by: 4) where !checked {
+                let section = try build("<p class='lead'>Lead words.</p>" + body,
+                                        css: ".lead { margin-bottom:\(margin)px } figure { float:left; width:100px; height:200px } .c { clear:both }")
+                let (paginator, pages) = H.pages(section, size: size, name)
+                let float = try paged("Alpha box.", in: section, paginator, pages: pages)
+                let after = try paged("Cleared words.", in: section, paginator, pages: pages)
+                guard float.page == 0, after.page == 1 else { continue }
+                checked = true
+                let lines = shownLines(after.view)
+                XCTAssertEqual(lines.first?.frame.minY ?? -1, 0, accuracy: 1, "the cleared text opens the page at its top: \(name), margin \(margin)")
+                XCTAssertEqual(after.frame.minX, 0, accuracy: 0.5, "\(name), margin \(margin)")
+                XCTAssertEqual(lines.filter { $0.frame.minY < -0.75 }.count, 0, "\(name), margin \(margin)")
+                assertLinesFit(after.view, page: pages[1], size: size, "\(name), margin \(margin)")
+            }
+            XCTAssertTrue(checked, "the fixture puts the cleared text at the top of a page: \(name)")
+        }
+    }
+
     /// A page that opens with two floats in a row, stacked on one side or one on each side, as a
     /// floated figure followed by a drop cap does. The paragraph after them was once drawn with
     /// its first line above the page and every other line on one row.

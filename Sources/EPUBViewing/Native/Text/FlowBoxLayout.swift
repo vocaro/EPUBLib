@@ -89,6 +89,10 @@ extension NSAttributedString.Key {
     static let readerFlowBox = NSAttributedString.Key("org.epublib.flowBox")
     static let readerParagraphFlow = NSAttributedString.Key("org.epublib.paragraphFlow")
     static let readerBoxPage = NSAttributedString.Key("org.epublib.boxPage")
+    /// A `ComputedStyle.Clear` on the first character of a line that starts below the earlier
+    /// floats of the sides it names: of a paragraph opening blocks that set `clear` (with the
+    /// box it begins and the flow after it), or of the line after a `br` that sets it.
+    static let readerClear = NSAttributedString.Key("org.epublib.clear")
 }
 
 /// Reversible width resolution, also used by the ordinary-text continuation fallback.
