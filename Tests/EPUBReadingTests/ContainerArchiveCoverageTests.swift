@@ -690,10 +690,10 @@ final class ContainerArchiveCoverageTests: XCTestCase {
         for size in [UInt64(1) << 40, UInt64(Int64.max)] {
             try assertRead(try archive(book, givingSize: 20, of: name, as: size), "a compressed size of \(size) in a ZIP64 field")
         }
-        // Short of its stream's end the entry is cut off. ZIPFoundation's own error for that
-        // is not yet typed (#74): only that it is one.
+        // Short of its stream's end the entry is cut off, which is damage however short (#583).
         for size in [0, 1, compressed - 1] {
-            XCTAssertThrowsError(try EPUBPublication.open(data: archive(book, stating: size, at: 20, of: name)), "a compressed size of \(size)")
+            assertOpening(try archive(book, stating: size, at: 20, of: name), throws: .invalidArchive("\(name): corruptedData"),
+                          "a compressed size of \(size)")
         }
     }
 

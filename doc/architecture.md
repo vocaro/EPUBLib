@@ -182,18 +182,23 @@ disclosed:
   The directory pre-scan charges the exact size of each local header (30 fixed bytes plus its
   name and extra field) against the archive's byte count. Real, separate headers fit that
   budget; repeated large headers cannot multiply copying and ZIP64 field scans indefinitely.
-  ZIPFoundation 0.9.20's Apple decoder calls the consumer after every
-  `compression_stream_process`, including steps that produce no output. Each call uses at most
-  32 KiB of input and returns at most 32 KiB of output. Extraction therefore charges 32 KiB per
-  consumer call, credits actual expanded bytes, and grants one 32 KiB allowance per entry for a
-  partial final chunk. After admitting E entries and producing O bytes from an archive of A
-  bytes, successful calls are bounded by `floor((A + O) / 32768) + E`. The existing entry-count
-  and output limits still apply. The same consumer is used for stored data, whose full chunks
-  cost no extra input work and whose final partial chunk uses the entry allowance. The SDK's
-  `compression.h` contract says a successful processing call continues until its source is
-  exhausted, destination is full, or stream ends. Full output chunks pay for their call
-  entirely; input-exhausting partial output calls are covered by archive bytes, with the entry
-  allowance covering the final partial input/output chunk. This is a bound on processing
+  A deflated entry is inflated with zlib, the system's, not by ZIPFoundation 0.9.20, which
+  inflates with Apple's Compression framework. For some streams whose block header is damaged,
+  that decoder reads stack memory it has not set, so the same book was refused one way on one
+  open and another way on the next ([#583](https://github.com/vocaro/EPUBLib/issues/583)).
+  zlib refuses such a stream as damage, `invalidArchive("<path>: corruptedData")`, on every
+  open, as it does a stream cut short of its end. ZIPFoundation reads stored entries.
+  The inflater calls the consumer after every call to zlib's `inflate`, including steps that
+  produce no output. Each call uses at most 32 KiB of input and returns at most 32 KiB of
+  output. Extraction therefore charges 32 KiB per consumer call, credits actual expanded bytes,
+  and grants one 32 KiB allowance per entry for a partial final chunk. After admitting E
+  entries and producing O bytes from an archive of A bytes, successful calls are bounded by
+  `floor((A + O) / 32768) + E`. The existing entry-count and output limits still apply. The
+  same consumer is used for stored data, whose full chunks cost no extra input work and whose
+  final partial chunk uses the entry allowance. `zlib.h` says `inflate` continues until its
+  input is used up, its output is full, or the stream ends. Full output chunks pay for their
+  call entirely; input-exhausting partial output calls are covered by archive bytes, with the
+  entry allowance covering the final partial input/output chunk. This is a bound on processing
   steps, not a claim to observe the decoder's exact input offset. It stops repeated empty
   streams and streams shared through distinct headers while continuing to read early-ended
   streams and declared sizes beyond the archive. Refusing declared overlap would contradict
