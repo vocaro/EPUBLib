@@ -3,7 +3,7 @@
 
 Build and normally launch the verification reader first; see doc/testing.md#voiceover-testing.
 Steps are VoiceOver commands sent while the probe records speech, or `ax:STEP` for a
-step of scripts/voiceover-ax-observer.swift such as `ax:focus` or `ax:next`.
+step of the shared VoiceOver accessibility observer such as `ax:focus` or `ax:next`.
 `activate=LABEL` presses the item in the VoiceOver cursor only if VoiceOver just named it, and
 `listchoose=LABEL` chooses an item of the rotor or of the Actions menu on the same condition.
 The steps, speech and observer events are merged by time into one transcript.
@@ -144,7 +144,9 @@ def other_tests():
 
 def main():
     root = Path(__file__).resolve().parents[1]
-    source = root / "scripts/voiceover-ax-observer.swift"
+    from _engineering import support_path
+    source = support_path("voiceover-ax-observer.swift")
+    os.environ["VOCARO_AX_ALLOWED_BUNDLES"] = READER
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--derived-data", type=Path, default=root / ".build/voiceover/mac")
     parser.add_argument("--results", type=Path, default=root / ".build/voiceover/results")

@@ -20,10 +20,10 @@ retain their existing meaning. The reader's engine identifier is `org.epublib.re
 bookmark format `epublib-cfi-v1` (`EPUBReader.identifier`, `EPUBReader.bookmarkFormat`); both name
 the library, not a renderer. The WebKit reader's `org.epubreaderlib.foliate`/`epubcfi-v1`
 bookmarks are another engine's and are refused, but their CFI values name the same positions:
-a host migrates one by re-tagging it with the reader's identifier and format. The sample EPUB
-is generated deterministically by `scripts/make-sample.py`; adding the required modification
-timestamp changes its bytes and publication fingerprint, so positions saved against the older
-sample do not carry over ([#168](https://github.com/vocaro/EPUBLib/issues/168)).
+a host migrates one by re-tagging it with the reader's identifier and format. When the former
+sample app's book ([#700](https://github.com/vocaro/EPUBLib/issues/700)) gained the required
+modification timestamp, its bytes and publication fingerprint changed, so positions saved
+against the older book did not carry over ([#168](https://github.com/vocaro/EPUBLib/issues/168)).
 
 ## Publication model
 

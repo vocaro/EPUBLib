@@ -11,8 +11,8 @@ bash scripts/check-all.sh
 
 The gate checks the hosted-run and VoiceOver session scripts, verifies module boundaries,
 compares documentation snippets with compiled Swift sources, runs the Mac tests and the full
-test suite on dedicated iPhone 17 Pro and iPad Air 13-inch (M4) simulators, and builds both
-sample app targets. Test devices are created by UUID and
+test suite on dedicated iPhone 17 Pro and iPad Air 13-inch (M4) simulators, and builds the
+VoiceOver verification host for Mac and iOS. Test devices are created by UUID and
 deleted on exit; existing devices are never selected or shut down. Agents working in the
 repository drive simulators the same way, headlessly ([notes for agents](../AGENTS.md)). iOS logs live in
 `.build/validation/`. `EPUB_SIM_RUNTIME` selects a different installed runtime by identifier.
@@ -1315,8 +1315,11 @@ are also held by `MathSpeechTests` and `MathCanvasTests`. These checks distingui
 and requested voice language from subjective vocabulary review upstream.
 
 
-`Examples/VoiceOverVerification` reuses the normal reader sample's shared interface with
-separate application identifiers and a bundled synthetic EPUB. It opens the fixture at launch
+`Examples/VoiceOverVerification` runs the reader screen in its `Shared` folder, with its own
+application identifiers and a bundled synthetic EPUB. That screen was the sample app's until the
+app was removed on 2026-10-20 ([#700](https://github.com/vocaro/EPUBLib/issues/700)). "The
+sample" in the records below is that screen, and its `-Sample…` launch arguments kept their
+names. It opens the fixture at launch
 without a file-picker interaction. The book contains `word0001` through `word1200` in one
 justified paragraph, a heading, an internal **Verification link**, and an image labeled
 **Blue verification square**. Its long paragraph retains the continuation context that
@@ -1665,7 +1668,8 @@ the runner's `ax:` steps:
 
 ```sh
 VOICEOVER_READER_PID=$(pgrep -x VoiceOverVerificationMac)
-xcrun swift scripts/voiceover-ax-observer.swift "$VOICEOVER_READER_PID" 60 \
+VOCARO_AX_ALLOWED_BUNDLES=org.epubreaderlib.voiceoververify.mac \
+xcrun swift "$(python3 scripts/eng source voiceover-ax-observer.swift)" "$VOICEOVER_READER_PID" 60 \
   lines next lines previous larger smaller width=600 width=1100 \
   > .build/voiceover/ax-events.log
 ```
@@ -1950,7 +1954,7 @@ Text, "When encountering a link/attachment", which can be Speak, Change Pitch, P
 Nothing. A transcript holds speech and neither tones nor pitch, so every hosted run reads the
 setting and writes it to `runner.txt` as `LINK VERBOSITY`. On the runner it is Speak, the
 setting of a Mac whose VoiceOver has never been configured. The workflow's `links` input
-chooses another. `scripts/voiceover-link-verbosity.swift` does both through VoiceOver
+chooses another. the shared `src/swift/VoiceOver/voiceover-link-verbosity.swift` does both through VoiceOver
 Utility's own window and refuses to run anywhere but on a hosted runner. Do not write the
 setting with `defaults`: a `com.apple.VoiceOver4/default` domain written before VoiceOver had
 ever run left it silent for the whole run, `ERROR 3` after every key.
@@ -2447,7 +2451,7 @@ without it:
    certificate or secret, and the image's own privacy grants were enough for the UI test.
 6. The runner script reads a missing `voiceOverOnOffKey` as off when no `VoiceOver` process
    exists, which is the state of a Mac that has never run VoiceOver.
-7. `scripts/voiceover-link-verbosity.swift` opens VoiceOver Utility to read, and when the
+7. the shared `src/swift/VoiceOver/voiceover-link-verbosity.swift` opens VoiceOver Utility to read, and when the
    `links` input asks to choose, how VoiceOver announces a link ([Links](#links)). Written
    with `defaults` instead, the setting left VoiceOver silent.
 
