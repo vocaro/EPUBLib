@@ -2132,8 +2132,12 @@ as they did.
 The native CSS subset wraps prose beside left/right floated figures, text and archive images,
 then restores the full column below the box. Auto-width text floats use their content width,
 including narrow drop caps. Horizontal margins and padding reserve space around the native
-glyph column. `clear: left`, `right` and `both` move subsequent prose below the
-requested float side.
+glyph column. `clear: left`, `right` and `both` on a block start it below the earlier floats
+of the requested side, with all it holds, a float it opens with included; inside it nothing
+clears again, so its later lines wrap beside its own floats. An empty block that clears moves
+what follows it. On a float, `clear` moves that float alone below the earlier floats of the
+side (CSS 2.2 9.5.2), and on a `br` it moves the line after the break, as browsers do
+([#151](https://github.com/vocaro/EPUBLib/issues/151)).
 
 A sized `inline-block` is set on its block's line. It starts where the text or the box before
 it ends, a space after it where the source has white space between the two, and at the start

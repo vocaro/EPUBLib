@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Honour `clear` on a block that holds other blocks, on a float and on a `br`, starting the block's content, the float or the line after the break below the earlier floats it names, where only a paragraph's own block was cleared and the rest stayed beside the float ([#151](https://github.com/vocaro/EPUBLib/issues/151)).
 - Keep the tabs and carriage returns of an SVG drawing as the book writes them when it is prepared for the renderer, where one in an attribute value was read as a space and one in text as a line feed, so that a class list could change and an `href` name another element ([#249](https://github.com/vocaro/EPUBLib/issues/249)).
 - Lay out as one column the consecutive columns of a table that the same cells span and no `col` declares, so a title row's `colspan="100"` over two columns adds one border spacing, where each of the 98 columns no cell starts in added its own and made the table about 200 points too wide ([#140](https://github.com/vocaro/EPUBLib/issues/140)).
 - Let a `..` after a doubled slash in a reference remove the empty segment, as URL parsing does, so `a//../b` names `a/b` when read and when written, where it removed the name before it and named `b` ([#605](https://github.com/vocaro/EPUBLib/issues/605)).
