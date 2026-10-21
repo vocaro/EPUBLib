@@ -428,6 +428,20 @@ final class ContainerDocumentCoverageTests: XCTestCase {
         return try Fixture.packageVariant(opf: { $0.replacingOccurrences(of: ">test-book<", with: ">\(identifier)<") }, adding: adding)
     }
 
+    /// Changes to the plain package document that leave IDPF's algorithm no key: it names no
+    /// unique identifier, or one that is blank once the key's white space is removed.
+    private var withoutAnIDPFKey: [(name: String, opf: (String) -> String)] {
+        [
+            ("no unique-identifier", { $0.replacingOccurrences(of: " unique-identifier=\"uid\"", with: "") }),
+            ("no unique-identifier, and an identifier without an id", {
+                $0.replacingOccurrences(of: " unique-identifier=\"uid\"", with: "").replacingOccurrences(of: " id=\"uid\"", with: "")
+            }),
+            ("a unique-identifier that names no identifier", { $0.replacingOccurrences(of: "unique-identifier=\"uid\"", with: "unique-identifier=\"isbn\"") }),
+            ("an empty unique identifier", { $0.replacingOccurrences(of: ">test-book<", with: "><") }),
+            ("a unique identifier of spaces, tabs and line ends", { $0.replacingOccurrences(of: ">test-book<", with: "> \t\n &#13;\r\n <") }),
+        ]
+    }
+
     func testObfuscatedFontsShorterThanAtAndBeyondTheObfuscatedPrefix() throws {
         let uuid = "urn:uuid:00112233-4455-6677-8899-aabbccddeeff"
         let cases: [(algorithm: String, key: [UInt8], prefix: Int)] = [
@@ -584,6 +598,14 @@ final class ContainerDocumentCoverageTests: XCTestCase {
             $0.replacingOccurrences(of: "<dc:identifier id=\"uid\">test-book<", with: another + "<dc:identifier id=\"uid\">urn:uuid:00112233-4455-6677-8899-aabbccddeeff<")
         }, adding: files)
         XCTAssertEqual(try EPUBPublication.open(data: earlier).data(at: "OPS/font.otf"), original, "the unique identifier first")
+        // A package that names no unique identifier: the first identifier that is a UUID, not the
+        // first that has no `id` (https://github.com/vocaro/EPUBLib/issues/530).
+        let unnamed = try Fixture.packageVariant(opf: {
+            $0.replacingOccurrences(of: " unique-identifier=\"uid\"", with: "")
+                .replacingOccurrences(of: ">test-book<", with: ">urn:uuid:00112233-4455-6677-8899-aabbccddeeff<")
+                .replacingOccurrences(of: "</metadata>", with: another + "</metadata>")
+        }, adding: files)
+        XCTAssertEqual(try EPUBPublication.open(data: unnamed).data(at: "OPS/font.otf"), original, "no unique identifier")
     }
 
     func testAnObfuscatedFontWithoutAKeyIsLeftOutOfTheBook() throws {
@@ -648,6 +670,40 @@ final class ContainerDocumentCoverageTests: XCTestCase {
         }
     }
 
+    func testAnIDPFObfuscatedFontIsLeftOutWhenThePackageGivesNoUniqueIdentifier() throws {
+        // IDPF's key is made from the unique identifier and nothing else. Any text makes a key, so
+        // another identifier is not tried, though the font here was obfuscated with the one the
+        // package holds (https://github.com/vocaro/EPUBLib/issues/530). The font is left out as
+        // one under Adobe's algorithm is where no identifier is a UUID, and the book opens.
+        let scrambled = obfuscated(font(1_100), key: sha1("test-book"), prefix: 1040)
+        func packaged(_ opf: @escaping (String) -> String, _ algorithms: [String]) throws -> Data {
+            try Fixture.packageVariant(opf: {
+                opf($0).replacingOccurrences(of: "<manifest>", with: "<manifest><item id=\"font\" href=\"font.otf\" media-type=\"font/otf\"/>")
+            }, adding: ["META-INF/encryption.xml": encryption(algorithms.map { ($0, "OPS/font.otf") }), "OPS/font.otf": scrambled])
+        }
+        for (name, opf) in withoutAnIDPFKey {
+            let adobe = try EPUBPublication.open(data: packaged(opf, [Self.adobe]))
+            // Listed twice, or under both obfuscations, it is still one font left out.
+            for algorithms in [[Self.idpf], [Self.idpf, Self.idpf], [Self.idpf, Self.adobe], [Self.adobe, Self.idpf]] {
+                let message = "\(name), \(algorithms.map { $0 == Self.idpf ? "IDPF" : "Adobe" })"
+                let data = try packaged(opf, algorithms)
+                let book = try EPUBPublication.open(data: data)
+                XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/two.xhtml"], message)
+                XCTAssertNil(book.resources.first { $0.id == "font" }, message)
+                XCTAssertEqual(book.resources, adobe.resources, "as under Adobe's algorithm: \(message)")
+                XCTAssertNil(book.lostEntries, message)
+                XCTAssertThrowsError(try book.data(at: "OPS/font.otf"), message) {
+                    XCTAssertEqual($0 as? EPUBPublicationError, .missingResource("OPS/font.otf"), message)
+                }
+                XCTAssertEqual(book.archiveData, data, message)
+            }
+            // Encryption of another kind on the same file is not undone by leaving the font out.
+            for algorithms in [[Self.idpf, "http://www.w3.org/2001/04/xmlenc#aes256-cbc"], [Self.idpf, "urn:example:scramble"]] {
+                assertOpening(try packaged(opf, algorithms), throws: .unsupportedEncryption, "\(name), \(algorithms)")
+            }
+        }
+    }
+
     func testAnythingButAFontObfuscatedWithoutAKeyStillRefusesTheBook() throws {
         // A typeface can be done without. A chapter, the contents or a style sheet scrambled the
         // same way is encryption this package cannot undo, in the reading order or not.
@@ -675,6 +731,26 @@ final class ContainerDocumentCoverageTests: XCTestCase {
                       throws: .unsupportedEncryption, "named in another case")
     }
 
+    func testAnythingButAFontUnderIDPFObfuscationWithoutAKeyStillRefusesTheBook() throws {
+        // The rule above, for IDPF's algorithm in a package that gives it no key
+        // (https://github.com/vocaro/EPUBLib/issues/530).
+        for (name, opf) in withoutAnIDPFKey {
+            for path in ["OPS/one.xhtml", "OPS/nav.xhtml", "OPS/toc.ncx", "OPS/book.opf", "OPS/stray.png"] {
+                assertOpening(try Fixture.packageVariant(opf: opf, adding: ["META-INF/encryption.xml": encryption([(Self.idpf, path)]), "OPS/stray.png": font(600)]),
+                              throws: .unsupportedEncryption, "\(name): \(path)")
+            }
+            for type in ["text/css", "image/png"] {
+                assertOpening(try Fixture.packageVariant(opf: { opf($0).replacingOccurrences(of: "<manifest>", with: "<manifest><item id=\"extra\" href=\"extra.bin\" media-type=\"\(type)\"/>") },
+                                                         adding: ["META-INF/encryption.xml": encryption([(Self.idpf, "OPS/extra.bin")]), "OPS/extra.bin": font(600)]),
+                              throws: .unsupportedEncryption, "\(name): \(type)")
+            }
+            // One file declared as a font and as a chapter is the chapter too.
+            assertOpening(try Fixture.packageVariant(opf: { opf($0).replacingOccurrences(of: "<manifest>", with: "<manifest><item id=\"font\" href=\"one.xhtml\" media-type=\"font/otf\"/>") },
+                                                     adding: ["META-INF/encryption.xml": encryption([(Self.idpf, "OPS/one.xhtml")])]),
+                          throws: .unsupportedEncryption, "\(name): declared twice")
+        }
+    }
+
     func testEncryptionThatCannotBeUndoneFailsAsUnsupported() throws {
         func entry(_ method: String, _ cipher: String) -> Data {
             Data(("<encryption xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\" xmlns:enc=\"http://www.w3.org/2001/04/xmlenc#\">"
@@ -693,9 +769,6 @@ final class ContainerDocumentCoverageTests: XCTestCase {
         for (name, document) in documents {
             assertOpening(try Fixture.packageVariant(adding: ["META-INF/encryption.xml": document]), throws: .unsupportedEncryption, name)
         }
-        // The IDPF key is the unique identifier, and cannot be derived from none.
-        assertOpening(try book(identifier: "  ", fonts: ["OPS/font.otf": font(100)], encryption: encryption([(Self.idpf, "OPS/font.otf")])),
-                      throws: .unsupportedEncryption, "IDPF without an identifier")
         assertOpening(try Fixture.packageVariant(adding: ["META-INF/encryption.xml": Data("<encryption><EncryptedData>".utf8)]),
                       throws: .invalidXML("META-INF/encryption.xml"))
     }

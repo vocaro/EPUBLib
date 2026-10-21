@@ -213,8 +213,11 @@ public struct EPUBPublication: Sendable {
         if contents["META-INF/encryption.xml"] != nil {
             let encryption = try xml("META-INF/encryption.xml")
             let identifiers = metadataElements.filter { $0.name == "identifier" }
-            let uniqueID = opf.attribute("unique-identifier").map { EPUBElementID($0) }
-            let unique = identifiers.first { $0.attribute("id").map { EPUBElementID($0) } == uniqueID }
+            // The identifier `unique-identifier` names, by its exact code units. A package without the
+            // attribute names none, not the first identifier that has no `id`.
+            let unique = opf.attribute("unique-identifier").flatMap { id in
+                identifiers.first { $0.attribute("id").map { EPUBElementID($0) } == EPUBElementID(id) }
+            }
             // IDPF's key is made from the unique identifier as written, less "specifically, the
             // Unicode code points U+0020, U+0009, U+000D and U+000A" (EPUB 3.3 §4.4.3) and nothing
             // else: white space outside ASCII is part of it, at its ends too. Each is removed as its
@@ -229,25 +232,26 @@ public struct EPUBPublication: Sendable {
                 // A font already left out stays out, however often it is listed as obfuscated.
                 if undecoded.contains(path), Self.obfuscations.contains(algorithm) { continue }
                 guard var bytes = contents[path] else { throw EPUBPublicationError.unsupportedEncryption }
-                let key: [UInt8]
+                let key: [UInt8]?
                 let prefixLength: Int
                 switch algorithm {
                 case "http://www.idpf.org/2008/embedding":
-                    guard !idpfIdentifier.isEmpty else { throw EPUBPublicationError.unsupportedEncryption }
-                    key = Array(Insecure.SHA1.hash(data: idpfIdentifier))
+                    // The key is made from the unique identifier and nothing else. Any text makes
+                    // one, so another identifier could not be told right from wrong (#530).
+                    key = idpfIdentifier.isEmpty ? nil : Array(Insecure.SHA1.hash(data: idpfIdentifier))
                     prefixLength = 1040
                 case "http://ns.adobe.com/pdf/enc#RC":
                     // The key is the package's UUID: the unique identifier or, where that is
                     // not one, the first identifier that is.
-                    guard let uuid = ([unique].compactMap { $0 } + identifiers).lazy.compactMap({ uuidBytes($0.content) }).first else {
-                        contents[path] = nil
-                        undecoded.insert(path)
-                        if !isFont(mediaType: nil, path: path) { unproven.insert(path) }
-                        continue
-                    }
-                    key = uuid
+                    key = ([unique].compactMap { $0 } + identifiers).lazy.compactMap({ uuidBytes($0.content) }).first
                     prefixLength = 1024
                 default: throw EPUBPublicationError.unsupportedEncryption
+                }
+                guard let key else {
+                    contents[path] = nil
+                    undecoded.insert(path)
+                    if !isFont(mediaType: nil, path: path) { unproven.insert(path) }
+                    continue
                 }
                 for index in 0..<min(prefixLength, bytes.count) { bytes[index] ^= key[index % key.count] }
                 contents[path] = bytes

@@ -196,11 +196,17 @@ disclosed:
 - **Container.** White space around the mimetype's media type and a byte-order mark before it are
   ignored. A rootfile that is not typed as a package document is passed over for the first that
   is. An entry name may hold a colon, as it may the other characters OCF forbids.
-- **Fonts.** Adobe's obfuscation key is read from a UUID with or without hyphens, in the unique
-  identifier or else the first identifier that is one. A font obfuscated with a key the package
-  does not give is left out of `resources`: a font is a file named as one (`.otf`, `.ttf`,
-  `.woff`…) or declared with a font media type. Anything else obfuscated that way is unsupported
-  encryption.
+- **Fonts.** The unique identifier is the `dc:identifier` that the package's `unique-identifier`
+  names; a package without the attribute, or whose attribute names no identifier, has none.
+  IDPF's obfuscation key is made from it alone, and there is none when the package has no unique
+  identifier or a blank one, nothing but the spaces, tabs and line ends the key leaves out. No
+  other identifier is tried: any text makes a key, so a wrong one cannot be told from the right
+  one ([#530](https://github.com/vocaro/EPUBLib/issues/530)). Adobe's key is read from a UUID
+  with or without hyphens, in the unique identifier or else the first identifier that is one, and
+  there is none when no identifier is a UUID. Under either algorithm, a font obfuscated with a key
+  the package does not give is left out of `resources` and the book opens: a font is a file named
+  as one (`.otf`, `.ttf`, `.woff`…) or declared with a font media type. Anything else obfuscated
+  that way is unsupported encryption.
 - **XML.** In the container, package, navigation and NCX documents, HTML's named character
   references (`&nbsp;`) and a `DOCTYPE` keyword in any case are read as a browser reads them in
   content. In a document that is not UTF-16 or UTF-32, both are left as the parser finds them
