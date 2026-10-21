@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "name": "EPUBLib",
+  "repository": "vocaro/EPUBLib",
+  "toolkit": {
+    "path": "../apple-engineering"
+  },
+  "capabilities": [
+    "simulator-disposable",
+    "voiceover",
+    "measurement",
+    "packaging"
+  ],
+  "lanes": {
+    "script-tests": {
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts/tests",
+        "-v"
+      ],
+      "resource": "light"
+    },
+    "docs": {
+      "command": [
+        "python3",
+        "scripts/eng",
+        "docs",
+        "check"
+      ],
+      "resource": "light"
+    }
+  },
+  "exceptions": [],
+  "integration": "pull-request",
+  "hostedRepositories": [
+    "vocaro/EPUBLib",
+    "vocaro/Pagepour",
+    "vocaro/studywright",
+    "vocaro/PDFReflowLib",
+    "vocaro/MathMLLayout"
+  ],
+  "voiceover": {
+    "workflows": [
+      "voiceover-mac.yml"
+    ]
+  }
+}

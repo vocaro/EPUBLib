@@ -76,6 +76,7 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
       RESULTS: .build/voiceover/results
+      VOCARO_ENGINEERING_ROOT: ${{ github.workspace }}/.build/engineering-toolkit
       # Read by scripts/run-voiceover-sessions.py, where an empty input takes its default.
       VOICEOVER_STEPS: ${{ inputs.steps }}
       VOICEOVER_WIDTH: ${{ inputs.width }}
@@ -100,6 +101,24 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
+      - name: Check access to the shared engineering tools
+        env:
+          ENGINEERING_READ_KEY: ${{ secrets.VOCARO_ENGINEERING_SSH_KEY }}
+        run: |
+          if [ -z "$ENGINEERING_READ_KEY" ]; then
+            echo "::error::Configure the read-only VOCARO_ENGINEERING_SSH_KEY deploy key for vocaro/apple-engineering"
+            exit 1
+          fi
+
+      - name: Read the shared engineering checkout
+        uses: actions/checkout@v7
+        with:
+          repository: vocaro/apple-engineering
+          ref: main
+          ssh-key: ${{ secrets.VOCARO_ENGINEERING_SSH_KEY }}
+          path: .build/engineering-toolkit
+          persist-credentials: false
+
       - name: Take the harness from this workflow's commit
         if: inputs.ref != ''
         run: |
@@ -107,7 +126,7 @@ jobs:
           # workflow's, so a ref older than they are can be built and heard too.
           git fetch --quiet --depth 1 origin "$GITHUB_SHA"
           git checkout FETCH_HEAD -- scripts/run-voiceover-mac.py scripts/run-voiceover-sessions.py \
-            scripts/voiceover-ax-observer.swift scripts/voiceover-link-verbosity.swift
+            scripts/_engineering.py scripts/eng engineering.json
 
       - name: Check the inputs and describe the runner
         run: |
@@ -116,6 +135,7 @@ jobs:
           {
             echo "Commit: $(git rev-parse HEAD)"
             echo "Harness: $GITHUB_SHA"
+            echo "Engineering: $(git -C "$VOCARO_ENGINEERING_ROOT" rev-parse HEAD)"
             echo "Image: xcode-27 $RUNNER_ARCH (${ImageOS:-unknown}) ${ImageVersion:-unknown}"
             echo "System: $(sw_vers -productName) $(sw_vers -productVersion) $(sw_vers -buildVersion)"
             csrutil status 2>&1 | head -n 1
@@ -159,7 +179,7 @@ jobs:
           # VoiceOver's text verbosity decides what it says of a link or an attachment as it
           # reads, so every run records the setting. VoiceOver Utility writes it: a setting
           # written with `defaults` before VoiceOver had ever run left VoiceOver silent.
-          xcrun swiftc -O scripts/voiceover-link-verbosity.swift -o "$RESULTS/voiceover-link-verbosity"
+          xcrun swiftc -O "$VOCARO_ENGINEERING_ROOT/src/swift/VoiceOver/voiceover-link-verbosity.swift" -o "$RESULTS/voiceover-link-verbosity"
           status=0
           if [ "${VOICEOVER_LINKS:-Unchanged}" = Unchanged ]; then VOICEOVER_LINKS=; fi
           "$RESULTS/voiceover-link-verbosity" ${VOICEOVER_LINKS:+"$VOICEOVER_LINKS"} > "$RESULTS/link-verbosity.txt" 2>&1 || status=$?
