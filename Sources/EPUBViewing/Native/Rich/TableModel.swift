@@ -28,6 +28,14 @@ final class TableModel: @unchecked Sendable {
         var widths: Insets {
             Insets(top: top?.width ?? 0, right: right?.width ?? 0, bottom: bottom?.width ?? 0, left: left?.width ?? 0)
         }
+        /// The same lines in no color: what `visibility: hidden` leaves of a box's borders,
+        /// which keep their room and draw nothing (CSS 2 section 11.2).
+        var hidden: Borders {
+            func clear(_ stroke: Stroke?) -> Stroke? {
+                stroke.map { Stroke(width: $0.width, style: $0.style, color: CGColor(gray: 0, alpha: 0)) }
+            }
+            return Borders(top: clear(top), right: clear(right), bottom: clear(bottom), left: clear(left))
+        }
     }
     enum Placement { case top, middle, bottom }
     enum Alignment { case start, center, end }

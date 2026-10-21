@@ -54,8 +54,9 @@ enum MathContent {
             guard !text.isEmpty else { return nil }
             var italic = style
             italic.isItalic = true
+            // Words that stand for a hidden formula keep its room and are not drawn either.
             return NSAttributedString(string: text, attributes: [.font: context.fonts.font(for: italic),
-                                                                 .foregroundColor: textColor])
+                                                                 .foregroundColor: style.isHidden ? PlatformColor.clear : textColor])
         }
     }
 
@@ -259,6 +260,9 @@ final class MathAttachment: NSTextAttachment {
     let isLabelAuthored: Bool
     /// Clear space above and below the formula with room to spare, in its unscaled points.
     let clearance: (top: CGFloat, bottom: CGFloat)
+    /// `visibility: hidden` hides the `<math>` element: the formula keeps its room and draws
+    /// nothing (`ReaderAttachment.isHidden`).
+    let isHidden: Bool
     private let rendering: MathRendering
     private let lock = NSLock()
     private var cached: (size: CGSize, scale: CGFloat, revision: Int, container: ObjectIdentifier?, image: PlatformImage)?
@@ -271,6 +275,7 @@ final class MathAttachment: NSTextAttachment {
         label = reading.text
         language = reading.language
         isLabelAuthored = reading.isAuthored
+        isHidden = style.isHidden
         let rendering = MathRendering(formula: formula, font: font, style: style, inline: inline, row: row)
         self.rendering = rendering
         clearance = rendering.clearance(of: formula.natural)
@@ -284,7 +289,8 @@ final class MathAttachment: NSTextAttachment {
         // the image callbacks below, retaining the selected container's row boxes for drawing.
         let imageSize = bounds.width > 0.01 && bounds.height > 0.01 ? bounds.size
             : CGSize(width: max(1, formula.natural.width), height: max(1, formula.natural.height))
-        let image = NSImage(size: imageSize, flipped: false) { rect in
+        let image = NSImage(size: imageSize, flipped: false) { [isHidden] rect in
+            guard !isHidden else { return true }
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
             let transform = context.ctm
             let across = hypot(transform.a, transform.b), up = hypot(transform.c, transform.d)
@@ -354,6 +360,7 @@ final class MathAttachment: NSTextAttachment {
     /// The formula drawn to fill `size`, cached for the last size and scale asked for.
     func image(size: CGSize, container: NSTextContainer? = nil) -> PlatformImage? {
         guard size.width > 0, size.height > 0, layout.width > 0 else { return nil }
+        guard !isHidden else { return ReaderAttachment.invisibleImage(size: size) }
         let scale = Self.displayScale
         lock.lock(); defer { lock.unlock() }
         let revision = inline?.revision ?? 0
