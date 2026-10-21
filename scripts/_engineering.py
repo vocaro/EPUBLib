@@ -46,3 +46,19 @@ def support_path(name):
         "probe-simulator-voiceover-activation.m": "src/objc/VoiceOver/probe-simulator-voiceover-activation.m",
     }
     return kit / candidates[name]
+
+
+if __name__ == "__main__":
+    # Used by a legacy shell gate, without disabling locking in its test fixtures.
+    if len(sys.argv) != 3 or sys.argv[1] != "--verify-exclusive":
+        raise SystemExit(2)
+    try:
+        toolkit_root(project_root(__file__))
+        from vocaro_engineering import resources
+        token = json.loads(os.environ.get(resources.TOKEN, "{}"))
+        expected = Path(str(Path(sys.argv[2]).resolve()) + ".warm-push-guard")
+        supplied = Path(token.get("guard", str(expected))).resolve()
+        approved = supplied == expected and resources.inherited(exclusive=True)
+    except (OSError, ValueError, RuntimeError):
+        approved = False
+    raise SystemExit(0 if approved else 1)
