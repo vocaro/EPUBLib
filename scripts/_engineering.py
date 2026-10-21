@@ -31,7 +31,8 @@ def load(namespace, relative):
     root = project_root(namespace["__file__"])
     kit = toolkit_root(root)
     source = (kit / relative).resolve()
-    if not source.is_relative_to(kit): raise ValueError("Shared source escapes toolkit")
+    if not source.is_relative_to(kit):
+        raise ValueError("Shared source escapes toolkit")
     namespace["__eng_project_config__"] = json.loads((root / "engineering.json").read_text())
     namespace["__eng_toolkit_root__"] = kit
     exec(compile(source.read_bytes(), str(source), "exec"), namespace)
