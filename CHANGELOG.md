@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Leave out a font under IDPF obfuscation, and open the book, when the package gives no unique identifier or a blank one, as an Adobe-obfuscated font without a key is left out, where the book was refused or, in a package without `unique-identifier`, the font was decoded with a key made from its first identifier without an `id` ([#530](https://github.com/vocaro/EPUBLib/issues/530)).
 - Refuse an empty title, identifier, contents or navigation label, a contents entry with neither a target nor entries, and a resource ID that is not an XML name, and leave out an empty author, language, summary or keyword, where the writer wrote each into a package EPUBCheck rejects or dropped the entry without a word ([#96](https://github.com/vocaro/EPUBLib/issues/96)).
 - Refuse in strict text extraction a name that Namespaces in XML forbids, such as `<:p>` or `script:`, and read it in recovery as the native reader does, where it was read as `p` or `script` and its text restructured or dropped ([#178](https://github.com/vocaro/EPUBLib/issues/178)).
 - Match CFI ID assertions by their exact code units, and leave out an ID assertion that would make an issued bookmark one `restore` refuses ([#105](https://github.com/vocaro/EPUBLib/issues/105)).
