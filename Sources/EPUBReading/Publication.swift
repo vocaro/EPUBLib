@@ -45,16 +45,17 @@ public struct EPUBPublication: Sendable {
     /// Original EPUB bytes, for engines with their own container implementation.
     public let archiveData: Data
     private let contents: [String: Data]
-    /// All declared IDs, including missing and remote hops. They are never fetched.
-    private let manifestByID: [String: EPUBResource]
+    /// All declared IDs, including missing and remote hops. They are never fetched. By the ID's
+    /// code units, as an IDREF names it (`EPUBElementID`).
+    private let manifestByID: [EPUBElementID: EPUBResource]
 
     /// The designated manifest chain, starting with `resource`, stopping at a missing ID or
     /// before repeating an ID. Missing/remote files remain in the chain so a host can continue
     /// to a later available fallback; the host chooses which media types it supports.
     public func fallbackChain(for resource: EPUBResource) -> [EPUBResource] {
-        var chain: [EPUBResource] = [], seen: Set<String> = []
+        var chain: [EPUBResource] = [], seen: Set<EPUBElementID> = []
         var next: EPUBResource? = manifestByID[resource.id] ?? resource
-        while let item = next, seen.insert(item.id).inserted {
+        while let item = next, seen.insert(EPUBElementID(item.id)).inserted {
             chain.append(item)
             next = item.fallbackID.flatMap { manifestByID[$0] }
         }
@@ -64,7 +65,8 @@ public struct EPUBPublication: Sendable {
     /// A declared local or remote resource, including one whose bytes the archive lacks.
     /// Lookup uses the resolved archive path; this does not load or fetch anything.
     public func manifestResource(at path: String) -> EPUBResource? {
-        resources.first { $0.path == path } ?? manifestByID.values.filter { $0.path == path }.min { $0.id < $1.id }
+        resources.first { $0.path == path } ?? manifestByID.values.filter { $0.path == path }
+            .min { $0.id.utf8.lexicographicallyPrecedes($1.id.utf8) }
     }
 
     public func data(for resource: EPUBResource) throws -> Data {
@@ -210,7 +212,8 @@ public struct EPUBPublication: Sendable {
         if contents["META-INF/encryption.xml"] != nil {
             let encryption = try xml("META-INF/encryption.xml")
             let identifiers = metadataElements.filter { $0.name == "identifier" }
-            let unique = identifiers.first { $0.attribute("id") == opf.attribute("unique-identifier") }
+            let uniqueID = opf.attribute("unique-identifier").map { EPUBElementID($0) }
+            let unique = identifiers.first { $0.attribute("id").map { EPUBElementID($0) } == uniqueID }
             // IDPF's key is made from the unique identifier as written, less "specifically, the
             // Unicode code points U+0020, U+0009, U+000D and U+000A" (EPUB 3.3 §4.4.3) and nothing
             // else: white space outside ASCII is part of it, at its ends too. Each is removed as its
@@ -253,11 +256,12 @@ public struct EPUBPublication: Sendable {
             }
         }
         var resources: [EPUBResource] = []
-        var byID: [String: EPUBResource] = [:]
+        // Items by their IDs' code units, as an IDREF names them.
+        var byID: [EPUBElementID: EPUBResource] = [:]
         // Every item the manifest declares, including those whose file the archive lacks and,
         // under its href for a path, each remote one.
-        var declared: [String: EPUBResource] = [:]
-        var remote: Set<String> = []
+        var declared: [EPUBElementID: EPUBResource] = [:]
+        var remote: Set<EPUBElementID> = []
         // Archive paths by their lower-case form, made when a manifest href first matches no entry.
         var folded: [String: [String]]?
         for item in manifest.children where item.name == "item" {
@@ -288,7 +292,7 @@ public struct EPUBPublication: Sendable {
             // Some converters write an item more than once; a verbatim repeat adds nothing, but one
             // id naming two different resources is ambiguous.
             if let earlier = declared[id] {
-                guard earlier == resource, remote.contains(id) == isRemote else { throw EPUBPublicationError.invalidXML("Manifest item") }
+                guard earlier == resource, remote.contains(EPUBElementID(id)) == isRemote else { throw EPUBPublicationError.invalidXML("Manifest item") }
                 continue
             }
             declared[id] = resource
@@ -296,7 +300,7 @@ public struct EPUBPublication: Sendable {
             // than refusing the book; the spine still needs every document it names (below).
             // So is a remote item: EPUB 3 lets audio, video and fonts live outside the
             // container, and nothing is ever fetched.
-            if isRemote { remote.insert(id) }
+            if isRemote { remote.insert(EPUBElementID(id)) }
             guard !isRemote, contents[path] != nil else { continue }
             resources.append(resource)
             byID[id] = resource
@@ -310,7 +314,7 @@ public struct EPUBPublication: Sendable {
                 throw EPUBPublicationError.invalidXML("Spine idref")
             }
             guard let resource = byID[ref] else {
-                if remote.contains(ref) { throw EPUBPublicationError.unsafePath(named.path) }
+                if remote.contains(EPUBElementID(ref)) { throw EPUBPublicationError.unsafePath(named.path) }
                 if undecoded.contains(named.path) { throw EPUBPublicationError.unsupportedEncryption }
                 throw EPUBPublicationError.missingResource(named.path)
             }

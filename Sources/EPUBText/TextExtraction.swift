@@ -14,8 +14,9 @@ public struct EPUBTextSection: Equatable, Sendable {
     public let text: String
     /// EPUB-namespace type tokens throughout the body; no application inclusion policy.
     public let semanticTypes: Set<String>
-    /// Positions in this section's normalized UTF-8 text, from the same extraction walk.
-    public let anchors: [String: EPUBTextMark]
+    /// Positions in this section's normalized UTF-8 text, from the same extraction walk, by ID
+    /// code unit for code unit (`EPUBElementID`).
+    public let anchors: [EPUBElementID: EPUBTextMark]
     public let headings: [EPUBTextHeading]
     /// The source was not well-formed XML and was read by the opt-in HTML recovery parser.
     /// Text, anchors and headings come from libxml2's repaired tree, not an XML DOM.
@@ -109,14 +110,14 @@ private struct NormalizedText {
     var text = ""
     var bytes = 0
     private var separator = ""
-    var anchors: [String: EPUBTextMark] = [:]
+    var anchors: [EPUBElementID: EPUBTextMark] = [:]
     struct OpenHeading { var mark: EPUBTextMark?; var end = 0 }
     var headings: [OpenHeading] = []
-    private var pendingIDs: Set<String> = []
+    private var pendingIDs: Set<EPUBElementID> = []
     private var pendingHeadings: [Int] = []
 
     mutating func mark(id: String) {
-        if !id.isEmpty, anchors[id] == nil { pendingIDs.insert(id) }
+        if !id.isEmpty, anchors[id] == nil { pendingIDs.insert(EPUBElementID(id)) }
     }
     mutating func openHeading() -> Int {
         headings.append(OpenHeading())
