@@ -69,6 +69,11 @@ final class SectionWriter {
 
     private let state: SectionBuildState
     private let mode: Mode
+    /// Whether a table is drawn by the rich-content factory, which renders its cells with
+    /// writers of their own. Past the nesting the builder bounds that at, the writer that renders
+    /// a cell flows the tables in it as text instead: a table of one column as blocks, a wider
+    /// one as rows of tab-separated cells (`Role.tableRows`).
+    private let drawsTables: Bool
     private let document: ContentDocument
     private let styling: InlineStyling
     private var isSection: Bool { mode == .section }
@@ -131,8 +136,8 @@ final class SectionWriter {
     /// By the href's code units, as resolving reads it: `#caf\u{E9}` and `#cafe\u{301}` name two ids.
     private var resolvedLinks: [[UInt8]: String?] = [:]
 
-    init(state: SectionBuildState, mode: Mode) {
-        self.state = state; self.mode = mode
+    init(state: SectionBuildState, mode: Mode, drawsTables: Bool = true) {
+        self.state = state; self.mode = mode; self.drawsTables = drawsTables
         document = state.document; styling = state.styling
     }
 
@@ -281,7 +286,7 @@ final class SectionWriter {
 
     private func enter(_ node: ContentNode, parent: Entry) {
         guard let prepared = prepare(node, parent: parent) else { return }
-        if node.isHTML("table"), enterTable(node, style: prepared.style, context: prepared.context) { return }
+        if node.isHTML("table"), drawsTables, enterTable(node, style: prepared.style, context: prepared.context) { return }
         enterContent(node, parent: parent, style: prepared.style, context: prepared.context)
     }
 

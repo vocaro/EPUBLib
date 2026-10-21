@@ -156,65 +156,27 @@ final class SectionBuildState {
         report: report)
 
     /// An element's children rendered into a separate string, as the section renders a block's
-    /// content, with no text map. Too deep a nesting renders the plain text instead.
+    /// content, with no text map. Too deep a nesting renders it the same way, except that the
+    /// tables in it flow as text (`SectionWriter.drawsTables`), so that nothing recurses further.
     func renderContent(_ element: ContentNode, style: ComputedStyle) -> NSAttributedString {
-        guard nesting < Self.maximumNesting else {
-            let text = element.textContent.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-            return NSAttributedString(string: text, attributes: [
-                .font: request.fonts.font(for: style),
-                .foregroundColor: ReaderPalette.text(dark: request.typography.isDark),
-                .readerSectionLayout: layout,
-            ])
-        }
+        guard nesting < Self.maximumNesting else { return nestedWriter(drawsTables: false).renderContent(of: element, style: style) }
         nesting += 1
         defer { nesting -= 1 }
-        return SectionWriter(state: self, mode: noteMode ?? .detached).renderContent(of: element, style: style)
+        return nestedWriter(drawsTables: true).renderContent(of: element, style: style)
     }
 
     /// Consecutive sibling nodes rendered into a separate string the same way, for the anonymous
-    /// cell a table puts around content written outside its cells. Too deep a nesting renders
-    /// their words, without those of the elements the flow leaves out (`flowStyle`).
+    /// cell a table puts around content written outside its cells, with the same bound.
     func renderNodes(_ nodes: [ContentNode], style: ComputedStyle) -> NSAttributedString {
-        guard let first = nodes.first, let last = nodes.last else { return NSAttributedString() }
-        guard nesting < Self.maximumNesting else { return flattenedNodes(first: first, last: last, style: style) }
+        guard !nodes.isEmpty else { return NSAttributedString() }
+        guard nesting < Self.maximumNesting else { return nestedWriter(drawsTables: false).renderContent(of: nodes, style: style) }
         nesting += 1
         defer { nesting -= 1 }
-        return SectionWriter(state: self, mode: noteMode ?? .detached).renderContent(of: nodes, style: style)
+        return nestedWriter(drawsTables: true).renderContent(of: nodes, style: style)
     }
 
-    /// The bounded-depth fallback is its own phase: its large computed-style traversal
-    /// temporaries must not stay on the stack while anonymous table cells recurse.
-    private func flattenedNodes(first: ContentNode, last: ContentNode, style: ComputedStyle) -> NSAttributedString {
-        var words: [Substring] = []
-        // The styles of the elements the walk is inside, each with the last node it holds.
-        var open: [(end: Int, style: ComputedStyle)] = []
-        var order = first.order
-        while order <= last.subtreeEnd {
-            let node = document.nodes[order]
-            while let innermost = open.last, innermost.end < order { open.removeLast() }
-            if node.isElement {
-                guard let computed = flowStyle(of: node, in: open.last?.style ?? style) else { order = node.subtreeEnd + 1; continue }
-                open.append((node.subtreeEnd, computed))
-            } else if node.isText { words += node.text.split(whereSeparator: \.isWhitespace) }
-            order += 1
-        }
-        return NSAttributedString(string: words.joined(separator: " "), attributes: [
-            .font: request.fonts.font(for: style),
-            .foregroundColor: ReaderPalette.text(dark: request.typography.isDark),
-            .readerSectionLayout: layout,
-        ])
-    }
-
-    /// An element's computed style, or nil where the writer leaves the element out of the flow
-    /// whatever it holds (`SectionWriter.enter`): one that is never rendered or has no box, and
-    /// a footnote, which is kept in the section's notes.
-    private func flowStyle(of element: ContentNode, in parent: ComputedStyle) -> ComputedStyle? {
-        if element.isHTML, ContentSemantics.neverRendered.contains(element.name) { return nil }
-        var computed = style(element, parent)
-        if element.isHTML("noscript"), computed.display == .none { computed.display = .block }
-        guard !isHiddenFootnote(element), computed.display != .none, computed.display != .tableColumn,
-              computed.display != .tableColumnGroup else { return nil }
-        return computed
+    private func nestedWriter(drawsTables: Bool) -> SectionWriter {
+        SectionWriter(state: self, mode: noteMode ?? .detached, drawsTables: drawsTables)
     }
 
     /// The note an element is, with endnote scopes memoized.
