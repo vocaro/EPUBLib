@@ -12,8 +12,7 @@ struct ReaderTextPosition: Hashable, Comparable, Sendable {
     }
     static func < (a: Self, b: Self) -> Bool {
         if (a.section, a.offset) != (b.section, b.offset) { return (a.section, a.offset) < (b.section, b.offset) }
-        let left = a.tableCell, right = b.tableCell
-        return (left?.cell ?? -1, left?.offset ?? -1) < (right?.cell ?? -1, right?.offset ?? -1)
+        return ReaderTablePosition.precedes(a.tableCell, b.tableCell)
     }
 }
 

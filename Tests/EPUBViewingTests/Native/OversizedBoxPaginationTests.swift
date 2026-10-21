@@ -93,12 +93,19 @@ import UIKit
     /// The pages of a 100-line scene as 777515cf cut them, before #573's fix, at the phone and
     /// tablet columns on the Mac and in the iOS 27 simulator, whose fonts break some lines
     /// elsewhere. The rest of the scene that fits a page is the box that starts the last page.
+    ///
+    /// The phone's last two pages are cut as #150 has them, on both platforms. The scene's inline block takes its
+    /// width from its container's content box, 2em inside the column (CSS 2.2 10.1), where it
+    /// took the whole column's: its `min-width` of 25em is wider than either, so it is as wide
+    /// as it may be, now 34 points narrower. More of its verse wraps, so the rest that fits a
+    /// page starts later and the page before it ends there. The tablet's block is narrower than
+    /// both widths and is unchanged.
     func testAPageTallScenesPagesAndTheRestSetAsABox() throws {
         #if os(macOS)
-        let phone = Self.ranges([(0, 590), (590, 699), (1289, 696), (1985, 731), (2716, 663), (3379, 576), (3955, 863)])
+        let phone = Self.ranges([(0, 590), (590, 699), (1289, 696), (1985, 731), (2716, 663), (3379, 657), (4036, 782)])
         let tablet = Self.ranges([(0, 1368), (1368, 1599), (2967, 256), (3223, 1595)])
         #else
-        let phone = Self.ranges([(0, 590), (590, 699), (1289, 682), (1971, 728), (2699, 627), (3326, 629), (3955, 863)])
+        let phone = Self.ranges([(0, 590), (590, 699), (1289, 682), (1971, 728), (2699, 627), (3326, 710), (4036, 782)])
         let tablet = Self.ranges([(0, 1368), (1368, 1635), (3003, 220), (3223, 1595)])
         #endif
         let expected: [(viewport: CGSize, fontSize: CGFloat, pages: [NSRange])] = [
