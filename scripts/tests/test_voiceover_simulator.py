@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check simulator transcript build revisions with fake tools; no simulator or build starts."""
 import os
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -63,6 +64,10 @@ class SimulatorBuildRevisionTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         (self.root / "scripts").mkdir()
+        shutil.copyfile(SCRIPT.with_name("_engineering.py"), self.root / "scripts/_engineering.py")
+        configuration = json.loads((SCRIPT.parent.parent / "engineering.json").read_text())
+        configuration["toolkit"]["path"] = str((SCRIPT.parent.parent / configuration["toolkit"]["path"]).resolve())
+        (self.root / "engineering.json").write_text(json.dumps(configuration))
         shutil.copyfile(SCRIPT, self.root / "scripts" / SCRIPT.name)
         shutil.copyfile(SCRIPT.with_name("simulator_voiceover_activation.py"), self.root / "scripts/simulator_voiceover_activation.py")
         shutil.copyfile(SCRIPT.with_name("probe-simulator-voiceover-activation.py"), self.root / "scripts/probe-simulator-voiceover-activation.py")
