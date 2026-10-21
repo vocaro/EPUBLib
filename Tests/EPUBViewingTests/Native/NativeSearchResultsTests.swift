@@ -519,4 +519,68 @@ import XCTest
         try await wait("result 3 visible") { self.isVisible(3, in: session) }
         XCTAssertEqual(session.visibleRange?.start, ReaderTextPosition(section: 2, offset: 0))
     }
+
+    /// The words of the page columns on screen.
+    private func shownWords(_ canvas: ReaderCanvasView) -> [Substring] {
+        canvas.textViews.flatMap { $0.spokenText(in: $0.shownCharacters).split(whereSeparator: \.isWhitespace) }
+    }
+
+    /// Where continuous scroll draws the continuation of a nested row that reads `word`, in its
+    /// text container: found by the words each one reads, not by a mapped position.
+    private func nestedLine(reading word: String, in canvas: ReaderCanvasView) -> CGRect? {
+        guard let view = canvas.scrollTextView, let storage = view.contentStorage.textStorage else { return nil }
+        var found: CGRect?
+        storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, stop in
+            guard let row = value as? TableRowAttachment, let frame = view.segmentFrames(for: range).first else { return }
+            let layout = row.layout(width: frame.width, viewportHeight: view.readerContainer.viewportSize.height)
+            for cell in row.table.rowCells[row.row] {
+                let content = layout.contentFrames[cell]
+                for line in layout.cellText[cell].lines
+                where line.nestedRow?.textEquivalent.split(whereSeparator: \.isWhitespace).contains(Substring(word)) == true {
+                    found = CGRect(x: frame.minX + (layout.originX + content.minX + line.frame.minX) * layout.scale,
+                                   y: frame.minY + (content.minY + line.frame.minY - layout.rowTops[row.row]) * layout.scale,
+                                   width: line.frame.width * layout.scale, height: line.frame.height * layout.scale)
+                    stop.pointee = true
+                }
+            }
+        }
+        return found
+    }
+
+    /// A match in a table nested in a row taller than the view is shown where its words are
+    /// drawn: on the row's later continuation in pages, and with its line on screen in
+    /// continuous scroll, not at the row's start. Both showed the row's start (#544).
+    func testAMatchInANestedTableShowsTheContinuationThatDrawsIt() async throws {
+        let words = ["Opening words"] + (0..<100).map { "Row \($0) words" } + ["Nestedneedle words"]
+        let shapes = [
+            ("many inner rows", words.map { "<tr><td>\($0)</td><td>y</td></tr>" }.joined()),
+            ("a single tall inner row", "<tr><td>" + words.map { "<p>\($0)</p>" }.joined() + "</td><td>y</td></tr>"),
+        ]
+        for (shape, rows) in shapes {
+            let table = "<table><tr><td><table>\(rows)</table></td><td>x</td></tr></table>"
+            let chapter = "<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>One</title></head><body><h1 id=\"start\">One</h1>\(table)</body></html>"
+            for flow in [EPUBReadingFlow.paginated, .scrolled] {
+                let (session, window, _) = try open(Fixture.epub(overrides: ["OPS/one.xhtml": chapter]))
+                defer { session.close(); window.close() }
+                try await wait("built book and location") { session.book.isComplete && session.lastLocation != nil }
+                try await session.send(.style(.init(flow: flow)))
+                try await session.send(.searchHighlight(text: "Nestedneedle"))
+                let found = try XCTUnwrap(session.readerState?.status.searchResults)
+                XCTAssertEqual(found.count, 1)
+                try await session.send(.showSearchResult(found.results[0]))
+                let canvas = try XCTUnwrap(session.canvas)
+                switch flow {
+                case .paginated:
+                    try await wait("\(shape): the page that reads the match") { self.shownWords(canvas).contains("Nestedneedle") }
+                    XCTAssertFalse(shownWords(canvas).contains("Opening"), "\(shape): not the row's first page")
+                case .scrolled:
+                    try await wait("\(shape): the match's line on screen") {
+                        self.nestedLine(reading: "Nestedneedle", in: canvas).map(canvas.scrollVisibleContainerRect.intersects) == true
+                    }
+                    let opening = try XCTUnwrap(nestedLine(reading: "Opening", in: canvas))
+                    XCTAssertFalse(canvas.scrollVisibleContainerRect.intersects(opening), "\(shape): not the row's start")
+                }
+            }
+        }
+    }
 }
