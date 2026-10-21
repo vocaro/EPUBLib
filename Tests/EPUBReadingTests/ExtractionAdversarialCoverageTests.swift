@@ -165,6 +165,31 @@ final class ExtractionAdversarialCoverageTests: XCTestCase {
         XCTAssertEqual(section.anchors, ["s": EPUBTextMark(offset: 5, separator: 0)])
     }
 
+    // Beside `xmlns`, `xmlns:` gives one result whichever comes first: strict extraction refuses it,
+    // and recovery reads the element in the namespace `xmlns` names, as the reader does (#213). An
+    // element's declarations are read in document order, so each order here is one the walk takes.
+    func testAnEmptyPrefixDeclarationBesideXMLNSGivesOneResultInEitherOrder() throws {
+        let xhtml = "xmlns='http://www.w3.org/1999/xhtml'", empty = "xmlns:='urn:x'"
+        for declarations in [[xhtml, empty], [empty, xhtml]] {
+            let pair = declarations.joined(separator: " ")
+            let documents = [
+                "<html \(pair)><head><title>T</title></head><body><p id='p'>a<img alt='ALT'/>b</p><p>c</p></body></html>",
+                page("<p \(pair) id='p'>a<img alt='ALT'/>b</p><p>c</p>"),
+            ]
+            for document in documents {
+                let publication = try book(document)
+                XCTAssertThrowsError(try publication.textSection(at: 0), document) {
+                    XCTAssertEqual($0 as? EPUBTextExtractionError, .malformedContent(path), document)
+                }
+                let section = try publication.textSection(at: 0, recoversMalformedMarkup: true)
+                XCTAssertEqual(section.text, "aALTb\nc", document)
+                XCTAssertEqual(section.title, "T", document)
+                XCTAssertEqual(section.anchors, ["p": EPUBTextMark(offset: 0, separator: 0)], document)
+                XCTAssertTrue(section.recoveredAsHTML, document)
+            }
+        }
+    }
+
     // Well-formed prefixed names are read in the namespace each prefix names.
     func testWellFormedPrefixedNamesAreReadInTheirNamespaces() throws {
         let section = try book(page("<div xmlns:epub='http://www.idpf.org/2007/ops' xmlns:m='http://www.w3.org/1998/Math/MathML' "

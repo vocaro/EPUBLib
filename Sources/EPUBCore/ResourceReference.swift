@@ -55,9 +55,11 @@ package enum ResourceReference {
 
     /// Resolves a local EPUB reference as EPUB Reading Systems 3.3 §4.1.1 has it parsed against
     /// the container root URL: white space round it is read past (`stripped`), a leading `/` names
-    /// the root and `..` stops there, so no reference leaves the container. A query is dropped; it
-    /// cannot change which entry is meant. A remote reference, and one that does not decode to a
-    /// path an entry can have, throw.
+    /// the root and `..` stops there, so no reference leaves the container. An empty segment (a
+    /// doubled slash), in the reference or its base, is a segment as URL parsing has it, so a `..`
+    /// after one removes it and not the name before it; one that remains, which no entry's path
+    /// has, is read past. A query is dropped; it cannot change which entry is meant. A remote
+    /// reference, and one that does not decode to a path an entry can have, throw.
     ///
     /// `strict` is for a reference about to be written. What EPUB forbids its author (white space
     /// round it, a leading `/`, `..` beyond the root, a query, a colon in the path) is then
@@ -75,15 +77,16 @@ package enum ResourceReference {
               let fragment = String(decoding: raw[hash...].dropFirst(), as: UTF8.self).removingPercentEncoding,
               isPlain(target), isPlain(fragment) else { throw unsafe }
         let absolute = target.utf8.first == 0x2F
-        let base = path.utf8.split(separator: 0x2F).map { String(decoding: $0, as: UTF8.self) }
+        let base = path.utf8.split(separator: 0x2F, omittingEmptySubsequences: false).map { String(decoding: $0, as: UTF8.self) }
         guard !strict || !absolute else { throw unsafe }
         var stack = absolute ? [] : Array(base.dropLast())
         if target.isEmpty {
             // The document itself, which a reference from nowhere cannot name.
-            guard let document = base.last else { throw unsafe }
+            guard !path.isEmpty, let document = base.last else { throw unsafe }
             stack.append(document)
         } else {
-            for part in target.utf8.split(separator: 0x2F) {
+            // The slash that opens an absolute reference has no segment before it.
+            for part in target.utf8.split(separator: 0x2F, omittingEmptySubsequences: false).dropFirst(absolute ? 1 : 0) {
                 if part.elementsEqual(dot) { continue }
                 if part.elementsEqual(dotDot) {
                     // The root has no parent to step up to.
@@ -91,7 +94,8 @@ package enum ResourceReference {
                 } else { stack.append(String(decoding: part, as: UTF8.self)) }
             }
         }
-        let result = stack.joined(separator: "/")
+        // An empty segment no `..` removed names no entry, and is read past.
+        let result = stack.filter { !$0.isEmpty }.joined(separator: "/")
         guard strict ? isSafePath(result) : isReadablePath(result) else { throw unsafe }
         return encoded(path: result) + (hash == raw.endIndex ? "" : "#" + fragment.addingPercentEncoding(
             withAllowedCharacters: .urlFragmentAllowed.subtracting(CharacterSet(charactersIn: "#%")))!)

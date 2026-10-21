@@ -1,4 +1,5 @@
 import EPUBCore
+import EPUBReading
 import EPUBWriting
 import Foundation
 import Testing
@@ -251,6 +252,102 @@ struct WriterArchiveCoverageTests {
             #expect(!exists(output), "\(mimetype.count + tail.count) bytes")
             #expect(exists(mime) && exists(asset), "\(mimetype.count + tail.count) bytes")
         }
+    }
+
+    // The `mimetype` entry is archived from the bytes that were checked. `progress(0)` runs after
+    // the check and before any entry is written, and the source is changed there: appended to,
+    // rewritten, emptied, or a symbolic link pointed at another file. None of it reaches the
+    // archive (https://github.com/vocaro/EPUBLib/issues/604). The reader reads each archive back,
+    // and its headers are read by hand as well.
+    @Test func theMimetypeIsArchivedAsCheckedWhateverItsSourceBecomesAfterTheCheck() async throws {
+        let directory = try WriterCoverage.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mimetype = Data("application/epub+zip".utf8)
+        let crc = 0x2CAB_616F // CRC-32 of "application/epub+zip".
+        let chapter = WriterCoverage.chapter
+        let documents = try EPUBPackageWriter.documents(metadata: WriterCoverage.facts(), resources: [chapter],
+            spine: [.init(resource: chapter)], contents: [.init(title: "Start", href: chapter.path)])
+        // Each change is given the source and another file. The last source is a symbolic link.
+        let changes: [(label: String, linked: Bool, change: @Sendable (URL, URL) throws -> Void)] = [
+            ("a line end appended", false, { source, _ in
+                let handle = try FileHandle(forWritingTo: source)
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                try handle.write(contentsOf: Data("\n".utf8))
+            }),
+            ("rewritten with 20 other bytes", false, { source, _ in try Data("application/zip+epub".utf8).write(to: source) }),
+            ("emptied", false, { source, _ in try Data().write(to: source) }),
+            ("a link retargeted", true, { source, other in
+                try FileManager.default.removeItem(at: source)
+                try FileManager.default.createSymbolicLink(at: source, withDestinationURL: other)
+            }),
+        ]
+        for (index, (label, linked, change)) in changes.enumerated() {
+            let stage = directory.appendingPathComponent("stage-\(index)")
+            try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+            let other = try WriterCoverage.file("other", Data("application/epub+zip\r\n".utf8), in: stage)
+            let source = stage.appendingPathComponent("mimetype")
+            let target = stage.appendingPathComponent("mimetype-target")
+            if linked {
+                try mimetype.write(to: target)
+                try FileManager.default.createSymbolicLink(at: source, withDestinationURL: target)
+            } else {
+                try mimetype.write(to: source)
+            }
+            var entries = [Entry(path: "mimetype", fileURL: source, consume: true)]
+            for document in documents where document.path != "mimetype" {
+                entries.append(.init(path: document.path, fileURL: try WriterCoverage.file("document-\(entries.count)", Data(document.content.utf8), in: stage)))
+            }
+            entries.append(.init(path: chapter.path, fileURL: try WriterCoverage.file("chapter", WriterCoverage.xhtml("<p>Text</p>"), in: stage)))
+            let output = directory.appendingPathComponent("book-\(index).epub")
+            try await EPUBArchiveWriter.write(entries: entries, to: output, maximumContentBytes: 1_000_000, modificationDate: date) { fraction in
+                guard fraction == 0 else { return }
+                do { try change(source, other) } catch { Issue.record("\(label): \(error)") }
+            }
+            #expect((try? EPUBPublication.open(at: output).data(at: "mimetype")) == mimetype, "\(label)")
+            let bytes = try Data(contentsOf: output)
+            // The local header: stored, with the CRC and both sizes of the 20 bytes that follow it.
+            #expect(field(bytes, 0, 4) == 0x0403_4B50 && field(bytes, 8, 2) == 0, "\(label)")
+            #expect(field(bytes, 14, 4) == crc && field(bytes, 18, 4) == 20 && field(bytes, 22, 4) == 20, "\(label)")
+            #expect(bytes[30..<38] == Data("mimetype".utf8) && bytes[38..<58] == mimetype, "\(label)")
+            // The central directory's first record, found from the end record, says the same.
+            let end = bytes.count - 22
+            #expect(field(bytes, end, 4) == 0x0605_4B50, "\(label)")
+            let record = field(bytes, end + 16, 4)
+            #expect(field(bytes, record, 4) == 0x0201_4B50 && field(bytes, record + 10, 2) == 0, "\(label)")
+            #expect(field(bytes, record + 16, 4) == crc && field(bytes, record + 20, 4) == 20 && field(bytes, record + 24, 4) == 20, "\(label)")
+            #expect(field(bytes, record + 42, 4) == 0 && bytes[(record + 46)..<(record + 54)] == Data("mimetype".utf8), "\(label)")
+            // The consumed source is removed after its entry, whatever it has become; a link is
+            // removed alone.
+            #expect(!exists(source) && exists(other) && exists(target) == linked, "\(label)")
+            #expect(try contents(of: output).map(\.path) == entries.map(\.path), "\(label)")
+        }
+    }
+
+    // The handle the mimetype is checked through is closed once the check is done, before
+    // `progress(0)`, and none is open on its source for the rest of the write
+    // (https://github.com/vocaro/EPUBLib/issues/604).
+    @Test func noHandleIsLeftOpenOnTheMimetypeSourceAfterItsCheck() async throws {
+        let directory = try WriterCoverage.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mime = try WriterCoverage.mimetype(in: directory)
+        let asset = try WriterCoverage.file("asset", Data(repeating: 1, count: 100), in: directory)
+        var status = stat()
+        try #require(stat(mime.path, &status) == 0)
+        let file = (device: status.st_dev, inode: status.st_ino)
+        let recorder = WriterRecorder<Int>()
+        try await EPUBArchiveWriter.write(entries: [.init(path: "mimetype", fileURL: mime), .init(path: "EPUB/asset", fileURL: asset)],
+                                         to: directory.appendingPathComponent("book.epub"), maximumContentBytes: 1_000, modificationDate: date) { _ in
+            await recorder.add(Self.openDescriptors(device: file.device, inode: file.inode))
+        }
+        let counts = await recorder.values
+        #expect(counts == [0, 0, 0]) // At progress 0, 0.5 and 1.
+    }
+
+    /// How many of this process's file descriptors are open on the file with this device and inode.
+    private static func openDescriptors(device: dev_t, inode: ino_t) -> Int {
+        var status = stat()
+        return (0..<getdtablesize()).filter { fstat($0, &status) == 0 && status.st_dev == device && status.st_ino == inode }.count
     }
 
     @Test func anExistingDestinationOfAnyKindIsRefusedAndLeftUntouched() async throws {

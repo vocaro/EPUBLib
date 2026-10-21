@@ -113,8 +113,11 @@ disclosed:
   `one.xhtml`; white space inside it, outside ASCII or written as an escape is part of the name
   ([#76](https://github.com/vocaro/EPUBLib/issues/76)). No reference leaves the container: a
   leading `/` names the container root and `..` stops there (EPUB Reading Systems 3.3 §4.1.1). A
-  query is dropped. The container's rootfile path is the exception: it names the package document
-  or nothing, and is refused in these forms.
+  doubled slash is an empty segment, as URL parsing has it, so a `..` after one removes it and
+  `a//../b` names `a/b`; an empty segment that remains names no entry and is read past, so `a//b`
+  names `a/b` too ([#605](https://github.com/vocaro/EPUBLib/issues/605)). A query is dropped.
+  The container's rootfile path is the exception: it names the package document or nothing, and
+  is refused in these forms.
 - **Manifest.** An item repeated verbatim counts once. An item whose file the archive lacks and a
   remote item, which is never fetched, are left out of `resources`; the spine still needs every
   document it names. An href that matches no entry names the one entry that differs only in case,
@@ -193,11 +196,17 @@ disclosed:
 - **Container.** White space around the mimetype's media type and a byte-order mark before it are
   ignored. A rootfile that is not typed as a package document is passed over for the first that
   is. An entry name may hold a colon, as it may the other characters OCF forbids.
-- **Fonts.** Adobe's obfuscation key is read from a UUID with or without hyphens, in the unique
-  identifier or else the first identifier that is one. A font obfuscated with a key the package
-  does not give is left out of `resources`: a font is a file named as one (`.otf`, `.ttf`,
-  `.woff`…) or declared with a font media type. Anything else obfuscated that way is unsupported
-  encryption.
+- **Fonts.** The unique identifier is the `dc:identifier` that the package's `unique-identifier`
+  names; a package without the attribute, or whose attribute names no identifier, has none.
+  IDPF's obfuscation key is made from it alone, and there is none when the package has no unique
+  identifier or a blank one, nothing but the spaces, tabs and line ends the key leaves out. No
+  other identifier is tried: any text makes a key, so a wrong one cannot be told from the right
+  one ([#530](https://github.com/vocaro/EPUBLib/issues/530)). Adobe's key is read from a UUID
+  with or without hyphens, in the unique identifier or else the first identifier that is one, and
+  there is none when no identifier is a UUID. Under either algorithm, a font obfuscated with a key
+  the package does not give is left out of `resources` and the book opens: a font is a file named
+  as one (`.otf`, `.ttf`, `.woff`…) or declared with a font media type. Anything else obfuscated
+  that way is unsupported encryption.
 - **XML.** In the container, package, navigation and NCX documents, HTML's named character
   references and a `DOCTYPE` keyword in any case are read as a browser reads them in content:
   a name in the HTML Standard's table (`&nbsp;`, `&rcaron;`), which the viewer and text
@@ -256,7 +265,8 @@ element before strict or recovery parsing, including duplicates and namespace de
 named HTML entities become numeric references, DTDs and the network are
 never loaded, and depth and node counts are bounded. Markup that is not well-formed is read with
 libxml2's forgiving HTML parser rather than refused. CSS, fonts, MathML and images are parsed with
-their own bounds. Every reference resolves inside the archive snapshot; remote images, stylesheets,
+their own bounds. Every reference resolves inside the archive snapshot, but for an image in a
+`data:` URL, which is read from the URL's own bytes; remote images, stylesheets,
 fonts and media are never fetched, external links are refused with a notice, and `script`
 elements are counted and disclosed but never run. Sandboxed macOS hosts need no network entitlement.
 

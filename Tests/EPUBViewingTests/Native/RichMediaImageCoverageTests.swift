@@ -518,14 +518,156 @@ final class RichMediaImageCoverageTests: XCTestCase {
 
     /// EPUB 3.3 §3.4 ("Data URLs") and the W3C reading-system test `pub-data-urls`
     /// (<https://www.w3.org/TR/epub-rs/#confreq-rs-data-urls>): an `<img>` whose `src` is a
-    /// `data:` URL MUST be displayed. The engine decodes `data:` images inside SVG already, but a
-    /// top-level `<img src="data:...">` is counted unreadable and shown as its alt text instead.
+    /// `data:` URL MUST be displayed, and is, as an image from the archive is (#134).
     func testDataURLImageIsDisplayed() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/134")
         let b64 = RichMediaImages.solid(width: 40, height: 20).base64EncodedString()
         let (image, text) = try firstImage("<p><img src='data:image/png;base64,\(b64)' alt='Data'/></p>")
         XCTAssertNotNil(image, "a data: URL image must be displayed, not shown as alt text")
         XCTAssertEqual(image?.source.pixelSize, CGSize(width: 40, height: 20))
         XCTAssertEqual(text.richMediaPlain, "\u{FFFC}", "the image occupies one attachment character, not its alt text")
+        XCTAssertEqual(image?.path, "", "it has no archive path")
+        XCTAssertEqual(text.report.unreadableResources, 0)
+    }
+
+    /// The forms the data: URL processor reads: base64 broken by white space or without its
+    /// padding, a type and `;base64` in any case and with parameters, white space and a fragment
+    /// round the URL, and a percent-encoded body. An `<object>` of an image type is read as well.
+    func testEveryFormOfADataURLImageIsShown() throws {
+        let png = RichMediaImages.solid(width: 40, height: 20)
+        let b64 = png.base64EncodedString()
+        let lines = stride(from: 0, to: b64.count, by: 60).map { String(b64.dropFirst($0).prefix(60)) }.joined(separator: "&#10; ")
+        let percent = png.map { String(format: "%%%02X", $0) }.joined()
+        for markup in ["<img src='data:image/png;base64,\(lines)' alt='Data'/>",
+                       "<img src='DATA:Image/PNG ; BASE64,\(b64.replacingOccurrences(of: "=", with: ""))' alt='Data'/>",
+                       "<img src='data:image/png;name=square.png;base64,\(b64)' alt='Data'/>",
+                       "<img src=' &#9;data:image/png;base64,\(b64)#square ' alt='Data'/>",
+                       "<img src='data:image/png,\(percent)' alt='Data'/>",
+                       "<object data='data:image/png;base64,\(b64)' type='image/png'>Data</object>"] {
+            let (image, text) = try firstImage("<p>\(markup)</p>")
+            XCTAssertEqual(image?.source.pixelSize, CGSize(width: 40, height: 20), markup)
+            XCTAssertEqual(text.richMediaPlain, "\u{FFFC}", markup)
+            XCTAssertEqual(text.report.unreadableResources, 0, markup)
+        }
+        // SVG, percent-encoded as the W3C test `pub-data-urls_top-level-content` writes it, is
+        // drawn at the size it declares, as SVG from the archive is.
+        let svg = "<svg xmlns='http://www.w3.org/2000/svg' width='30' height='10'><title>Bar</title><rect width='30' height='10' fill='red'/></svg>"
+        let escaped = try XCTUnwrap(svg.addingPercentEncoding(withAllowedCharacters: .alphanumerics))
+        let (drawing, text) = try firstImage("<p><img src='data:image/svg+xml,\(escaped)'/></p>")
+        XCTAssertEqual(drawing?.source.format, .svg)
+        XCTAssertEqual(drawing?.sizing.intrinsic, CGSize(width: 30, height: 10))
+        XCTAssertEqual(drawing?.alternative, .text("Bar"), "an SVG without alt is named by its title")
+        XCTAssertEqual(text.report.unreadableResources, 0)
+        XCTAssertTrue(text.report.unsupportedElements.isEmpty)
+    }
+
+    /// Two images in `data:` URLs are told apart in the shared image cache, which knows each by
+    /// its element's position, as it knows an inline SVG.
+    func testDataURLImagesInOneSectionAreCachedApart() throws {
+        let red = RichMediaImages.solid(width: 4, height: 4, red: 1, green: 0, blue: 0).base64EncodedString()
+        let blue = RichMediaImages.solid(width: 4, height: 4, red: 0, green: 0, blue: 1).base64EncodedString()
+        let text = try RichMediaBook(body: "<p><img src='data:image/png;base64,\(red)' alt='Red'/><img src='data:image/png;base64,\(blue)' alt='Blue'/></p>").build()
+        let images = text.richMediaImages
+        XCTAssertEqual(images.count, 2)
+        XCTAssertEqual(Set(images.map(\.source.key)).count, 2)
+        let pixels = try images.map { try XCTUnwrap($0.source.decode(maxPixelSize: 4)) }.map { RichMediaImages.rgba($0, x: 1, y: 1) }
+        XCTAssertGreaterThan(pixels[0][0], pixels[0][2], "the first is red")
+        XCTAssertGreaterThan(pixels[1][2], pixels[1][0], "the second is blue")
+    }
+
+    /// A `data:` URL that is no usable image falls back as an image from the archive that cannot be
+    /// shown does: to its alt text, counted unreadable. That is one the processor cannot read (no
+    /// comma, base64 that does not decode), one whose type is not an image's (`text/plain` where
+    /// it names none), bytes ImageIO cannot read, and a bitmap past the pixels an archive image
+    /// may have.
+    func testADataURLThatIsNoUsableImageFallsBackAsAnUnreadableImageDoes() throws {
+        let png = RichMediaImages.solid(width: 40, height: 20).base64EncodedString()
+        let huge = RichMediaImages.headerOnlyPNG(width: 8193, height: 8193)
+        XCTAssertNil(ReaderImageSource.bitmap(huge, path: "huge.png", key: "huge"), "an archive image of this size is refused too")
+        for src in ["data:image/png;base64", "data:image/png;base64,\(png)=", "data:image/png;base64,\(png.dropLast(2))!=",
+                    "data:text/plain;base64,\(png)", "data:;base64,\(png)", "data:,\(png)",
+                    "data:image/png;base64,AAAA", "data:image/png;base64,\(huge.base64EncodedString())"] {
+            let (image, text) = try firstImage("<p><img src='\(src)' alt='Fallback'/></p>")
+            XCTAssertNil(image, src)
+            XCTAssertEqual(text.richMediaPlain, "Fallback", src)
+            XCTAssertEqual(text.report.unreadableResources, 1, src)
+            XCTAssertEqual(text.report.remoteResourcesRefused, 0, src)
+        }
+        // An SVG that cannot be drawn is disclosed as one, as it is from the archive.
+        let (broken, text) = try firstImage("<p><img src='data:image/svg+xml,%3Csvg%3E' alt='Broken'/></p>")
+        XCTAssertNil(broken)
+        XCTAssertEqual(text.richMediaPlain, "Broken")
+        XCTAssertEqual(text.report.unsupportedElements, ["svg": 1])
+        XCTAssertEqual(text.report.unreadableResources, 0)
+    }
+
+    /// A drawing in a `data:` URL has no base in the archive, so a reference in it names no file,
+    /// however it is written: what it would show is left out, as the renderer leaves out what
+    /// it cannot use.
+    func testADrawingInADataURLReachesNoArchiveFile() throws {
+        let png = RichMediaImages.solid(width: 10, height: 10)
+        let svg = "<svg xmlns='http://www.w3.org/2000/svg' width='30' height='10'><image href='pic.png' width='10' height='10'/>"
+            + "<image href='/OPS/pic.png' x='10' width='10' height='10'/><rect x='20' width='10' height='10' fill='blue'/></svg>"
+        let escaped = try XCTUnwrap(svg.addingPercentEncoding(withAllowedCharacters: .alphanumerics))
+        let (drawing, text) = try firstImage("<p><img src='data:image/svg+xml,\(escaped)' alt='Drawing'/></p>", files: ["pic.png": png, "/pic.png": png])
+        let image = try XCTUnwrap(drawing)
+        XCTAssertEqual(image.source.format, .svg)
+        let bitmap = try XCTUnwrap(image.source.decode(maxPixelSize: 30))
+        XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 5, y: 5)[3], 0, "the relative reference shows nothing")
+        XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 15, y: 5)[3], 0, "nor does the one from the root")
+        XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 25, y: 5), [0, 0, 255, 255], "the rest is drawn")
+        XCTAssertEqual(text.report.unsupportedElements["svg:image"], 2)
+    }
+
+    /// The data: URL processor of the Fetch standard, with cases from the Web Platform Tests'
+    /// `fetch/data-urls/resources/data-urls.json`. Every image in a `data:` URL, in a section or
+    /// in a drawing given to the renderer, is read by it.
+    func testTheDataURLProcessor() throws {
+        func read(_ reference: String, maximumBytes: Int = .max) -> String? {
+            DataURL(reference, maximumBytes: maximumBytes).map { $0.mediaType + " " + $0.body.map { String(format: "%02x", $0) }.joined() }
+        }
+        XCTAssertEqual(read("data:,X"), "text/plain 58")
+        XCTAssertEqual(read("data:,"), "text/plain ")
+        XCTAssertEqual(read("data://test/,X"), "text/plain 58")
+        XCTAssertNil(read("data:"))
+        XCTAssertNil(read("data:text/html"))
+        XCTAssertNil(read("data:text/html    ;charset=x   "))
+        XCTAssertEqual(read("data:,X#X"), "text/plain 58")
+        XCTAssertEqual(read("data:,%FF"), "text/plain ff")
+        XCTAssertEqual(read("data:,%F"), "text/plain 2546")
+        XCTAssertEqual(read("data:,\u{B1}"), "text/plain c2b1")
+        XCTAssertEqual(read("data:text/plain ,X"), "text/plain 58")
+        XCTAssertEqual(read("data:text/plain%20,X"), "text/plain%20 58")
+        XCTAssertEqual(read("data:text/plain\u{0C},X"), "text/plain%0c 58")
+        XCTAssertEqual(read("data:text/plain\u{0},X"), "text/plain%00 58")
+        XCTAssertEqual(read("data:IMAGE/gif;hi=x,%C2%B1"), "image/gif c2b1")
+        XCTAssertEqual(read("data: ,%FF"), "text/plain ff")
+        XCTAssertEqual(read("data:;x=x,X"), "text/plain 58")
+        XCTAssertEqual(read("data:x/x;base64;base64,WA"), "x/x 58")
+        XCTAssertEqual(read("data:x/x;base64;base64x,WA"), "x/x 5741")
+        XCTAssertEqual(read("data:;base64;base64,WA"), "text/plain 58")
+        XCTAssertEqual(read("data:x/x;base64 ,WA"), "x/x 58")
+        XCTAssertEqual(read("data:x/x;base64 ;,WA"), "x/x 5741")
+        XCTAssertEqual(read("data:x/x;base64\u{0},WA"), "x/x 5741")
+        XCTAssertEqual(read("data:x/x;base64,W%20A"), "x/x 58")
+        XCTAssertEqual(read("data:x/x;base64,W%0CA"), "x/x 58")
+        XCTAssertEqual(read("data:x/x;base64,WA=="), "x/x 58")
+        XCTAssertEqual(read("data:x/x;base64,WAA"), "x/x 5800")
+        XCTAssertNil(read("data:x/x;base64,WA="))
+        XCTAssertNil(read("data:x/x;base64,WA==="))
+        XCTAssertNil(read("data:x/x;base64,W=A="))
+        XCTAssertNil(read("data:x/x;base64,WAAAA"))
+        // A query is part of the body; tabs and newlines are left out, and the scheme is matched
+        // in any case past the controls and spaces before it.
+        XCTAssertEqual(read("data:,X?Y"), "text/plain 583f59")
+        XCTAssertEqual(read(" \u{1}D\nA\tTA:,X\r "), "text/plain 58")
+        XCTAssertTrue(DataURL.isDataURL("\tdata:image/png"), "a data: URL the processor cannot read is still one")
+        XCTAssertFalse(DataURL.isDataURL("dat:,X"))
+        XCTAssertFalse(DataURL.isDataURL("./data:,X"))
+        XCTAssertFalse(DataURL.isDataURL("\u{A0}data:,X"), "a no-break space is not read past")
+        // The body is held to a length in both forms.
+        XCTAssertEqual(read("data:,abcd", maximumBytes: 4), "text/plain 61626364")
+        XCTAssertNil(read("data:,abcd", maximumBytes: 3))
+        XCTAssertEqual(read("data:;base64,YWJjZA==", maximumBytes: 4), "text/plain 61626364")
+        XCTAssertNil(read("data:;base64,YWJjZA==", maximumBytes: 3))
     }
 }
