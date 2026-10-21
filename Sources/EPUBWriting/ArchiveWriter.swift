@@ -35,10 +35,12 @@ public enum EPUBArchiveWriter {
         // The source must be exactly the mimetype (EPUB 3.3, 4.3.3: no padding or whitespace).
         // One byte past it is read, so trailing bytes are refused without reading a large file.
         let mimetype = Data("application/epub+zip".utf8)
-        let mime = try FileHandle(forReadingFrom: entries[0].fileURL)
-        defer { try? mime.close() }
-        guard try mime.read(upToCount: mimetype.count + 1) == mimetype else {
-            throw EPUBWritingError.invalidPublication("invalid mimetype")
+        do {
+            let mime = try FileHandle(forReadingFrom: entries[0].fileURL)
+            defer { try? mime.close() }
+            guard try mime.read(upToCount: mimetype.count + 1) == mimetype else {
+                throw EPUBWritingError.invalidPublication("invalid mimetype")
+            }
         }
         var remainingUses = Dictionary(grouping: entries, by: { $0.fileURL.standardizedFileURL }).mapValues(\.count)
         await progress(0)
@@ -49,23 +51,34 @@ public enum EPUBArchiveWriter {
         var bytes: Int64 = 0
         for (index, entry) in entries.enumerated() {
             try Task.checkCancellation()
-            let handle = try FileHandle(forReadingFrom: entry.fileURL)
-            defer { try? handle.close() }
-            // Measure the opened file, so a symbolic link's target supplies both size and bytes.
-            guard let size = Int64(exactly: try handle.seekToEnd()), size <= maximumContentBytes - bytes else {
-                throw EPUBWritingError.resourceLimit("EPUB total size")
-            }
-            bytes += size
-            try archive.addEntry(with: entry.path, type: .file, uncompressedSize: size,
-                                 modificationDate: modificationDate,
-                                 compressionMethod: entry.path == "mimetype" ? .none : .deflate) { position, count in
-                try autoreleasepool {
-                    try Task.checkCancellation()
-                    try handle.seek(toOffset: UInt64(position))
-                    return try handle.read(upToCount: count) ?? Data()
+            if index == 0 {
+                // The mimetype is written, stored, from the bytes checked above. Its source is not
+                // read again, so one appended to or replaced since, while `progress(0)` ran, is
+                // not archived unchecked.
+                bytes = Int64(mimetype.count)
+                guard bytes <= maximumContentBytes else { throw EPUBWritingError.resourceLimit("EPUB total size") }
+                try archive.addEntry(with: entry.path, type: .file, uncompressedSize: bytes,
+                                     modificationDate: modificationDate, compressionMethod: .none) { position, count in
+                    Data(mimetype.dropFirst(Int(position)).prefix(count))
                 }
+            } else {
+                let handle = try FileHandle(forReadingFrom: entry.fileURL)
+                defer { try? handle.close() }
+                // Measure the opened file, so a symbolic link's target supplies both size and bytes.
+                guard let size = Int64(exactly: try handle.seekToEnd()), size <= maximumContentBytes - bytes else {
+                    throw EPUBWritingError.resourceLimit("EPUB total size")
+                }
+                bytes += size
+                try archive.addEntry(with: entry.path, type: .file, uncompressedSize: size,
+                                     modificationDate: modificationDate, compressionMethod: .deflate) { position, count in
+                    try autoreleasepool {
+                        try Task.checkCancellation()
+                        try handle.seek(toOffset: UInt64(position))
+                        return try handle.read(upToCount: count) ?? Data()
+                    }
+                }
+                try handle.close()
             }
-            try handle.close()
             let source = entry.fileURL.standardizedFileURL
             remainingUses[source, default: 1] -= 1
             if consumption[source] == true, remainingUses[source] == 0 {

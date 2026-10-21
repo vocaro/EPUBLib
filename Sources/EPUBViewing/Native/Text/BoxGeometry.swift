@@ -256,6 +256,10 @@ enum ReaderBoxLayout {
             let range = ranges[index]
             let flow = text.attribute(.readerParagraphFlow, at: range.location, effectiveRange: nil) as? ReaderParagraphFlow
             let beforeScope = cursor
+            // A paragraph opening blocks that clear floats starts below them, with the box it
+            // begins and the flow after it: the blocks' top is there (CSS 2.2 9.5.2).
+            if let clear = text.attribute(.readerClear, at: range.location, effectiveRange: nil) as? ComputedStyle.Clear,
+               let floor = clearance(clear, of: plan.regions) { cursor = max(cursor, floor) }
             if let root = flow?.scope.sectionRoot, sectionOrigins[root] == nil { sectionOrigins[root] = cursor }
             func enterScope(_ scope: ReaderBoxScope) {
                 guard scopeOrigins[scope.id] == nil else { return }
@@ -417,6 +421,11 @@ enum ReaderBoxLayout {
                             else if let bottom = resolve(style.positionBottom, referenceHeight) { y = origin + referenceHeight - bottom - height }
                             y = max(0, y)
                         } else if let placed { y = placed.top }
+                        // A float that clears is below the earlier floats it names, whatever the
+                        // flow beside it does (CSS 2.2 9.5.2, rule 10).
+                        if style.float != .none, let floor = clearance(style.clear, of: plan.regions) {
+                            y = max(y, floor + retainedSpacing)
+                        }
                         // Rectangular floats/callouts avoid one another and existing content.
                         var frame = CGRect(x: max(0, x - edgeLeft), y: y,
                             width: min(viewport.width, width + edgeLeft + edgeRight), height: height)
@@ -530,13 +539,9 @@ enum ReaderBoxLayout {
                 }
                 base = after.top
             }
-            let clear = flow?.style.clear ?? .none
-            let floor = plan.regions.filter { region in
-                region.side != .none && (clear == .both || (clear == .left && region.side == .left) || (clear == .right && region.side == .right))
-            }.map(\.frame.maxY).max() ?? base
             let table = text.attribute(.attachment, at: range.location, effectiveRange: nil) is TableRowAttachment
             let tableFloor = table ? plan.regions.map(\.frame.maxY).max() ?? base : base
-            let start = max(base, floor, tableFloor)
+            let start = max(base, tableFloor)
             let column = box.map { scopeFrame($0.containing) } ?? flow.map { scopeFrame($0.scope) }
             let scoped = column.map { $0.minX > 0 || $0.width < viewport.width } ?? false
             if scoped { setEdges(text, range: range, x: column!.minX, width: column!.width, viewport: viewport) }
@@ -582,9 +587,12 @@ enum ReaderBoxLayout {
             if measurementRange.length < range.length { break }
             index += 1
         }
-        // A trailing box still contributes to document height, even without following prose.
-        if let last = plan.paragraphs.indices.last, let bottom = plan.regions.map(\.frame.maxY).max(), bottom > cursor {
-            plan.paragraphs[last].bottomAdjustment += bottom - cursor
+        // A trailing box still contributes to document height, even without following prose. The
+        // flow ends where the last planned paragraph does, which the cursor need not: the
+        // paragraph left to TextKit after it may have moved it down to clear the boxes.
+        if let last = plan.paragraphs.indices.last, let bottom = plan.regions.map(\.frame.maxY).max(),
+           bottom > plan.paragraphs[last].flowEnd {
+            plan.paragraphs[last].bottomAdjustment += bottom - plan.paragraphs[last].flowEnd
             plan.paragraphs[last].flowEnd = bottom
         }
         plan.formGroups()
@@ -804,6 +812,13 @@ enum ReaderBoxLayout {
             let dropped = max(0, style?.paragraphSpacingBefore ?? 0) + max(0, previous?.paragraphSpacing ?? 0)
             return layout.bottoms[low] - layout.tops[low] - dropped
         }
+    }
+
+    /// The bottom of the lowest float in `regions` on a side `clear` names; nil when none is.
+    static func clearance(_ clear: ComputedStyle.Clear, of regions: [ReaderBoxGeometry.Region]) -> CGFloat? {
+        guard clear != .none else { return nil }
+        return regions.lazy.filter { ($0.side == .left && clear != .right) || ($0.side == .right && clear != .left) }
+            .map(\.frame.maxY).max()
     }
 
     /// `frame` moved down until it is clear of every obstacle. Each drop goes to the bottom of
