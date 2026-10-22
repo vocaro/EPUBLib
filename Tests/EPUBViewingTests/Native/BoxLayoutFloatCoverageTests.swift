@@ -791,9 +791,9 @@ import UIKit
     }
 
     /// CSS Text 3, 5.2: with `overflow-wrap: normal` a line breaks only at a wrap opportunity, so
-    /// a number wider than its float overflows on one line. The reader breaks it inside the word.
+    /// a number wider than its float overflows on one line. The reader cannot overflow its column,
+    /// so it widens the float to the number instead (#152).
     func testAWordIsNotBrokenInsideAFloatNarrowerThanIt() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/152")
         let (section, view) = try layout("<p><span class='n'>12345</span>Verse text follows the number. \(H.prose)</p>", css: ".n { float:left; width:20px }")
         let number = H.range("12345", in: section)
         XCTAssertEqual(H.lines(in: view, intersecting: number).count, 1, "the number is one word on one line")
@@ -803,12 +803,20 @@ import UIKit
     /// CSS 2.2 9.5: "If a shortened line box is too small to contain any content, then the line
     /// box is shifted downward … until either some content fits or there are no more floats
     /// present." A word wider than the slot beside a float goes below it; it is never cut in two.
+    /// The words do not hyphenate here (`hyphens: manual`); the reader's style sheet has them
+    /// hyphenate, and then the slot holds a word's first part (the next test).
     func testProseWordsAreNotBrokenInANarrowSlotBesideAFloat() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/152")
         let words = "Extraordinarily considerable vocabulary necessitates uninterrupted consideration."
-        let (section, view) = try layout("<figure>Alpha box.</figure><p>\(words) \(H.prose)</p>", css: "figure { float:left; width:300px; height:120px }")
+        let (section, view) = try layout("<figure>Alpha box.</figure><p>\(words) \(H.prose)</p>",
+                                         css: "figure { float:left; width:300px; height:120px } p { hyphens:manual }")
+        XCTAssertEqual(Self.brokenWords(H.lines(in: view, intersecting: H.range(words, in: section)), in: section), [],
+                       "lines that end inside a word, in the 60-point slot beside a 300-point float")
+        XCTAssertEqual(view.visibleText, section.string.string)
+    }
+
+    /// Each line of `lines` that ends inside a word, with the start of the line after it.
+    private static func brokenWords(_ lines: [(range: NSRange, frame: CGRect)], in section: SectionText) -> [String] {
         let text = section.string.string as NSString
-        let lines = H.lines(in: view, intersecting: H.range(words, in: section))
         var broken: [String] = []
         for (line, next) in zip(lines, lines.dropFirst()) {
             let last = text.substring(with: NSRange(location: line.range.upperBound - 1, length: 1)), first = text.substring(with: NSRange(location: next.range.location, length: 1))
@@ -816,8 +824,203 @@ import UIKit
                 broken.append(text.substring(with: line.range) + "|" + text.substring(with: next.range).prefix(8))
             }
         }
-        XCTAssertEqual(broken, [], "lines that end inside a word, in the 60-point slot beside a 300-point float")
+        return broken
+    }
+
+    /// Each line of `lines` that ends inside a word where the platform's English hyphenation
+    /// dictionary has no hyphenation point, with the start of the line after it.
+    private static func breaksOffHyphenationPoints(_ lines: [(range: NSRange, frame: CGRect)], in section: SectionText) -> [String] {
+        let text = section.string.string as NSString
+        let locale = Locale(identifier: "en") as NSLocale as CFLocale
+        let separators = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
+        var off: [String] = []
+        for (line, next) in zip(lines, lines.dropFirst()) where !brokenWords([line, next], in: section).isEmpty {
+            let start = text.rangeOfCharacter(from: separators, options: .backwards, range: NSRange(location: 0, length: line.range.upperBound))
+            let end = text.rangeOfCharacter(from: separators, range: NSRange(location: next.range.location, length: text.length - next.range.location))
+            let word = start.location == NSNotFound ? 0 : start.upperBound
+            let characters = text.substring(with: NSRange(location: word, length: (end.location == NSNotFound ? text.length : end.location) - word)) as CFString
+            let point = CFStringGetHyphenationLocationBeforeIndex(characters, line.range.upperBound - word + 1,
+                                                                  CFRange(location: 0, length: CFStringGetLength(characters)), 0, locale, nil)
+            if point != line.range.upperBound - word { off += brokenWords([line, next], in: section) }
+        }
+        return off
+    }
+
+    /// With `hyphens: auto`, the reader's default, a hyphenation point is a place a line may end
+    /// (CSS Text 3, 5.4), so a word's first part and its hyphen are content that fits the slot,
+    /// and the slot holds them, as WebKit sets them there. Every line that ends inside a word
+    /// ends at a hyphenation point of the platform's dictionary for the text's language. A word
+    /// that has none, a number here, is not cut but goes below the float (CSS 2.2 9.5).
+    func testAHyphenatingParagraphSetsTheFirstPartOfAWordInTheSlotBesideAFloat() throws {
+        let words = "Extraordinarily considerable vocabulary necessitates uninterrupted consideration."
+        let (section, view) = try layout("<figure>Alpha box.</figure><p>\(words) \(H.prose)</p>", css: "figure { float:left; width:300px; height:120px }")
+        let region = try XCTUnwrap(H.region("Alpha box.", in: section, view: view))
+        let lines = H.lines(in: view, intersecting: H.range(words, in: section))
+        let first = try XCTUnwrap(lines.first)
+        XCTAssertEqual(first.frame.minY, 0, accuracy: 0.5, "the paragraph starts beside the float")
+        XCTAssertGreaterThanOrEqual(first.frame.minX, region.frame.maxX - 0.5)
+        XCTAssertFalse(Self.brokenWords(lines, in: section).isEmpty, "the slot holds parts of words")
+        XCTAssertEqual(Self.breaksOffHyphenationPoints(lines, in: section), [])
         XCTAssertEqual(view.visibleText, section.string.string)
+        let number = "12345678901234567890"
+        let (other, otherView) = try layout("<figure>Alpha box.</figure><p>\(number) \(H.prose)</p>", css: "figure { float:left; width:300px; height:120px }")
+        let opening = H.lines(in: otherView, intersecting: H.range(number, in: other))
+        XCTAssertEqual(opening.count, 1, "the number is on one line")
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(opening.first).frame.minY, 119.5, "below the float")
+        XCTAssertEqual(try XCTUnwrap(opening.first).frame.minX, 0, accuracy: 0.5)
+    }
+
+    /// A float narrower than its longest word is as wide as that word and no wider: a verse
+    /// number in a float sized in pixels, at the reader's larger font sizes too, stands on one
+    /// line with the verse beside it, in the section and on its page (#152).
+    func testAFloatNarrowerThanItsLongestWordIsAsWideAsThatWord() throws {
+        for fontSize: CGFloat in [16, 25] {
+            let (section, view) = try layout("<p><span class='n'>12345</span>Verse text follows the number. \(H.prose)</p>",
+                                             css: ".n { float:left; width:20px }", fontSize: fontSize)
+            let region = try XCTUnwrap(H.region("12345", in: section, view: view), "\(fontSize)")
+            let number = H.frame("12345", in: section, view: view)
+            XCTAssertEqual(H.lines(in: view, intersecting: H.range("12345", in: section)).count, 1, "\(fontSize)")
+            XCTAssertGreaterThanOrEqual(region.frame.width, number.width - 0.5, "\(fontSize)")
+            XCTAssertLessThan(region.frame.width, number.width + 2, "the word's width, not a share of the column: \(fontSize)")
+            XCTAssertTrue(region.frame.insetBy(dx: -1, dy: -1).contains(number), "\(fontSize)")
+            let verse = try XCTUnwrap(H.lines(in: view, intersecting: H.range("Verse text", in: section)).first).frame
+            XCTAssertEqual(verse.minX, region.frame.maxX, accuracy: 1, "the verse starts at the float's edge: \(fontSize)")
+            XCTAssertEqual(verse.minY, region.frame.minY, accuracy: 1, "\(fontSize)")
+            let (paginator, pages) = H.pages(section, size: size, "\(fontSize)")
+            let page = H.pageView(paginator, page: try XCTUnwrap(pages.first))
+            XCTAssertEqual(H.lines(in: page, intersecting: H.range("12345", in: section)).count, 1, "the page sets it as the section does: \(fontSize)")
+        }
+    }
+
+    /// `text-indent` inherits into the float, whose first line starts that far in, as WebKit
+    /// starts it. The float holds the indent and the number after it on one line.
+    func testAFloatNarrowerThanItsIndentedFirstWordHoldsTheIndentAndTheWord() throws {
+        for fontSize: CGFloat in [16, 25] {
+            let (section, view) = try layout("<p><span class='n'>12345</span>Verse text follows the number. \(H.prose)</p>",
+                                             css: "p { text-indent:1.5em } .n { float:left; width:20px }", fontSize: fontSize)
+            let region = try XCTUnwrap(H.region("12345", in: section, view: view), "\(fontSize)")
+            let number = H.frame("12345", in: section, view: view)
+            XCTAssertEqual(H.lines(in: view, intersecting: H.range("12345", in: section)).count, 1, "\(fontSize)")
+            XCTAssertEqual(number.minX, region.frame.minX + 1.5 * fontSize, accuracy: 1, "after the indent: \(fontSize)")
+            XCTAssertLessThanOrEqual(number.maxX, region.frame.maxX + 0.5, "\(fontSize)")
+            XCTAssertLessThan(region.frame.width, 1.5 * fontSize + number.width + 2, "the indent and the word, no more: \(fontSize)")
+            XCTAssertFalse(H.overlaps([number], H.ink("Verse text follows the number.", in: section, view: view)), "\(fontSize)")
+        }
+    }
+
+    /// Where the float's text hyphenates (`hyphens: auto`, the reader's default) a line may end
+    /// at a hyphenation point, so the float keeps its width and sets its words in parts, each
+    /// break at a hyphenation point, as WebKit sets them. Where it does not, it is as wide as its
+    /// longest word.
+    func testAFloatWhoseWordsHyphenateKeepsItsWidthAndOneWhoseWordsDoNotWidensToThem() throws {
+        let words = "Extraordinarily considerable vocabulary."
+        for hyphens in ["auto", "manual"] {
+            let (section, view) = try layout("<aside>\(words)</aside><p>\(H.prose)</p>",
+                                             css: "aside { float:right; width:60px; hyphens:\(hyphens) }")
+            let region = try XCTUnwrap(H.region(words, in: section, view: view), hyphens)
+            let content = try XCTUnwrap(region.contentFrame, hyphens)
+            let lines = H.lines(in: view, intersecting: H.range(words, in: section))
+            if hyphens == "auto" {
+                XCTAssertEqual(content.width, 60, accuracy: 0.5, "the float keeps its width")
+                XCTAssertFalse(Self.brokenWords(lines, in: section).isEmpty, "its words are set in parts")
+                XCTAssertEqual(Self.breaksOffHyphenationPoints(lines, in: section), [])
+            } else {
+                let longest = H.frame("Extraordinarily", in: section, view: view).width
+                XCTAssertGreaterThanOrEqual(content.width, longest - 0.5, "as wide as its longest word")
+                XCTAssertLessThan(content.width, longest + 2)
+                XCTAssertEqual(Self.brokenWords(lines, in: section), [])
+            }
+            XCTAssertEqual(content.maxX, 360, accuracy: 0.5, hyphens)
+            let ink = H.ink(words, in: section, view: view)
+            XCTAssertTrue(ink.allSatisfy { $0.minX >= content.minX - 0.5 && $0.maxX <= content.maxX + 0.5 }, "\(hyphens): \(ink)")
+            XCTAssertEqual(view.visibleText, section.string.string, hyphens)
+        }
+    }
+
+    /// A line may not end after an opening bracket or guillemet, or before a closing one (UAX #14,
+    /// LB13 and LB14), so the space inside `( exemple )` or `« Non »` does not part the brackets
+    /// from their word, and nor does a no-break space or the narrow one French sets inside
+    /// guillemets. Such a unit is one word to the room beside a float and to a float's width: it
+    /// goes below the float, or widens it, and is never cut between two characters.
+    func testBracketsAndGuillemetsStayWithTheirWordBesideAndInsideAFloat() throws {
+        let quoted = ["« Non »", "«\u{00A0}Non\u{00A0}»", "«\u{202F}Non\u{202F}»"]
+        for opening in ["( exemple ) suit."] + quoted.map { $0 + " dit-il." } {
+            for slot in [50, 60, 70] {
+                let label = "\(opening) beside \(slot)"
+                let (section, view) = try layout("<figure>Alpha box.</figure><p lang='fr'>\(opening) \(H.prose)</p>",
+                                                 css: "figure { float:left; width:\(360 - slot)px; height:200px } p { hyphens:manual }")
+                XCTAssertEqual(Self.brokenWords(H.lines(in: view, intersecting: H.range(opening, in: section)), in: section), [], label)
+                XCTAssertEqual(view.visibleText, section.string.string, label)
+            }
+        }
+        for unit in quoted {
+            for width in [42, 43] {
+                let label = "\(unit) in \(width)"
+                let (section, view) = try layout("<p lang='fr'><span class='n'>\(unit) dit-il</span>La suite du texte. \(H.prose)</p>",
+                                                 css: ".n { float:left; width:\(width)px } p { hyphens:manual }")
+                let region = try XCTUnwrap(H.region(unit, in: section, view: view), label)
+                XCTAssertEqual(H.lines(in: view, intersecting: H.range(unit, in: section)).count, 1, label)
+                XCTAssertGreaterThanOrEqual(region.frame.width, H.frame(unit, in: section, view: view).width - 0.5, "widened to the unit: \(label)")
+            }
+        }
+    }
+
+    /// The word's width stops at the containing block: a float whose word is wider than the
+    /// column is as wide as the column, and its word is broken there, as nothing leaves the column.
+    func testAFloatWhoseWordIsWiderThanTheColumnIsAsWideAsTheColumn() throws {
+        let number = String(repeating: "1234567890", count: 6)
+        let (section, view) = try layout("<blockquote><p><span class='n'>\(number)</span>Verse text follows the number.</p></blockquote>",
+                                         css: "blockquote { margin:0 40px } .n { float:left; width:20px }")
+        let region = try XCTUnwrap(H.region(number, in: section, view: view))
+        XCTAssertEqual(region.frame.minX, 40, accuracy: 0.5)
+        XCTAssertEqual(region.frame.maxX, 320, accuracy: 1, "the quotation's content box")
+        XCTAssertGreaterThan(H.lines(in: view, intersecting: H.range(number, in: section)).count, 1)
+        XCTAssertGreaterThanOrEqual(H.frame("Verse text", in: section, view: view).minY, region.frame.maxY - 0.5)
+        XCTAssertEqual(view.visibleText, section.string.string)
+    }
+
+    /// The floor is the float's longest word, not its images: an image with no size of its own
+    /// in a float narrower than the image still shrinks to the float.
+    func testAnImageInAFloatNarrowerThanItStillShrinksToTheFloat() throws {
+        let (section, view) = try layout("<figure><img id='image' src='picture.png' alt='Pic'/><figcaption>Cap.</figcaption></figure><p>\(H.prose)</p>",
+                                         css: "figure { float:left; width:100px }", files: ["picture.png": RichFixture.image(width: 240, height: 160)])
+        let region = try XCTUnwrap(H.region("Cap.", in: section, view: view))
+        XCTAssertEqual(region.frame.width, 100, accuracy: 1)
+        let image = try XCTUnwrap(view.segmentFrames(for: NSRange(location: try XCTUnwrap(section.anchors["image"]), length: 1)).first)
+        XCTAssertEqual(image.width, 100, accuracy: 1)
+        XCTAssertTrue(proseLines(H.prose, around: region, in: section, view: view).beside.allSatisfy { $0.minX >= 99 })
+    }
+
+    /// CSS 2.2 9.5: a line beside a float too narrow for the line's first word is shifted down
+    /// past the float, on either side of it, and starts at the column's edge there. The word does
+    /// not hyphenate (`hyphens: manual`).
+    func testALineWhoseFirstWordIsWiderThanTheSlotBesideAFloatStartsBelowIt() throws {
+        for side in ["left", "right"] {
+            let (section, view) = try layout("<figure>Alpha box.</figure><p>Extraordinarily \(H.prose)</p>",
+                                             css: "figure { float:\(side); width:300px; height:120px } p { hyphens:manual }")
+            let region = try XCTUnwrap(H.region("Alpha box.", in: section, view: view), side)
+            let first = try XCTUnwrap(H.lines(in: view, intersecting: H.range("Extraordinarily", in: section)).first).frame
+            XCTAssertGreaterThanOrEqual(first.minY, region.frame.maxY - 0.5, "below the float: \(side)")
+            XCTAssertEqual(first.minX, 0, accuracy: 0.5, side)
+            XCTAssertGreaterThan(first.width, 300, "the full column: \(side)")
+            XCTAssertFalse(H.overlaps(H.ink(H.prose, in: section, view: view), [region.frame]), side)
+            H.pages(section, size: size, side)
+        }
+    }
+
+    /// Words that fit the slot beside a float are set in it (CSS 2.2 9.5 shifts a line only when
+    /// no content fits), and the line that opens with a word too wide for it goes below the float.
+    func testShortWordsAreSetInANarrowSlotBesideAFloatAndALongOneBelowIt() throws {
+        let short = "To be or not to be."
+        let (section, view) = try layout("<figure>Alpha box.</figure><p>\(short) Extraordinarily \(H.prose)</p>",
+                                         css: "figure { float:left; width:300px; height:120px } p { hyphens:manual }")
+        let region = try XCTUnwrap(H.region("Alpha box.", in: section, view: view))
+        let beside = H.lines(in: view, intersecting: H.range(short, in: section)).map(\.frame)
+        XCTAssertFalse(beside.isEmpty)
+        XCTAssertTrue(beside.allSatisfy { $0.minX >= 299.5 && $0.maxY <= region.frame.maxY + 0.5 }, "in the 60-point slot: \(beside)")
+        let long = try XCTUnwrap(H.lines(in: view, intersecting: H.range("Extraordinarily", in: section)).first).frame
+        XCTAssertGreaterThanOrEqual(long.minY, region.frame.maxY - 0.5)
+        XCTAssertEqual(long.minX, 0, accuracy: 0.5)
     }
 
     // MARK: Groups

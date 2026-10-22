@@ -336,33 +336,206 @@ enum TableMeasure {
     static func minimumWidth(_ text: NSAttributedString) -> CGFloat {
         guard text.length > 0 else { return 0 }
         var widest: CGFloat = 0
-        let measured = NSMutableAttributedString(attributedString: text)
-        let full = NSRange(location: 0, length: text.length)
-        text.enumerateAttribute(.attachment, in: full) { value, range, _ in
+        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, range, _ in
             guard let attachment = value as? NSTextAttachment else { return }
             widest = max(widest, minimumWidth(of: attachment, attributes: text.attributes(at: range.location, effectiveRange: nil)))
-            measured.replaceCharacters(in: range, with: String(repeating: " ", count: range.length))
         }
-        let string = measured.string as NSString
-        string.enumerateSubstrings(in: full, options: [.byParagraphs, .substringNotRequired]) { _, range, _, _ in
-            guard range.length > 0 else { return }
-            let paragraph = measured.attributedSubstring(from: range)
-            let style = paragraph.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        forEachParagraph(in: text) { measured, range, style in
             let indent = max(style?.headIndent ?? 0, style?.firstLineHeadIndent ?? 0)
+            let paragraph = measured.attributedSubstring(from: range)
             let typesetter = CTTypesetterCreateWithAttributedString(paragraph as CFAttributedString)
-            let source = paragraph.string as CFString
-            let tokenizer = CFStringTokenizerCreate(nil, source, CFRange(location: 0, length: range.length),
-                                                    kCFStringTokenizerUnitLineBreak, nil)
-            var token = CFStringTokenizerAdvanceToNextToken(tokenizer)
-            while token.rawValue != 0 {
-                let tokenRange = CFStringTokenizerGetCurrentTokenRange(tokenizer)
-                let line = CTTypesetterCreateLine(typesetter, tokenRange)
-                let width = CTLineGetTypographicBounds(line, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(line)
-                widest = max(widest, CGFloat(width) + indent)
-                token = CFStringTokenizerAdvanceToNextToken(tokenizer)
+            forEachWord(in: paragraph) { word, _ in widest = max(widest, width(of: word, in: typesetter) + indent) }
+        }
+        return ceil(widest)
+    }
+
+    /// The narrowest a float's content can be with no word of `text` broken between two
+    /// characters (`ReaderBoxLayout`): its widest word, the first word of a paragraph after the
+    /// indent its first line keeps (`text-indent`, as `ReaderBoxLayout` sets the float's edges).
+    /// In a paragraph that hyphenates (`hyphens: auto`) a line may end at a hyphenation point
+    /// (CSS Text 3, 5.4), so there a word counts by its widest part and the hyphen set after it.
+    /// Attachments are left out: an image is sized to the float.
+    ///
+    /// Only what is wider than `width` can widen the float. A paragraph whose runs between the
+    /// spaces a line surely may end at fit in `width` (`widestRun`) holds no word wider. Only
+    /// where a run does not fit are the paragraph's words found and set one by one, and only a
+    /// word too wide is looked up in the hyphenation dictionary. Doing all three for every float
+    /// made resolving a section of 300 floats of a set width two fifths slower (#152).
+    static func widestPiece(_ text: NSAttributedString, within width: CGFloat) -> CGFloat {
+        guard text.length > 0 else { return 0 }
+        var widest: CGFloat = 0
+        // A paragraph's language is that of most of its words: each is looked up once.
+        var locales: [String: CFLocale?] = [:]
+        forEachParagraph(in: text) { measured, range, style in
+            let indent = max(0, (style?.firstLineHeadIndent ?? 0) - (style?.headIndent ?? 0))
+            // Rounded up as the result is: a word no wider than `width` still widens it to the
+            // next point.
+            let runs = widestRun(of: measured, in: range, indent: indent)
+            if ceil(runs) <= width {
+                widest = max(widest, runs)
+                return
+            }
+            let paragraph = measured.attributedSubstring(from: range)
+            let typesetter = CTTypesetterCreateWithAttributedString(paragraph as CFAttributedString)
+            forEachWord(in: paragraph) { word, opens in
+                let end = word.location + word.length
+                let whole = Self.width(of: word, in: typesetter) + (opens ? indent : 0)
+                var points: [Int] = []
+                if ceil(whole) > width, (style?.hyphenationFactor ?? 0) > 0 {
+                    let language = paragraph.attribute(InlineStyling.languageKey, at: word.location, effectiveRange: nil) as? String
+                    if locales[language ?? ""] == nil { locales[language ?? ""] = .some(hyphenationLocale(language)) }
+                    if let locale = locales[language ?? ""] ?? nil {
+                        points = hyphenationPoints(in: paragraph, word: NSRange(location: word.location, length: word.length), locale: locale)
+                    }
+                }
+                guard !points.isEmpty else { widest = max(widest, whole); return }
+                var start = word.location
+                for stop in points + [end] {
+                    var piece = Self.width(of: CFRange(location: start, length: stop - start), in: typesetter)
+                    if stop < end {
+                        let hyphen = CTLineCreateWithAttributedString(NSAttributedString(string: "-",
+                            attributes: paragraph.attributes(at: stop - 1, effectiveRange: nil)) as CFAttributedString)
+                        piece += CGFloat(CTLineGetTypographicBounds(hyphen, nil, nil, nil))
+                    }
+                    if opens, start == word.location { piece += indent }
+                    widest = max(widest, piece)
+                    start = stop
+                }
             }
         }
         return ceil(widest)
+    }
+
+    /// The white space a line may end after, depending on what is around it (`endsRun(at:in:)`):
+    /// a space, a tab, a zero-width space, and the ends of lines and paragraphs.
+    static let breakingSpaces: Set<unichar> = [0x20, 0x09, 0x0A, 0x0D, 0x200B, 0x2028, 0x2029]
+    /// Letters and digits: a line may end at a space between two of them (UAX #14, LB18).
+    private static let wordCharacters = CharacterSet.letters.subtracting(.nonBaseCharacters).union(.decimalDigits)
+
+    /// Whether a line may end at the white space at `index` of `string`, whatever the text around
+    /// it: at a line's or a paragraph's end and after a zero-width space always, and at a space or
+    /// a tab where a letter or a digit stands on each side of the white space. Next to punctuation
+    /// a space can be inside a unit between line-break opportunities: no line ends after an
+    /// opening bracket or guillemet, or before a closing one (`( exemple )`, `« Non »`, LB13–LB17).
+    static func endsRun(at index: Int, in string: NSString) -> Bool {
+        let character = string.character(at: index)
+        guard character == 0x20 || character == 0x09 else { return breakingSpaces.contains(character) }
+        var before = index - 1, after = index + 1
+        while before >= 0, string.character(at: before) == 0x20 || string.character(at: before) == 0x09 { before -= 1 }
+        while after < string.length, string.character(at: after) == 0x20 || string.character(at: after) == 0x09 { after += 1 }
+        guard before >= 0, after < string.length, let previous = UnicodeScalar(string.character(at: before)),
+              let next = UnicodeScalar(string.character(at: after)) else { return false }
+        return wordCharacters.contains(previous) && wordCharacters.contains(next)
+    }
+
+    /// The widest run of `range` of `text` between the white space a line surely may end at
+    /// (`endsRun(at:in:)`), the first run after `indent`, as one line sets the range: each glyph's
+    /// advance counted at the character it is set for, kerning, small capitals and contextual
+    /// forms included. No unit between line-break opportunities is wider, and setting the range
+    /// once costs far less than finding its units and setting each on a line of its own.
+    static func widestRun(of text: NSAttributedString, in range: NSRange, indent: CGFloat = 0) -> CGFloat {
+        guard range.length > 0 else { return 0 }
+        let string = text.string as NSString
+        let line = CTLineCreateWithAttributedString(text.attributedSubstring(from: range) as CFAttributedString)
+        // A line's first word is measured for every line set beside a float: CoreText's own
+        // buffers are read where it has them, and nothing is put on the heap.
+        return withUnsafeTemporaryAllocation(of: CGFloat.self, capacity: range.length) { advances in
+            advances.initialize(repeating: 0)
+            for glyphRun in CTLineGetGlyphRuns(line) as? [CTRun] ?? [] {
+                let count = CTRunGetGlyphCount(glyphRun)
+                guard count > 0 else { continue }
+                func add(_ indices: UnsafePointer<CFIndex>, _ sizes: UnsafePointer<CGSize>) {
+                    for glyph in 0..<count where indices[glyph] >= 0 && indices[glyph] < range.length {
+                        advances[indices[glyph]] += sizes[glyph].width
+                    }
+                }
+                if let indices = CTRunGetStringIndicesPtr(glyphRun), let sizes = CTRunGetAdvancesPtr(glyphRun) {
+                    add(indices, sizes)
+                } else {
+                    var indices = [CFIndex](repeating: 0, count: count), sizes = [CGSize](repeating: .zero, count: count)
+                    CTRunGetStringIndices(glyphRun, CFRange(location: 0, length: 0), &indices)
+                    CTRunGetAdvances(glyphRun, CFRange(location: 0, length: 0), &sizes)
+                    add(indices, sizes)
+                }
+            }
+            var widest: CGFloat = 0, run: CGFloat = 0, first = true
+            for offset in 0..<range.length {
+                let index = range.location + offset
+                guard breakingSpaces.contains(string.character(at: index)), endsRun(at: index, in: string) else { run += advances[offset]; continue }
+                widest = max(widest, run + (first ? indent : 0))
+                if run > 0 { first = false }
+                run = 0
+            }
+            return max(widest, run + (first ? indent : 0))
+        }
+    }
+
+    /// The locale whose hyphenation dictionary text in `language` (`InlineStyling.languageKey`)
+    /// is hyphenated by, the current one for text without a language; nil where the platform has
+    /// no dictionary for it.
+    static func hyphenationLocale(_ language: String?) -> CFLocale? {
+        let locale = (language.map { Locale(identifier: $0) } ?? .current) as NSLocale as CFLocale
+        return CFStringIsHyphenationAvailableForLocale(locale) ? locale : nil
+    }
+
+    /// Where the word at `word` of `text` may be hyphenated, in order: the points of `locale`'s
+    /// hyphenation dictionary (`hyphenationLocale`) inside the word. They are looked for up to its
+    /// last letter: from past the white space or punctuation that ends it, none are found.
+    static func hyphenationPoints(in text: NSAttributedString, word: NSRange, locale: CFLocale) -> [Int] {
+        guard word.length > 1 else { return [] }
+        let string = text.string as NSString
+        var length = word.length
+        while length > 0, let scalar = UnicodeScalar(string.character(at: word.location + length - 1)),
+              !CharacterSet.letters.contains(scalar) { length -= 1 }
+        let characters = string.substring(with: NSRange(location: word.location, length: length)) as CFString
+        // Each lookup finds the nearest point before where it starts, so they come from the end.
+        var points: [Int] = [], before = length
+        while before > 1 {
+            let point = CFStringGetHyphenationLocationBeforeIndex(characters, before, CFRange(location: 0, length: length), 0, locale, nil)
+            guard point != kCFNotFound, point > 0, point < before else { break }
+            points.append(word.location + point)
+            before = point
+        }
+        return points.reversed()
+    }
+
+    /// Calls `body` with `text`, its attachments left out as spaces, and the range and style of
+    /// each of its paragraphs.
+    private static func forEachParagraph(in text: NSAttributedString, _ body: (NSAttributedString, NSRange, NSParagraphStyle?) -> Void) {
+        // The text is copied only where it holds an attachment.
+        var copy: NSMutableAttributedString?
+        let full = NSRange(location: 0, length: text.length)
+        text.enumerateAttribute(.attachment, in: full) { value, range, _ in
+            guard value is NSTextAttachment else { return }
+            if copy == nil { copy = NSMutableAttributedString(attributedString: text) }
+            copy?.replaceCharacters(in: range, with: String(repeating: " ", count: range.length))
+        }
+        let measured = copy ?? text
+        let string = measured.string as NSString
+        withoutActuallyEscaping(body) { body in
+            string.enumerateSubstrings(in: full, options: [.byParagraphs, .substringNotRequired]) { _, range, _, _ in
+                guard range.length > 0 else { return }
+                body(measured, range, measured.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)
+            }
+        }
+    }
+
+    /// Calls `body` with each unit of `paragraph` between line-break opportunities (UAX #14, as
+    /// CoreText finds them), and whether it opens the paragraph.
+    private static func forEachWord(in paragraph: NSAttributedString, _ body: (CFRange, Bool) -> Void) {
+        let tokenizer = CFStringTokenizerCreate(nil, paragraph.string as CFString, CFRange(location: 0, length: paragraph.length),
+                                                kCFStringTokenizerUnitLineBreak, nil)
+        var opens = true
+        while CFStringTokenizerAdvanceToNextToken(tokenizer).rawValue != 0 {
+            body(CFStringTokenizerGetCurrentTokenRange(tokenizer), opens)
+            opens = false
+        }
+    }
+
+    /// The width of `range` of a paragraph `typesetter` sets, without the white space that ends it.
+    private static func width(of range: CFRange, in typesetter: CTTypesetter) -> CGFloat {
+        let line = CTTypesetterCreateLine(typesetter, range)
+        return CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(line))
     }
 
     /// An attachment's min-content width: the reader's own know theirs; any other is
