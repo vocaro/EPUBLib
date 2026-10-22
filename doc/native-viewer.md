@@ -61,6 +61,17 @@ continues to describe the authored spine resource.
    ([#317](https://github.com/vocaro/EPUBLib/issues/317)).
    U+0000 does not end the section: it is left out of text and is U+FFFD in tags, comments
    and the raw text of `script` and `style`, as HTML reads it.
+   For the HTML parser a DOCTYPE ends at its first `>`, as HTML ends it even inside a quoted
+   identifier: one letter of each `PUBLIC` and `SYSTEM` in it is written as a character
+   reference, so that libxml2 reads no identifier past that `>`, wherever the screen read the
+   DOCTYPE the same way. A section whose DOCTYPE identifier has lost its closing quote, which
+   XML reads on into the document and the screen refused, never reaches the XML parser and is
+   read as HTML, with its root's attributes; one with an internal subset or a declaration on
+   either side of that `>` is still refused ([#293](https://github.com/vocaro/EPUBLib/issues/293)).
+   HTML builds one root. Where libxml2 reads a root tag that has lost the closing quote of its
+   last attribute as self-closing (the tag runs to the `/>` of a later empty element) and builds
+   the rest in a second `html` beside or inside it, what that one holds is the root's, with each
+   of its attributes that the root lacks, and the section is shown (#293).
    A section whose file is cut off inside markup stays withheld, with its disclosure: the
    screen refuses markup left open at the end of the input before either parser runs.
    `XMLSafety` refuses entity declarations first. No DTD or network access, depth and node limits.
