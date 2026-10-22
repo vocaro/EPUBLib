@@ -69,9 +69,17 @@ continues to describe the authored spine resource.
    attributes produce a `ComputedStyle` per element: the CSS subset in `ComputedStyle.swift`.
    `@font-face` fonts load from the archive with CoreText. Nothing remote is fetched.
    In a section read as HTML, `epub:type` is one attribute of that name in no namespace, as
-   a browser's HTML parser makes it: `[epub\:type]` matches it, and so does `[epub|type]`
-   when the sheet binds the prefix `epub` to the OPS namespace. In XHTML only `[epub|type]`
-   does ([#111](https://github.com/vocaro/EPUBLib/issues/111)).
+   a browser's HTML parser makes it, and `[epub\:type]` matches it. A namespaced selector
+   reaches it as in XHTML, by namespace: `[ops|type]` matches it when the sheet binds `ops` to
+   the namespace the attribute's prefix stands for, whatever prefix either wrote (Selectors 4
+   §6.7), and `[*|type]` matches it too. The prefix stands for the namespace the book's
+   `xmlns:` declaration in scope gives it, as an XML parser would read it; `xml` is the XML
+   namespace, and `epub`, where the book declares none for it, the OPS namespace, as the
+   reader reads an undeclared `epub:type` for its notes (`HTMLAttributePrefixes`). Either
+   route that reads a section as HTML names an attribute whose prefix stands for OPS `epub:`,
+   so a book's `ops:type` is `epub:type`, for its notes and for `[epub\:type]`, whichever read
+   it. A browser's HTML parser would keep `ops:type`. In XHTML only `[epub|type]` matches
+   ([#111](https://github.com/vocaro/EPUBLib/issues/111), [#642](https://github.com/vocaro/EPUBLib/issues/642)).
    Media queries for the reader's appearance govern only what paints (**Appearance media**
    under [Decisions](#decisions)), so neither the reader's size nor its appearance changes
    what the next step writes.

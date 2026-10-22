@@ -767,16 +767,23 @@ struct SelectorMatcher {
             var found: Bool
             switch selector.namespace {
             case nil, .none?: found = nameMatches && attribute.namespace.isEmpty
-            case .any?: found = nameMatches
+            case .any?: found = nameMatches || Self.prefixedName(attribute, is: selector)
             case .uri(let uri)?:
-                found = nameMatches && uri.matches(attribute.namespace)
-                if !found, document.recoveredAsHTML, attribute.namespace.isEmpty, let prefixed = selector.prefixedName {
-                    found = prefixed.matches(attribute.name)
-                }
+                found = (nameMatches && uri.matches(attribute.namespace))
+                    || (uri.matches(attribute.prefixNamespace) && Self.prefixedName(attribute, is: selector))
             }
             if found, matches(selector, value: attribute.value) { return true }
         }
         return false
+    }
+
+    /// In a section read as HTML, whether a name such as `epub:type` is the attribute a selector
+    /// names, read as XML would read it: its local name after the prefix, in the namespace the
+    /// prefix stands for (`ContentAttribute.prefixNamespace`), which the caller compares. So
+    /// `[ops|type]` reaches it by namespace whatever prefix either wrote (Selectors 4 §6.7).
+    private static func prefixedName(_ attribute: ContentAttribute, is selector: CSSAttributeSelector) -> Bool {
+        guard !attribute.prefixNamespace.isEmpty, let colon = attribute.name.utf8.firstIndex(of: UInt8(ascii: ":")) else { return false }
+        return selector.lowercasedName.matches(attribute.name[attribute.name.utf8.index(after: colon)...])
     }
 
     /// Calls `body` with each token of a whitespace-separated list (CSS whitespace is ASCII).

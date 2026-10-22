@@ -90,8 +90,6 @@ struct CSSAttributeSelector: Hashable, Sendable {
     let lowercasedName: CodeUnitString
     /// nil: an attribute in no namespace, the default for unprefixed attribute selectors.
     let namespace: CSSNamespaceConstraint?
-    /// `prefix:name`, lowercased, which documents recovered as HTML keep as a plain attribute name.
-    let prefixedName: CodeUnitString?
     let operation: Operation
     /// With the `i` flag, its ASCII letters lowercase.
     let value: CodeUnitString
@@ -308,7 +306,8 @@ enum CSSBucketKey: Hashable {
     /// The name that an attribute selector's rules are bucketed under and that an element's
     /// attribute looks them up by: lowercased, from after its last colon. A document read as
     /// HTML keeps `epub:type` as one name in no namespace, which `[epub\:type]` addresses and
-    /// `[epub|type]` reaches by its prefix; in XHTML it is `type` in the OPS namespace. Each of
+    /// `[epub|type]` reaches by the namespace its prefix stands for; in XHTML it is `type` in the
+    /// OPS namespace. Each of
     /// them, and `[type]`, is bucketed as `type`, and the matcher tells them apart.
     static func attributeName(_ name: String) -> String {
         guard name.utf8.contains(where: { ($0 >= 0x41 && $0 <= 0x5A) || $0 == 0x3A || $0 >= 0x80 }) else { return name }
@@ -663,10 +662,9 @@ struct CSSSelectorParser {
             guard let uri = namespaces.prefixes[prefix] else { throw .invalid }
             namespace = .uri(CodeUnitString(uri))
         }
-        let prefixedName = prefix.flatMap { $0.isEmpty || $0 == "*" ? nil : CodeUnitString("\($0):\(name)".lowercased()) }
         guard index < components.count else {
             return CSSAttributeSelector(name: CodeUnitString(name), lowercasedName: CodeUnitString(name.lowercased()), namespace: namespace,
-                                        prefixedName: prefixedName, operation: .exists, value: "", caseInsensitive: false)
+                                        operation: .exists, value: "", caseInsensitive: false)
         }
         let operation: CSSAttributeSelector.Operation
         if components[index].isDelim("=") { operation = .equals; index += 1 }
@@ -700,7 +698,7 @@ struct CSSSelectorParser {
         }
         guard index == components.count else { throw .invalid }
         return CSSAttributeSelector(name: CodeUnitString(name), lowercasedName: CodeUnitString(name.lowercased()), namespace: namespace,
-                                    prefixedName: prefixedName, operation: operation,
+                                    operation: operation,
                                     value: CodeUnitString(caseInsensitive ? CodeUnits.asciiLowercased(value) : value),
                                     caseInsensitive: caseInsensitive)
     }
