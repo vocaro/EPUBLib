@@ -94,7 +94,7 @@ final class PackageManifestSpineCoverageTests: XCTestCase {
             // Within the container: dot segments resolve and the name begins with the mark.
             let cases: [(href: String, path: String)] = [
                 ("../\(m)x.css", "\(m)x.css"), ("./\(m)x.css", "OPS/\(m)x.css"), ("a/../\(m)x.css", "OPS/\(m)x.css"), ("a/\(m)x.css", "OPS/a/\(m)x.css"),
-                ("a//\(m)x.css", "OPS/a/\(m)x.css"), ("..%2F\(e)y.css", "\(m)y.css"), ("\(e)z.css#\(m)top", "OPS/\(m)z.css"),
+                ("a//\(m)x.css", "OPS/a/\(m)x.css"), ("%2E%2E/\(e)y.css", "\(m)y.css"), ("\(e)z.css#\(m)top", "OPS/\(m)z.css"),
             ]
             var items = "", files: [String: Data?] = [:]
             for (index, item) in cases.enumerated() {
@@ -117,9 +117,13 @@ final class PackageManifestSpineCoverageTests: XCTestCase {
                 XCTAssertEqual(Array(resource.path.unicodeScalars), Array(path.unicodeScalars), href.debugDescription)
                 XCTAssertEqual(try book.data(for: resource), Data(path.utf8), href.debugDescription)
             }
-            // A backslash names no file, and still refuses the book.
-            let href = "a\\\(m)x.css"
-            assertOpening(try self.book(items: "<item id=\"x\" href=\"\(href)\" media-type=\"text/css\"/>"), throws: .unsafePath(href), href.debugDescription)
+            // A backslash names no file, and still refuses the book. So does an escaped slash, a
+            // character of its segment that no file's name holds (https://github.com/vocaro/EPUBLib/issues/660),
+            // though the file it would name decoded is there.
+            for href in ["a\\\(m)x.css", "..%2F\(e)y.css"] {
+                assertOpening(try self.book(items: "<item id=\"x\" href=\"\(href)\" media-type=\"text/css\"/>", adding: ["\(m)y.css": Data()]),
+                              throws: .unsafePath(href), href.debugDescription)
+            }
         }
     }
 
