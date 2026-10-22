@@ -38,7 +38,7 @@ enum CSSRawRule {
 }
 
 struct CSSRawDeclaration {
-    /// Lowercased.
+    /// Lowercased, but for a custom property's (`--name`), which is case-sensitive.
     let name: String
     let value: [CSSComponent]
     let important: Bool
@@ -180,6 +180,6 @@ enum CSSParser {
                 while value.last?.isWhitespace == true { value.removeLast() }
             }
         }
-        return CSSRawDeclaration(name: name.lowercased(), value: value, important: important)
+        return CSSRawDeclaration(name: name.hasPrefix("--") ? name : name.lowercased(), value: value, important: important)
     }
 }
