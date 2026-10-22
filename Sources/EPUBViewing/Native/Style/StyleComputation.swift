@@ -44,8 +44,11 @@ extension StyleResolver {
             Linear(points: a.points + b.points, percent: a.percent + b.percent, vw: a.vw + b.vw, vh: a.vh + b.vh,
                    vmin: a.vmin + b.vmin, vmax: a.vmax + b.vmax)
         }
+        /// A unit the length does not hold stays at zero, even by an infinite factor.
         static func * (a: Linear, f: Double) -> Linear {
-            Linear(points: a.points * f, percent: a.percent * f, vw: a.vw * f, vh: a.vh * f, vmin: a.vmin * f, vmax: a.vmax * f)
+            func scaled(_ x: Double) -> Double { x == 0 ? 0 : x * f }
+            return Linear(points: scaled(a.points), percent: scaled(a.percent), vw: scaled(a.vw), vh: scaled(a.vh),
+                          vmin: scaled(a.vmin), vmax: scaled(a.vmax))
         }
         var approximation: Double {
             points + percent * Double(StyleLimits.nominalViewport.width) / 100 + viewport(StyleLimits.nominalViewport)
@@ -62,13 +65,21 @@ extension StyleResolver {
         case .value(let value, let unit): return linear(value, unit, context)
         case .sum(let terms): return terms.reduce(Linear()) { $0 + linear($1, context) }
         case .product(let node, let factor): return linear(node, context) * factor
-        case .min(let nodes): return nodes.map { linear($0, context) }.min { $0.approximation < $1.approximation } ?? Linear()
-        case .max(let nodes): return nodes.map { linear($0, context) }.max { $0.approximation < $1.approximation } ?? Linear()
+        case .min(let nodes): return extreme(nodes.map { linear($0, context) }) { $0.approximation < $1.approximation }
+        case .max(let nodes): return extreme(nodes.map { linear($0, context) }) { $0.approximation > $1.approximation }
         case .clamp(let low, let value, let high):
             let (l, v, h) = (linear(low, context), linear(value, context), linear(high, context))
+            if let nan = [l, v, h].first(where: { $0.approximation.isNaN }) { return nan }
             let upper = v.approximation < h.approximation ? v : h
             return l.approximation > upper.approximation ? l : upper
         }
+    }
+
+    /// The first of `values` that no later one precedes; NaN when one is, which a comparison
+    /// function returns whatever the others are (CSS Values 4 §10.9.2).
+    private func extreme(_ values: [Linear], _ precedes: (Linear, Linear) -> Bool) -> Linear {
+        if let nan = values.first(where: { $0.approximation.isNaN }) { return nan }
+        return values.dropFirst().reduce(values.first ?? Linear()) { precedes($1, $0) ? $1 : $0 }
     }
 
     private func linear(_ value: Double, _ unit: CSSUnit, _ context: LengthContext) -> Linear {
@@ -106,16 +117,18 @@ extension StyleResolver {
         }
     }
 
-    /// Points, approximating any symbolic part against the nominal viewport.
+    /// Points, approximating any symbolic part against the nominal viewport. NaN is 0 and an
+    /// infinity is left for the caller to clamp to the range it allows (CSS Values 4 §10.9.2).
     func points(_ length: CSSLength, _ context: LengthContext) -> CGFloat {
         let value = linear(length, context).approximation
-        return value.isFinite ? CGFloat(value) : 0
+        return value.isNaN ? 0 : CGFloat(value)
     }
 
     /// A computed length, symbolic where its reference box is only known at layout.
     func computed(_ length: CSSLength, _ context: LengthContext, points range: ClosedRange<CGFloat>) -> ComputedStyle.Length {
         let value = linear(length, context)
-        func clamp(_ x: Double, _ range: ClosedRange<CGFloat>) -> CGFloat { x.isFinite ? min(max(CGFloat(x), range.lowerBound), range.upperBound) : 0 }
+        // An infinity is the range's end, and NaN is 0 (CSS Values 4 §10.9.2).
+        func clamp(_ x: Double, _ range: ClosedRange<CGFloat>) -> CGFloat { x.isNaN ? 0 : min(max(CGFloat(x), range.lowerBound), range.upperBound) }
         let width = Double(StyleLimits.nominalViewport.width) / 100, height = Double(StyleLimits.nominalViewport.height) / 100
         let percentRange = max(StyleLimits.percent.lowerBound, range.lowerBound)...StyleLimits.percent.upperBound
         switch (value.percent != 0, value.vw != 0, value.vh != 0, value.vmin != 0, value.vmax != 0) {

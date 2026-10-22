@@ -11,8 +11,9 @@ import AppKit
 protocol ReaderTextualAttachment: AnyObject {
     var textEquivalent: String { get }
     /// What VoiceOver is given in its place, where that differs from `textEquivalent`: nothing
-    /// for an image the book keeps from assistive technology, whose words selections, copies
-    /// and search still take.
+    /// for an image or a formula the book keeps from assistive technology, whose words
+    /// selections, copies and search still take, nor for one `visibility: hidden` hides, whose
+    /// character leaves its words out of those too (`.readerHidden`).
     var spokenEquivalent: String { get }
     /// The BCP 47 language `textEquivalent` is spoken in, when it is known and may differ from
     /// the text around it: a formula's generated reading is not in the book's language.
@@ -49,8 +50,10 @@ extension NSAttributedString {
     /// The plain text of `range`, each attachment replaced by its text equivalent. Attachments
     /// without one are dropped, never left as U+FFFC. A hidden label is words of its own, set
     /// off by a space from text it touches: it takes no room, so nothing else separates them.
-    /// Text that `visibility: hidden` hides in the flow is left out (`readerHiddenText(_:)`).
-    /// `spoken` gives what VoiceOver is told instead, each attachment's `spokenEquivalent`.
+    /// Text that `visibility: hidden` hides in the flow is left out (`readerHiddenText(_:)`),
+    /// rich content it hides included. `spoken` gives what VoiceOver is told instead: each
+    /// attachment's `spokenEquivalent`, and nothing of the text the book keeps from assistive
+    /// technology with `aria-hidden` (`.readerUnspoken`), which is left out as hidden text is.
     func readerPlainText(in range: NSRange? = nil, spoken: Bool = false) -> String {
         attachmentPlainText(in: range, authored: false, spoken: spoken)
     }
@@ -68,7 +71,8 @@ extension NSAttributedString {
     }
 
     /// What a piece of the reader's text reads: characters of the text, characters that
-    /// `visibility: hidden` hides, or an attachment.
+    /// `visibility: hidden` hides (or, read to VoiceOver, that `aria-hidden` keeps from it), or
+    /// an attachment.
     private enum ReaderTextPiece {
         case text
         case hidden
@@ -97,13 +101,15 @@ extension NSAttributedString {
             afterLabel = isLabel
             body(piece, run, kind, spaced)
         }
-        enumerateAttribute(.readerHidden, in: range) { hidden, part, _ in
-            if hidden != nil { return append(readerHiddenText(part), part, .hidden, isLabel: false) }
+        enumerateReaderLeftOut(in: range, spoken: spoken) { leftOut, part in
+            if leftOut { return append(readerHiddenText(part, spoken: spoken), part, .hidden, isLabel: false) }
             enumerateAttribute(.attachment, in: part) { value, run, _ in
                 if let value {
                     // An inline formula broken over rows is read once, where its first part stands.
                     if let math = value as? MathAttachment, let inline = math.inline {
-                        if formulas.insert(ObjectIdentifier(inline)).inserted { append(math.label, run, .attachment(value), isLabel: false) }
+                        if formulas.insert(ObjectIdentifier(inline)).inserted {
+                            append(spoken ? math.spokenEquivalent : math.label, run, .attachment(value), isLabel: false)
+                        }
                         return
                     }
                     let attachment = value as? ReaderTextualAttachment
@@ -123,8 +129,9 @@ extension NSAttributedString {
     /// formula, with the tags that name no voice left out (`InlineLanguage.spoken`). An
     /// attachment's spoken words are in the language it declares for them, a formula's or a
     /// hidden label's, else in its character's; an image the book keeps from assistive
-    /// technology has none to weigh. What `visibility: hidden` hides is read as breaks or a
-    /// space at most, so it decides no language: white space takes the words' beside it.
+    /// technology has none to weigh. What `visibility: hidden` hides, or `aria-hidden` keeps
+    /// from VoiceOver, is read as breaks or a space at most, so it decides no language: white
+    /// space takes the words' beside it.
     func readerSpokenLanguages(in range: NSRange) -> ReaderSpokenLanguages {
         var parts: [(text: String, language: String?)] = []
         let text = string as NSString
@@ -152,8 +159,10 @@ extension NSAttributedString {
     /// (`.readerHidden`): a browser keeps their room and reads none of them. The breaks that end
     /// their lines and paragraphs are kept, so that the lines around them stay apart. Without a
     /// break, they read as one space where they stand between two shown words, which the room
-    /// they take sets apart on the page, and otherwise as nothing.
-    func readerHiddenText(_ run: NSRange) -> String {
+    /// they take sets apart on the page, and otherwise as nothing. `spoken` reads characters
+    /// that `aria-hidden` keeps from assistive technology (`.readerUnspoken`) the same way, for
+    /// VoiceOver.
+    func readerHiddenText(_ run: NSRange, spoken: Bool = false) -> String {
         let characters = string as NSString
         var breaks = ""
         for index in run.location..<NSMaxRange(run) where Self.isReaderBreak(characters.character(at: index)) {
@@ -161,22 +170,55 @@ extension NSAttributedString {
         }
         if !breaks.isEmpty { return breaks }
         func shownWord(at index: Int) -> Bool {
-            guard index >= 0, index < length, attribute(.readerHidden, at: index, effectiveRange: nil) == nil else { return false }
+            guard index >= 0, index < length, attribute(.readerHidden, at: index, effectiveRange: nil) == nil,
+                  !spoken || attribute(.readerUnspoken, at: index, effectiveRange: nil) == nil else { return false }
             return Unicode.Scalar(characters.character(at: index)).map { !$0.properties.isWhitespace } ?? true
         }
         return shownWord(at: run.location - 1) && shownWord(at: NSMaxRange(run)) ? " " : ""
     }
 
-    /// The hidden characters of `range` (`.readerHidden`) but the breaks among them, in runs:
-    /// what is given as spaces to an assistive client that reads the characters one for one
-    /// with their ranges, as AppKit's text views give them (`readerBlankingHidden`).
+    /// The runs of `range` in order, each with whether it is left out of what is read: what
+    /// `visibility: hidden` hides (`.readerHidden`), and, where `spoken` asks for what VoiceOver
+    /// is given, what `aria-hidden` keeps from it (`.readerUnspoken`). The two marks are read
+    /// apart, each by its own runs, as a whole book's text is in continuous scroll on Mac.
+    func enumerateReaderLeftOut(in range: NSRange, spoken: Bool, _ body: (_ leftOut: Bool, _ run: NSRange) -> Void) {
+        guard spoken else {
+            enumerateAttribute(.readerHidden, in: range) { hidden, run, _ in body(hidden != nil, run) }
+            return
+        }
+        var marked: [NSRange] = []
+        for key in [NSAttributedString.Key.readerHidden, .readerUnspoken] {
+            enumerateAttribute(key, in: range) { value, run, _ in if value != nil { marked.append(run) } }
+        }
+        marked.sort { $0.location < $1.location }
+        var cursor = range.location, held: NSRange?
+        func flush() {
+            guard let run = held else { return }
+            if run.location > cursor { body(false, NSRange(location: cursor, length: run.location - cursor)) }
+            body(true, run)
+            cursor = NSMaxRange(run)
+            held = nil
+        }
+        for run in marked {
+            if let current = held, run.location <= NSMaxRange(current) { held = NSUnionRange(current, run) }
+            else { flush(); held = run }
+        }
+        flush()
+        if cursor < NSMaxRange(range) { body(false, NSRange(location: cursor, length: NSMaxRange(range) - cursor)) }
+    }
+
+    /// The characters of `range` that an assistive client is not given, but the breaks among
+    /// them, in runs: those `visibility: hidden` hides (`.readerHidden`) and those `aria-hidden`
+    /// keeps from assistive technology (`.readerUnspoken`). They are given as spaces to an
+    /// assistive client that reads the characters one for one with their ranges, as AppKit's
+    /// text views give them (`readerBlankingHidden`), and a copy still takes the second.
     func readerHiddenCharacters(in range: NSRange) -> [NSRange] {
         let range = NSIntersectionRange(range, NSRange(location: 0, length: length))
         guard range.length > 0 else { return [] }
         let characters = string as NSString
         var result: [NSRange] = []
-        enumerateAttribute(.readerHidden, in: range) { value, run, _ in
-            guard value != nil else { return }
+        enumerateReaderLeftOut(in: range, spoken: true) { leftOut, run in
+            guard leftOut else { return }
             var start = run.location
             for index in run.location...NSMaxRange(run) where index == NSMaxRange(run) || Self.isReaderBreak(characters.character(at: index)) {
                 if index > start { result.append(NSRange(location: start, length: index - start)) }
@@ -186,9 +228,9 @@ extension NSAttributedString {
         return result
     }
 
-    /// `characters`, which are this text's from `location` one for one, with each hidden
-    /// character but a break given as a space (`readerHiddenCharacters(in:)`): the same length,
-    /// so every range still matches the text, and no hidden word to say.
+    /// `characters`, which are this text's from `location` one for one, with each character an
+    /// assistive client is not given but a break given as a space (`readerHiddenCharacters(in:)`):
+    /// the same length, so every range still matches the text, and no hidden word to say.
     func readerBlankingHidden(_ characters: String, from location: Int) -> String {
         let result = NSMutableString(string: characters)
         let hidden = readerHiddenCharacters(in: NSRange(location: location, length: result.length))

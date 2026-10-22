@@ -293,9 +293,8 @@ extension CSSStyleSheet {
                 case "font-weight":
                     let numbers = value.compactMap { component -> Int? in
                         switch component {
-                        case .token(.number(let n, _, _)) where n >= 1 && n <= 1000: Int(n.rounded())
                         case .token(.ident(let v)): ["normal": 400, "bold": 700][v.lowercased()]
-                        default: nil
+                        default: CSSPropertyParser.absoluteWeight(component)
                         }
                     }
                     if numbers.count == value.count, let low = numbers.first {

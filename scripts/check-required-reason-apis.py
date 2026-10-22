@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Verify that the five library targets and resvg call none of Apple's required-reason APIs.
+"""Verify that the five library targets, StaticSVG and resvg call none of Apple's required-reason APIs.
 
 An app must declare in a privacy manifest, with a reason, each use of an API that reads the
 system boot time, file timestamps, disk space, the active keyboards or user defaults, and App
 Store Connect refuses an upload that uses one undeclared. EPUBLib ships no manifest, so its
-targets and the resvg library EPUBViewing links use none of them (#685). This reads the objects
-compiled for the Mac by `swift test` and for iOS by scripts/test-ios.sh, and the vendored resvg
-slices, for what those APIs compile to: a C function, a Foundation key, a message sent, the user
-defaults class or a `URLResourceValues` property. ZIPFoundation declares its own use in the
+targets, and the StaticSVG package and the resvg library EPUBViewing links, use none of them
+(#685). This reads the objects compiled for the Mac by `swift test` and for iOS by
+scripts/test-ios.sh, StaticSVG's among them, and the resvg slices of the framework StaticSVG's
+release supplies, for what those APIs compile to: a C function, a Foundation key, a message sent,
+the user defaults class or a `URLResourceValues` property. ZIPFoundation declares its own use in the
 manifest it ships. The APIs are Apple's list in
 https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api
 """
@@ -17,7 +18,7 @@ import re
 import subprocess
 import sys
 
-TARGETS = ('EPUBCore', 'EPUBReading', 'EPUBText', 'EPUBWriting', 'EPUBViewing')
+TARGETS = ('EPUBCore', 'EPUBReading', 'EPUBText', 'EPUBWriting', 'EPUBViewing', 'StaticSVG')
 PLATFORMS = ('iOS', 'macOS')
 # PLATFORM_MACOS, PLATFORM_IOS and PLATFORM_IOSSIMULATOR in <mach-o/loader.h>.
 PLATFORM_NUMBERS = {1: 'macOS', 2: 'iOS', 7: 'iOS'}
@@ -100,15 +101,15 @@ def undefined_symbols(objects):
     return symbols
 
 
-def resvg_findings(framework):
-    """What the vendored resvg slices import from the list, and any slice that could not be read.
+def resvg_findings(frameworks):
+    """What the resvg slices import from the list, and any slice that could not be read.
 
     Its link-time optimization leaves in each archive only what the C API's functions reach, so
     what an archive imports is all that an app could. Each member carries LLVM bitcode, which
     Xcode's `nm` may not read; it reads the machine code alone, and every member must be read.
     """
     findings, unread = [], []
-    slices = sorted(framework.glob('*/libresvg.a'))
+    slices = sorted(archive for framework in frameworks for archive in framework.glob('*/libresvg.a'))
     for archive in slices:
         kind = 'macOS' if archive.parent.name.startswith('macos') else 'iOS'
         result = subprocess.run(['xcrun', 'nm', '--no-llvm-bc', '-arch', 'all', '-u', '-A', str(archive)],
@@ -121,7 +122,7 @@ def resvg_findings(framework):
             if category(symbol):
                 findings.append(f'CResvg ({kind}) {member.rpartition("/")[2]}: {symbol} ({category(symbol)})')
     if not slices:
-        unread.append(f'no libresvg.a under {framework}')
+        unread.append(f'no libresvg.a under {", ".join(map(str, frameworks))}')
     return findings, unread
 
 
@@ -145,7 +146,10 @@ def main():
                 for path, symbols in undefined_symbols(list(targets)).items()
                 for symbol in symbols if (kind := category(symbol))]
     missing = [f'{name} ({kind})' for (name, kind), count in counts.items() if count == 0]
-    resvg, unread = resvg_findings(root / 'Vendor/Resvg/Resvg.xcframework')
+    # SwiftPM keeps StaticSVG's framework under `artifacts`, and the iOS build under its own packages.
+    frameworks = [root / '.build/artifacts/staticsvg/CResvg/Resvg.xcframework',
+                  root / '.build/ios-validation/SourcePackages/artifacts/staticsvg/CResvg/Resvg.xcframework']
+    resvg, unread = resvg_findings([framework for framework in frameworks if framework.exists()] or frameworks[:1])
     findings += resvg
     for line in findings:
         print(f'Required-reason API: {line}', file=sys.stderr)
@@ -156,8 +160,8 @@ def main():
         print(f'Unread resvg slice: {line}', file=sys.stderr)
     if findings or missing or unread:
         return 1
-    print(f'Verified that {len(targets)} objects of five targets on iOS and macOS, and the three resvg'
-          ' slices, use no required-reason API.')
+    print(f'Verified that {len(targets)} objects of five targets and StaticSVG on iOS and macOS, and the'
+          ' resvg slices, use no required-reason API.')
     return 0
 
 

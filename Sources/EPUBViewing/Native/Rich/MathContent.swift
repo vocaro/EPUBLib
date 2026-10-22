@@ -38,10 +38,11 @@ enum MathContent {
             let language = MathSpeech.contentLanguage(of: element, publication: context.publication)
             let reading = MathSpeech.reading(alttext: alt, formula: source, contentLanguage: language)
             let inline = display ? nil : MathInlineRows(formula: formula)
+            let kept = ContentSemantics.isAriaHidden(element)
             let result = NSMutableAttributedString(string: "")
             for index in 0..<(inline?.count ?? 1) {
                 let attachment = MathAttachment(formula: formula, reading: reading, font: font, style: style,
-                                                inline: inline, row: index)
+                                                inline: inline, row: index, isHiddenFromAssistiveTechnology: kept)
                 let slot = NSMutableAttributedString(attachment: attachment)
                 slot.addAttribute(.font, value: index == 0 ? font : PlatformFont.systemFont(ofSize: 0.01),
                                   range: NSRange(location: 0, length: 1))
@@ -263,12 +264,20 @@ final class MathAttachment: NSTextAttachment {
     /// `visibility: hidden` hides the `<math>` element: the formula keeps its room and draws
     /// nothing (`ReaderAttachment.isHidden`).
     let isHidden: Bool
+    /// The book keeps the formula from assistive technology with `aria-hidden="true"` on it or
+    /// on an element round it (`ContentSemantics.isAriaHidden`). It is drawn, and selections,
+    /// copies and search still take its words.
+    let isHiddenFromAssistiveTechnology: Bool
+    /// Whether assistive technology passes over the formula, as it passes over an image kept
+    /// from it (`NSAttributedString.passesOver`): one the book keeps from it, and one that
+    /// `visibility: hidden` hides, which nobody reads.
+    var isPassedOverByAssistiveTechnology: Bool { isHidden || isHiddenFromAssistiveTechnology }
     private let rendering: MathRendering
     private let lock = NSLock()
     private var cached: (size: CGSize, scale: CGFloat, revision: Int, container: ObjectIdentifier?, image: PlatformImage)?
 
     init(formula: MathFormula, reading: MathSpeech.Reading, font: PlatformFont, style: ComputedStyle,
-         inline: MathInlineRows? = nil, row: Int = 0) {
+         inline: MathInlineRows? = nil, row: Int = 0, isHiddenFromAssistiveTechnology: Bool = false) {
         self.formula = formula
         self.inline = inline
         self.row = row
@@ -276,6 +285,7 @@ final class MathAttachment: NSTextAttachment {
         language = reading.language
         isLabelAuthored = reading.isAuthored
         isHidden = style.isHidden
+        self.isHiddenFromAssistiveTechnology = isHiddenFromAssistiveTechnology
         let rendering = MathRendering(formula: formula, font: font, style: style, inline: inline, row: row)
         self.rendering = rendering
         clearance = rendering.clearance(of: formula.natural)
@@ -332,14 +342,18 @@ final class MathAttachment: NSTextAttachment {
         rendering.bounds(lineWidth: lineWidth, height: height)
     }
 
-    private func bounds(container: NSTextContainer?, lineWidth: CGFloat, position: CGFloat) -> CGRect {
+    private func bounds(container: NSTextContainer?, lineWidth: CGFloat, position: CGFloat, heightLimit: CGFloat? = nil) -> CGRect {
         let available = ReaderTextContainer.available(in: container, lineWidth: lineWidth)
-        return rendering.bounds(lineWidth: available.width, height: available.height, position: position, container: container)
+        return rendering.bounds(lineWidth: available.width, height: min(available.height, heightLimit ?? available.height),
+                                position: position, container: container)
     }
 
+    /// A formula is as tall as the viewport at most, and on a page whose line it cannot fit,
+    /// as tall as the typography fallback fits that line's runs to (`.readerFallbackHeight`).
     override func attachmentBounds(for attributes: [NSAttributedString.Key: Any], location: any NSTextLocation,
                                    textContainer: NSTextContainer?, proposedLineFragment: CGRect, position: CGPoint) -> CGRect {
-        bounds(container: textContainer, lineWidth: proposedLineFragment.width, position: position.x)
+        bounds(container: textContainer, lineWidth: proposedLineFragment.width, position: position.x,
+               heightLimit: (attributes[.readerFallbackHeight] as? NSNumber).map { CGFloat($0.doubleValue) })
     }
 
     /// String drawing (a formula in a table cell) may lay out with TextKit 1.
@@ -405,6 +419,7 @@ final class MathAttachment: NSTextAttachment {
 
 extension MathAttachment: ReaderTextualAttachment {
     var textEquivalent: String { row == 0 ? label : "" }
-    var spokenEquivalent: String { label }
+    /// `label`, and nothing for a formula that is passed over.
+    var spokenEquivalent: String { isPassedOverByAssistiveTechnology ? "" : label }
     var textLanguage: String? { language }
 }

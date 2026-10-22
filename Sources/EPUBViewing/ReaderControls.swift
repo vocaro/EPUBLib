@@ -136,19 +136,29 @@ import Foundation
     }
 
     /// A section-only href is exact; for fragment entries the current title disambiguates
-    /// entries within a section. Unknown or ambiguous titles produce no checkmark.
+    /// entries within a section. Unknown or ambiguous titles produce no checkmark. An entry and
+    /// the location name the section `.navigate(href:)` shows for their hrefs, whatever their
+    /// spelling: the decoded path is compared as a Swift string, by canonical equivalence, as
+    /// archive paths are, and a designated fallback names its spine item's section.
     public func isCurrent(_ item: EPUBNavigationItem) -> Bool {
-        guard let href = item.href, let location = status?.location,
-              href.split(separator: "#", maxSplits: 1).first == location.href?.split(separator: "#", maxSplits: 1).first else { return false }
-        if !href.contains("#") { return true }
+        guard let href = item.href, let entry = section(of: href), let location = status?.location,
+              entry.section == location.href.flatMap(section(of:))?.section else { return false }
+        if entry.fragment == nil { return true }
         guard location.title == item.title else { return false }
         func matches(_ items: [EPUBNavigationItem]) -> Int {
             items.reduce(0) { count, candidate in
-                let sameSection = candidate.href?.split(separator: "#", maxSplits: 1).first == href.split(separator: "#", maxSplits: 1).first
-                return count + (sameSection && candidate.title == item.title ? 1 : 0) + matches(candidate.children)
+                // The title first: it is cheaper to compare than an href is to resolve.
+                let same = candidate.title == item.title && candidate.href.flatMap(section(of:))?.section == entry.section
+                return count + (same ? 1 : 0) + matches(candidate.children)
             }
         }
         return matches(publication.tableOfContents) == 1
+    }
+
+    /// The spine section and decoded fragment an href names, as `.navigate(href:)` finds them;
+    /// nil for an href navigation refuses.
+    private func section(of href: String) -> (section: Int, fragment: String?)? {
+        try? NativeSession.target(of: href, in: publication)
     }
 }
 

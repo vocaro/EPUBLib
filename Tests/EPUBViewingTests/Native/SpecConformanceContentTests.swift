@@ -415,7 +415,6 @@ import UIKit
     /// allowed". The attribute is not allowed in the `head`: a `title` typed `footnote` is no
     /// note, so nothing is shown in place of a reference to it (W3C test pss-support_ignore-title).
     func testStructuralSemanticsOnTheTitleElementAreIgnored() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/133")
         var book = Book()
         book.add(href: "chapter.xhtml", id: "chapter", mediaType: "application/xhtml+xml", Data("""
             <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="en">
@@ -446,7 +445,7 @@ import UIKit
         XCTAssertEqual(section.specParagraph("فقرة").alignment, .natural, "start-aligned: the right edge in a right-to-left paragraph")
         XCTAssertEqual(section.specParagraph("An explicitly").baseWritingDirection, .leftToRight)
         XCTAssertTrue(section.specText.contains("Inline \u{2067}ימין\u{2069} and \u{2067}\u{202E}override\u{202C}\u{2069} and \u{2068}isolate\u{2069}."))
-        XCTAssertTrue(section.specText.contains("Elle dit «\u{202F}bonjour “toi”\u{202F}»."))
+        XCTAssertTrue(section.specText.contains("Elle dit «bonjour «toi»»."))
         XCTAssertTrue(section.specText.contains("Er sagt „hallo“."))
         XCTAssertTrue(section.specText.contains("She says “hello”."))
         XCTAssertNil(book.disclosure)
@@ -570,7 +569,7 @@ import UIKit
             XCTAssertNotEqual(range.location, NSNotFound, phrase)
             return range.location == NSNotFound ? nil : text.attribute(InlineStyling.languageKey, at: range.location, effectiveRange: nil) as? String
         }
-        XCTAssertTrue(section.specText.contains("Elle dit «\u{202F}bonjour\u{202F}»."), section.specText)
+        XCTAssertTrue(section.specText.contains("Elle dit «bonjour»."), section.specText)
         XCTAssertTrue(section.specText.contains("Er sagt „hallo“."), section.specText)
         XCTAssertTrue(section.specText.contains("Unknown “words”."), section.specText)
         XCTAssertEqual(language("Elle dit", in: section.string), "fr")
@@ -580,12 +579,12 @@ import UIKit
         let row = try XCTUnwrap(RichFixture.attachments(in: section.string).compactMap { $0 as? TableRowAttachment }.first)
         let french = try XCTUnwrap(row.table.cells.first { $0.content.string.contains("Une cellule") }).content
         let unknown = try XCTUnwrap(row.table.cells.first { $0.content.string.contains("Cell") }).content
-        XCTAssertEqual(french.string, "Une cellule dit «\u{202F}oui\u{202F}».")
+        XCTAssertEqual(french.string, "Une cellule dit «oui».")
         XCTAssertEqual(language("Une cellule", in: french), "fr")
         XCTAssertEqual(unknown.string, "Cell “unknown”.")
         XCTAssertNil(language("Cell", in: unknown))
         let note = try XCTUnwrap(section.notes["note"])
-        XCTAssertEqual(note.string, "Une note dit «\u{202F}non\u{202F}».")
+        XCTAssertEqual(note.string, "Une note dit «non».")
         XCTAssertEqual(language("Une note", in: note), "fr")
     }
 

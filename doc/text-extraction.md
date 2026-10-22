@@ -44,7 +44,9 @@ body that the HTML Standard's Rendering section gives `display: block`: `address
 `td` and `th` ([#90](https://github.com/vocaro/EPUBLib/issues/90)). Each option of a `select`
 is therefore a line of its own. A `marquee`, which HTML makes `inline-block`, is not separated.
 Script, style and template
-subtrees are excluded. XML entities and CDATA are decoded. In recovery, a comment also ends at `--!>`, and an `&#` with no initial decimal or hexadecimal digit stays literal in text and surfaced attributes, matching the native reader ([#244](https://github.com/vocaro/EPUBLib/issues/244)). Whitespace is normalized to single spaces
+subtrees are excluded, and so is a `title` wherever it stands, in a head after the body or in
+the body itself: HTML hides every title, and the head's is the section's `title`. SVG's title is
+read as before ([#287](https://github.com/vocaro/EPUBLib/issues/287)). XML entities and CDATA are decoded. In recovery, a comment also ends at `--!>`, and an `&#` with no initial decimal or hexadecimal digit stays literal in text and surfaced attributes, matching the native reader ([#244](https://github.com/vocaro/EPUBLib/issues/244)). Whitespace is normalized to single spaces
 within lines and single newlines at block boundaries. Whitespace normalization operates on
 Unicode scalars, so combining marks following a space or
 no-break space remain in body text, headings, image alternatives and MathML text
@@ -135,7 +137,14 @@ outside one, so content after it stays in the body, as does a second document in
 file, and U+0000 is dropped
 from text and read as U+FFFD inside tags, comments and scripts instead of ending the section
 there. A `<!-->` or `<!--->` that follows a `<` kept as text, with no `>` between them, is closed
-there, as HTML closes it. In other malformed markup the tree is libxml2's, which is not always
+there, as HTML closes it. A DOCTYPE ends at its first `>`, as HTML ends it even inside a quoted
+identifier, so one whose identifier has lost its closing quote no longer takes the root's start
+tag with it or refuses the section; recovery writes one letter of each `PUBLIC` and `SYSTEM` in
+it as a character reference, and libxml2 then reads no identifier there
+([#293](https://github.com/vocaro/EPUBLib/issues/293)). As in HTML, an `xmlns` attribute puts no
+element of HTML content in another namespace, so a root whose `xmlns` value has lost its closing
+quote is read; `svg` and `math` are SVG's and MathML's by name, and inside them `xmlns` is read
+as before. In other malformed markup the tree is libxml2's, which is not always
 the HTML Standard's
 ([libxml2's HTML parser](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#libxml2s-html-parser-is-not-the-html-standard)):
 it can end a script or style at an end tag that directly follows the start
@@ -153,14 +162,22 @@ that never ends there, which used to be copied as script, refuses the section
 `<head/>` or `<body/>` is left to libxml2 as well: where the tag is out of place, libxml2 ignores
 it and lets its `/>` close the element that is open, which can end the body early. What libxml2
 then builds after the body, in a second body, or in a root it opens again is read as the
-body's, and a title it builds outside the head before the body is the section's title
-([#292](https://github.com/vocaro/EPUBLib/issues/292)). A recovered tree with no body is
+body's ([#292](https://github.com/vocaro/EPUBLib/issues/292)). The first title in the document
+is the section's title wherever libxml2 builds it, as `document.title` is the first in tree
+order: one it builds outside the head before the body (#292), or one HTML builds in the body
+([#287](https://github.com/vocaro/EPUBLib/issues/287)). HTML gives its one root each attribute
+of a later `html` start tag that the root lacks, where libxml2 drops such a tag or builds a
+second root beside one that its own tag closed at once, so the namespace prefixes that any
+`html` start tag declares are in scope from the root (#287). A recovered tree with no body is
 `malformedContent` too, which includes a head `style` or `script` with no end tag whose content
 begins with `</html>` or `</body>` and goes on with text: it runs to the end of the file (HTML
 gives such a document no body either). Recovery
 conservatively rejects declaration keywords anywhere, even inside comments, attribute values or
 end tags, any DOCTYPE internal subset, and, outside what libxml2 reads as a comment, an
-unterminated CDATA section and a start tag's quoted attribute value that never ends.
+unterminated CDATA section and a start tag's quoted attribute value that never ends. It reads a
+DOCTYPE as far as libxml2 reads it: to its first `>`, or, where a `PUBLIC` or `SYSTEM` it has
+not renamed comes before that `>`, through its quoted identifiers. A bracket in what it reads,
+quoted or not, or a DOCTYPE that never ends refuses the section (#293).
 Unsafe declarations, exceeded limits, cancellation and well-formed documents without the expected
 XHTML structure remain errors. A parser halt at its built-in nesting cap returns
 `limitExceeded("depth")` instead of partial text, even with a larger caller limit; both paths

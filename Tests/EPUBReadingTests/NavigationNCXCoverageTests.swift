@@ -203,6 +203,23 @@ final class NavigationNCXCoverageTests: XCTestCase {
         XCTAssertEqual(book.landmarks, [EPUBLandmark(types: ["cover"], title: "Cover", href: "OPS/one.xhtml")])
     }
 
+    /// A guide reference's `title` is read as a navigation landmark's title is: ASCII whitespace
+    /// stripped from its ends and collapsed, other white space kept inside a title that holds
+    /// anything else, and a title of nothing but white space empty
+    /// (https://github.com/vocaro/EPUBLib/issues/269). A line break the attribute value holds
+    /// reaches the reader as a space, and a tab written as a reference as a tab.
+    func testAGuideReferenceTitleIsCollapsedAsANavigationLandmarkTitleIs() throws {
+        let titles: [(written: String, read: String)] = [
+            ("  Table of\n     Contents ", "Table of Contents"), ("&#9;Start&#10;of&#13;the &#x20; Text\t", "Start of the Text"),
+            ("\u{A0}Cover \u{A0}", "\u{A0}Cover \u{A0}"), ("\u{A0} &#x3000;", ""), ("", ""),
+        ]
+        let guide = "<guide>" + titles.map { "<reference type=\"text\" title=\"\($0.written)\" href=\"one.xhtml\"/>" }.joined()
+            + "<reference type=\"toc\" href=\"two.xhtml\"/></guide>"
+        let book = try EPUBPublication.open(data: Fixture.packageVariant(
+            epub2: true, opf: { $0.replacingOccurrences(of: "</package>", with: guide + "</package>") }))
+        XCTAssertEqual(book.landmarks.map(\.title), titles.map(\.read) + [""])
+    }
+
     // By `Character` a "/", "\", ":", "#" or "." takes a mark, selector or joiner after it into
     // itself and is not found (https://github.com/vocaro/EPUBLib/issues/181).
     func testNCXAndGuideTargetsAreResolvedWhateverMarkFollowsTheirSeparatorsAndDots() throws {
