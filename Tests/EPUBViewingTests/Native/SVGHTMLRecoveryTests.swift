@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import StaticSVG
 import XCTest
 @testable import EPUBViewing
 #if os(macOS)
@@ -41,6 +42,19 @@ final class SVGHTMLRecoveryTests: XCTestCase {
         #else
         return try XCTUnwrap(RichImageTests.draw(image, size: size, scale: 1))
         #endif
+    }
+
+    /// The tree StaticSVG is given, node by node in preorder: depth, namespace, name and
+    /// attributes, or text. A namespace declaration, which the HTML parser keeps as an `xmlns`
+    /// attribute and the XML parser does not, is left out.
+    private func outline(_ svg: SVGDocument) -> [String] {
+        func lines(_ node: SVGNode, depth: Int) -> [String] {
+            guard node.isElement else { return ["\(depth) text \(node.text)"] }
+            let attributes = node.attributes.filter { $0.namespace != "http://www.w3.org/2000/xmlns/" }
+                .map { "\($0.namespace)|\($0.name)=\($0.value)" }
+            return ["\(depth) \(node.namespace)|\(node.name) \(attributes)"] + node.children.flatMap { lines($0, depth: depth + 1) }
+        }
+        return lines(svg.root, depth: 0)
     }
 
     func testRecoveredInlineGradientViewBoxAndClipPathDrawLikeStrictXML() throws {
@@ -190,11 +204,14 @@ final class SVGHTMLRecoveryTests: XCTestCase {
         XCTAssertFalse(strict.recoveredAsHTML)
         XCTAssertTrue(recovered.recoveredAsHTML)
         let strictRoot = try XCTUnwrap(strict.element(id: "svg")), recoveredRoot = try XCTUnwrap(recovered.element(id: "svg"))
-        let original = SVGContent.copyVerdict(strictRoot), adjusted = SVGContent.copyVerdict(recoveredRoot)
-        XCTAssertGreaterThan(original.copies, SVGContent.maximumSharedCopies)
-        XCTAssertEqual(adjusted.copies, original.copies, "preflight counts the same restored names the renderer receives")
-        XCTAssertFalse(adjusted.withinLimits)
-        XCTAssertFalse(SVGContent.isWithinRenderingLimits(recoveredRoot))
+        // StaticSVG's copy screen counts what the tree it is given copies per painted shape: its
+        // `testRecoveredGradientDrawingIsPastTheCopyBound` counts this drawing, as strict XML, past
+        // the bound and refuses it. The tree it is given for the recovered drawing is that one, its
+        // SVG names restored, so the screen counts the same copies.
+        let original = try XCTUnwrap(SVGContent.document(strictRoot)), adjusted = try XCTUnwrap(SVGContent.document(recoveredRoot))
+        XCTAssertEqual(outline(adjusted), outline(original), "preflight counts the same restored names the renderer receives")
+        XCTAssertFalse(original.isWithinRenderingLimits())
+        XCTAssertFalse(adjusted.isWithinRenderingLimits())
         // This refusal is checked before rendering; never give the expensive SVG to the decoder.
     }
 }
