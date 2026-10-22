@@ -24,16 +24,19 @@ enum ZIP64ZeroValues {
     /// into the end records is not restated, nor is any after it. Nothing outside the directory
     /// changes, so an entry reads differently only if the archive lays that entry's own header
     /// or data over one of its directory records.
+    ///
+    /// Nor is anything outside the directory copied (#208). The copy shares the archive's memory
+    /// page for page (`sharing(_:with:)`), and only a page a restated record lies in is copied,
+    /// when it is written. Foundation's copy of `Data`, which this was, shared pages only between
+    /// buffers that each began at a page's first byte, as large ones do, and of 4 MiB or more on
+    /// the Mac it was counted on: an archive of a megabyte, as many books are, or one that is a
+    /// slice of other bytes, had every page read and as many written while it was opened.
     static func inlined(in archive: Data) -> Data {
-        var result = archive
-        var changed = false
+        // Each restatement, as the bytes to write and the offset they go at in the copy.
+        var writes: [(offset: Int, bytes: [UInt8])] = []
         let directory = archive.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) -> Directory? in
             func read<T: FixedWidthInteger>(_ offset: Int, as type: T.Type = T.self) -> T? { bytes.read(offset, as: type) }
-            func write(_ replacement: [UInt8], at offset: Int) {
-                let start = result.startIndex + offset
-                result.replaceSubrange(start..<(start + replacement.count), with: replacement)
-                changed = true
-            }
+            func write(_ replacement: [UInt8], at offset: Int) { writes.append((offset, replacement)) }
             guard let directory = Directory(in: bytes), var record = Int(exactly: directory.start) else { return nil }
             var remaining = directory.count
             // A record that runs into the end records is left alone, and so are those after it.
@@ -75,7 +78,56 @@ enum ZIP64ZeroValues {
         // Every byte from `limit` on is as it was, so the end records ZIPFoundation used are. What
         // moved before them can still have made a ZIP64 end record and locator where there were
         // none, and with them another directory: the copy must lead where the archive does.
-        guard changed, result.withUnsafeBytes({ Directory(in: $0) }) == directory else { return archive }
+        guard !writes.isEmpty else { return archive }
+        let result = sharing(archive, with: writes)
+        guard result.withUnsafeBytes({ Directory(in: $0) }) == directory else { return archive }
+        return result
+    }
+
+    /// A copy of `bytes` with `writes` made in it, in memory that shares every page they leave
+    /// alone with `bytes`.
+    ///
+    /// The pages that hold the bytes, from the one their first byte is in to the one their last
+    /// is in, are given to `vm_copy` whole, with pages of the copy's own to copy them to, so that
+    /// each byte has the same place within its page in both. Pages so placed the kernel shares,
+    /// and copies one only when either side writes to it: the restatements copy the pages they
+    /// are written in, and nothing else of the archive is read or allocated. What the reader goes
+    /// on to read of the copy, entry data and all, is the archive's own memory. A copy the kernel
+    /// makes in full instead is a copy all the same, and where it gives no pages for one the copy
+    /// is made as `Data` makes any other.
+    ///
+    /// What those pages hold before the first of the bytes and after the last goes with them and
+    /// is never read: the copy is the bytes alone.
+    static func sharing(_ bytes: Data, with writes: [(offset: Int, bytes: [UInt8])]) -> Data {
+        let shared = bytes.withUnsafeBytes { (source: UnsafeRawBufferPointer) -> Data? in
+            #if canImport(Darwin)
+            guard let start = source.baseAddress, !source.isEmpty else { return nil }
+            let page = Int(getpagesize()), task = mach_task_self_
+            // The pages from the one the first byte is in through the one the last is in.
+            let lead = Int(bitPattern: start) % page, length = (lead + source.count + page - 1) / page * page
+            var region: vm_address_t = 0
+            guard vm_allocate(task, &region, vm_size_t(length), VM_FLAGS_ANYWHERE) == KERN_SUCCESS else { return nil }
+            guard vm_copy(task, vm_address_t(Int(bitPattern: start) - lead), vm_size_t(length), region) == KERN_SUCCESS,
+                  let copy = UnsafeMutableRawPointer(bitPattern: UInt(region))?.advanced(by: lead) else {
+                vm_deallocate(task, region, vm_size_t(length))
+                return nil
+            }
+            for write in writes {
+                write.bytes.withUnsafeBytes { copy.advanced(by: write.offset).copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
+            }
+            return Data(bytesNoCopy: copy, count: source.count, deallocator: .custom { _, _ in
+                vm_deallocate(mach_task_self_, region, vm_size_t(length))
+            })
+            #else
+            return nil
+            #endif
+        }
+        if let shared { return shared }
+        var result = bytes
+        for write in writes {
+            let start = result.startIndex + write.offset
+            result.replaceSubrange(start..<(start + write.bytes.count), with: write.bytes)
+        }
         return result
     }
 

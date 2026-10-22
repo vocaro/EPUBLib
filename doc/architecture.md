@@ -31,7 +31,11 @@ Opening copies the archive into a bounded snapshot and checks every archive entr
 Archive paths are decoded ZIP paths; the container's rootfile path and manifest/navigation hrefs
 are URL references. An entry's name is read as UTF-8 when its bytes are well-formed UTF-8, with or
 without the ZIP language-encoding flag (general-purpose bit 11), which `zip` and `ditto` on a Mac
-leave clear; any other name is read as code page 437, or refused when the flag calls it UTF-8.
+leave clear; any other name is read as code page 437, or refused when the flag calls it UTF-8,
+as `invalidArchive("Entry name not UTF-8: …")` with the name's bytes escaped as a URL escapes
+them. Every scalar a name spells is part of the path, a byte-order mark that opens it among them,
+and a record whose name ends in `/` is a folder whatever comes before the `/`, unless the Unix
+mode of the system that made it says what it is ([#207](https://github.com/vocaro/EPUBLib/issues/207)).
 The parser resolves the rootfile path from the container root and other
 references relative to the containing OPF/navigation document. A rootfile path that is refused as
 a URL or names no entry that way (a name's own `%`, `#` or `?` left unescaped, as older validators
@@ -94,6 +98,10 @@ normalization are duplicates
 Default limits are 256 MiB compressed, 512 MiB expanded, 32 MiB per resource, 20,000 entries and
 4 MiB per XML document, with depth/node limits. Hosts may lower or raise import limits. Resources
 are retained in memory; the total memory footprint includes both compressed and expanded data.
+Opening holds no second copy of the archive: where ZIPFoundation is given ZIP64 values of zero
+restated ([#72](https://github.com/vocaro/EPUBLib/issues/72)), the copy shares the archive's
+memory page for page, and only the pages of the directory records restated are copied
+([#208](https://github.com/vocaro/EPUBLib/issues/208)).
 For large books, open on a background task. Task cancellation is checked while expanding entries.
 The optional import progress callback receives cumulative expanded bytes on that task's thread.
 A host granting security-scoped file access must keep access active until opening completes.
@@ -105,7 +113,12 @@ naming two resources and a spine that names a remote resource fail explicitly. S
 no ZIP end record in their last 65,557, as far back as one with the longest comment begins, unless
 they begin with a local file header's signature as an archive does: they are refused as no
 archive by those last bytes and their first four, without the rest being read. Bytes that do
-begin so and hold no end record are refused after one search through them in memory.
+begin so and hold no end record are refused after one search through them in memory. A file
+that `open(at:)` opens is read no further to be refused: one longer than `archiveBytes` by its
+length, read not at all, and one with no end record by those last and first bytes. A pipe, a
+socket or a device, which gives no length, is read from its first byte, as far as
+`archiveBytes` and one more, and refused as its bytes are
+([#208](https://github.com/vocaro/EPUBLib/issues/208)).
 
 Faults that leave a book readable are read past instead. Apart from `lostEntries` (under
 Archive), the publication model has no channel for warnings, so this list is where they are
@@ -166,9 +179,10 @@ disclosed:
   can still be read; it is nil when none was. The entries after a damaged record are not
   recovered. An end record that counts more records than the directory holds loses none.
   Directory entries have no extracted payload: misstated directory sizes do not refuse the
-  book or count toward expanded-byte limits. ZIPFoundation's own entry classification decides
-  that exemption after structural header and descriptor bounds have been checked; file sizes
-  remain guarded before any extraction ([#260](https://github.com/vocaro/EPUBLib/issues/260)).
+  book or count toward expanded-byte limits. ZIPFoundation's entry classification, read from the
+  entry's directory record with its closing `/` found by byte (#207), decides that exemption
+  after structural header and descriptor bounds have been checked; file sizes remain guarded
+  before any extraction ([#260](https://github.com/vocaro/EPUBLib/issues/260)).
   Opening also bounds repeated input work: local headers may account for at most the archive's
   byte count, and extraction processing steps are charged one 32 KiB chunk each against the
   archive's bytes, actual expanded bytes, and one partial chunk per entry. A reused or overlapping
