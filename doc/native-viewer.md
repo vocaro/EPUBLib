@@ -1726,7 +1726,9 @@ continues to describe the authored spine resource.
   result that waits so is dropped when the page moves before the build arrives, by a key, a
   click or tap, a swipe, the wheel, VoiceOver or a command. VoiceOver's move by heading shows
   the heading it finds at once, so it stops at a section still built for the old appearance,
-  as at one not built yet, and goes on once that section is rebuilt. A note is shown in the
+  as at one not built yet, and asks for that section's build at once, ahead of the background
+  rebuild (`ReaderCanvasDelegate.canvas(_:wantsSection:)`): the next move finds the heading
+  once that one build is in, rather than wait on the main thread. A note is shown in the
   appearance its text was built for, the new one, whatever the page behind it shows.
   `effectiveAppearance` reports the new appearance at once.
 - **Release.** A typography change keeps each built section on screen until its rebuild
