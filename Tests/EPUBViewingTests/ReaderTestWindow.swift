@@ -48,6 +48,11 @@ extension PlatformTestWindow {
     var value = EPUBPageControls()
     /// The appearance the reader's host reports. Nil is the window's own, which is light.
     var colorScheme: ColorScheme?
+    /// What the reader does with a link outside the book (`epubReaderExternalLinks(_:)`).
+    var externalLinks = EPUBExternalLinks.ask
+    /// Every address the reader opened. A test window's `openURL` action records them and opens
+    /// nothing, so no test can open a link with the system.
+    var opened: [URL] = []
 }
 
 private struct ControlledTestReader: View {
@@ -58,6 +63,11 @@ private struct ControlledTestReader: View {
         EPUBReaderView(session: session)
             .epubReaderPageControls(controls.value)
             .environment(\.colorScheme, controls.colorScheme ?? inheritedColorScheme)
+            .epubReaderExternalLinks(controls.externalLinks)
+            .environment(\.openURL, OpenURLAction { [controls] url in
+                MainActor.assumeIsolated { controls.opened.append(url) }
+                return .handled
+            })
     }
 }
 

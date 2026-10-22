@@ -198,4 +198,11 @@ extension ReaderCanvasDataSource {
     func setHighlights(_ highlights: [ReaderHighlight])
     /// Shows a note in place (a popover), anchored at `rect` in canvas coordinates.
     func presentNote(_ text: NSAttributedString, from rect: CGRect)
+    /// Asks the reader whether to open a link outside the book: an alert on iPhone and iPad,
+    /// over a note's popover when one is shown, and a sheet on the window on Mac. `answer` is
+    /// called once, true for Open; a question asked while another is shown answers that one no.
+    /// False, with nothing asked, when there is no window to ask in.
+    func askToOpen(_ question: ExternalLinkQuestion, from rect: CGRect, answer: @escaping @MainActor (Bool) -> Void) -> Bool
+    /// Takes a question still shown away, answered no.
+    func withdrawLinkQuestion()
 }

@@ -1401,8 +1401,8 @@ after the hidden ones." stand round them, and sixty numbered lines follow. It ha
 and no link, no word of it is one VoiceOver uses, and no shown word holds a hidden one, so
 "concealed", "Concealed" or "collapsed" in a transcript is a hidden word read. Open it with
 `--href OPS/veiled.xhtml` on a simulator and `"launch=-SampleHref OPS/veiled.xhtml"` in a
-hosted session. **Math readings** (`OPS/math.xhtml`) follows it, and the book's last section,
-**Words kept from listeners** (`OPS/kept.xhtml`), holds shown words the book keeps from
+hosted session. **Math readings** (`OPS/math.xhtml`) follows it, and after it
+**Words kept from listeners** (`OPS/kept.xhtml`) holds shown words the book keeps from
 assistive technology with `aria-hidden="true"`
 ([Text kept from assistive technology](native-viewer.md#text-kept-from-assistive-technology)):
 a paragraph of its own, "* Unheard stars *", after "Words before the kept ones."; "unheard
@@ -1414,7 +1414,17 @@ between "Shown words beside" and "the hidden square.". "Words after the kept one
 numbered lines follow. Every kept or hidden word begins "unheard" or "Unheard" and no shown
 word does, so either in a transcript is a kept word read, and no word of it is one VoiceOver
 uses for a heading, a link or a picture. Open it with `--href OPS/kept.xhtml` on a simulator
-and `"launch=-SampleHref OPS/kept.xhtml"` in a hosted session. A second bundled book, opened with
+and `"launch=-SampleHref OPS/kept.xhtml"` in a hosted session. The book's last section,
+**Links out of the book** (`OPS/outside.xhtml`), holds links to places outside the book
+([#683](https://github.com/vocaro/EPUBLib/issues/683)), each in a line of its own between
+"Shown before" and "in the line.": "far site", a web page; "letter route", an email address;
+and "script route", a `javascript:` link, which the reader refuses with a notice. A table
+follows, "Left out cell" beside a cell that is the web page "cell far site", and then a note
+reference, "noted route", to a footnote whose link is the web page "noted far site". "Words
+before the routes out." opens it, and "Words after the routes out." and sixty numbered lines
+follow. Every address is under `example.invalid`, which nothing answers, and no word of it is
+one VoiceOver uses for a link, a table or a note. Open it with `--href OPS/outside.xhtml`;
+[Links out of the book](#links-out-of-the-book) has the sessions. A second bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
 twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
@@ -1926,6 +1936,33 @@ runner at 600 points, though, the size `ax:larger` gives starts a page with the 
 that page's first line is the heading, and the session cannot tell the two rules apart: take
 the heading's line from `ax:lines` before reading anything into it. The sessions are
 [on the issue](https://github.com/vocaro/EPUBLib/issues/594#issuecomment-6278967907).
+
+#### Links out of the book
+
+The reader asks before it opens a web or email link outside the book
+([Security](native-viewer.md#security), [#683](https://github.com/vocaro/EPUBLib/issues/683)).
+What VoiceOver reads of the question on iPhone and iPad is read on simulators, in the
+fixture's **Links out of the book**: a link in the text, then one in a table's cell and one in a
+note's popover, each answered Cancel, so nothing is opened:
+
+```sh
+python3 scripts/run-voiceover-simulator.py --href OPS/outside.xhtml \
+  --steps 'touch=far site,activate=far site,listen=4,forward=3,activate=Cancel,touch=letter route,activate=letter route,listen=4,activate=Cancel,touch=script route,activate=script route,listen=3,find=This reader opens only'
+python3 scripts/run-voiceover-simulator.py --href OPS/outside.xhtml \
+  --steps 'touch=Left out cell,choose=Follow Table Link: cell far site,doubletap=Left out cell,listen=4,activate=Cancel,touch=noted route,activate=noted route,listen=3,touch=noted far site,activate=noted far site,listen=4,forward=3,activate=Cancel'
+```
+
+`listen=4` after each activation records what VoiceOver says of the alert by itself, and
+`forward=3` its title, address and buttons one by one. `find=` says whether the notice for
+the `javascript:` link is on screen. A simulator's activation is not evidence that VoiceOver
+activates the link ([Simulators](#simulators)); that needs an iPhone or iPad. What VoiceOver
+on Mac says of the sheet needs a [hosted Mac session](#hosted-mac-sessions), such as one that
+presses the link with VoiceOver on the search field, `ax:follow` as under
+[A link's target in pages](#a-links-target-in-pages), and records what is said after it:
+
+```text
+width=600 text_size=17 "launch=-SampleHref OPS/outside.xhtml" ax:focus=search "ax:follow=far site" line
+```
 
 ### Tables on Mac
 

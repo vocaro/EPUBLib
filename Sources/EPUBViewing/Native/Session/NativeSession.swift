@@ -22,6 +22,10 @@ import SwiftUI
     static let passageNotFound = "the cited passage could not be found in this book"
     static let maximumQuoteLength = 4_096
     static let maximumSearchLength = 512
+    /// What a link outside the book says when the host has turned links outside it off.
+    static let externalLinkRefused = "This reader does not open links outside the book."
+    /// What a link outside the book says that is not to a web page or an email address.
+    static let externalSchemeRefused = "This reader opens only web and email links outside the book."
     /// Matches read from one section. A section holding more draws and lists only these.
     nonisolated static let maximumSectionMatches = 10_000
 
@@ -74,6 +78,14 @@ import SwiftUI
     /// What the canvas was last asked to draw.
     @ObservationIgnored private(set) var drawnHighlights: [ReaderHighlight] = []
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
+    /// What an activated link outside the book does: the mounted view's
+    /// `epubReaderExternalLinks(_:)` (`takeLinkSettings`).
+    @ObservationIgnored var externalLinks = EPUBExternalLinks.ask
+    /// Opens a link outside the book once the reader has said to: the mounted view's `openURL`
+    /// action. nil until a view is mounted, and then a link is refused rather than asked about.
+    @ObservationIgnored var openURL: (@MainActor (URL) -> Void)?
+    /// The link outside the book the reader is being asked about, until it answers.
+    @ObservationIgnored private(set) var askedLink: ExternalLinkAddress?
 
     init(publication: EPUBPublication, action: EPUBSelectionAction?, rich: any RichContentFactory,
          onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void) throws {
@@ -105,6 +117,7 @@ import SwiftUI
         for task in tasks { task.cancel() }
         tasks.removeAll()
         book.close()
+        canvas?.withdrawLinkQuestion()
         canvas?.delegate = nil
         canvas?.dataSource = nil
         canvas?.releaseContent()
@@ -132,6 +145,7 @@ import SwiftUI
 
     func detach(_ canvas: ReaderCanvasView) {
         guard self.canvas === canvas else { return }
+        canvas.withdrawLinkQuestion()
         canvas.delegate = nil
         canvas.dataSource = nil
         canvas.releaseContent()
@@ -804,8 +818,8 @@ extension NativeSession: ReaderCanvasDelegate {
     func activateLink(_ link: ReaderLink, from rect: CGRect) -> Task<Void, Never>? {
         guard isReady, !closed else { return nil }
         switch link {
-        case .external:
-            emit(.notice("This reader does not open links outside the book."))
+        case .external(let href):
+            activateExternalLink(href, from: rect)
             return nil
         case .internal(let href), .note(let href):
             guard let target = try? Self.target(of: href, in: publication) else { return nil }
@@ -825,6 +839,44 @@ extension NativeSession: ReaderCanvasDelegate {
             tasks.append(task)
             return task
         }
+    }
+
+    /// EPUB Reading Systems 3.3 §3.9: a reading system should have the reader's consent before
+    /// it opens an `http` or `https` link, and before it hands a link to the application of its
+    /// scheme, as `mailto` goes to the mail app. So the reader asks, naming the address, and
+    /// nothing is opened before it answers (`answerExternalLink`). A host may refuse such links
+    /// or take them itself (`EPUBExternalLinks`). Every other scheme is refused, whatever the
+    /// host chose: `javascript:` and `data:` would run or show the book's own content outside
+    /// the reader, `file:` reaches the device, and an app's own scheme does what that app does.
+    private func activateExternalLink(_ href: String, from rect: CGRect) {
+        if case .refuse = externalLinks.behavior { return emit(.notice(Self.externalLinkRefused)) }
+        guard let address = ExternalLinkAddress(href) else { return emit(.notice(Self.externalSchemeRefused)) }
+        switch externalLinks.behavior {
+        case .refuse: break
+        case .handle(let open): open(address.url)
+        case .ask:
+            guard openURL != nil, let canvas,
+                  canvas.askToOpen(ExternalLinkQuestion(address: address), from: rect, answer: { [weak self] open in
+                      self?.answerExternalLink(address, open: open)
+                  }) else { return emit(.notice(Self.externalLinkRefused)) }
+            askedLink = address
+        }
+    }
+
+    /// The reader's answer to the question about `address`: Open, or not. A question asked
+    /// again, withdrawn or answered already is answered no.
+    func answerExternalLink(_ address: ExternalLinkAddress, open: Bool) {
+        guard askedLink == address else { return }
+        askedLink = nil
+        guard open, !closed, let openURL else { return }
+        openURL(address.url)
+    }
+
+    /// The mounted view's settings for links outside the book, read each time SwiftUI updates it.
+    fileprivate func takeLinkSettings(from environment: EnvironmentValues) {
+        externalLinks = environment.epubReaderExternalLinks
+        let open = environment.openURL
+        openURL = { open($0) }
     }
 
     func canvas(_ canvas: any ReaderCanvas, needsSection index: Int, forward: Bool) {
@@ -886,10 +938,11 @@ private struct NativeCanvasHost: UIViewRepresentable {
     let session: NativeSession
     func makeUIView(context: Context) -> ReaderCanvasView {
         let canvas = ReaderCanvasView(frame: .zero)
+        session.takeLinkSettings(from: context.environment)
         session.attach(canvas)
         return canvas
     }
-    func updateUIView(_ canvas: ReaderCanvasView, context: Context) {}
+    func updateUIView(_ canvas: ReaderCanvasView, context: Context) { session.takeLinkSettings(from: context.environment) }
     static func dismantleUIView(_ canvas: ReaderCanvasView, coordinator: ()) {
         (canvas.dataSource as? NativeSession)?.detach(canvas)
     }
@@ -899,10 +952,11 @@ private struct NativeCanvasHost: NSViewRepresentable {
     let session: NativeSession
     func makeNSView(context: Context) -> ReaderCanvasView {
         let canvas = ReaderCanvasView(frame: .zero)
+        session.takeLinkSettings(from: context.environment)
         session.attach(canvas)
         return canvas
     }
-    func updateNSView(_ canvas: ReaderCanvasView, context: Context) {}
+    func updateNSView(_ canvas: ReaderCanvasView, context: Context) { session.takeLinkSettings(from: context.environment) }
     static func dismantleNSView(_ canvas: ReaderCanvasView, coordinator: ()) {
         (canvas.dataSource as? NativeSession)?.detach(canvas)
     }
