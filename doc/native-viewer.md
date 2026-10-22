@@ -301,7 +301,8 @@ continues to describe the authored spine resource.
   URLs are not read: in a MathML `mglyph`; in an `<object>` or `<embed>` with no image `type`;
   and in a stylesheet `<link>`, `@import` or `@font-face`. A link to one is refused as a link
   outside the book is, and so never opens as a document of its own (RS 3.3 §3.4).
-- **Image contrast.** In dark appearance, transparent images containing dark strokes receive
+- **Image contrast.** On a dark theme's page (Dark, Black, or custom colours whose background is
+  dark: **Themes**), transparent images containing dark strokes receive
   a white backdrop so diagram edges and labels remain legible. Their authored colors and
   publication bytes are preserved. Opaque images and transparent light artwork retain their
   pixels; an author's explicit CSS inversion retains its own appearance treatment. Display
@@ -334,6 +335,52 @@ continues to describe the authored spine resource.
   declared for one appearance is substituted into what paints in that appearance, and into
   everything else, in either appearance, only when that is the light one (**Custom
   properties**).
+- **Themes.** `EPUBReaderStyle.appearance` chooses the page's colours (`EPUBReaderColors`): Light,
+  black on white; Dark, light grey (92%) on the dark grey `#1C1C1E` of a raised surface in iOS's
+  dark appearance; Sepia, `#5F4B32` on `#FBF0D9`; Black, Dark's text on pure black, which is
+  what Dark drew before Black was added; and Custom, the style's `customColors`, Light's when it
+  has none ([#674](https://github.com/vocaro/EPUBLib/issues/674)). System is Light or Dark by
+  the mounted view's colour scheme. Text and links are 4.5:1 or more against the page in every
+  preset (`ReaderColorsTests`); a custom theme below that is drawn as given, as the reader's
+  own choice. A theme is dark when white has more contrast with its background than black has,
+  a relative luminance below about 0.18. A dark theme draws as Dark always has: the book's own
+  text, border, decoration and background colours give way to the theme's, transparent dark
+  line art gets its white backdrop (**Image contrast**), and `prefers-color-scheme: dark` applies
+  (**Appearance media**); `effectiveAppearance` is Dark. A light theme, Sepia among them, draws
+  the colours a book sets for itself, as Light does, and the theme's where it sets none. What
+  the theme does not name derives from it: secondary text (words in place of a picture, a
+  section that could not be shown) is the text faded toward the page as far as 4.5:1 allows;
+  rules and a dark theme's table borders are a quarter of the way from the page to the text;
+  highlights keep their yellow and orange, deeper on a dark page, each drawn as strongly as it
+  can be while the text over it keeps 4.5:1, down to half its usual strength; the Mac's
+  selection is the theme's link colour, 30% over the page, by the same rule. The page behind
+  both flows, the image inspector and a note's popover is the theme's background (on the Mac
+  the popover's arrow is AppKit's); on iPhone and iPad the canvas's tint, which UIKit draws the
+  selection, its handles and the caret in, is the theme's link colour, and UIKit chooses how
+  translucent it draws the selection. A table's cells are drawn and selected as the text around
+  them. The status's `effectiveColors` gives a host the colours to draw its own controls in.
+  Changing theme rebuilds the text, never its characters, so the position, search results,
+  highlights and the selection are kept, as for an appearance change.
+- **Increase Contrast and Bold Text.** The reader follows both from SwiftUI's environment
+  (`colorSchemeContrast` and `legibilityWeight`), so on iPhone and iPad from the window's
+  traits, live, whatever the theme; turning either on or off rebuilds an open book's text and
+  keeps its place. With Increase Contrast, the background stays and the theme's text and links
+  move toward black on a light page or white on a dark one, half the way there and further if
+  they are still short of WCAG's enhanced 7:1 (`EPUBReaderColors.increasingContrast`); text
+  already black or white stays. Secondary text then keeps 7:1, rules are half the way from page
+  to text and at least 3:1, and each highlight and the Mac's selection are drawn half the way
+  from their usual strength to opaque, as far as the text over them keeps 4.5:1. With Bold
+  Text, fonts are found for a weight 200 heavier than the book's, to at most 900, so regular
+  text is drawn semibold, as iOS draws its own body text with Bold Text, and bold heavier still;
+  a family without the heavier face is emboldened as for any synthetic bold. The weight is the
+  reader's, carried from the root with no CSS property to reset it, so the book's own weights
+  keep their order; text in a table's cells, list markers and generated content is drawn so as
+  well, while a formula's glyphs and an SVG drawing's text keep their own weight. The Mac has no
+  Bold Text setting of its own, and its environment reports none unless a host sets one. Not
+  followed: `prefers-contrast`, which the reader's media
+  queries do not know (**Media queries**), and a light theme's book colours, which Increase
+  Contrast leaves as the book set them. Links drawn over a highlight are not held to 4.5:1,
+  and a custom theme's highlights take Light's hues or Dark's, by whether it is dark.
 - **Alternative text.** HTML tells an image with an empty `alt` from one with none, and the
   reader keeps the two apart (`ImageAlternative`). Words in `alt` stand for the image in
   selections, copies, search and VoiceOver, which reads them as the image's name. An empty
@@ -3102,7 +3149,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
 | `search` | Draws and lists matches, opens the first rendered match in spine order and makes it the current match; no matches preserve the position. |
 | `nextSearchResult` / `previousSearchResult` | Shows the result after or before the current match, wrapping at the ends; the first or last when none is current. No effect without results. |
 | `showSearchResult(result)` | Shows a listed result and makes it current; a result of a replaced or cleared search throws `invalidCommand`. |
-| `style` | Font size 12–96, System/Light/Dark appearance, flow. System is the default and tracks the host color scheme live; explicit modes stay fixed. Size or resolved appearance rebuilds the text; the position is kept across rebuilds and flow switches. |
+| `style` | Font size 12–96, System/Light/Dark/Sepia/Black/Custom appearance with the style's custom colours, flow. System is the default and tracks the host color scheme live; explicit modes stay fixed. Size, resolved colours, Increase Contrast and Bold Text rebuild the text; the position is kept across rebuilds and flow switches (see Themes under Decisions). |
 | `setHighlights` | Replaces drawn host highlights. |
 
 `.searchResultsChanged` reports the result list before `.searchChanged(.completed)`, then each

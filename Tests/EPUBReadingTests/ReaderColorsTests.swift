@@ -104,6 +104,7 @@ final class ReaderColorsTests: XCTestCase {
         }
         let own = EPUBReaderColors(background: try color("#FFFFCC"), text: try color("#000066"), link: try color("#990000"))
         style.customColors = own
+        style.appearance = .custom
         XCTAssertEqual(style.colors(systemIsDark: false), own)
         style.appearance = .sepia
         XCTAssertEqual(style.colors(systemIsDark: false), .sepia, "custom colours wait while another theme is chosen")

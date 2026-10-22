@@ -148,7 +148,12 @@ suite gives one result by day and in the evening. A test that needs a dark host 
 `ReaderTestWindow.pageControls.colorScheme`.
 `NativeSessionTests.testATestWindowKeepsItsReaderLightUntilTheTestAsksForDark` holds the harness
 to that: on the Mac under a dark appearance for its own process, and on iOS, where a test process
-cannot make its device dark, by the window's own style. To run a Mac bundle as a machine in light
+cannot make its device dark, by the window's own style. The window keeps Increase Contrast and
+Bold Text off in the same way, whatever the machine's settings, and a test turns them on with
+`pageControls.increasesContrast` and `pageControls.boldText`; with
+`pageControls.accessibilityFollowsWindow` the reader takes them from the window instead, as an
+app's does, which on iPhone and iPad a test sets with the window's `traitOverrides`
+(`ReaderThemeTests.testTheWindowsTraitsReachTheReader`). To run a Mac bundle as a machine in light
 appearance would, whatever the system setting, pass the argument after `-XCTest`:
 
 ```sh

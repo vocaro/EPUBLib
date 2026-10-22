@@ -298,12 +298,21 @@ results as above; `EPUBEngineContract.verify` checks each of these.
 Commands submitted through one controls model execute in FIFO order. Style edits read the latest
 style when they execute, preserving fields changed by earlier queued edits or host commands.
 Appearance controls change font size two points at a time within 12–36 points, the sizes the
-bundled reader draws distinctly, and are disabled at either end; they choose System, Light or Dark. System
+bundled reader draws distinctly, and are disabled at either end; they choose System, Light, Dark,
+Sepia or Black, and Custom once the style holds custom colours. System
 is the default and follows the mounted view's color scheme, including OS theme changes and
-host color-scheme overrides. Explicit Light/Dark remain fixed until changed. Use
-`controls.changeStyle { $0.appearance = .system }` (or `.light` / `.dark`) in host controls.
+host color-scheme overrides. Explicit appearances remain fixed until changed. Use
+`controls.changeStyle { $0.appearance = .system }` (or `.light`, `.dark`, `.sepia`, `.black`)
+in host controls, and give the reader's own colours with
+`controls.changeStyle { $0.customColors = colors; $0.appearance = .custom }`; they are kept
+while another appearance is chosen. `EPUBReaderColors` holds the presets, WCAG's contrast ratio
+for a colour picker to show, and the colours Increase Contrast draws
+([themes](native-viewer.md#decisions)).
 `readerState.status.effectiveAppearance` reports the resolved Light/Dark value without
-replacing the selected preference. Existing `isDark:` initializers and property writes still
+replacing the selected preference: Sepia resolves to Light and Black to Dark, and custom colours
+by whether their background is dark. `effectiveColors` reports the colours drawn, Increase
+Contrast applied, for a host's own controls. Increase Contrast and Bold Text are the system's
+and need no control. Existing `isDark:` initializers and property writes still
 select an explicit appearance; the Boolean getter is true only for explicit Dark.
 Reading mode controls
 switch between continuous scrolling and paging. The native engine's
@@ -319,7 +328,7 @@ The native session maintains `readerState` for direct commands, input navigation
 close. Third-party sessions remain source-compatible via a default nil state; built-in controls
 are unavailable until they opt in. An engine can retain `EPUBReaderState`, expose it on the session,
 and update an `EPUBReaderStatus` using `state.update(_:)`. Publish lifecycle, capabilities, actual
-style, resolved effective appearance, location, optional turn boundaries, search feedback and the number of active commands.
+style, resolved effective appearance and colours, location, optional turn boundaries, search feedback and the number of active commands.
 Update state before the corresponding event
 ([publish state first](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/command-lifecycles.md#publish-state-before-the-event-that-reports-it)).
 Existing event callbacks remain host-owned.
@@ -390,7 +399,7 @@ controls were operated; the Mac's tree agrees where noted.
 | Reading mode | Continuous Scroll, Paging | The current one selected. On the Mac a radio group named Reading Mode with two radio buttons of those names, the current one's value 1. |
 | Search, Contents, Appearance | The same | Contents and Appearance are menu buttons on the Mac |
 | Contents entries | The entry's title | The current ones selected; the unlinked entry disabled; a parent "Collapsed" to VoiceOver |
-| Appearance entries | Smaller Text, Larger Text, System, Light, Dark | The chosen appearance selected. On the Mac the three appearances are in a submenu named Appearance. |
+| Appearance entries | Smaller Text, Larger Text, System, Light, Dark, Sepia, Black, and Custom once the style holds custom colours | The chosen appearance selected. On the Mac the appearances are in a submenu named Appearance. Sepia, Black and Custom were added in [#674](https://github.com/vocaro/EPUBLib/issues/674) to the same picker and have not been read from the tree. |
 | Search field | Search in book | The query |
 | Pane buttons | Search, Close Search, Clear Search; Search Results and Close Search Results in the strip's browser | |
 | Count | Search matches | "Match 2 of 14, Low tide"; "Match 1 of 14, first match, Before the road"; "Match 14 of 14, last match, Afterword"; "Match 1 of 1, only match, The market"; "Match 1 of at least 10,000, first match, Stage 1" |

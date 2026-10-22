@@ -189,10 +189,15 @@ import UIKit
         while !condition() {
             guard Date() < deadline else {
                 XCTFail("Timed out waiting for \(label)", file: file, line: line)
-                throw CancellationError()
+                throw Timeout(label: label)
             }
             try await Task.sleep(for: .milliseconds(20))
         }
+    }
+
+    private struct Timeout: Error, CustomStringConvertible {
+        let label: String
+        var description: String { "timed out waiting for \(label)" }
     }
 
     private func open() throws -> SessionCoverageReader { try SessionCoverageReader(book()) }
@@ -217,6 +222,22 @@ import UIKit
         [canvas.backgroundColor?.cgColor] + (flow == .scrolled ? [canvas.scrollTextView?.backgroundColor?.cgColor] : [])
         #endif
     }
+
+    #if os(iOS)
+    /// The red, green and blue the canvas draws at `point`, in sRGB.
+    private func pixel(of canvas: ReaderCanvasView, at point: CGPoint) throws -> [Int] {
+        canvas.layoutIfNeeded()
+        var bytes = [UInt8](repeating: 0, count: 4)
+        try bytes.withUnsafeMutableBytes { buffer in
+            let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.translateBy(x: -point.x, y: point.y + 1)
+            context.scaleBy(x: 1, y: -1)
+            canvas.layer.render(in: context)
+        }
+        return bytes.prefix(3).map(Int.init)
+    }
+    #endif
 
     /// The issue's first acceptance: each preset and a custom theme recolour both flows, with
     /// popovers, selection, search highlights and tables, and keep the position.
@@ -252,6 +273,11 @@ import UIKit
                 let backgrounds = canvasBackground(canvas, flow: flow)
                 XCTAssertEqual(backgrounds.count, flow == .scrolled ? 2 : 1, label)
                 for background in backgrounds { XCTAssertEqual(background, theme.background.cgColor, "\(label): the page") }
+                #if os(iOS)
+                let drawn = try pixel(of: canvas, at: CGPoint(x: canvas.bounds.maxX - 3, y: canvas.bounds.maxY - 3))
+                let page = [colors.background.red, colors.background.green, colors.background.blue].map { Int(($0 * 255).rounded()) }
+                XCTAssertTrue(zip(drawn, page).allSatisfy { abs($0 - $1) <= 2 }, "\(label): the page as drawn is \(drawn), not \(page)")
+                #endif
                 let highlights = drawnHighlights(canvas)
                 XCTAssertTrue(highlights.contains(theme.highlight(.search)), "\(label): search highlights")
                 XCTAssertTrue(highlights.contains(theme.highlight(.currentSearch)), "\(label): the current result")

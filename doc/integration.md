@@ -51,7 +51,10 @@ func makeReader(publication: EPUBPublication,
 <!-- /snippet -->
 
 After `.ready`, send commands with `try await session.send(...)`: for example `.nextPage`,
-`.locate(text: "a passage", highlight: true)` or `.style(.init(fontSize: 20, appearance: .dark))`.
+`.locate(text: "a passage", highlight: true)` or `.style(.init(fontSize: 20, appearance: .sepia))`.
+The appearances are System, Light, Dark, Sepia, Black and Custom, whose colours a style's
+`customColors` holds; the reader follows Increase Contrast and Bold Text by itself
+([themes](native-viewer.md#decisions)).
 Check `session.capabilities` before offering an optional feature. Navigate with a resource's
 encoded href, safely handling optional entries:
 
