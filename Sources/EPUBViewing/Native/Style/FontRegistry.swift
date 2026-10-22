@@ -2,6 +2,7 @@ import CoreGraphics
 import CoreText
 import EPUBReading
 import Foundation
+import StaticSVG
 #if os(iOS)
 import UIKit
 #elseif os(macOS)

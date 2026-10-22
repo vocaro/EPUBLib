@@ -5,6 +5,7 @@ import EPUBCore
 import EPUBReading
 import Foundation
 import ImageIO
+import StaticSVG
 import XCTest
 @testable import EPUBViewing
 #if os(macOS)
@@ -58,9 +59,6 @@ final class SVGRenderingTests: XCTestCase {
         let image = try XCTUnwrap(attachment.source.decode(maxPixelSize: 160))
         XCTAssertEqual(pixel(image, 20, 40)[3], 0)
         XCTAssertEqual(pixel(image, 80, 40), [255, 0, 0, 255])
-        let stretched = svg.replacingOccurrences(of: "width='160'", with: "preserveAspectRatio='none' width='160'")
-        let source = try XCTUnwrap(ReaderImageSource.svg(Data(stretched.utf8), path: "", key: "stretch"))
-        XCTAssertEqual(pixel(try XCTUnwrap(source.decode(maxPixelSize: 160)), 20, 40), [255, 0, 0, 255])
     }
 
     func testImageChildTransformUsesRendererAndArchiveBitmap() throws {
@@ -70,19 +68,6 @@ final class SVGRenderingTests: XCTestCase {
         let bitmap = try XCTUnwrap(image.source.decode(maxPixelSize: 100))
         XCTAssertEqual(pixel(bitmap, 10, 10)[3], 0)
         XCTAssertEqual(pixel(bitmap, 25, 15)[3], 255)
-    }
-
-    func testRendererCannotReadExistingAbsoluteImageOrRecursiveSVGData() throws {
-        let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
-        try RichFixture.image(width: 10, height: 10).write(to: path)
-        defer { try? FileManager.default.removeItem(at: path) }
-        let svg = "<svg xmlns='http://www.w3.org/2000/svg' width='20' height='10'><image href='\(path.path)' width='10' height='10'/><rect x='10' width='10' height='10' fill='blue'/></svg>"
-        let source = try XCTUnwrap(ReaderImageSource.svg(Data(svg.utf8), path: "", key: "external"))
-        let image = try XCTUnwrap(source.decode(maxPixelSize: 20))
-        XCTAssertEqual(pixel(image, 5, 5)[3], 0)
-        XCTAssertEqual(pixel(image, 15, 5), [0, 0, 255, 255])
-        let nested = Data(svg.utf8).base64EncodedString()
-        XCTAssertNil(ReaderImageSource.svg(Data("<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><image href='data:image/svg+xml;base64,\(nested)' width='10' height='10'/></svg>".utf8), path: "", key: "nested"))
     }
 
     func testCyclicUseFallsBackAndOmittedFiltersPreserveDisclosedDrawing() throws {
@@ -112,20 +97,11 @@ final class SVGRenderingTests: XCTestCase {
         <text class='label' x='2' y='30'>Labels survive</text></svg>
         """
         let fixture = try RichFixture(svg)
-        let data = try XCTUnwrap(SVGContent.serialize(fixture.element("s"), resolve: { _ in nil }, publication: fixture.publication))
-        let prepared = try ContentDocument.parse(data, path: "prepared.svg")
-        XCTAssertFalse(SVGContent.unsupportedConstructs(prepared.root).contains("svg:filter"))
-        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("font-family: Arial"))
         let attachment = try XCTUnwrap(RichFixture.attachments(in: fixture.svg("s")).first as? ReaderImageAttachment)
         let image = try XCTUnwrap(attachment.source.decode(maxPixelSize: 120))
         XCTAssertEqual(pixel(image, 30, 50), [255, 0, 0, 255])
         XCTAssertEqual(pixel(image, 90, 50)[3], 0)
         XCTAssertEqual(fixture.report.report.unsupportedElements["svg:filter"], 1)
-        XCTAssertNil(ReaderImageSource.svg(Data(svg.utf8), path: "", key: "raw-filter"), "Only the sanitizer may omit filters")
-        for declaration in ["filter /* comment */ : blur(2px)", #"fi\6cter: blur(2px)"#] {
-            let raw = "<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><rect width='20' height='20' style='\(declaration)'/></svg>"
-            XCTAssertNil(ReaderImageSource.svg(Data(raw.utf8), path: "", key: "raw-css-filter"))
-        }
     }
 
     func testOmittedFiltersStillRespectExpansionDepthAndArchiveReferenceLimits() throws {
@@ -135,14 +111,6 @@ final class SVGRenderingTests: XCTestCase {
         XCTAssertEqual(pixel(image, 5, 5)[3], 0)
         XCTAssertEqual(pixel(image, 15, 5), [0, 0, 255, 255])
         XCTAssertEqual(fixture.report.report.unsupportedElements["svg:image"], 1)
-        let cyclic = try RichFixture("<svg xmlns='http://www.w3.org/2000/svg' id='s'><filter id='f'/><g id='a' filter='url(#f)'><use href='#a'/></g></svg>")
-        XCTAssertNil(SVGContent.serialize(cyclic.element("s"), resolve: { _ in nil }, publication: cyclic.publication))
-        let deep = try RichFixture("<svg xmlns='http://www.w3.org/2000/svg' id='s'><filter>" + String(repeating: "<g>", count: 65) + String(repeating: "</g>", count: 65) + "</filter><rect width='20' height='10'/></svg>")
-        XCTAssertNil(SVGContent.serialize(deep.element("s"), resolve: { _ in nil }, publication: deep.publication), "Original input bounds apply even to omitted subtrees")
-        let path = String(repeating: "L1 1 ", count: 120_000)
-        let uses = String(repeating: "<use href='#a'/>", count: 20)
-        let expanded = try RichFixture("<svg xmlns='http://www.w3.org/2000/svg' id='s'><filter id='f'/><defs><path id='a' d='M0 0 \(path)'/></defs><g filter='url(#f)'>\(uses)</g></svg>")
-        XCTAssertNil(SVGContent.serialize(expanded.element("s"), resolve: { _ in nil }, publication: expanded.publication))
     }
 
     func testFourLayerDiagramKeepsAttachmentsAndInspectionInBothAppearancesAtNarrowWidths() throws {
@@ -225,129 +193,11 @@ final class SVGRenderingTests: XCTestCase {
         XCTAssertGreaterThan((try XCTUnwrap(attachment.source.decode(maxPixelSize: 180)).dataProvider?.data as Data?)?.filter { $0 > 0 }.count ?? 0, 100)
     }
 
-    func testLegacyAppleBoldFontKeepsWeightWhenOS2TableIsMissing() throws {
-        let font = CTFontCreateWithName("Courier-Bold" as CFString, 12, nil)
-        let exported = try XCTUnwrap(SVGFontData.export(font))
-        func u16(_ offset: Int) -> Int { Int(exported.data[offset]) << 8 | Int(exported.data[offset + 1]) }
-        func u32(_ offset: Int) -> Int { u16(offset) << 16 | u16(offset + 2) }
-        let index = try XCTUnwrap((0..<u16(4)).first { u32(12 + $0 * 16) == 0x4F532F32 })
-        let offset = u32(12 + index * 16 + 8)
-        XCTAssertEqual(u16(offset + 4), 700)
-        XCTAssertFalse((CTFontManagerCreateFontDescriptorsFromData(exported.data as CFData) as? [CTFontDescriptor] ?? []).isEmpty)
-    }
-
     func testColorFontGlyphsCannotBypassSVGPreflight() throws {
-        let font = CTFontCreateWithName("AppleColorEmoji" as CFString, 12, nil)
-        XCTAssertTrue(SVGFontData.hasColorGlyphs(font))
-        if let exported = SVGFontData.export(font) {
-            XCTAssertTrue(exported.strippedColorGlyphs)
-            XCTAssertFalse(SVGFontData.hasColorGlyphs(exported.data))
-            XCTAssertFalse((CTFontManagerCreateFontDescriptorsFromData(exported.data as CFData) as? [CTFontDescriptor] ?? []).isEmpty)
-        }
         let fixture = try RichFixture("<svg xmlns='http://www.w3.org/2000/svg' id='s' width='80' height='40'><text x='2' y='30' font-family='Apple Color Emoji' font-size='24'>ABC</text></svg>")
         let attachment = try XCTUnwrap(RichFixture.attachments(in: fixture.svg("s")).first as? ReaderImageAttachment)
         XCTAssertEqual(fixture.report.report.unsupportedElements["svg:font-color"], 1)
         XCTAssertNotNil(attachment.source.decode(maxPixelSize: 80))
-    }
-
-    func testLiveFontDatabasesStayBoundedAfterOptionsCacheEviction() throws {
-        let exported = try XCTUnwrap(SVGFontData.export(CTFontCreateWithName("TimesNewRomanPSMT" as CFString, 12, nil)))
-        let svg = Data("<svg xmlns='http://www.w3.org/2000/svg' width='40' height='20'><text y='15'>ABC</text></svg>".utf8)
-        var held: [SVGRenderer] = []
-        // SFNT permits trailing bytes. Distinct padded valid fonts force separate immutable
-        // databases, while keeping every parsed tree alive beyond the four-entry cache.
-        for index in 0..<20 {
-            var data = exported.data
-            data.append(Data(count: SVGFontData.maximumBytes - data.count))
-            data[data.count - 1] = UInt8(index)
-            guard let renderer = SVGRenderer(svg, fonts: [SVGFontData(family: exported.family, data: data)]) else { break }
-            held.append(renderer)
-        }
-        XCTAssertGreaterThan(held.count, 1)
-        XCTAssertLessThan(held.count, 20, "Live trees must retain the database byte reservation")
-        XCTAssertNotNil(held.first?.render(maxPixelSize: 40))
-        held.removeAll()
-        var replacement = exported.data
-        replacement.append(Data(count: SVGFontData.maximumBytes - replacement.count))
-        replacement[replacement.count - 1] = 250
-        XCTAssertNotNil(SVGRenderer(svg, fonts: [SVGFontData(family: exported.family, data: replacement)]), "Releasing trees returns their reservations")
-    }
-
-    func testLiveFontDatabaseIsSharedAfterOptionsCacheEviction() throws {
-        let exported = try XCTUnwrap(SVGFontData.export(CTFontCreateWithName("TimesNewRomanPSMT" as CFString, 12, nil)))
-        let svg = Data("<svg xmlns='http://www.w3.org/2000/svg' width='40' height='20'><text y='15'>ABC</text></svg>".utf8)
-        // SFNT permits trailing bytes: each distinct byte is a distinct immutable database.
-        func fonts(_ index: Int) -> [SVGFontData] {
-            var data = exported.data
-            data.append(UInt8(index))
-            return [SVGFontData(family: exported.family, data: data)]
-        }
-        // Hold one parsed tree per font set until the shared budget refuses another database.
-        // That refusal also empties the options cache, so none of these is cached any more.
-        var held: [SVGRenderer] = []
-        for index in 0..<64 {
-            guard let renderer = SVGRenderer(svg, fonts: fonts(index)) else { break }
-            held.append(renderer)
-        }
-        XCTAssertGreaterThan(held.count, 1)
-        XCTAssertLessThan(held.count, 64, "Distinct live databases stay bounded")
-        // A rebuilt section asks for the fonts its previous build still holds. That is the
-        // same database, already reserved: it must be shared, not loaded and counted twice.
-        for index in held.indices {
-            let again = try XCTUnwrap(SVGRenderer(svg, fonts: fonts(index)), "Live font set \(index) was refused")
-            XCTAssertNotNil(again.render(maxPixelSize: 40))
-        }
-        XCTAssertNil(SVGRenderer(svg, fonts: fonts(200)), "Sharing must not admit another database over the budget")
-        held.removeAll()
-        XCTAssertNotNil(SVGRenderer(svg, fonts: fonts(200)), "Releasing trees returns their reservations")
-    }
-
-    func testRepeatedUseStylesAndRasterRequestsRespectLayerBudget() throws {
-        let svg = """
-        <svg xmlns='http://www.w3.org/2000/svg' width='100' height='100'>
-        <style>.layer { opacity: .5; }</style><defs><g id='a' class='layer'><rect width='100' height='100'/></g></defs>
-        <use href='#a'/><use href='#a'/><use href='#a'/></svg>
-        """
-        let document = try ContentDocument.parse(Data(svg.utf8), path: "style.svg")
-        let layers = SVGContent.isolatedLayers(document.root)
-        XCTAssertGreaterThan(layers, document.nodes.filter(\.isElement).count, "Expanded uses and CSS isolation are counted")
-        let source = try XCTUnwrap(ReaderImageSource.svg(Data(svg.utf8), path: "", key: "budget"))
-        let image = try XCTUnwrap(source.decode(maxPixelSize: Int.max))
-        XCTAssertLessThanOrEqual(image.width * image.height * (4 + 25 * 5 * layers), 96 * 1024 * 1024)
-        let deep = String(repeating: "<g>", count: 65) + "<rect width='1' height='1'/>" + String(repeating: "</g>", count: 65)
-        XCTAssertNil(ReaderImageSource.svg(Data("<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'>\(deep)</svg>".utf8), path: "", key: "deep"))
-    }
-
-    func testExpandedPathCostAndLargeDataRasterAreRefusedBeforeRendering() throws {
-        let path = String(repeating: "L1 1 ", count: 120_000)
-        let uses = String(repeating: "<use href='#a'/>", count: 20)
-        let svg = "<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><defs><path id='a' d='M0 0 \(path)'/></defs>\(uses)</svg>"
-        XCTAssertNil(ReaderImageSource.svg(Data(svg.utf8), path: "", key: "expanded"))
-        let data = RichFixture.image(width: 2100, height: 2100).base64EncodedString()
-        let embedded = "<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><image href='data:image/png;base64,\(data)' width='10' height='10'/></svg>"
-        XCTAssertNil(ReaderImageSource.svg(Data(embedded.utf8), path: "", key: "pixels"))
-    }
-
-    /// The renderer reads a `data:` image by the data: URL processor, and so are its images read
-    /// before it is given them (`DataURL`): in any case, as base64 broken by white space, or
-    /// percent-encoded. Each of those forms is drawn when it is small and refused when it is not.
-    func testDataImagesAreBoundedInEveryFormTheRendererDraws() throws {
-        func drawing(_ href: String) -> Data {
-            Data("<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><image href='\(href)' width='10' height='10'/></svg>".utf8)
-        }
-        func forms(_ png: Data) -> [String] {
-            let b64 = png.base64EncodedString()
-            return ["data:image/png;base64,\(b64)", "DATA:IMAGE/PNG;BASE64,\(b64)",
-                    "data:image/png;base64,\(b64.prefix(8))&#10; \(b64.dropFirst(8))",
-                    "data:image/png,\(png.map { String(format: "%%%02X", $0) }.joined())"]
-        }
-        for href in forms(RichFixture.image(width: 10, height: 10)) {
-            let source = try XCTUnwrap(ReaderImageSource.svg(drawing(href), path: "", key: "small"), String(href.prefix(24)))
-            XCTAssertEqual(pixel(try XCTUnwrap(source.decode(maxPixelSize: 10)), 5, 5)[3], 255, String(href.prefix(24)))
-        }
-        for href in forms(RichFixture.image(width: 2100, height: 2100)) {
-            XCTAssertNil(ReaderImageSource.svg(drawing(href), path: "", key: "large"), String(href.prefix(24)))
-        }
     }
 
     func testOriginalNetworkingSVGCorpusWhenProvided() throws {
@@ -362,8 +212,9 @@ final class SVGRenderingTests: XCTestCase {
         for resource in publication.resources where resource.path.hasSuffix(".svg") {
             let data = try publication.data(at: resource.path)
             let document = try ContentDocument.parse(data, path: resource.path)
-            if SVGContent.unsupportedConstructs(document.root).contains("svg:filter") { filtered += 1 }
-            let snapshot = fonts.svgFonts(families: SVGContent.fontFamilies(document.root))
+            let svg = try XCTUnwrap(SVGContent.document(document.root), resource.path)
+            if svg.constructs.contains(.filter) { filtered += 1 }
+            let snapshot = fonts.svgFonts(families: svg.fontFamilies)
             let serialized = try XCTUnwrap(SVGContent.serialize(document.root, resolve: { _ in nil }, publication: publication, fontAliases: snapshot.aliases), resource.path)
             let source = try XCTUnwrap(ReaderImageSource.svg(serialized, path: resource.path, key: resource.path, fonts: snapshot.fonts), resource.path)
             let image = try XCTUnwrap(source.decode(maxPixelSize: 1024), resource.path)

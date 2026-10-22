@@ -382,10 +382,11 @@ accessibility use the same page/viewport operation regardless of direct-input co
 
 A host declares nothing for EPUBLib in its privacy manifest. Apple has an app give a reason for
 each API it calls that reads the system boot time, file timestamps, disk space, the active
-keyboards or user defaults, and the five products and the resvg library that EPUBViewing links
-call none of them: the iOS reader times an edge tap by the touch's own timestamps, and resvg is
-built without the file reads and backtraces that would call `stat` and `fstat`
-([#685](https://github.com/vocaro/EPUBLib/issues/685)). The gate reads their compiled code for
+keyboards or user defaults, and the five products, and the StaticSVG package and its resvg
+library that EPUBViewing links, call none of them: the iOS reader times an edge tap by the
+touch's own timestamps, and resvg is built without the file reads and backtraces that would call
+`stat` and `fstat` ([#685](https://github.com/vocaro/EPUBLib/issues/685); StaticSVG 0.1.1 and
+later). The gate reads their compiled code for
 any such call ([testing](testing.md#local-gate)). ZIPFoundation, which reads and writes the
 archives, reads file timestamps and declares that in a manifest of its own, which an app built
 with EPUBLib carries in ZIPFoundation's resource bundle.
