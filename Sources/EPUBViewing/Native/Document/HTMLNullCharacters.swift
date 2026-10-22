@@ -15,11 +15,16 @@ import Foundation
 /// completes a tag, a comment or a declaration. `HTMLStraySigns` has already made a character
 /// of a `<` that a NUL follows, as HTML does; where it could not, that NUL stays, as U+FFFD,
 /// between the sign and what would have made a tag of it. In bytes that are not UTF-8 a NUL
-/// stays likewise where leaving it out would join the halves of a character. After a DOCTYPE
-/// one stays between `>` and `[`: the screen refuses a `[` directly after a DOCTYPE's `>`, where
-/// libxml2's XML parser reads an internal subset, and leaving the NUL out would give the parser
-/// what the screen refuses. The screen ends a DOCTYPE past a quoted `>`, and reads one in the
-/// raw text of a style sheet, so here any `>` after the first `<!DOCTYPE` may end one.
+/// stays likewise where leaving it out would join the halves of a character.
+///
+/// After a DOCTYPE, a `>` and a `[` that only NULs stand between are kept apart. The screen
+/// refuses a `[` directly after a DOCTYPE's `>`, where libxml2's XML parser reads an internal
+/// subset, and leaving the NULs out would give the parser what the screen refuses. The first
+/// NUL is `<!>`, an empty comment to HTML that libxml2 passes over, so the text is what HTML
+/// reads. It holds no quote and no `-->`, `?>` or `]]>`, so it ends nothing the screen may be
+/// reading there; an empty comment `<!---->` would end a comment the screen reads in a style
+/// sheet. The screen ends a DOCTYPE past a quoted `>`, and reads one in the raw text of a style
+/// sheet, so here any `>` after the first `<!DOCTYPE` may end one.
 ///
 /// The scan follows what libxml2 does with the bytes it is given here, not what HTML would:
 /// raw text ends at an end tag of its own name and at no other. Where the two part (libxml2
@@ -79,8 +84,14 @@ enum HTMLNullCharacters {
             } else {
                 // Text. Before a byte that only continues a character, which is not UTF-8, a
                 // NUL stays, so that the bytes on either side are not joined into a character.
-                // So does the first of the NULs between a `>` that may end a DOCTYPE and a `[`.
-                if byte != 0 { output.append(byte) } else if let next, next & 0xC0 == 0x80 || opensSubset(at: index) { output.append(contentsOf: replacement) }
+                // The first of the NULs between a `>` that may end a DOCTYPE and a `[` is `<!>`.
+                if byte != 0 {
+                    output.append(byte)
+                } else if let next, next & 0xC0 == 0x80 {
+                    output.append(contentsOf: replacement)
+                } else if opensSubset(at: index) {
+                    output.append(contentsOf: emptyComment)
+                }
                 index += 1
             }
         }
@@ -89,6 +100,7 @@ enum HTMLNullCharacters {
 
     private static let commentOpen = Array("<!--".utf8)
     private static let doctypeOpen = Array("<!DOCTYPE".utf8) // As the screen spells it.
+    private static let emptyComment = Array("<!>".utf8)
 
     /// The index after the `-->` or `--!>` that ends the comment opened at `start`.
     static func comment(in bytes: [UInt8], at start: Int) -> Int {
