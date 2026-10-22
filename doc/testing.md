@@ -268,12 +268,17 @@ Bar tests hold continuous scroll to its place when a bar shows or hides over a r
 under it, which changes the height of the visible area and not the reader's size.
 `CanvasHost(…, underBars: true)` puts the canvas under a navigation bar on iOS and under the
 title bar of a full-size content view on the Mac, and `setBar(shown:)` hides the one and gives
-the window a toolbar on the other. On the Mac the harness waits for the scroll view's insets
-after the toolbar changes them and then asks for the layout
+the window a toolbar on the other. On the Mac the harness waits for the canvas's safe area to
+follow the toolbar and lays out as display cycles do; it asks for no layout of its own, so a
+reader that is not laid out for its new safe area fails
 ([#162](https://github.com/vocaro/EPUBLib/issues/162)). The session test uses the public reader with
 `ignoresSafeArea()`: under a `NavigationStack` whose bar it hides on iOS, and on the Mac in a
-window whose toolbar it shows and hides, each followed by a change of appearance, which lays the
-reader out. The bars are the system's own, in a test host; nothing is looked at on a screen.
+window whose toolbar it shows and hides. `ViewCoverageCanvasTests` holds pages and continuous
+scroll on the Mac to a toolbar shown, hidden and shown again over a canvas that fills a
+full-size content view, and `ReaderImageInspectionTests` holds the image inspector's controls
+to it. `BoxAlignmentCanvasTests` also hides the toolbar with the view at the end of the book,
+where AppKit cannot move the view by the whole change in the inset. The bars are the system's
+own, in a test host; nothing is looked at on a screen.
 Each window's toolbar has an identifier of its own, for the reasons
 [offscreen AppKit hosting](https://github.com/vocaro/apple-engineering/blob/main/guides/background-mac-testing.md#offscreen-appkit-hosting)
 gives.

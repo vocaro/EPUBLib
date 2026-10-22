@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Lay the reader out on macOS when a toolbar is shown, hidden or made compact over it and its size stays, as over a full-size content view or a reader under `ignoresSafeArea()`, so that the pages move clear of the bar, continuous scroll lays its text out for the height that shows and the image inspector's controls stay below the bar, where the first lines of each page stood under the toolbar until the window was resized ([#162](https://github.com/vocaro/EPUBLib/issues/162)).
 - Keep `>` and `[` apart after a DOCTYPE, in any case, when a section falls back to the HTML parser and the NULs between them are left out, by giving the parser an empty `<!>` in their place, which libxml2 reads as nothing, so that leaving the NULs out cannot give it an internal subset the screen refuses, where `<!DOCTYPE html>`, a NUL and `[<!ATTLIST …>]>`, written so or in UTF-7, passed the screen and reached the parser without the NUL ([#246](https://github.com/vocaro/EPUBLib/issues/246)).
 - Complete a search whose task is cancelled after its results are published, whatever callback or observer cancels it, where the search then read idle while its results stayed listed and drawn ([#157](https://github.com/vocaro/EPUBLib/issues/157)).
 - Require a phrase with two or more search results in `EPUBEngineContract.verify`, which now fails a call whose phrase has one, where it passed its step and wrap checks without the current match moving ([#730](https://github.com/vocaro/EPUBLib/issues/730)).
