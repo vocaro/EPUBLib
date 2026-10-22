@@ -60,7 +60,9 @@ continues to describe the authored spine resource.
    names before sizing, screening and serialization; strict XML names stay as authored
    ([#317](https://github.com/vocaro/EPUBLib/issues/317)).
    U+0000 does not end the section: it is left out of text and is U+FFFD in tags, comments
-   and the raw text of `script` and `style`, as HTML reads it.
+   and the raw text of `script` and `style`, as HTML reads it. After a DOCTYPE, one between
+   `>` and `[` in text is U+FFFD too: left out, it would join them into the internal subset
+   the screen refuses ([#246](https://github.com/vocaro/EPUBLib/issues/246)).
    A section whose file is cut off inside markup stays withheld, with its disclosure: the
    screen refuses markup left open at the end of the input before either parser runs.
    `XMLSafety` refuses entity declarations first. No DTD or network access, depth and node limits.
@@ -1677,7 +1679,9 @@ continues to describe the authored spine resource.
   most easily disagree about what the bytes are. The cost is one section of a file some tool
   wrote short; a download cut short is no readable archive at all
   ([#202](https://github.com/vocaro/EPUBLib/issues/202)). Text extraction's recovery reads the
-  matching case the same way: a `<` that is the last byte of a file is not text.
+  matching case the same way: a `<` that is the last byte of a file is not text. A `<` that
+  NULs follow at the end of a file is not its last byte, and the screen and HTML read it as a
+  character: `…<p>two <` and NULs reads `two <`, as text extraction reads the same bytes.
 - **Book pose.** New public `View.epubReaderDivision(_:)` reserves a vertical division in the
   reader's own coordinates. Columns never depend on device idiom, orientation or screen.
 

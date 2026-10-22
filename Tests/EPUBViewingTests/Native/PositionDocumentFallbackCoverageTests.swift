@@ -608,6 +608,41 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
         XCTAssertTrue(text.unicodeScalars.dropLast(6).allSatisfy { $0 == "\u{FFFD}" }, "the halves were joined into \(text.debugDescription)")
     }
 
+    /// The screen refuses a `[` directly after a DOCTYPE's `>`, where libxml2's XML parser reads
+    /// an internal subset, and passes one that a NUL stands before. Leaving that NUL out would
+    /// give the parser what the screen refuses, so it stays, as U+FFFD: written so, spelt in
+    /// UTF-7, UTF-16 or UTF-32, and where the screen ends the DOCTYPE at a `>` that HTML reads
+    /// as something else, past a quoted `>` or in a style sheet.
+    func testANULBetweenADoctypeAndABracketStays() throws {
+        let subset = "[<!ATTLIST p title CDATA \"hidden\">]><html><body><p>one<br>two</p></body></html>"
+        XCTAssertFalse(XMLSafety.hasSafeDeclarations(Data("<!DOCTYPE html>\(subset)".utf8)), "the subset as it is written")
+        let utf7 = "<?xml version=\"1.0\" encoding=\"UTF-7\"?>+ADw-!DOCTYPE html+AD4AAABb-+ADw-!ATTLIST p title CDATA \"hidden\"+AD4-]+AD4-<html><body><p>one<br>two</p></body></html>"
+        var documents = [("a NUL", Data("<!DOCTYPE html>\u{0}\(subset)".utf8)), ("NULs", Data("<!DOCTYPE html>\u{0}\u{0}\u{0}\(subset)".utf8)),
+                         ("a quoted >", Data("<!DOCTYPE html SYSTEM \"a>b\">\u{0}\(subset)".utf8)), ("UTF-7", Data(utf7.utf8))]
+        documents += try Self.wide.map { ($0.label, try encoded("<!DOCTYPE html>\u{0}\(subset)", $0)) }
+        let style = "<html><body><style><!DOCTYPE x \"</style>\">\u{0}[<!ATTLIST p title CDATA \"hidden\">]><p>one<br>two</p></body></html>"
+        for (label, data, text) in documents.map({ ($0, $1, "\u{FFFD}[]>onetwo") }) + [("a style sheet", Data(style.utf8), "<!DOCTYPE x \"\">\u{FFFD}[]>onetwo")] {
+            XCTAssertTrue(XMLSafety.hasSafeDeclarations(data), "the screen refused \(label)")
+            let given = try ContentDocument.htmlSource(data, rewritten: data, path: "fallback.xhtml", limits: ContentLimits()).data
+            XCTAssertTrue(XMLSafety.hasSafeDeclarations(given), "\(label): the parser was given a subset the screen refuses")
+            let document = try parse(data)
+            XCTAssertEqual(bodyText(document), text, label)
+            XCTAssertFalse(document.nodes.contains { $0.attribute("title") != nil }, "\(label) declared an attribute")
+        }
+        // Where the screen passes the bytes joined, the NUL is left out as before: it reads a
+        // subset only directly after a DOCTYPE in capitals, and so does the XML parser.
+        for (label, markup) in [("before a space", "<!DOCTYPE html>\u{0} \(subset)"), ("after a space", "<!DOCTYPE html> \u{0}\(subset)"),
+                                ("after a DOCTYPE in lowercase", "<!doctype html>\u{0}\(subset)"),
+                                ("after a letter", "<!DOCTYPE html><html><body><p>a\u{0}[1]<br></p></body></html>")] {
+            let twin = markup.replacingOccurrences(of: "\u{0}", with: "")
+            XCTAssertTrue(XMLSafety.hasSafeDeclarations(Data(twin.utf8)), label)
+            XCTAssertEqual(model(try parse(markup)), model(try parse(twin)), label)
+        }
+        // Nor does a document without a DOCTYPE change, wherever `>`, a NUL and `[` stand in it.
+        let plain = page("<p>a<br></p>\u{0}[1]<p>\u{0}[2]</p>")
+        XCTAssertEqual(model(try parse(plain)), model(try parse(plain.replacingOccurrences(of: "\u{0}", with: ""))))
+    }
+
     /// The scan that reads NULs, against documents whose text and markup are known because they
     /// are assembled from pieces: a NUL put into text leaves the tree of the document without
     /// it, and one put into markup the tree of the document with U+FFFD written there.
