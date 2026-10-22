@@ -36,7 +36,9 @@ enum LostEntries {
             guard nameLength <= count - record - 46 else { break }
             found += 1
             if paths.count < limit {
-                paths.append(EntryName.path(name: Data(bytes[(record + 46)..<(record + 46 + nameLength)]), flags: UInt16(u16(record + 8))))
+                // A name bit 11 declares UTF-8 that is not, which refuses an entry that is read,
+                // has no path to give.
+                paths.append(EntryName.path(name: bytes[(record + 46)..<(record + 46 + nameLength)], flags: UInt16(u16(record + 8))) ?? "")
             }
             let length = 46 + nameLength + u16(record + 30) + u16(record + 32)
             // The next record begins where this one ends, which the end of the archive cuts off.

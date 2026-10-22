@@ -66,8 +66,9 @@ with compiled examples.
 ## License
 
 EPUBLib is copyright (c) 2026 Vocaro Technologies LLC and available under the
-[MIT license](LICENSE). ZIPFoundation, MathMLLayout, the bundled resvg renderer and the code ported
-from foliate-js carry their own licenses; see [third-party notices](doc/third-party-notices.md).
+[MIT license](LICENSE). ZIPFoundation, MathMLLayout, StaticSVG and the resvg renderer it bundles,
+and the code ported from foliate-js carry their own licenses; see
+[third-party notices](doc/third-party-notices.md).
 
 ## Shared engineering
 
