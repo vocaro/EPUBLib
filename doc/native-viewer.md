@@ -584,8 +584,12 @@ continues to describe the authored spine resource.
   own. Each took the outer cell's characters, where the nested table is one unit: the
   highlight covered the nested table on screen, the context was the outer cell's text around
   it, and the CFI named the nested table element
-  ([#718](https://github.com/vocaro/EPUBLib/issues/718)). A selection there is still drawn
-  over the whole nested table ([#739](https://github.com/vocaro/EPUBLib/issues/739)).
+  ([#718](https://github.com/vocaro/EPUBLib/issues/718)). A match's highlight paints only the
+  nested rows the match runs through, so what a cell's matches cost to paint follows the rows
+  they are in. Two things still read the outer cell's characters: a selection there is drawn
+  over the whole nested table, and a match there is left out of the results, and not
+  selected by `.locate`, when `visibility: hidden` hides text anywhere else in the nested
+  table ([#739](https://github.com/vocaro/EPUBLib/issues/739)).
   A cell is laid out with TextKit 1. Where a paragraph's indents, a list's among them, take
   the whole column left inside the cell's padding, the paragraph keeps the glyph-wide column
   the reader's other text keeps, its left indent first

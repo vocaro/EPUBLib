@@ -181,15 +181,18 @@ final class TableCellLayout: @unchecked Sendable {
     /// continuation, all of the row where it is in `run`, and otherwise the part in `nested`
     /// whose rows hold it (`TableRowAttachment.drawHighlight`). The fill takes the place of
     /// what was painted beneath it, so a word shows the last highlight painted on it, as text
-    /// shows its last highlight attribute.
+    /// shows its last highlight attribute. Only the lines holding the highlight's characters are
+    /// visited, found by binary search, so a cell's many highlights cost what they cover.
     func drawHighlight(run: NSRange, nested: [TableNestedHighlight], color: CGColor, inLines indices: Range<Int>, at origin: CGPoint) {
         #if os(iOS)
         guard let context = UIGraphicsGetCurrentContext() else { return }
         #else
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         #endif
+        let held = ([run] + nested.map(\.rows)).filter { $0.length > 0 }
+        guard let lower = held.map(\.location).min(), let upper = held.map(\.upperBound).max() else { return }
         lock.withLock {
-            for index in indices {
+            for index in lineIndices(holding: NSRange(location: lower, length: upper - lower), among: indices) {
                 let line = lines[index]
                 if let row = line.nestedRow {
                     let part: TableNestedHighlight? = NSLocationInRange(line.characters.location, run)
@@ -217,6 +220,21 @@ final class TableCellLayout: @unchecked Sendable {
                 manager.drawGlyphs(forGlyphRange: glyphs, at: origin)
             }
         }
+    }
+
+    /// The lines among `indices` that hold any of `characters`. The lines are in the order of
+    /// their characters, and a nested row's continuations share its one character.
+    private func lineIndices(holding characters: NSRange, among indices: Range<Int>) -> Range<Int> {
+        func first(where test: (Line) -> Bool) -> Int {
+            var low = indices.lowerBound, high = indices.upperBound
+            while low < high {
+                let middle = (low + high) / 2
+                if test(lines[middle]) { high = middle } else { low = middle + 1 }
+            }
+            return low
+        }
+        let lower = first { $0.characters.upperBound > characters.location }
+        return lower..<max(lower, first { $0.characters.location >= characters.upperBound })
     }
 }
 

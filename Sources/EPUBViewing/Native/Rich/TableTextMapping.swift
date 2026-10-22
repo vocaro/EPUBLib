@@ -86,16 +86,22 @@ extension TableModel.Cell {
 }
 
 extension TextMap {
-    /// The characters of the element whose document order is `node`, where it renders as a unit
-    /// (a table in a cell), found with the same source-ordered binary search as a position.
-    func unit(of node: Int) -> NSRange? {
+    /// The last span from a node at or before `node` in document order, by the spans'
+    /// source-ordered binary search: the unit, when a node inside an element rendered as one.
+    func lastSpan(atOrBefore node: Int) -> Span? {
         var low = 0, high = spans.count
         while low < high {
             let middle = (low + high) / 2
             if spans[middle].node <= node { low = middle + 1 } else { high = middle }
         }
-        guard low > 0, spans[low - 1].node == node, spans[low - 1].isUnit else { return nil }
-        return NSRange(location: spans[low - 1].location, length: spans[low - 1].length)
+        return low > 0 ? spans[low - 1] : nil
+    }
+
+    /// The characters of the element whose document order is `node`, where it renders as a unit
+    /// (a table in a cell).
+    func unit(of node: Int) -> NSRange? {
+        guard let span = lastSpan(atOrBefore: node), span.node == node, span.isUnit else { return nil }
+        return NSRange(location: span.location, length: span.length)
     }
 }
 
@@ -186,14 +192,8 @@ extension SectionText {
     /// enclosing unit is found with the same source-ordered binary search the map uses.
     private static func cell(holding position: DOMPosition, map: TextMap, string: NSAttributedString,
                              document: ContentDocument) -> (table: TableModel, cell: Int, map: TextMap)? {
-        var low = 0, high = map.spans.count
-        while low < high {
-            let middle = (low + high) / 2
-            if map.spans[middle].node <= position.node.order { low = middle + 1 } else { high = middle }
-        }
-        guard low > 0 else { return nil }
-        let span = map.spans[low - 1]
-        guard span.isUnit, document.nodes[span.node].isHTML("table"),
+        guard let span = map.lastSpan(atOrBefore: position.node.order),
+              span.isUnit, document.nodes[span.node].isHTML("table"),
               document.nodes[span.node].isAncestor(of: position.node),
               span.location < string.length,
               let table = string.attribute(.readerTableModel, at: span.location, effectiveRange: nil) as? TableModel,
