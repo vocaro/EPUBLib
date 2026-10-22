@@ -172,7 +172,8 @@ final class ReaderParagraphSizing: NSObject, @unchecked Sendable {
         if let width = markerWidth {
             style.headIndent = max(head, width)
             style.firstLineHeadIndent = max(0, head - width)
-            style.tabStops = [NSTextTab(textAlignment: .left, location: style.headIndent, options: [:])]
+            style.tabStops = [NSTextTab(textAlignment: .left, location: SectionWriter.markerStop(style.headIndent, indent: indent),
+                                        options: [:])]
         }
         if let before { style.paragraphSpacingBefore = before.resolve(viewport: viewport) }
         if let after { style.paragraphSpacing = after.resolve(viewport: viewport) }

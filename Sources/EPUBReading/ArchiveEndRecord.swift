@@ -17,7 +17,8 @@ import Foundation
 /// back to the first, once and in memory, and ZIPFoundation is given them as far as the comment
 /// of the record found (`archiveLength(in:)`). Bytes that begin with anything else are refused
 /// by their last bytes and their first four, the rest unread: an archive with other bytes both
-/// before it and, more than a comment's length of them, after it is among those.
+/// before it and, more than a comment's length of them, after it is among those. A file opened
+/// by its URL is refused having been read no further either (`ArchiveFile`).
 ///
 /// Nor does ZIPFoundation close the file it opens over bytes it then refuses, and that file
 /// keeps them: every such refusal costs the process the size of what it was offered, for good.
@@ -28,6 +29,29 @@ import Foundation
 enum ArchiveEndRecord {
     /// The length of a record with the longest comment.
     static let maximumLength = 22 + 65_535
+    /// A local file header's signature, which an archive whose first entry is at its first byte
+    /// begins with.
+    static let localFileHeader: UInt32 = 0x0403_4b50
+
+    /// What the last `maximumLength` bytes of something, or all of it when it is no longer, say
+    /// of the archive it may be.
+    enum Ending {
+        /// A record ZIPFoundation reads begins in them, and the archive ends where they do.
+        case record
+        /// The last signature in them begins a record whose comment they cut short. There is no
+        /// archive: ZIPFoundation looks no further back.
+        case cutShort
+        /// No signature begins in them. An archive that more bytes follow is looked for further
+        /// back, in bytes that begin with `localFileHeader` and in no others (`archiveLength(in:)`).
+        case none
+    }
+
+    /// What `tail`, the last `maximumLength` bytes or all of them when there are fewer, says; the
+    /// bytes before it need not be read to say so.
+    static func ending(_ tail: UnsafeRawBufferPointer) -> Ending {
+        guard offset(in: tail) != nil else { return .none }
+        return readableOffset(in: tail) == nil ? .cutShort : .record
+    }
 
     /// The offset of the signature ZIPFoundation takes for the end record's: the last one that
     /// has 22 bytes or more from it to the end, whatever they hold. nil when none begins in the
@@ -68,11 +92,15 @@ enum ArchiveEndRecord {
     /// far), ZIPFoundation, given the whole file, found bytes, and now finds the archive's end.
     /// In the first, the few bytes after the comment are given with the rest, as they were.
     static func archiveLength(in bytes: UnsafeRawBufferPointer) -> Int? {
-        if offset(in: bytes) != nil { return readableOffset(in: bytes) == nil ? nil : bytes.count }
-        let searched = bytes.count - maximumLength
-        guard searched > 0, UInt32(littleEndian: bytes.loadUnaligned(as: UInt32.self)) == 0x0403_4b50,
-              let offset = lastSignature(in: bytes, before: searched) else { return nil }
-        return offset + 22 + Int(UInt16(littleEndian: bytes.loadUnaligned(fromByteOffset: offset + 20, as: UInt16.self)))
+        switch ending(UnsafeRawBufferPointer(rebasing: bytes[max(0, bytes.count - maximumLength)..<bytes.count])) {
+        case .record: return bytes.count
+        case .cutShort: return nil
+        case .none:
+            let searched = bytes.count - maximumLength
+            guard searched > 0, UInt32(littleEndian: bytes.loadUnaligned(as: UInt32.self)) == localFileHeader,
+                  let offset = lastSignature(in: bytes, before: searched) else { return nil }
+            return offset + 22 + Int(UInt16(littleEndian: bytes.loadUnaligned(fromByteOffset: offset + 20, as: UInt16.self)))
+        }
     }
 
     /// The offset of the last end-record signature that begins before `end`, which has eight

@@ -122,15 +122,15 @@ final class LostEntryTests: XCTestCase {
         legacy.name = Data("OPS/r".utf8) + Data([0x82]) + Data("sum".utf8) + Data([0x82]) + Data(".css".utf8) // résumé in code page 437
         entries.append(legacy)
         for (name, data) in [("ditto", Fixture.MacToolArchive.ditto), ("code page 437", Fixture.storedArchive(entries))] {
-            let archive = try Archive(data: data, accessMode: .read)
-            let paths = archive.map(EntryName.path(of:))
+            let directory = try ArchiveBounds.check(data, names: .max)
+            let paths = try directory.records.indices.map { try directory.name(at: $0, in: data).path }
             for lost in 1...3 {
                 let end = data.count - 22
                 let counted = replacing((end + 8)..<(end + 12), of: data, with: le(UInt16(paths.count - lost)) + le(UInt16(paths.count - lost)))
-                let found = try ArchiveBounds.check(counted, archive: Archive(data: counted, accessMode: .read), names: .max).lostEntries
+                let found = try ArchiveBounds.check(counted, names: .max).lostEntries
                 XCTAssertEqual(found, EPUBLostEntries(count: lost, paths: Array(paths.suffix(lost))), "\(name), \(lost) lost")
                 // No more names than asked for are kept; the count is whole.
-                let named = try ArchiveBounds.check(counted, archive: Archive(data: counted, accessMode: .read), names: 1).lostEntries
+                let named = try ArchiveBounds.check(counted, names: 1).lostEntries
                 XCTAssertEqual(named, EPUBLostEntries(count: lost, paths: Array(paths.suffix(lost).prefix(1))), "\(name), \(lost) lost, one name")
             }
         }

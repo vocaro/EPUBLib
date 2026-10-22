@@ -190,11 +190,16 @@ private final class XHTMLTextReader {
         "nav", "ol", "optgroup", "option", "p", "plaintext", "pre", "search", "section", "summary",
         "table", "td", "th", "tr", "ul", "xmp",
     ]
+    /// The elements that the HTML Standard's tree construction puts in another namespace by name.
+    private static let foreignNamespaces = ["svg": "http://www.w3.org/2000/svg", "math": MathTextNode.namespace]
     private let limits: EPUBTextExtractionLimits
     private var stack: [Frame] = []
     private var elements = 0
     private var capturedTitle = false
     var recovered = false
+    /// In a recovered tree, the prefixes the root declares: those its `html` start tags declare
+    /// in the source, the first of each, and those of each root element libxml2 builds.
+    var rootPrefixes: [String: String] = [:]
     var hasHTMLRoot = false
     var bodyCount = 0
     var body = NormalizedText()
@@ -288,9 +293,10 @@ private final class XHTMLTextReader {
     static func recover(_ data: Data, path: String, limits: EPUBTextExtractionLimits) throws -> XHTMLTextReader {
         guard let utf8 = SourceEncoding.utf8(data).map(NamedCharacterReferences.numeric(in:)),
               let ampersands = HTMLLiteralAmpersands.prepared(utf8, limit: Int(Int32.max)),
-              let source = HTMLRecoverySource.prepare(ampersands.data) else {
+              let prepared = HTMLRecoverySource.prepare(ampersands.data) else {
             throw EPUBTextExtractionError.malformedContent(path)
         }
+        let source = prepared.data
         guard source.count <= Int(Int32.max) else { throw EPUBTextExtractionError.limitExceeded("inputBytes") }
         guard XMLSafety.hasBoundedAttributes(source, asHTML: true) else { throw EPUBTextExtractionError.limitExceeded("attributesPerElement") }
         let options = Int32(HTML_PARSE_NONET.rawValue | HTML_PARSE_NOERROR.rawValue | HTML_PARSE_NOWARNING.rawValue
@@ -313,6 +319,7 @@ private final class XHTMLTextReader {
         }
         let result = XHTMLTextReader(limits: limits)
         result.recovered = true
+        for (prefix, uri) in prepared.rootPrefixes where result.rootPrefixes[prefix] == nil { result.rootPrefixes[prefix] = uri }
         func string(_ value: UnsafePointer<xmlChar>?) -> String {
             HTMLLiteralAmpersands.restored(value.map { String(cString: $0) } ?? "", placeholder: ampersands.placeholder)
         }
@@ -400,14 +407,19 @@ private final class XHTMLTextReader {
         guard stack.count < limits.depth else { throw EPUBTextExtractionError.limitExceeded("depth") }
         guard elements < limits.elementCount else { throw EPUBTextExtractionError.limitExceeded("elementCount") }
         elements += 1
+        let (prefix, local) = name
         var namespaces = stack.last?.namespaces ?? [:]
+        // In a recovered tree, as in HTML, `xmlns` puts no element of HTML content in another
+        // namespace, whatever its value (one that has lost its closing quote included); HTML
+        // gives `svg` and `math` theirs by name. Inside SVG and MathML it is read as before (#293).
+        let foreign = recovered && !(namespaces[""] ?? "").isEmpty && namespaces[""] != "http://www.w3.org/1999/xhtml"
         for (key, value) in declared {
-            if key == "xmlns" { namespaces[""] = value }
-            else if case let (prefix, local) = Self.split(key), prefix == "xmlns" { namespaces[local] = value }
+            if key == "xmlns" {
+                if !recovered || foreign || (prefix.isEmpty && Self.foreignNamespaces[local] == value) { namespaces[""] = value }
+            } else if case let (xmlns, declaredPrefix) = Self.split(key), xmlns == "xmlns" { namespaces[declaredPrefix] = value }
         }
         // XML refuses a repeated name, and libxml2's HTML parser keeps the first.
         let attributes = Dictionary(declared, uniquingKeysWith: { first, _ in first })
-        let (prefix, local) = name
         var uri = namespaces[prefix] ?? ""
         if recovered, prefix.isEmpty, uri.isEmpty || uri == "http://www.w3.org/1999/xhtml", local == "math", stack.last?.math == nil {
             // HTML places an undeclared <math> subtree in the MathML namespace.
@@ -420,6 +432,16 @@ private final class XHTMLTextReader {
         // once an out-of-place `<html/>` has closed the root it had open, it opens another
         // there, or beside the first after a DOCTYPE or a comment, for what follows (#292).
         let root = html && local == "html" && (stack.isEmpty || (recovered && stack.last?.root == true))
+        if recovered, root {
+            // HTML builds one root and adds to it each attribute of a later `html` start tag that
+            // it lacks, out of place or not. libxml2 drops such a tag, or builds a second root
+            // beside one that its own tag closed at once, so the prefixes they declare are the
+            // root's wherever libxml2 builds it (#287).
+            for (declaredPrefix, value) in namespaces where !declaredPrefix.isEmpty && rootPrefixes[declaredPrefix] == nil {
+                rootPrefixes[declaredPrefix] = value
+            }
+            for (declaredPrefix, value) in rootPrefixes { namespaces[declaredPrefix] = value }
+        }
         let startsBody = html && local == "body" && stack.last?.root == true
         // In a recovered tree a second body goes on with the first: HTML gives a later `<body>`
         // tag's attributes to the body and reads on in it, where libxml2 builds a second one
@@ -429,14 +451,19 @@ private final class XHTMLTextReader {
         // writer walks those authored siblings too; retain their characters/marks without
         // rewriting the strict XML document or changing its source positions.
         let afterBody = bodyCount == 1 && stack.last?.root == true
-        let inBody = startsBody || stack.last?.body == true || afterBody
+        // An HTML title, which is never body text: the HTML Standard's Rendering section hides
+        // every one (`display: none`), as the reader's style sheet does, in a head after the
+        // body or in the body itself (#287). SVG's title is not one.
+        let title = html && local == "title" && !stack.contains { $0.name == "svg" }
+        let inBody = (startsBody || stack.last?.body == true || afterBody) && !title
         let suppressed = stack.last?.suppressed == true || ["script", "style", "template"].contains(local)
-        // The head's title; and in a recovered tree, a title libxml2 builds in the root before
-        // the body, after an out-of-place `<head/>` or `<html/>` has closed the head. HTML
-        // builds it in the head.
-        let startsTitle = html && local == "title" && !capturedTitle
-            && ((stack.count >= 2 && stack.last?.name == "head" && stack[stack.count - 2].root)
-                || (recovered && stack.last?.root == true && bodyCount == 0))
+        // The head's title; and in a recovered tree the first title wherever libxml2 builds it,
+        // as `document.title` is the first title element in tree order: libxml2 builds one in
+        // the root after an out-of-place `<head/>` or `<html/>` has closed the head, where HTML
+        // builds it in the head (#292), and HTML builds one in the body itself where it stands
+        // there (#287).
+        let startsTitle = title && !capturedTitle && !suppressed
+            && ((stack.count >= 2 && stack.last?.name == "head" && stack[stack.count - 2].root) || recovered)
         if startsTitle { capturedTitle = true }
         let startsMath = uri == MathTextNode.namespace && local == "math" && inBody && !suppressed && stack.last?.math == nil
         let capturesMath = startsMath || stack.last?.math != nil
@@ -559,6 +586,9 @@ private enum SourceEncoding {
 ///   Reading on, the scan may meet a CDATA section or a quoted value that never ends in what
 ///   it used to copy as comment. Such a section is scanned again with these comments left as
 ///   they are, not refused.
+/// - A DOCTYPE is copied to its first `>`, where the HTML Standard ends it, with the last letter
+///   of each `PUBLIC` and `SYSTEM` in it written as its reference, so that libxml2 reads no
+///   quoted identifier past that `>` either (`HTMLDoctypes`, #293).
 /// - U+0000, where libxml2 ends its input, is dropped from text and CDATA, as HTML ignores it
 ///   in body text, and becomes U+FFFD in markup, as HTML reads it there. Markup is whatever is
 ///   copied unchanged, and anything from a `<` copied as is to the next `>`, so that dropping a
@@ -566,14 +596,16 @@ private enum SourceEncoding {
 /// The HTML parser never processes declarations, but as defense in depth the prepared bytes must
 /// contain no declaration keyword anywhere (ASCII case-insensitive, even inside comments or
 /// attribute values) and no DOCTYPE internal subset.
+/// With the bytes come the namespace prefixes that the document's `html` start tags declare, as
+/// the map reads them (#287).
 private enum HTMLRecoverySource {
-    static func prepare(_ data: Data) -> Data? {
+    static func prepare(_ data: Data) -> (data: Data, rootPrefixes: [(prefix: String, uri: String)])? {
         let bytes = [UInt8](data)
         let map = HTMLRawTextMap(bytes)
         var scanned = scan(bytes, map, closingAbruptComments: true)
         if scanned.output == nil, scanned.closedComment { scanned = scan(bytes, map, closingAbruptComments: false) }
-        guard let output = scanned.output else { return nil }
-        return hasDeclarations(output) ? nil : Data(output)
+        guard let output = scanned.output, !hasDeclarations(output) else { return nil }
+        return (Data(output), map.rootPrefixes)
     }
 
     /// The rewritten bytes, or `nil` for a CDATA section or a start tag's quoted value that never
@@ -596,19 +628,22 @@ private enum HTMLRecoverySource {
             while nextRenamed < map.renamed.count, map.renamed[nextRenamed] < position { nextRenamed += 1 }
             return nextRenamed < map.renamed.count ? map.renamed[nextRenamed] : Int.max
         }
-        /// Copies `range` with each renamed letter (the map's, and `own`) written as its numeric
-        /// character reference and U+0000 as U+FFFD.
-        func copy(_ range: Range<Int>, renaming own: Int? = nil) {
-            if own == nil, renamed(from: range.lowerBound) >= range.upperBound, !bytes[range].contains(0) {
+        /// Copies `range` with each renamed letter (the map's, and `own`, ascending) written as its
+        /// numeric character reference and U+0000 as U+FFFD.
+        func copy(_ range: Range<Int>, renaming own: [Int] = []) {
+            if own.isEmpty, renamed(from: range.lowerBound) >= range.upperBound, !bytes[range].contains(0) {
                 output.append(contentsOf: bytes[range]); return
             }
+            var nextOwn = 0
             for index in range {
-                if index == own || renamed(from: index) == index { output.append(contentsOf: reference(bytes[index])) }
+                let isOwn = nextOwn < own.count && own[nextOwn] == index
+                if isOwn { nextOwn += 1 }
+                if isOwn || renamed(from: index) == index { output.append(contentsOf: reference(bytes[index])) }
                 else if bytes[index] == 0 { output.append(contentsOf: replacement) }
                 else { output.append(bytes[index]) }
             }
         }
-        func copyMarkup(_ range: Range<Int>, renaming own: Int? = nil) {
+        func copyMarkup(_ range: Range<Int>, renaming own: [Int] = []) {
             inMarkup = false; exposed = false
             copy(range, renaming: own)
         }
@@ -624,7 +659,7 @@ private enum HTMLRecoverySource {
                 guard let end = tag.end else { return (nil, closedComment) }
                 let start = index
                 // `</body` or `</html` as libxml2 reads it: its last letter is renamed.
-                copyMarkup(index..<end, renaming: tag.endsBody ? index + 5 : nil)
+                copyMarkup(index..<end, renaming: tag.endsBody ? [index + 5] : [])
                 index = end
                 // Script and style content, to the first end tag of that name in any spelling that
                 // the map has not renamed. It opens where the Standard opens it (the map), or
@@ -663,6 +698,12 @@ private enum HTMLRecoverySource {
                     }
                 }
                 index = end + cdataClose.count; exposed = false
+            } else if bytes[index] == 0x3C, HTMLDoctypes.opens(bytes, at: index) {
+                // To its first `>`, where HTML ends it, with a letter of each `PUBLIC` and
+                // `SYSTEM` renamed so that libxml2 ends it there too (#293).
+                let end = HTMLDoctypes.end(bytes, from: index) ?? bytes.count
+                copyMarkup(index..<end, renaming: HTMLDoctypes.keywordLetters(bytes, in: index..<end))
+                index = end
             } else if bytes[index] == 0x3C, index + 1 < bytes.count, ![0x21, 0x2F, 0x3F].contains(bytes[index + 1]) {
                 // Before none of `!`, `/` and `?`, and not a tag: text.
                 output.append(contentsOf: Array("&lt;".utf8)); index += 1; exposed = true
@@ -746,11 +787,26 @@ private enum HTMLRecoverySource {
     private static func hasDeclarations(_ bytes: [UInt8]) -> Bool {
         let keywords = ["<!ENTITY", "<!ATTLIST", "<!ELEMENT", "<!NOTATION"].map { Array($0.utf8) }
         let doctype = Array("<!DOCTYPE".utf8)
+        // The next `>` at or after the last DOCTYPE looked at, found once for all those before it.
+        var greaterThan = -1
+        var cleanThrough = -1 // A DOCTYPE that ends here held no keyword and no bracket.
         for index in bytes.indices where bytes[index] == 0x3C {
             if keywords.contains(where: { matches(bytes, $0, at: index) }) { return true }
             if matches(bytes, doctype, at: index) {
-                // Through the DOCTYPE's actual close, outside quoted identifiers. A bracket in
-                // that whole span, quoted or not, or an unterminated DOCTYPE is refused.
+                // As far as libxml2 reads it. That is to its first `>`, where HTML ends it, unless
+                // a `PUBLIC` or `SYSTEM` comes before that `>` (the scan renames each it meets,
+                // `HTMLDoctypes`): then libxml2 may read a quoted identifier past it, and the
+                // DOCTYPE is read through its close outside quoted identifiers. A bracket in what
+                // is read, quoted or not, or a DOCTYPE that never ends is refused.
+                if greaterThan < index + doctype.count { greaterThan = bytes[(index + doctype.count)...].firstIndex(of: 0x3E) ?? bytes.count }
+                guard greaterThan < bytes.count else { return true }
+                let first = greaterThan + 1
+                if first == cleanThrough { continue } // Within the span of one already read.
+                if !HTMLDoctypes.holdsKeyword(bytes, in: index..<first) {
+                    if bytes[index..<first].contains(0x5B) { return true } // [
+                    cleanThrough = first
+                    continue
+                }
                 var quote: UInt8?
                 var position = index + doctype.count
                 var closed = false

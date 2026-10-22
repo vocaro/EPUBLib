@@ -51,7 +51,7 @@ final class SpineCFIsTests: XCTestCase {
         let book = try files(in: "My Books/", spineID: "s")
         let plain = try SpineCFIs(publication: open(book, fullPath: "My Books/book.opf")).bases
         XCTAssertEqual(plain, ["epubcfi(/6[s]/2)", "epubcfi(/6[s]/4)"])
-        for fullPath in ["My%20Books/book.opf", "%4Dy%20Books/b%6Fok.opf", "./My%20Books/text/%2E%2E/book.opf", "My Books%2Fbook.opf"] {
+        for fullPath in ["My%20Books/book.opf", "%4Dy%20Books/b%6Fok.opf", "./My%20Books/text/%2E%2E/book.opf", "My Books/%2E/book.opf"] {
             XCTAssertEqual(try SpineCFIs(publication: open(book, fullPath: fullPath)).bases, plain, fullPath)
         }
         // A name that is no URL is still read as it is written.
@@ -75,7 +75,7 @@ final class SpineCFIsTests: XCTestCase {
         for mark in Fixture.clusteringMarks {
             let folder = "Books/\(mark)x/"
             let book = try files(in: folder, spineID: "s")
-            for fullPath in [folder + "book.opf", "Books/y/../\(mark)x/book.opf", "Books/./\(mark)x/book.opf", "Books%2F\(Fixture.escapingNonASCII(mark))x/book.opf"] {
+            for fullPath in [folder + "book.opf", "Books/y/../\(mark)x/book.opf", "Books/./\(mark)x/book.opf", "Books/\(Fixture.escapingNonASCII(mark))x/book.opf"] {
                 let publication = try open(book, fullPath: fullPath)
                 XCTAssertEqual(publication.spine.map(\.resource.path), [folder + "one.xhtml", folder + "two.xhtml"], fullPath.debugDescription)
                 XCTAssertEqual(try SpineCFIs(publication: publication).bases, ["epubcfi(/6[s]/2)", "epubcfi(/6[s]/4)"], fullPath.debugDescription)

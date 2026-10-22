@@ -195,7 +195,6 @@ final class CSSCascadeValueCoverageTests: XCTestCase {
     /// CSS Values 4 §10 (calc() syntax): `<calc-product> = <calc-value> [ [ '*' | '/' ] <calc-value> ]*`, where a
     /// `<calc-value>` is also a parenthesized sum; a product needs only one side to be a number.
     func testCalcMultipliesAndDividesByNumericSubexpressions() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/122")
         let cases: [(String, CGFloat)] = [("calc(2 * 3 * 4px)", 24), ("calc((1 + 2) * 4px)", 12), ("calc(4px * (1 + 2))", 12),
                                           ("calc(2 / 4 * 10px)", 5), ("calc(12px / (1 + 2))", 4), ("calc(1em * (18 / 16))", 18)]
         let styles = try paragraphs(cases.map { "width: \($0.0)" })
@@ -208,11 +207,120 @@ final class CSSCascadeValueCoverageTests: XCTestCase {
     /// `line-height` takes a `<number>`, and a math function may stand wherever its type is allowed
     /// (CSS Values 4 §10): designers write the ratio, `calc(24 / 16)`.
     func testLineHeightAcceptsANumericCalcExpression() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/122")
         let styles = try paragraphs(["line-height: calc(24 / 16)", "line-height: calc(1 + 0.5)", "line-height: calc(1.5)"])
         XCTAssertEqual(styles[2].lineHeight, .multiple(1.5))
         XCTAssertEqual(styles[0].lineHeight, .multiple(1.5), "calc(24 / 16)")
         XCTAssertEqual(styles[1].lineHeight, .multiple(1.5), "calc(1 + 0.5)")
+    }
+
+    /// CSS Values 4 §10.8–§10.9: any `<calc-value>` that is a number, a constant, a parenthesised
+    /// sum or a nested math function, is a factor or a divisor; a product or quotient needs a
+    /// number on one side of `*` and on the right of `/`, and a sum one type throughout (#122).
+    func testCalcFactorsAndDivisorsAreAnyNumberSubexpression() throws {
+        let cases: [(String, CGFloat)] = [("calc(4px * 2 * 3)", 24), ("calc((2 * 3) * 4px)", 24), ("calc(4px / 2 / 2)", 1),
+                                          ("calc(10px * (1 / 4))", 2.5), ("calc(min(2, 3) * 4px)", 8), ("calc(4px * max(1, 2))", 8),
+                                          ("calc(clamp(1, 5, 3) * 1px)", 3), ("calc(1px * calc(2 + 3))", 5), ("calc(20px / calc(2 * 5))", 2),
+                                          ("calc((1 + 1) * (2px + 3px))", 10), ("calc(2 * (1 + 1) * (1em - 6px))", 40),
+                                          ("calc(-1 * -4px)", 4), ("calc(1px * (3 - 1) / (1 + 1))", 1), ("calc(pi * 10px)", 31.415_926_5),
+                                          ("calc(E * 10px)", 27.182_818_3), ("calc(2px * PI / pi)", 2), ("min(10px, 2 * 4px)", 8),
+                                          ("calc(1em * (18 / 16) + 2 * (1px * 3))", 24)]
+        let styles = try paragraphs(cases.map { "width: 11px; width: \($0.0)" })
+        for (item, style) in zip(cases, styles) {
+            guard case .points(let value) = style.width else { XCTFail("\(item.0) computed to \(style.width), not \(item.1)px"); continue }
+            XCTAssertEqual(value, item.1, accuracy: 0.0001, item.0)
+        }
+        XCTAssertEqual(try CSSCascadeSupport.paragraph("width: calc(100% / (2 + 2))").width, .percent(25))
+        let invalid = ["calc((1px + 1px) * 2px)", "calc(2 / 1px)", "calc(4px / (1px + 1px))", "calc(2 * 3)", "calc((1 + 2))",
+                       "calc(1px + (1 + 2))", "calc(1 + 2px)", "calc(min(1, 2) * 3px * 1px)", "calc(1px * pi * 2px)",
+                       "calc(bogus * 1px)", "calc(-pi * 1px)", "calc(infinity)", "calc(2 * (1px * 1px))", "calc(1px * (2 + 1px))",
+                       "min(1px, 2)", "calc(e)"]
+        let rejected = try paragraphs(invalid.map { "width: 11px; width: \($0)" })
+        for (expression, style) in zip(invalid, rejected) { XCTAssertEqual(style.width, .points(11), expression) }
+    }
+
+    /// CSS Values 4 §10.9.2: dividing by zero gives an infinity, and zero by zero NaN, which every
+    /// comparison function returns; at the top level an infinity is the end of the range the
+    /// property allows and NaN is 0 (web-platform-tests calc-catch-divide-by-0.html and
+    /// calc-infinity-nan-computed.html).
+    func testDivisionByZeroIsInfiniteAndClampedToTheRangeAndNaNIsZero() throws {
+        let widths: [(String, CGFloat)] = [("calc(100px / 0)", StyleLimits.extent.upperBound),
+                                           ("calc(100px / (2 - 2))", StyleLimits.extent.upperBound),
+                                           ("calc(100px / (2 - (-62 + 64)))", StyleLimits.extent.upperBound),
+                                           ("calc(100px * (1 / 0))", StyleLimits.extent.upperBound),
+                                           ("calc(1px * max(1/0, 0))", StyleLimits.extent.upperBound),
+                                           ("calc(infinity * 1px)", StyleLimits.extent.upperBound),
+                                           ("calc(max(infinity * 1px, 10px))", StyleLimits.extent.upperBound),
+                                           ("calc(1px * min(1/0, 0))", 0), ("calc(100px * 0 / 0)", 0), ("calc(1px * max(0/0, 0))", 0),
+                                           ("calc(1px * clamp(0, 0/0, 10))", 0), ("calc(1px * clamp(-1/0, 0, 1/0))", 0),
+                                           ("calc(1px * clamp(-1/0, 1/0, 10))", 10), ("calc(NaN * 1px)", 0), ("calc(nan * 1rem)", 0),
+                                           ("max(15px, NaN * 1px)", 0), ("max(NaN * 1px, 15px)", 0), ("min(15px, NaN * 1px)", 0),
+                                           ("clamp(NaN * 1px, 5px, 10px)", 0), ("calc(infinity * 1px - infinity * 1px)", 0),
+                                           ("calc(100px / infinity)", 0), ("calc(10.135262721212548pc - 199pt / NaN)", 0)]
+        let styles = try paragraphs(widths.map { "width: 11px; width: \($0.0)" })
+        for (item, style) in zip(widths, styles) {
+            guard case .points(let value) = style.width else { XCTFail("\(item.0) computed to \(style.width), not \(item.1)px"); continue }
+            XCTAssertEqual(value, item.1, accuracy: 0.0001, item.0)
+        }
+        let style = try CSSCascadeSupport.paragraph("""
+            margin-left: calc(-1px / 0); margin-right: calc(1px / -0); text-indent: calc(-infinity * 1em); padding-left: calc(1px / 0);
+            line-height: calc(1 / 0); font-size: calc(1px / 0); border-left: calc(1px / 0) solid; letter-spacing: calc(0px / 0)
+            """)
+        XCTAssertEqual(style.margin.left, .points(StyleLimits.offset.lowerBound))
+        XCTAssertEqual(style.margin.right, .points(StyleLimits.offset.lowerBound), "1 / -0 is -∞")
+        XCTAssertEqual(style.textIndent, .points(StyleLimits.offset.lowerBound))
+        XCTAssertEqual(style.padding.left, .points(StyleLimits.extent.upperBound))
+        XCTAssertEqual(style.lineHeight, .multiple(StyleLimits.lineHeightMultiple.upperBound))
+        XCTAssertEqual(style.fontSize, StyleLimits.fontSize.upperBound)
+        XCTAssertEqual(style.border.left.width, StyleLimits.borderWidth.upperBound)
+        XCTAssertEqual(style.letterSpacing, 0)
+        XCTAssertEqual(try CSSCascadeSupport.paragraph("width: calc(infinity * 1%)").width, .percent(StyleLimits.percent.upperBound))
+    }
+
+    /// A math function that resolves to a number stands wherever a number does (CSS Values 4
+    /// §10.9), rounded where an integer is wanted, a half toward +∞, and clamped to the range
+    /// the context allows rather than refused as an out-of-range literal is (§10.12).
+    func testANumberCalcStandsWhereverANumberOrIntegerIs() throws {
+        func value(_ name: String, _ text: String) -> CSSValue? { CSSPropertyParser.parse(name: name, text: text)?.first?.value }
+        XCTAssertEqual(value("line-height", "calc(24 / 16)"), .lineHeight(.number(1.5)))
+        XCTAssertEqual(value("line-height", "calc(-1)"), .lineHeight(.number(0)), "-1 is clamped, as the literal is refused")
+        XCTAssertNil(value("line-height", "-1"))
+        XCTAssertEqual(value("line-height", "max(1.2, 3 / 2)"), .lineHeight(.number(1.5)))
+        XCTAssertEqual(value("line-height", "calc(1em * 3 / 2)"), .lineHeight(.length(.calc(.product(.value(1, .em), 1.5)))))
+        XCTAssertEqual(value("font-weight", "calc(300 + 400)"), .fontWeight(.absolute(700)))
+        XCTAssertEqual(value("font-weight", "calc(2000)"), .fontWeight(.absolute(1000)))
+        XCTAssertNil(value("font-weight", "2000"))
+        XCTAssertNil(value("font-weight", "calc(1px)"))
+        XCTAssertEqual(CSSPropertyParser.parse(name: "font", text: "calc(350 * 2) 12px serif")?.first { $0.property == .fontWeight }?.value,
+                       .fontWeight(.absolute(700)))
+        XCTAssertEqual(value("filter", "invert(calc(1 / 2))"), .flag(true))
+        XCTAssertEqual(value("filter", "invert(calc(1 / 4))"), .flag(false))
+        XCTAssertEqual(value("order", "calc(2.5)"), .integer(3))
+        XCTAssertEqual(value("order", "calc(-2.5)"), .integer(-2), "A half rounds toward +∞")
+        XCTAssertEqual(value("order", "calc(1 / 0)"), .integer(1_000_000))
+        XCTAssertNil(value("order", "2.5"))
+        XCTAssertEqual(value("flex-grow", "calc(1 + 1)"), .number(2))
+        XCTAssertEqual(value("flex-grow", "calc(-1)"), .number(0))
+        XCTAssertEqual(CSSPropertyParser.parse(name: "flex", text: "calc(2 * 2) 1 auto")?.first { $0.property == .flexGrow }?.value,
+                       .number(4))
+        XCTAssertEqual(value("grid-template-columns", "repeat(calc(1 + 2), 1fr)"), .integer(3))
+        XCTAssertEqual(value("counter-increment", "c calc(1 + 1)"), .counterChanges([ComputedStyle.CounterChange(name: "c", value: 2)]))
+        XCTAssertEqual(value("counter-reset", "c calc(5 / 2)"), .counterChanges([ComputedStyle.CounterChange(name: "c", value: 3)]))
+        let sheet = CSSStyleSheet.parse("@font-face { font-family: F; src: url(f.ttf); font-weight: calc(100 * 3) calc(350 * 2) }", path: "a.css")
+        XCTAssertEqual(sheet.fontFaces.map(\.weights), [300...700])
+    }
+
+    /// What a `var()` substitutes is parsed as written once substituted (#717), so a factor or
+    /// divisor it supplies is a number sub-expression like any other.
+    func testFactorsAndDivisorsSubstitutedByVarAreNumberSubexpressions() throws {
+        let styles = try paragraphs(["width: calc(var(--a) * var(--b) * 1px)", "width: calc(var(--sum) * 1px)",
+                                     "width: calc(1em * var(--ratio))", "line-height: calc(var(--px) / var(--base))",
+                                     "width: calc(12px / var(--sum))", "font-weight: calc(var(--a) * 350)"],
+                                    extra: ":root { --a: 2; --b: 3; --sum: (1 + 2); --ratio: calc(18 / 16); --px: 24; --base: 16 }")
+        for (index, expected) in [(0, 6.0), (1, 3), (2, 18), (4, 4)] {
+            XCTAssertEqual(points(styles[index].width), CGFloat(expected), accuracy: 0.0001, "\(index)")
+        }
+        XCTAssertEqual(styles[3].lineHeight, .multiple(1.5))
+        XCTAssertEqual(styles[5].fontWeight, 700)
     }
 
     /// CSS Values 4 §10.12: a top-level calculation is clamped to the range the property allows.

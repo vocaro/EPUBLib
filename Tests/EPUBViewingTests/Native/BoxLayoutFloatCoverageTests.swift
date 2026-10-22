@@ -401,6 +401,23 @@ import UIKit
         }
     }
 
+    /// The same with the attribute old books write, `<br clear="all">`, which HTML maps to
+    /// `clear` as a presentational hint (HTML §15.3.4, #121).
+    func testALineBreakClearAttributeMovesTheRestOfItsParagraphBelowTheFloat() throws {
+        for (clear, cleared) in [("all", true), ("Left", true), ("both", true), ("right", false), ("none", false)] {
+            let (section, view) = try layout("<figure>Alpha box.</figure><p>Short.<br clear='\(clear)'/>Cleared words here.</p>",
+                                             css: "figure { float:left; width:100px; height:80px }")
+            XCTAssertEqual(H.frame("Short.", in: section, view: view).minY, 0, accuracy: 1, "before the break: beside the float: \(clear)")
+            let after = H.frame("Cleared words here.", in: section, view: view)
+            if cleared {
+                XCTAssertGreaterThanOrEqual(after.minY, 79, "after the break: below the float: \(clear)")
+                XCTAssertEqual(after.minX, 0, accuracy: 0.5, clear)
+            } else {
+                XCTAssertLessThan(after.minY, 79, "beside the float: \(clear)")
+            }
+        }
+    }
+
     // MARK: Forced breaks
 
     /// After a forced break the margin above a box is its first paragraph's spacing before, and

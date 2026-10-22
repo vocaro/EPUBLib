@@ -127,11 +127,34 @@ import UIKit
     /// CSS 2.2 16.1: `text-indent` indents the first line of a block container. The paragraph is
     /// the block; the list marker sits outside the item's box and does not take the indent's place.
     func testTextIndentAppliesToAListItemsFirstParagraph() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/133")
         let section = try H.build("<ul><li><p>Item one.</p><p>Item two.</p></li></ul>", css: H.reset + "p { text-indent:2em } ul { padding-left:40px }")
         let view = H.view(section.string, size: CGSize(width: 400, height: 700))
         XCTAssertEqual(H.frame("Item two.", in: section, view: view).minX, 72, accuracy: 1, "the item's second paragraph: 40 points of padding and 2em")
         XCTAssertEqual(H.frame("Item one.", in: section, view: view).minX, 72, accuracy: 1, "its first paragraph is indented the same")
+        XCTAssertLessThan(H.frame("•", in: section, view: view).maxX, 40.5, "the marker stays outside the item's box")
+    }
+
+    /// CSS 2.2 16.1 for the item's own first line, in points, in a percentage of the item's
+    /// width at each column width, and in a right-to-left list. A negative indent would draw the
+    /// line over its marker: the line starts at the marker's stop, as with no indent.
+    func testTextIndentAppliesToTheFirstLineAfterAnOutsideMarker() throws {
+        let long = "long enough to wrap onto another line of text at every one of these column widths, even the widest of them, "
+            + "which holds a good many more than a hundred characters on each of its lines."
+        let section = try H.build("""
+            <ol><li class='pt'>Points \(long)</li><li class='pc'>Percent \(long)</li><li class='neg'>Negative \(long)</li></ol>\
+            <ol dir='rtl'><li class='pt'>ימין \(long)</li></ol>
+            """, css: H.reset + "ol { padding-left:40px } ol[dir=rtl] { padding:0 40px 0 0 } .pt { text-indent:2em } .pc { text-indent:10% } "
+                + ".neg { text-indent:-1em }")
+        for width in widths {
+            let view = H.view(section.string, size: CGSize(width: width, height: 1400))
+            for (phrase, indent) in [("Points", CGFloat(32)), ("Percent", (width - 40) * 0.1), ("Negative", 0)] {
+                let lines = H.lines(in: view, intersecting: H.range("\(phrase) \(long)", in: section)).map(\.frame)
+                guard lines.count > 1 else { XCTFail("\(phrase) wraps at \(width)"); continue }
+                XCTAssertEqual(H.frame(phrase, in: section, view: view).minX, 40 + indent, accuracy: 1, "first line: \(phrase) \(width)")
+                XCTAssertEqual(lines[1].minX, 40, accuracy: 1, "later lines: \(phrase) \(width)")
+            }
+            XCTAssertEqual(H.frame("ימין", in: section, view: view).maxX, width - 72, accuracy: 1, "right to left: \(width)")
+        }
     }
 
     // MARK: Margins

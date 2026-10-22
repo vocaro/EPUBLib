@@ -264,12 +264,14 @@ final class ReaderTextView: NSTextView {
     /// takes and gives an assistive client none of it. AppKit reads a text view's characters
     /// one for one with every range it asks for, the lines' and the frames' included, so they
     /// stay as many: VoiceOver says nothing for a space, and passes over the room as it does
-    /// over the space between words.
+    /// over the space between words. Shown text that `aria-hidden` keeps from assistive
+    /// technology is given the same way, and copied as it is.
     private func blankingHiddenText(_ characters: String, from location: Int) -> String {
         contentStorage.textStorage?.readerBlankingHidden(characters, from: location) ?? characters
     }
 
-    /// Whether every character of `range` but its breaks is one that `visibility: hidden` hides.
+    /// Whether every character of `range` but its breaks is one that `visibility: hidden` hides,
+    /// or that `aria-hidden` keeps from assistive technology.
     private func holdsHiddenTextAlone(_ range: NSRange) -> Bool {
         guard let storage = contentStorage.textStorage, range.length > 0 else { return false }
         let hidden = storage.readerHiddenCharacters(in: range).reduce(0) { $0 + $1.length }
@@ -286,7 +288,8 @@ final class ReaderTextView: NSTextView {
     /// space out a table used for layout. VoiceOver is given nothing to stop on there, as
     /// iPhone and iPad list no element for such a row. A rule the book keeps from assistive
     /// technology, outside a link, is one character on a line of its own as such a row is,
-    /// and is passed over the same way, where iPhone and iPad give it no stop. It takes four
+    /// and is passed over the same way, where iPhone and iPad give it no stop, and so is a
+    /// rule that `visibility: hidden` hides, which has no link. It takes four
     /// things, and what VoiceOver does without each was heard
     /// (doc/testing.md#voiceover-testing, the entry of 2026-10-13 on rows that have nothing
     /// to say):
@@ -309,7 +312,7 @@ final class ReaderTextView: NSTextView {
         if let storage = contentStorage.textStorage {
             storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, run, _ in
                 if let row = value as? TableRowAttachment, row.saysNothing { found.append(run.location) }
-                else if let rule = value as? ReaderRuleAttachment, rule.isHiddenFromAssistiveTechnology,
+                else if let rule = value as? ReaderRuleAttachment, rule.isPassedOverByAssistiveTechnology,
                         storage.attribute(.link, at: run.location, effectiveRange: nil) == nil { found.append(run.location) }
             }
         }
@@ -418,12 +421,14 @@ final class ReaderTextView: NSTextView {
     /// a row of any other table a group that holds its cells' text areas. A row that has
     /// nothing to say gets nothing, and its character and its break are spaces (`silentRows`).
     /// An image without words is an image element without a label, and one the book marks as
-    /// decoration is left with nothing, for VoiceOver to pass over, as is an image or a rule
-    /// the book keeps from assistive technology, whatever words it has. A rule has no words,
+    /// decoration is left with nothing, for VoiceOver to pass over, as is an image, a rule or a
+    /// formula the book keeps from assistive technology, whatever words it has, and anything
+    /// `visibility: hidden` hides, whose character is a space. A rule has no words,
     /// and its element carries the reader's word for one, for VoiceOver to say that a break is
     /// there. A heading's characters carry its level, shown or a hidden label, unless
-    /// `visibility: hidden` hides all of its words: those characters are spaces, as every
-    /// character it hides is (`blankingHiddenText`).
+    /// `visibility: hidden` hides all of its words, or `aria-hidden` keeps them all from
+    /// assistive technology: those characters are spaces, as every character either leaves out
+    /// is (`blankingHiddenText`).
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard !isPageColumn || validPageAccessibilityRange(range),
               let base = super.accessibilityAttributedString(for: range) else { return nil }
