@@ -26,8 +26,9 @@ import libxml2
 /// An HTML `<meta charset>` is not read. The XML parser does not read it either, and the same
 /// section must not change its characters for an unclosed tag.
 enum HTMLSourceEncoding {
-    /// `data` as UTF-8, or `nil` when it is to be read as it is.
-    static func utf8(_ data: Data, path: String, limit: Int) throws -> Data? {
+    /// `data` as UTF-8, or `nil` when it is to be read as it is. `doctypesAsHTML` is the screen's
+    /// reading of a DOCTYPE, as `XMLSafety` takes it.
+    static func utf8(_ data: Data, path: String, limit: Int, doctypesAsHTML: Bool = false) throws -> Data? {
         if case let (encoding, mark)? = wide(data) {
             // The screen decoded these bytes this way and refused what does not decode.
             guard let text = String(data: data.dropFirst(mark), encoding: encoding) else { throw ContentDocumentError.malformed(path) }
@@ -45,7 +46,7 @@ enum HTMLSourceEncoding {
         guard decoded.count <= limit else { throw ContentDocumentError.limitExceeded("bytes") }
         // The screen read the bytes as ASCII. In an encoding that spells `<` another way (UTF-7)
         // the characters may hold a declaration it could not see, so it reads them as well.
-        guard XMLSafety.assessUTF8(decoded) == .safe else { throw ContentDocumentError.unsafeMarkup(path) }
+        guard XMLSafety.assessUTF8(decoded, doctypesAsHTML: doctypesAsHTML) == .safe else { throw ContentDocumentError.unsafeMarkup(path) }
         return decoded
     }
 

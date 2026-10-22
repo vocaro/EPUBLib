@@ -765,22 +765,66 @@ enum CSSPropertyParser {
         }
     }
 
-    /// A `calc()` subtree and its type: a number, or a length that may include a percentage.
+    /// A `calc()` subtree and its type: a number, or a length that may include a percentage. A
+    /// number depends on nothing, so a number subtree is folded to its value as it is parsed.
     private struct CalcNode {
         var tree: CSSCalc
         var hasPercent: Bool
         var isNumber: Bool
         func isLength(allowPercent: Bool) -> Bool { !isNumber && (allowPercent || !hasPercent) }
+
+        static func number(_ value: Double) -> CalcNode { CalcNode(tree: .value(value, .number), hasPercent: false, isNumber: true) }
+
+        /// A number subtree's value.
+        var number: Double? {
+            guard isNumber, case .value(let value, .number) = tree else { return nil }
+            return value
+        }
+
+        /// This times `factor`, one product of a length and a number however many factors it had.
+        func scaled(by factor: Double) -> CalcNode {
+            if let number { return .number(number * factor) }
+            if case .product(let length, let previous) = tree {
+                return CalcNode(tree: .product(length, previous * factor), hasPercent: hasPercent, isNumber: false)
+            }
+            return CalcNode(tree: .product(tree, factor), hasPercent: hasPercent, isNumber: false)
+        }
     }
 
+    /// A math function that resolves to a `<number>` (CSS Values 4 §10.9), which may stand
+    /// wherever a number does: its value, with NaN censored to 0 (§10.9.2) and an infinity left
+    /// for the caller to clamp to the range it allows (§10.12). Nil for anything else.
+    static func calcNumber(_ component: CSSComponent) -> Double? {
+        guard case .function = component, let value = calc(component, depth: 0)?.number else { return nil }
+        return value.isNaN ? 0 : value
+    }
+
+    /// `calcNumber` where an `<integer>` is accepted: rounded to the nearest integer, a half
+    /// toward +∞ (CSS Values 4 §10.9), and within 32 bits so that it converts.
+    static func calcInteger(_ component: CSSComponent) -> Int? {
+        calcNumber(component).map { Int(min(max(($0 + 0.5).rounded(.down), -2_147_483_648), 2_147_483_647)) }
+    }
+
+    /// `<calc-value>` (CSS Values 4 §10.8): a number, a dimension, a percentage, a constant, a
+    /// parenthesised sum or a nested math function.
     private static func calc(_ component: CSSComponent, depth: Int) -> CalcNode? {
         guard depth < 8 else { return nil }
         switch component {
-        case .token(.number(let value, _, _)): return CalcNode(tree: .value(value, .number), hasPercent: false, isNumber: true)
+        case .token(.number(let value, _, _)): return .number(value)
         case .token(.dimension(let value, let unit, _, _)):
             guard let unit = CSSUnit(unit) else { return nil }
             return CalcNode(tree: .value(value, unit), hasPercent: false, isNumber: false)
         case .token(.percentage(let value)): return CalcNode(tree: .value(value, .percent), hasPercent: true, isNumber: false)
+        case .token(.ident(let name)):
+            // `<calc-keyword>`, numbers all.
+            switch name.lowercased() {
+            case "e": return .number(exp(1))
+            case "pi": return .number(.pi)
+            case "infinity": return .number(.infinity)
+            case "-infinity": return .number(-.infinity)
+            case "nan": return .number(.nan)
+            default: return nil
+            }
         case .block(.openParen, let contents): return sum(contents.significant, depth: depth + 1)
         case .function(let name, let arguments):
             switch name {
@@ -791,15 +835,23 @@ enum CSSPropertyParser {
                 let nodes = parts.map { sum($0, depth: depth + 1) }
                 guard nodes.allSatisfy({ $0 != nil }) else { return nil }
                 let values = nodes.map { $0! }
-                guard Set(values.map(\.isNumber)).count == 1 else { return nil }
+                guard Set(values.map(\.isNumber)).count == 1, name != "clamp" || values.count == 3 else { return nil }
+                if values[0].isNumber {
+                    // NaN in any argument makes the result NaN (§10.9.2).
+                    let numbers = values.map { $0.number! }
+                    guard !numbers.contains(where: \.isNaN) else { return .number(.nan) }
+                    switch name {
+                    case "min": return .number(numbers.min()!)
+                    case "max": return .number(numbers.max()!)
+                    default: return .number(Swift.max(numbers[0], Swift.min(numbers[1], numbers[2])))
+                    }
+                }
                 let percent = values.contains { $0.hasPercent }
                 let trees = values.map(\.tree)
                 switch name {
-                case "min": return CalcNode(tree: .min(trees), hasPercent: percent, isNumber: values[0].isNumber)
-                case "max": return CalcNode(tree: .max(trees), hasPercent: percent, isNumber: values[0].isNumber)
-                default:
-                    guard trees.count == 3 else { return nil }
-                    return CalcNode(tree: .clamp(trees[0], trees[1], trees[2]), hasPercent: percent, isNumber: values[0].isNumber)
+                case "min": return CalcNode(tree: .min(trees), hasPercent: percent, isNumber: false)
+                case "max": return CalcNode(tree: .max(trees), hasPercent: percent, isNumber: false)
+                default: return CalcNode(tree: .clamp(trees[0], trees[1], trees[2]), hasPercent: percent, isNumber: false)
                 }
             default: return nil
             }
@@ -807,6 +859,7 @@ enum CSSPropertyParser {
         }
     }
 
+    /// `<calc-sum>`: products joined by `+` and `-`, all numbers or all lengths.
     private static func sum(_ components: [CSSComponent], depth: Int) -> CalcNode? {
         guard !components.isEmpty, components.count <= 64 else { return nil }
         var terms: [CalcNode] = []
@@ -815,9 +868,8 @@ enum CSSPropertyParser {
         while index < components.count {
             var end = index
             while end < components.count, !(components[end].isDelim("+") || components[end].isDelim("-")) { end += 1 }
-            guard var term = product(Array(components[index..<end]), depth: depth) else { return nil }
-            if sign < 0 { term.tree = .product(term.tree, -1) }
-            terms.append(term)
+            guard let term = product(Array(components[index..<end]), depth: depth) else { return nil }
+            terms.append(sign < 0 ? term.scaled(by: -1) : term)
             guard end < components.count else { break }
             sign = components[end].isDelim("-") ? -1 : 1
             index = end + 1
@@ -825,9 +877,13 @@ enum CSSPropertyParser {
         }
         guard Set(terms.map(\.isNumber)).count == 1 else { return nil }
         if terms.count == 1 { return terms[0] }
-        return CalcNode(tree: .sum(terms.map(\.tree)), hasPercent: terms.contains { $0.hasPercent }, isNumber: terms[0].isNumber)
+        if terms[0].isNumber { return .number(terms.reduce(0) { $0 + $1.number! }) }
+        return CalcNode(tree: .sum(terms.map(\.tree)), hasPercent: terms.contains { $0.hasPercent }, isNumber: false)
     }
 
+    /// `<calc-product>`: values joined by `*` and `/`. One side of `*` and the right side of `/`
+    /// must be a number (§10.9), any number subtree; dividing by zero gives an infinity, or NaN
+    /// for zero by zero, as IEEE arithmetic does and §10.9.2 asks.
     private static func product(_ components: [CSSComponent], depth: Int) -> CalcNode? {
         guard let first = components.first, var result = calc(first, depth: depth) else { return nil }
         var index = 1
@@ -835,13 +891,14 @@ enum CSSPropertyParser {
             let op = components[index]
             guard op.isDelim("*") || op.isDelim("/"), index + 1 < components.count,
                   let operand = calc(components[index + 1], depth: depth) else { return nil }
-            if op.isDelim("/") {
-                guard operand.isNumber, case .value(let divisor, .number) = operand.tree, divisor != 0 else { return nil }
-                result.tree = .product(result.tree, 1 / divisor)
-            } else if operand.isNumber, case .value(let factor, .number) = operand.tree {
-                result.tree = .product(result.tree, factor)
-            } else if result.isNumber, case .value(let factor, .number) = result.tree {
-                result = CalcNode(tree: .product(operand.tree, factor), hasPercent: operand.hasPercent, isNumber: operand.isNumber)
+            if let factor = operand.number {
+                if op.isDelim("/") {
+                    result = result.number.map { .number($0 / factor) } ?? result.scaled(by: 1 / factor)
+                } else {
+                    result = result.scaled(by: factor)
+                }
+            } else if op.isDelim("*"), let factor = result.number {
+                result = operand.scaled(by: factor)
             } else {
                 return nil
             }
@@ -884,11 +941,18 @@ enum CSSPropertyParser {
             case "lighter": return .lighter
             default: return nil
             }
-        case .token(.number(let value, _, _)):
-            guard value >= 1, value <= 1000 else { return nil }
-            return .absolute(Int(value.rounded()))
-        default: return nil
+        default:
+            return absoluteWeight(component).map(CSSFontWeight.absolute)
         }
+    }
+
+    /// A `<number [1,1000]>` weight, rounded: a number token in that range, or a math function,
+    /// which is clamped to it instead (CSS Values 4 §10.12).
+    static func absoluteWeight(_ component: CSSComponent) -> Int? {
+        if case .token(.number(let value, _, _)) = component {
+            return value >= 1 && value <= 1000 ? Int(value.rounded()) : nil
+        }
+        return calcNumber(component).map { Int(min(max($0, 1), 1000).rounded()) }
     }
 
     private static func fontStyle(_ c: [CSSComponent]) -> Bool? {
@@ -914,7 +978,9 @@ enum CSSPropertyParser {
             case nil: amount = 1
             case .token(.number(let value, _, _))?: amount = value
             case .token(.percentage(let value))?: amount = value / 100
-            default: return nil
+            case let other?:
+                guard let value = calcNumber(other) else { return nil }
+                amount = max(value, 0)
             }
             guard amount >= 0 else { return nil }
             if min(amount, 1) >= 0.5 { inverts.toggle() }
@@ -933,10 +999,8 @@ enum CSSPropertyParser {
     private static func lineHeight(_ component: CSSComponent) -> CSSLineHeight? {
         if component.ident == "normal" { return .normal }
         if case .token(.number(let value, _, _)) = component { return value >= 0 ? .number(value) : nil }
-        if case .function = component, let node = calc(component, depth: 0), node.isNumber {
-            if case .value(let value, .number) = node.tree { return .number(value) }
-            return nil
-        }
+        // A math function that resolves to a number is clamped to `[0,∞]` rather than refused.
+        if let value = calcNumber(component) { return .number(max(value, 0)) }
         guard case .length(let length)? = self.length(component, percent: true, negative: false, auto: false) else { return nil }
         return .length(length)
     }
@@ -991,8 +1055,8 @@ enum CSSPropertyParser {
                     "extra-expanded", "ultra-expanded"].contains(keyword) { index += 1; prefixCount += 1; continue }
                 break
             }
-            if case .token(.number(let value, _, _)) = component, value >= 1, value <= 1000 {
-                weight = .absolute(Int(value.rounded())); index += 1; prefixCount += 1; continue
+            if let value = absoluteWeight(component) {
+                weight = .absolute(value); index += 1; prefixCount += 1; continue
             }
             break
         }

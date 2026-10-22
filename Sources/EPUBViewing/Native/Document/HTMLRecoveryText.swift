@@ -1,3 +1,4 @@
+import EPUBCore
 import Foundation
 
 /// Keeps XML character data when a content document is read by libxml2 as HTML.
@@ -7,8 +8,13 @@ import Foundation
 /// their bytes; a literal CDATA opener in any of them must not become visible prose.
 /// This runs before stray signs and NULs are handled, so CDATA's characters follow the same
 /// rules and DOM offsets as ordinary text. The strict XML path never calls this preparation.
+///
+/// With `doctypesAsHTML`, which the declaration screen read the document with, a DOCTYPE ends
+/// at its first `>`, as the HTML Standard ends it, and is written so that libxml2 ends it there
+/// too (`HTMLDoctypes`, #293): one whose quoted identifier has lost its closing quote no longer
+/// takes the root's start tag with it, or the rest of the file.
 enum HTMLRecoveryText {
-    static func prepared(_ data: Data, path: String, limit: Int) throws -> Data {
+    static func prepared(_ data: Data, path: String, limit: Int, doctypesAsHTML: Bool = false) throws -> Data {
         let bytes = [UInt8](data)
         let cdataOpen = Array("<![CDATA[".utf8), cdataClose = Array("]]>".utf8)
         let commentOpen = Array("<!--".utf8), endTagOpen = Array("</".utf8)
@@ -53,6 +59,15 @@ enum HTMLRecoveryText {
                 if HTMLNullCharacters.isLetter(next) {
                     let tag = HTMLNullCharacters.startTag(in: bytes, at: index)
                     copy(to: tag.end); rawText = tag.rawText
+                } else if doctypesAsHTML, HTMLDoctypes.opens(bytes, at: index) {
+                    let end = HTMLDoctypes.end(bytes, from: index) ?? bytes.count
+                    var letters = HTMLDoctypes.keywordLetters(bytes, in: index..<end)[...]
+                    for position in index..<end {
+                        if letters.first == position {
+                            output.append(contentsOf: HTMLDoctypes.reference(bytes[position])); letters.removeFirst()
+                        } else { output.append(bytes[position]) }
+                    }
+                    index = end
                 } else if next == 0x21 || next == 0x3F {
                     // A declaration or PI: quotes can hold `>` and a CDATA opener. Copy
                     // through its actual end, so neither is mistaken for content.

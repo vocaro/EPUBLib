@@ -171,6 +171,7 @@ final class SectionWriter {
                              keepWithNext: false, firstParagraph: 0, language: language)]
         var context = InlineContext()
         context.language = language
+        context.isUnspoken = ContentSemantics.isAriaHidden(element)
         let root = Entry(node: element, children: children, style: style, context: context)
         if let box { open(box, root) }
         else {
@@ -198,6 +199,7 @@ final class SectionWriter {
                              keepWithNext: false, firstParagraph: 0, language: language)]
         var context = InlineContext()
         context.language = language
+        context.isUnspoken = ContentSemantics.isAriaHidden(element)
         let root = Entry(node: element, children: element.children, style: style, context: context)
         state.generated.apply(style, owner: element.parent?.order ?? element.order)
         beginGenerated(root)
@@ -346,9 +348,12 @@ final class SectionWriter {
         }
         var context = parent.context
         if let language = node.language { context.language.declare(language) }
+        if ContentSemantics.hasAriaHidden(node) { context.isUnspoken = true }
         // The element is rendered: its counters change where it opens, in scope for it, its
         // descendants and its following siblings.
         state.generated.apply(style, owner: parent.node.order)
+        // A note shown here, in the flow or in a table's cell, is reported here.
+        if !isNote, state.noteKind(node) != nil { state.showsNoteInPlace(node) }
 
         return Prepared(style: style, context: context)
     }
@@ -557,11 +562,9 @@ final class SectionWriter {
 
     private func register(_ node: ContentNode) {
         guard isSection else { return }
-        if let id = node.id { if anchors[id] == nil { pendAnchor(id) } }
-        else if node.isHTML("a"), let name = node.attribute("name"), !name.isEmpty, anchors[name] == nil,
-                document.element(id: name) == nil {
-            pendAnchor(name) // A legacy named anchor, when no element claims the id.
-        }
+        if let id = node.id, anchors[id] == nil { pendAnchor(id) }
+        // A legacy named anchor, beside any id of its own, when no element claims the name as its id.
+        if let name = state.legacyName(of: node), anchors[name] == nil { pendAnchor(name) }
     }
 
     private func countUnsupported(_ node: ContentNode) {
@@ -976,7 +979,7 @@ final class SectionWriter {
             let stop = max(head, width)
             key.firstLineHeadIndent = max(0, head - width)
             key.headIndent = stop
-            key.tabStop = stop
+            key.tabStop = Self.markerStop(stop, indent: indent)
         }
         key.spacingBefore = max(0, paragraph.spacingBefore)
         key.spacingAfter = max(0, paragraph.spacingAfter)
@@ -1020,6 +1023,11 @@ final class SectionWriter {
 
     // MARK: Lists
 
+    /// Where the first line of a paragraph an outside marker opens starts: `text-indent` past
+    /// the item's edge, `stop` (CSS 2.2 16.1), the marker staying outside the box before it. A
+    /// negative indent would set the line's first words over the marker, so it starts at `stop`.
+    static func markerStop(_ stop: CGFloat, indent: CGFloat) -> CGFloat { stop + max(0, indent) }
+
     private func startListItem(_ node: ContentNode, style: ComputedStyle, context: InlineContext) {
         let value: Int
         if let last = lists.indices.last {
@@ -1030,6 +1038,8 @@ final class SectionWriter {
         guard let text = ListMarker.text(style.listStyleType, value: value) else { return }
         var markerContext = InlineContext()
         markerContext.language = context.language
+        // The marker is the item's own, kept from assistive technology with it.
+        markerContext.isUnspoken = context.isUnspoken
         let attributes = styling.attributes(style, markerContext)
         let outside = style.listStylePosition == .outside && flattenDepth == 0 && !isNote
         let suffix = ListMarker.hasSuffix(style.listStyleType)
@@ -1684,7 +1694,7 @@ final class SectionWriter {
     /// Inserts rich content as a unit: one non-exact span on the element. Block-level content gets
     /// its own paragraphs (one per paragraph of the result) and the element's box.
     private func insert(_ result: NSAttributedString, for node: ContentNode, style: ComputedStyle, context: InlineContext) {
-        let result = Self.trimmingParagraphBreaks(result)
+        let result = Self.marking(Self.trimmingParagraphBreaks(result), hidden: style.isHidden, unspoken: context.isUnspoken)
         guard result.length > 0 else { skip(node, registered: true); return }
         let block = (style.display.isBlockLevel || style.requiresFlowBox) && flattenDepth == 0
         let utf16 = Array(result.string.utf16)
@@ -1755,6 +1765,31 @@ final class SectionWriter {
         if block { exitBlock() }
     }
 
+    /// Rich content as what is read of it: `hidden`, which `visibility: hidden` hides, marks
+    /// every character `.readerHidden`, as hidden text is, so that it keeps its room and is
+    /// read by nobody, the words shown where an image or a formula cannot be drawn included
+    /// (#549). A table is not marked as a whole: each of its cells can set `visibility: visible`
+    /// again, and what its cells hold is marked as they are written. `unspoken`, under
+    /// `aria-hidden="true"`, marks those shown words `.readerUnspoken`, as it marks text; an
+    /// attachment itself knows whether the book keeps it from assistive technology.
+    private static func marking(_ string: NSAttributedString, hidden: Bool, unspoken: Bool) -> NSAttributedString {
+        guard hidden || unspoken, string.length > 0 else { return string }
+        let whole = NSRange(location: 0, length: string.length)
+        var holdsTable = false, holdsText = false
+        string.enumerateAttribute(.attachment, in: whole) { value, _, stop in
+            if value == nil { holdsText = true } else if value is TableRowAttachment { holdsTable = true; stop.pointee = true }
+        }
+        guard !holdsTable, hidden || holdsText else { return string }
+        let marked = NSMutableAttributedString(attributedString: string)
+        if hidden { marked.addAttribute(.readerHidden, value: true, range: whole) }
+        else {
+            string.enumerateAttribute(.attachment, in: whole) { value, run, _ in
+                if value == nil { marked.addAttribute(.readerUnspoken, value: true, range: run) }
+            }
+        }
+        return marked
+    }
+
     /// Rich content must not begin or end with a paragraph break; one that does is trimmed.
     private static func trimmingParagraphBreaks(_ string: NSAttributedString) -> NSAttributedString {
         let units = string.string.utf16
@@ -1766,13 +1801,14 @@ final class SectionWriter {
         return string.attributedSubstring(from: NSRange(location: leading, length: string.length - leading - trailing))
     }
 
-    /// Ids inside a unit point at it, and notes inside it are captured.
+    /// Ids and legacy names inside a unit point at it, and notes inside it are captured.
     private func claimSubtree(of node: ContentNode, at location: Int) {
         guard isSection, node.order < node.subtreeEnd else { return }
         for index in (node.order + 1)...node.subtreeEnd {
             let element = document.nodes[index]
             guard element.isElement else { continue }
             if let id = element.id, anchors[id] == nil { anchors[id] = location }
+            if let name = state.legacyName(of: element), anchors[name] == nil { anchors[name] = location }
             if state.noteKind(element) != nil { state.captureNote(element) }
         }
     }

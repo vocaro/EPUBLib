@@ -54,7 +54,8 @@ extension ReaderCanvasView {
     /// Opening/closing inspection does not replace reader text, move its anchor, or mutate its
     /// selection. It is a separate native scroll surface above the unchanged book.
     func inspectImage(_ attachment: ReaderImageAttachment) {
-        guard let bitmap = ReaderImageInspection.bitmap(for: attachment) else { return }
+        // An image that `visibility: hidden` hides draws nothing: there is nothing to enlarge.
+        guard !attachment.isHidden, let bitmap = ReaderImageInspection.bitmap(for: attachment) else { return }
         imageInspector?.removeFromSuperview()
         let hostWindow = window
         #if os(macOS)
@@ -95,21 +96,23 @@ extension ReaderCanvasView {
 extension NSAttributedString {
     /// Whether assistive technology passes over `attachment`, which stands at `range` of this
     /// text, a section's or a table cell's: an image the book marks as decoration with an
-    /// empty `alt`, and an image or a rule it keeps from assistive technology with
-    /// `aria-hidden` or a presentational role. One that is all its link holds is the link and
-    /// stays, because a link has to be reachable whatever its image or rule says.
+    /// empty `alt`, an image or a rule it keeps from assistive technology with `aria-hidden` or
+    /// a presentational role, and a formula it keeps so with `aria-hidden`. One that is all its
+    /// link holds is the link and stays, because a link has to be reachable whatever its image
+    /// or rule says. One that `visibility: hidden` hides is passed over too: it has no link.
     func passesOver(_ attachment: NSTextAttachment, at range: NSRange) -> Bool {
         guard Self.isPassedOverAlone(attachment) else { return false }
         guard range.location < length else { return true }
         var link = NSRange()
         guard attribute(.link, at: range.location, longestEffectiveRange: &link,
                         in: NSRange(location: 0, length: length)) != nil else { return true }
-        // Anything else in the link that can be read carries it.
+        // Anything else in the link that can be read carries it, but not words the book keeps
+        // from assistive technology.
         var carried = false
         enumerateAttribute(.attachment, in: link) { value, run, stop in
             if let other = value as? ReaderImageAttachment { carried = !other.isPassedOverByAssistiveTechnology }
             else if let value { carried = (value as? ReaderTextualAttachment)?.spokenEquivalent.isEmpty == false }
-            else { carried = !(string as NSString).substring(with: run).allSatisfy(\.isWhitespace) }
+            else { carried = !readerPlainText(in: run, spoken: true).allSatisfy(\.isWhitespace) }
             stop.pointee = ObjCBool(carried)
         }
         return carried
@@ -118,8 +121,34 @@ extension NSAttributedString {
     /// Whether assistive technology passes over `attachment` where no link keeps it.
     static func isPassedOverAlone(_ attachment: NSTextAttachment) -> Bool {
         if let image = attachment as? ReaderImageAttachment { return image.isPassedOverByAssistiveTechnology }
-        return (attachment as? ReaderRuleAttachment)?.isHiddenFromAssistiveTechnology == true
+        if let math = attachment as? MathAttachment { return math.isPassedOverByAssistiveTechnology }
+        return (attachment as? ReaderRuleAttachment)?.isPassedOverByAssistiveTechnology == true
     }
+
+    /// Whether the link at `location` holds words and nothing else, all of which the book keeps
+    /// from assistive technology with `aria-hidden` (`.readerUnspoken`). It stays reachable, as
+    /// a link without a name, as one that is all an image kept from assistive technology is.
+    func holdsUnspokenWordsAlone(inLinkAt location: Int) -> Bool {
+        guard location >= 0, location < length else { return false }
+        var link = NSRange()
+        guard attribute(.link, at: location, longestEffectiveRange: &link, in: NSRange(location: 0, length: length)) != nil
+        else { return false }
+        var unspoken = false, other = false
+        enumerateAttributes(in: link) { attributes, run, stop in
+            if attributes[.attachment] != nil { other = true }
+            else if !(string as NSString).substring(with: run).allSatisfy(\.isWhitespace) {
+                if attributes[.readerUnspoken] != nil { unspoken = true } else { other = true }
+            }
+            if other { stop.pointee = true }
+        }
+        return unspoken && !other
+    }
+}
+
+extension ReaderRuleAttachment {
+    /// Whether assistive technology passes over the rule where no link keeps it: a rule the
+    /// book keeps from it as ornament, and one that `visibility: hidden` hides.
+    var isPassedOverByAssistiveTechnology: Bool { isHiddenFromAssistiveTechnology || isHidden }
 }
 
 extension ReaderTextView {
@@ -159,6 +188,9 @@ extension ReaderTextView {
         }
     }
 
+    /// The image drawn at `point`, which a tap or a double click there opens. An image that
+    /// `visibility: hidden` hides is not drawn, and its room is the text's, as a browser gives
+    /// a pointer nothing of such an element.
     func image(at point: CGPoint) -> ReaderImageAttachment? {
         let target = CGPoint(x: point.x - containerOrigin.x, y: point.y - containerOrigin.y)
         guard let fragment = drawnFragment(at: target),
@@ -174,6 +206,7 @@ extension ReaderTextView {
                     found = row.image(at: CGPoint(x: target.x - frame.minX, y: target.y - frame.minY),
                         size: frame.size, viewportHeight: readerContainer.viewportSize.height)
                 }
+                if found?.isHidden == true { found = nil }
                 if found != nil { stop.pointee = true; return }
             }
         }

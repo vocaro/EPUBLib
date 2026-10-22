@@ -13,7 +13,8 @@ import UIKit
 
 /// SVG illustrations: sizing, `preserveAspectRatio`, the single-image wrapper fast path,
 /// accessible labels, disclosed omissions, the documented rendering limits, SVG content
-/// documents as spine items, and robustness against adversarial drawings.
+/// documents as spine items, and robustness against adversarial drawings. What the renderer and
+/// serializer do on their own is tested in StaticSVG (`SVGCoverageTests`).
 final class RichMediaSVGCoverageTests: XCTestCase {
     private static let ns = "xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'"
 
@@ -24,10 +25,6 @@ final class RichMediaSVGCoverageTests: XCTestCase {
     private func image(_ body: String, files: [String: Data] = [:]) throws -> (ReaderImageAttachment?, SectionText) {
         let text = try build(body, files: files)
         return (text.richMediaImages.first, text)
-    }
-
-    private func source(_ svg: String) -> ReaderImageSource? {
-        ReaderImageSource.svg(Data(svg.utf8), path: "", key: UUID().uuidString)
     }
 
     // MARK: Sizing
@@ -47,25 +44,6 @@ final class RichMediaSVGCoverageTests: XCTestCase {
         let percent = try XCTUnwrap(try image("<p><svg \(ns) width='50%' viewBox='0 0 100 50'><rect width='100' height='50'/></svg></p>").0)
         XCTAssertEqual(percent.sizing.width, .percent(50))
         XCTAssertEqual(percent.sizing.intrinsic, CGSize(width: 100, height: 50))
-    }
-
-    func testPreserveAspectRatioMeetSliceAndNone() throws {
-        // A 40x40 viewBox in a 160x80 box, split red (top) / blue (bottom).
-        func render(_ par: String) throws -> [String] {
-            let svg = "<svg \(Self.ns) width='160' height='80' viewBox='0 0 40 40' preserveAspectRatio='\(par)'><rect width='40' height='20' fill='red'/><rect y='20' width='40' height='20' fill='blue'/></svg>"
-            let image = try XCTUnwrap(source(svg)?.decode(maxPixelSize: 160))
-            return [(10, 10), (80, 10), (150, 10), (10, 70), (80, 70), (150, 70)].map {
-                let p = RichMediaImages.rgba(image, x: $0.0, y: $0.1)
-                return p[3] == 0 ? "-" : p[0] > 128 ? "R" : p[2] > 128 ? "B" : "?"
-            }
-        }
-        // meet letterboxes: centred, transparent sides, red over blue.
-        XCTAssertEqual(try render("xMidYMid meet"), ["-", "R", "-", "-", "B", "-"])
-        XCTAssertEqual(try render("xMinYMid meet"), ["R", "-", "-", "B", "-", "-"], "xMin pins the drawing to the left")
-        // slice fills the box, cropping; none stretches to fill.
-        XCTAssertEqual(try render("xMidYMid slice"), ["R", "R", "R", "B", "B", "B"])
-        XCTAssertEqual(try render("none"), ["R", "R", "R", "B", "B", "B"], "none stretches to fill the whole box")
-        XCTAssertEqual(try render("xMidYMin slice"), ["R", "R", "R", "R", "R", "R"], "YMin keeps the top band, which is all red")
     }
 
     // MARK: The single-image wrapper fast path
@@ -232,16 +210,6 @@ final class RichMediaSVGCoverageTests: XCTestCase {
 
     // MARK: Drawing and labels
 
-    func testInlineSVGDrawsPathsTextAndTransforms() throws {
-        let svg = "<svg \(Self.ns) width='120' height='60' viewBox='0 0 120 60'><rect width='120' height='60' fill='white'/><circle cx='30' cy='30' r='20' fill='blue'/><g transform='translate(60 0)'><rect width='40' height='40' fill='red'/></g><text x='4' y='55' font-family='Arial' font-size='16'>Lbl</text></svg>"
-        let image = try XCTUnwrap(source(svg)?.decode(maxPixelSize: 120))
-        XCTAssertEqual(RichMediaImages.rgba(image, x: 30, y: 30), [0, 0, 255, 255], "the circle paints blue")
-        XCTAssertEqual(RichMediaImages.rgba(image, x: 70, y: 10), [255, 0, 0, 255], "the translated rect paints red")
-        var ink = 0
-        for y in 44..<58 { for x in 2..<40 where RichMediaImages.rgba(image, x: x, y: y)[0] < 100 { ink += 1 } }
-        XCTAssertGreaterThan(ink, 20, "the text glyphs are actually painted")
-    }
-
     func testAccessibleLabelFromTitleAndDescription() throws {
         let ns = Self.ns
         // A direct-child title names the SVG; first-title-wins with the description appended.
@@ -278,21 +246,13 @@ final class RichMediaSVGCoverageTests: XCTestCase {
 
     // MARK: Rendering limits (doc: 4 MiB, 10,000 nodes, depth 64)
 
+    /// An archive SVG past a limit shows its alt text. The renderer's own boundaries, at each
+    /// limit, are StaticSVG's half of this test (`SVGCoverageTests`).
     func testRenderingLimitBoundariesShowFallbackText() throws {
         let ns = "xmlns='http://www.w3.org/2000/svg'"
-        // Depth: nesting that stays under the limit renders; past it falls back.
+        // Depth: nesting past the limit falls back.
         func nested(_ groups: Int) -> String { "<svg \(ns) width='10' height='10'>" + String(repeating: "<g>", count: groups) + "<rect width='5' height='5'/>" + String(repeating: "</g>", count: groups) + "</svg>" }
-        XCTAssertNotNil(source(nested(62)), "62 nested groups render")
-        XCTAssertNil(source(nested(63)), "a drawing nested past the depth limit is refused")
         XCTAssertNil(try image("<p><img src='deep.svg' alt='Deep'/></p>", files: ["deep.svg": Data(nested(70).utf8)]).0, "an over-deep archive SVG shows its alt text")
-        // Node count: 9,999 shapes render; 10,000 are refused.
-        func rects(_ count: Int) -> String { "<svg \(ns) width='10' height='10'>" + String(repeating: "<rect width='1' height='1'/>", count: count) + "</svg>" }
-        XCTAssertNotNil(source(rects(9_999)))
-        XCTAssertNil(source(rects(10_000)))
-        // Serialized bytes: a drawing just over 4 MiB is refused.
-        func big(_ bytes: Int) -> String { "<svg \(ns) width='10' height='10'><path d='M0 0 \(String(repeating: "L9 9 ", count: bytes / 5))' stroke='black'/></svg>" }
-        XCTAssertNotNil(source(big(4_000_000)))
-        XCTAssertNil(source(big(4_300_000)))
     }
 
     // MARK: SVG content document as a spine item
@@ -437,7 +397,8 @@ final class RichMediaSVGCoverageTests: XCTestCase {
     func testAnImageInADataURLThatIsNoUsableImageIsLeftOutOfItsDrawing() throws {
         let png = RichMediaImages.solid(width: 10, height: 10).base64EncodedString()
         let huge = RichMediaImages.headerOnlyPNG(width: 4097, height: 4097)
-        XCTAssertGreaterThan(4097 * 4097, SVGContent.maximumTotalImagePixels)
+        // StaticSVG's bound on the pixels of a drawing's images together.
+        XCTAssertGreaterThan(4097 * 4097, 16 * 1024 * 1024)
         for href in ["data:image/png;base64", "data:text/plain;base64,\(png)", "data:,\(png)", "data:image/png;base64,AAAA",
                      "data:image/png;base64,\(huge.base64EncodedString())", "data:image/svg+xml,%3Csvg%3E"] {
             let message = String(href.prefix(40))
@@ -456,6 +417,9 @@ final class RichMediaSVGCoverageTests: XCTestCase {
     /// Images in `data:` URLs are held to the bounds of archive images: the pixels a drawing's
     /// images have together, and the work its preparation may do, which counts a URL's bytes as
     /// it counts a file's and knows a URL given twice as it knows a path.
+    ///
+    /// A book's drawing. The serializer's work budget is StaticSVG's half of this test
+    /// (`SVGCoverageTests`).
     func testImagesInDataURLsKeepTheBoundsOfArchiveImages() throws {
         // Each image is inlined at 2,048 pixels on its long side at most, and a drawing's images
         // have 16 Mi pixels together at most: the fifth of five such is left out.
@@ -465,25 +429,6 @@ final class RichMediaSVGCoverageTests: XCTestCase {
         let bitmap = try XCTUnwrap(drawing?.source.decode(maxPixelSize: 50))
         XCTAssertEqual((0..<5).map { Self.isRed(RichMediaImages.rgba(bitmap, x: $0 * 10 + 5, y: 5)) }, [true, true, true, true, false])
         XCTAssertEqual(text.report.unsupportedElements, ["svg:image": 1])
-
-        let red = RichMediaImages.solid(width: 10, height: 10, red: 1, green: 0, blue: 0)
-        let blue = RichMediaImages.solid(width: 10, height: 10, red: 0, green: 0, blue: 1)
-        let three = "<svg \(Self.ns) width='30' height='10'><image width='10' height='10' href='data:image/png;base64,\(red.base64EncodedString())'/>"
-            + "<image x='10' width='10' height='10' xlink:href='data:image/png;base64,\(red.base64EncodedString())'/>"
-            + "<image x='20' width='10' height='10' href='data:image/png;base64,\(blue.base64EncodedString())'/></svg>"
-        let root = try ContentDocument.parse(Data(three.utf8), path: "OPS/d.svg", asContent: false).root
-        let publication = try RichMediaBook(body: "<p>Preparation</p>").publication
-        let context = SVGImagePreparation(), report = SectionReportBox()
-        XCTAssertNotNil(SVGContent.serialize(root, resolve: { XCTFail("resolved \($0)"); return nil }, publication: publication,
-                                             report: report, imagePreparation: context))
-        XCTAssertEqual(context.visits, 2, "the URL given twice is prepared once")
-        XCTAssertEqual(context.cacheHits, 1)
-        XCTAssertEqual(report.report.unsupportedElements, [:])
-        var limits = SVGImagePreparation.Limits()
-        limits.sourceBytes = red.count + blue.count - 1
-        let limited = SVGImagePreparation(limits: limits), limitedReport = SectionReportBox()
-        XCTAssertNotNil(SVGContent.serialize(root, resolve: { _ in nil }, publication: publication, report: limitedReport, imagePreparation: limited))
-        XCTAssertEqual(limitedReport.report.unsupportedElements, ["svg:image": 1], "the blue image's bytes are past what is left")
     }
 
     /// The renderer is given the drawing as it is prepared: an image in a `data:` URL reaches it
@@ -492,6 +437,9 @@ final class RichMediaSVGCoverageTests: XCTestCase {
     /// screens the drawing as the book has it, `data:` images and all. A drawing in a `data:` URL
     /// has no base in the archive, inside a drawing as anywhere: a reference in it names no file,
     /// though there is one at that path.
+    ///
+    /// A book's drawing. What the serializer prepares for the renderer is StaticSVG's half of
+    /// this test (`SVGCoverageTests`).
     func testAnImageInADataURLReachesTheRendererAsAPreparedPNGAndNoArchiveFile() throws {
         let red = RichMediaImages.bitmap(width: 10, height: 10) { context, rect in
             context.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
@@ -499,15 +447,7 @@ final class RichMediaSVGCoverageTests: XCTestCase {
         }
         let bmp = try XCTUnwrap(RichMediaImages.encode([red], as: .bmp))
         let raw = Self.drawing("href='data:image/bmp;base64,\(bmp.base64EncodedString())'")
-        XCTAssertNil(source(raw), "the renderer's own entry point reads no BMP")
         try assertDraws(try image("<p>\(raw)</p>").0, image: true, "BMP")
-        let book = try RichMediaBook(body: "<p>Prepared</p>", files: ["pic.png": RichMediaImages.solid(width: 10, height: 10)])
-        let prepared = try XCTUnwrap(SVGContent.serialize(try ContentDocument.parse(Data(raw.utf8), path: "OPS/d.svg", asContent: false).root,
-                                                          resolve: { _ in nil }, publication: book.publication))
-        XCTAssertTrue(String(decoding: prepared, as: UTF8.self).contains("href=\"data:image/png;base64,"))
-        XCTAssertFalse(String(decoding: prepared, as: UTF8.self).contains("image/bmp"))
-        XCTAssertTrue(SVGContent.preparedImagesAreBounded(try ContentDocument.parse(prepared, path: "prepared.svg", asContent: false).root))
-        XCTAssertNotNil(source(String(decoding: prepared, as: UTF8.self)))
         // The first screening reads a `data:` image's own size: one with no width or height that
         // spans the drawing many times over is refused before anything is prepared.
         let wide = RichMediaImages.solid(width: 100, height: 100).base64EncodedString()
@@ -519,12 +459,6 @@ final class RichMediaSVGCoverageTests: XCTestCase {
         let inner = "<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><image href='pic.png' width='5' height='10'/>"
             + "<image href='/OPS/pic.png' width='5' height='10'/><rect x='5' width='5' height='10' fill='lime'/></svg>"
         let nested = Self.drawing("href='data:image/svg+xml,\(try XCTUnwrap(inner.addingPercentEncoding(withAllowedCharacters: .alphanumerics)))'")
-        var resolved: [String] = []
-        let report = SectionReportBox()
-        XCTAssertNotNil(SVGContent.serialize(try ContentDocument.parse(Data(nested.utf8), path: "OPS/d.svg", asContent: false).root,
-                                             resolve: { resolved.append($0); return "OPS/" + $0 }, publication: book.publication, report: report))
-        XCTAssertEqual(resolved, [], "nothing in or round the drawing in the data: URL is resolved")
-        XCTAssertEqual(report.report.unsupportedElements, ["svg:image": 2])
         let pic = RichMediaImages.solid(width: 10, height: 10)
         for (body, files) in [("<p>\(nested)</p>", ["pic.png": pic]), ("<p><img src='d.svg' alt='D'/></p>", ["pic.png": pic, "d.svg": Data(nested.utf8)])] {
             let (drawing, text) = try image(body, files: files)
@@ -537,27 +471,6 @@ final class RichMediaSVGCoverageTests: XCTestCase {
             XCTAssertEqual(text.report.unreadableResources, 0, body)
             XCTAssertEqual(text.report.remoteResourcesRefused, 0, body)
         }
-    }
-
-    // MARK: Robustness
-
-    func testAdversarialSVGStaysBoundedAndNeverTraps() throws {
-        let ns = "xmlns='http://www.w3.org/2000/svg'"
-        // Self-referential clip/mask and a use of an ancestor must not loop forever.
-        XCTAssertNotNil(source("<svg \(ns) width='10' height='10'><clipPath id='c' clip-path='url(#c)'><rect width='5' height='5'/></clipPath><rect width='10' height='10' clip-path='url(#c)'/></svg>"))
-        XCTAssertNil(source("<svg \(ns) width='10' height='10'><g id='g'><rect width='5' height='5'/><use href='#g'/></g></svg>"), "a use of an enclosing group is a cycle and is refused")
-        // Degenerate geometry is accepted or rejected, never a trap.
-        _ = source("<svg \(ns) width='10' height='10'><rect width='5' height='5' transform='scale(1e300)'/></svg>")
-        _ = source("<svg \(ns) width='10' height='10' viewBox='0 0 NaN inf'><rect width='5' height='5'/></svg>")
-        XCTAssertNil(source("<svg \(ns) width='-10' height='-10'><rect width='5' height='5'/></svg>"), "a negative size is refused")
-        XCTAssertNil(source("<svg \(ns) width='1e-9' height='1e-9'><rect width='5' height='5'/></svg>"), "a sub-point size is refused")
-        // A huge declared width is clamped to the raster ceiling, not honoured.
-        if let huge = source("<svg \(ns) width='100000' height='1'><rect width='5' height='5'/></svg>") {
-            XCTAssertLessThanOrEqual(max(huge.pixelSize.width, huge.pixelSize.height), CGFloat(ReaderImageSource.maximumSVGDimension))
-        }
-        // An embedded raster over 4 megapixels is refused before rendering.
-        let bomb = RichMediaImages.solid(width: 2100, height: 2100).base64EncodedString()
-        XCTAssertNil(source("<svg \(ns) width='10' height='10'><image href='data:image/png;base64,\(bomb)' width='10' height='10'/></svg>"))
     }
 
     // MARK: Degenerate geometry — a viewBox far from the size of what it holds
