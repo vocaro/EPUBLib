@@ -1075,15 +1075,16 @@ xcrun simctl bootstatus "$DEVICE" -b
 xcodebuild -project Examples/ControlsQualification/ControlsQualification.xcodeproj \
   -scheme ControlsProbeIOS -destination "platform=iOS Simulator,id=$DEVICE" \
   -derivedDataPath .build/qualification/derived build-for-testing
-printf 'tap=Search\ntype=lantern\ntap=search\ndump=results\ntap=Next Match\nstatus\n' > steps.txt
+printf 'tap=Search\ntype=lantern\nkeyboard=search\ndump=results\ntap=Next Match\nstatus\n' > steps.txt
 python3 scripts/run-controls-qualification.py --device "$DEVICE" --name search \
   --args "-QualificationBook ltr" --steps steps.txt
 xcrun simctl delete "$DEVICE"
 ```
 
 The first line is the default of `scripts/test-ios.sh`; the runner has it too, whatever
-`xcode-select` names, and does not run a probe that another Xcode built. `tap=search` presses
-the keyboard's own key rather than typing a Return
+`xcode-select` names, and does not run a probe that another Xcode built. `keyboard=search`
+touches the keyboard's own key, the Return of a field whose submit label is Search, rather than
+typing a Return
 ([#307](https://github.com/vocaro/EPUBLib/issues/307#issuecomment-6132965039) has the counts).
 Each `dump` line of the log says whether the keyboard was on screen and what had keyboard
 focus, and on iOS every scenario starts upright. What these probes found about input, touches,
@@ -1092,6 +1093,18 @@ text sizes and runs stopped part-way is in
 and a new simulator's keyboard card is dismissed as
 [Device Hub](https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#device-hub)
 says.
+
+A step that names an element compares its word with each element's label, then its identifier,
+placeholder and title: the first of those that any element carries the word in decides, and the
+others are passed over. It names the application's own elements only. The keyboard's keys, its
+predictions and its Emoji and Dictate buttons, everything in the keyboard's window, are touched
+with `keyboard=` alone. A word that names several elements is refused, with each listed, unless
+exactly one of them is hittable, and `Word@N` takes the one listed as `@N`. `find=Word` lists
+what a word names and what it passes over. Before
+[#366](https://github.com/vocaro/EPUBLib/issues/366) a step took the first hittable element
+that carried the word in any of the four, and with the keyboard up `tap=Search` pressed the
+keyboard's Search key, whose identifier is Search, in place of the search field's button. A
+`tap=search` written for Return then now does nothing, and its line names `keyboard=search`.
 
 The probe's steps are documented where they are handled, in
 `Examples/ControlsQualification/UITests/ControlsProbe.swift`. Host arguments:
