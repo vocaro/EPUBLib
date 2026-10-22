@@ -920,6 +920,34 @@ import UIKit
         }
     }
 
+    /// A line may not end after an opening bracket or guillemet, or before a closing one (UAX #14,
+    /// LB13 and LB14), so the space inside `( exemple )` or `« Non »` does not part the brackets
+    /// from their word, and nor does a no-break space or the narrow one French sets inside
+    /// guillemets. Such a unit is one word to the room beside a float and to a float's width: it
+    /// goes below the float, or widens it, and is never cut between two characters.
+    func testBracketsAndGuillemetsStayWithTheirWordBesideAndInsideAFloat() throws {
+        let quoted = ["« Non »", "«\u{00A0}Non\u{00A0}»", "«\u{202F}Non\u{202F}»"]
+        for opening in ["( exemple ) suit."] + quoted.map { $0 + " dit-il." } {
+            for slot in [50, 60, 70] {
+                let label = "\(opening) beside \(slot)"
+                let (section, view) = try layout("<figure>Alpha box.</figure><p lang='fr'>\(opening) \(H.prose)</p>",
+                                                 css: "figure { float:left; width:\(360 - slot)px; height:200px } p { hyphens:manual }")
+                XCTAssertEqual(Self.brokenWords(H.lines(in: view, intersecting: H.range(opening, in: section)), in: section), [], label)
+                XCTAssertEqual(view.visibleText, section.string.string, label)
+            }
+        }
+        for unit in quoted {
+            for width in [42, 43] {
+                let label = "\(unit) in \(width)"
+                let (section, view) = try layout("<p lang='fr'><span class='n'>\(unit) dit-il</span>La suite du texte. \(H.prose)</p>",
+                                                 css: ".n { float:left; width:\(width)px } p { hyphens:manual }")
+                let region = try XCTUnwrap(H.region(unit, in: section, view: view), label)
+                XCTAssertEqual(H.lines(in: view, intersecting: H.range(unit, in: section)).count, 1, label)
+                XCTAssertGreaterThanOrEqual(region.frame.width, H.frame(unit, in: section, view: view).width - 0.5, "widened to the unit: \(label)")
+            }
+        }
+    }
+
     /// The word's width stops at the containing block: a float whose word is wider than the
     /// column is as wide as the column, and its word is broken there, as nothing leaves the column.
     func testAFloatWhoseWordIsWiderThanTheColumnIsAsWideAsTheColumn() throws {

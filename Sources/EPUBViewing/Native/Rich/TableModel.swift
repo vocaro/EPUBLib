@@ -356,12 +356,11 @@ enum TableMeasure {
     /// (CSS Text 3, 5.4), so there a word counts by its widest part and the hyphen set after it.
     /// Attachments are left out: an image is sized to the float.
     ///
-    /// Only what is wider than `width` can widen the float. A paragraph whose runs between spaces
-    /// surely fit in `width` (`widestRunEstimate`) counts by that estimate, which no word is
-    /// wider than. Only where a run may not fit is the paragraph shaped and its words found and
-    /// measured one by one, and only a word too wide is looked up in the hyphenation dictionary.
-    /// Doing all three for every float made resolving a section of 300 floats of a set width
-    /// two fifths slower (#152).
+    /// Only what is wider than `width` can widen the float. A paragraph whose runs between the
+    /// spaces a line surely may end at fit in `width` (`widestRun`) holds no word wider. Only
+    /// where a run does not fit are the paragraph's words found and set one by one, and only a
+    /// word too wide is looked up in the hyphenation dictionary. Doing all three for every float
+    /// made resolving a section of 300 floats of a set width two fifths slower (#152).
     static func widestPiece(_ text: NSAttributedString, within width: CGFloat) -> CGFloat {
         guard text.length > 0 else { return 0 }
         var widest: CGFloat = 0
@@ -369,7 +368,10 @@ enum TableMeasure {
         var locales: [String: CFLocale?] = [:]
         forEachParagraph(in: text) { measured, range, style in
             let indent = max(0, (style?.firstLineHeadIndent ?? 0) - (style?.headIndent ?? 0))
-            if let runs = widestRunEstimate(of: measured, in: range, indent: indent), runs <= width {
+            // Rounded up as the result is: a word no wider than `width` still widens it to the
+            // next point.
+            let runs = widestRun(of: measured, in: range, indent: indent)
+            if ceil(runs) <= width {
                 widest = max(widest, runs)
                 return
             }
@@ -379,7 +381,7 @@ enum TableMeasure {
                 let end = word.location + word.length
                 let whole = Self.width(of: word, in: typesetter) + (opens ? indent : 0)
                 var points: [Int] = []
-                if whole > width, (style?.hyphenationFactor ?? 0) > 0 {
+                if ceil(whole) > width, (style?.hyphenationFactor ?? 0) > 0 {
                     let language = paragraph.attribute(InlineStyling.languageKey, at: word.location, effectiveRange: nil) as? String
                     if locales[language ?? ""] == nil { locales[language ?? ""] = .some(hyphenationLocale(language)) }
                     if let locale = locales[language ?? ""] ?? nil {
@@ -404,52 +406,68 @@ enum TableMeasure {
         return ceil(widest)
     }
 
-    /// The characters a line may end after wherever they are: a space, a tab, a zero-width space,
-    /// and the ends of lines and paragraphs. No unit between line-break opportunities runs across one.
+    /// The white space a line may end after, depending on what is around it (`endsRun(at:in:)`):
+    /// a space, a tab, a zero-width space, and the ends of lines and paragraphs.
     static let breakingSpaces: Set<unichar> = [0x20, 0x09, 0x0A, 0x0D, 0x200B, 0x2028, 0x2029]
+    /// Letters and digits: a line may end at a space between two of them (UAX #14, LB18).
+    private static let wordCharacters = CharacterSet.letters.subtracting(.nonBaseCharacters).union(.decimalDigits)
 
-    /// A width no run of `range` of `text` between `breakingSpaces` is wider than, the first run
-    /// after `indent`, without shaping the text: its characters' advances in their fonts, and
-    /// their letter spacing, added up, with a tenth and two points to spare for the kerning and
-    /// contextual forms that shaping may widen a run by. Nil where a character is not in its font
-    /// and another font draws it.
-    static func widestRunEstimate(of text: NSAttributedString, in range: NSRange, indent: CGFloat = 0) -> CGFloat? {
+    /// Whether a line may end at the white space at `index` of `string`, whatever the text around
+    /// it: at a line's or a paragraph's end and after a zero-width space always, and at a space or
+    /// a tab where a letter or a digit stands on each side of the white space. Next to punctuation
+    /// a space can be inside a unit between line-break opportunities: no line ends after an
+    /// opening bracket or guillemet, or before a closing one (`( exemple )`, `« Non »`, LB13–LB17).
+    static func endsRun(at index: Int, in string: NSString) -> Bool {
+        let character = string.character(at: index)
+        guard character == 0x20 || character == 0x09 else { return breakingSpaces.contains(character) }
+        var before = index - 1, after = index + 1
+        while before >= 0, string.character(at: before) == 0x20 || string.character(at: before) == 0x09 { before -= 1 }
+        while after < string.length, string.character(at: after) == 0x20 || string.character(at: after) == 0x09 { after += 1 }
+        guard before >= 0, after < string.length, let previous = UnicodeScalar(string.character(at: before)),
+              let next = UnicodeScalar(string.character(at: after)) else { return false }
+        return wordCharacters.contains(previous) && wordCharacters.contains(next)
+    }
+
+    /// The widest run of `range` of `text` between the white space a line surely may end at
+    /// (`endsRun(at:in:)`), the first run after `indent`, as one line sets the range: each glyph's
+    /// advance counted at the character it is set for, kerning, small capitals and contextual
+    /// forms included. No unit between line-break opportunities is wider, and setting the range
+    /// once costs far less than finding its units and setting each on a line of its own.
+    static func widestRun(of text: NSAttributedString, in range: NSRange, indent: CGFloat = 0) -> CGFloat {
+        guard range.length > 0 else { return 0 }
         let string = text.string as NSString
-        // A line's first word is measured for every line set beside a float, so the font and the
-        // letter spacing are read on their own, without an attribute dictionary, and no array is
-        // made on the heap. The widest letter spacing is taken for every character.
-        var spacing: CGFloat = 0
-        text.enumerateAttribute(.kern, in: range) { value, _, _ in spacing = max(spacing, value as? CGFloat ?? 0) }
-        var widest: CGFloat = 0, run: CGFloat = 0, first = true, known = true
-        text.enumerateAttribute(.font, in: range) { value, part, stop in
-            guard let font = value as? PlatformFont else { known = false; stop.pointee = true; return }
-            withUnsafeTemporaryAllocation(of: unichar.self, capacity: part.length) { characters in
-                withUnsafeTemporaryAllocation(of: CGGlyph.self, capacity: part.length) { glyphs in
-                    withUnsafeTemporaryAllocation(of: CGSize.self, capacity: part.length) { advances in
-                        string.getCharacters(characters.baseAddress!, range: part)
-                        // False where any character has no glyph, the spaces a line ends at among them.
-                        _ = CTFontGetGlyphsForCharacters(font as CTFont, characters.baseAddress!, glyphs.baseAddress!, part.length)
-                        CTFontGetAdvancesForGlyphs(font as CTFont, .horizontal, glyphs.baseAddress!, advances.baseAddress!, part.length)
-                        for offset in 0..<part.length {
-                            let character = characters[offset]
-                            if breakingSpaces.contains(character) {
-                                widest = max(widest, run + (first ? indent : 0))
-                                if run > 0 { first = false }
-                                run = 0
-                            } else if UTF16.isTrailSurrogate(character) {
-                                continue // its pair's glyph is at the lead surrogate
-                            } else if glyphs[offset] == 0 {
-                                known = false; stop.pointee = true; return
-                            } else {
-                                run += advances[offset].width + spacing
-                            }
-                        }
+        let line = CTLineCreateWithAttributedString(text.attributedSubstring(from: range) as CFAttributedString)
+        // A line's first word is measured for every line set beside a float: CoreText's own
+        // buffers are read where it has them, and nothing is put on the heap.
+        return withUnsafeTemporaryAllocation(of: CGFloat.self, capacity: range.length) { advances in
+            advances.initialize(repeating: 0)
+            for glyphRun in CTLineGetGlyphRuns(line) as? [CTRun] ?? [] {
+                let count = CTRunGetGlyphCount(glyphRun)
+                guard count > 0 else { continue }
+                func add(_ indices: UnsafePointer<CFIndex>, _ sizes: UnsafePointer<CGSize>) {
+                    for glyph in 0..<count where indices[glyph] >= 0 && indices[glyph] < range.length {
+                        advances[indices[glyph]] += sizes[glyph].width
                     }
                 }
+                if let indices = CTRunGetStringIndicesPtr(glyphRun), let sizes = CTRunGetAdvancesPtr(glyphRun) {
+                    add(indices, sizes)
+                } else {
+                    var indices = [CFIndex](repeating: 0, count: count), sizes = [CGSize](repeating: .zero, count: count)
+                    CTRunGetStringIndices(glyphRun, CFRange(location: 0, length: 0), &indices)
+                    CTRunGetAdvances(glyphRun, CFRange(location: 0, length: 0), &sizes)
+                    add(indices, sizes)
+                }
             }
+            var widest: CGFloat = 0, run: CGFloat = 0, first = true
+            for offset in 0..<range.length {
+                let index = range.location + offset
+                guard breakingSpaces.contains(string.character(at: index)), endsRun(at: index, in: string) else { run += advances[offset]; continue }
+                widest = max(widest, run + (first ? indent : 0))
+                if run > 0 { first = false }
+                run = 0
+            }
+            return max(widest, run + (first ? indent : 0))
         }
-        guard known else { return nil }
-        return max(widest, run + (first ? indent : 0)) * 1.1 + 2
     }
 
     /// The locale whose hyphenation dictionary text in `language` (`InlineStyling.languageKey`)

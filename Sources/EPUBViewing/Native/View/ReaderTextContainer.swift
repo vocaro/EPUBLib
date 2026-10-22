@@ -171,28 +171,28 @@ final class ReaderTextContainer: NSTextContainer {
 
     /// The width a line starting at `index` needs for the first piece of content it can hold
     /// (`openingWord(in:at:)`), or, where that piece surely fits in `room`, a width it fits in
-    /// that is no greater than `room`. A line can end at a space, so the piece is no wider than
-    /// the text before the next one, and most lines beside a float open with a word far narrower
-    /// than the room there. Estimating that text from its fonts' advances
-    /// (`TableMeasure.widestRunEstimate`) spares such a line shaping its word and finding its
-    /// line-break opportunity and hyphenation points, which made laying out the lines beside a
-    /// float a third slower (#152).
+    /// that is no greater than `room`. The piece is no wider than the text before the next white
+    /// space a line surely may end at (`TableMeasure.endsRun(at:in:)`), and most lines beside a
+    /// float open with a word far narrower than the room there. Setting that text alone on a line
+    /// spares such a line finding its word's line-break opportunity and hyphenation points, and
+    /// reading its paragraph for its end, which made laying out lines beside a float a third
+    /// slower (#152).
     private func openingWidth(at index: Int, room: CGFloat) -> CGFloat {
         guard let text = layoutText, index >= 0, index < text.length else { return 0 }
         if let known = measuredOpening, known.index == index, known.text === text, known.exact || known.width <= room { return known.width }
-        // Up to the next space or the paragraph's end, within as far as a word could run; an
-        // attachment character, which TextKit sizes to its line, leaves it to the exact piece.
+        // Up to that white space, within as far as a word could run; an attachment character,
+        // which TextKit sizes to its line, leaves it to the exact piece.
         let string = text.string as NSString
         let limit = min(string.length, index + 256)
         var end = index, attached = false
         while end < limit {
             let character = string.character(at: end)
-            if TableMeasure.breakingSpaces.contains(character) { break }
+            if TableMeasure.breakingSpaces.contains(character), TableMeasure.endsRun(at: end, in: string) { break }
             if character == 0xFFFC { attached = true; break }
             end += 1
         }
-        if !attached, end < limit || limit == string.length,
-           let bound = TableMeasure.widestRunEstimate(of: text, in: NSRange(location: index, length: end - index)) {
+        if !attached, end < limit || limit == string.length {
+            let bound = ceil(TableMeasure.widestRun(of: text, in: NSRange(location: index, length: end - index)))
             if bound <= room {
                 measuredOpening = (index, text, bound, false)
                 return bound
