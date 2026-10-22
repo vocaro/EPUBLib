@@ -242,18 +242,19 @@ enum CanvasScrollBars: CaseIterable {
     }
 
     /// Shows or hides that bar and lays out as a display cycle does. The canvas keeps its size;
-    /// the height of its visible area follows the bar. On the Mac the scroll view's automatic
-    /// insets follow the toolbar a moment later, which is waited for, and nothing lays the
-    /// canvas out for them (#162), so this asks for the layout that anything else would bring.
+    /// the height of its visible area follows the bar. On the Mac the canvas's safe area
+    /// follows the toolbar, which is waited for, laying out as display cycles do; the scroll
+    /// view's automatic insets follow in the canvas's layout.
     func setBar(shown: Bool) async throws {
         #if os(macOS)
-        let scrollView = canvas.scrollContainer as? NSScrollView
-        let before = scrollView?.contentInsets.top
+        let before = canvas.safeAreaInsets.top
         if window.toolbar == nil { window.toolbar = NSToolbar(identifier: "org.epublib.tests.canvas-host.\(UUID().uuidString)") }
         window.toolbar?.isVisible = shown
         let deadline = Date().addingTimeInterval(5)
-        while Date() < deadline, scrollView?.contentInsets.top == before { try await Task.sleep(for: .milliseconds(20)) }
-        canvas.needsLayout = true
+        while Date() < deadline, canvas.safeAreaInsets.top == before {
+            try await Task.sleep(for: .milliseconds(20))
+            layOut()
+        }
         #else
         controller.navigationController?.setNavigationBarHidden(!shown, animated: false)
         #endif
