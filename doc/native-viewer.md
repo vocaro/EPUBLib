@@ -1594,6 +1594,29 @@ continues to describe the authored spine resource.
     content of a table laid out as a grid and of its rows and row groups, where that of its
     cells and captions is shown; and what passes a bound of 1,048,576 UTF-16 units of
     generated text in one section, which only a hostile stylesheet reaches.
+- **Calculations.** `calc()`, `min()`, `max()` and `clamp()` follow CSS Values 4 §10 for
+  numbers, lengths and percentages ([#122](https://github.com/vocaro/EPUBLib/issues/122)).
+  - **Factors and divisors.** Any sub-expression that is a number can be a factor on either
+    side of `*` or a divisor after `/`: a parenthesised sum, a nested function or a constant
+    (`e`, `pi`, `infinity`, `-infinity`, `NaN`). A number depends on nothing, so it is worked
+    out when the value is parsed.
+  - **Typed arithmetic.** A product of two lengths, and a division by a length, are invalid
+    ([#761](https://github.com/vocaro/EPUBLib/issues/761)).
+  - **Infinity and NaN.** Division by zero gives an infinity, and zero by zero gives NaN, which
+    `min()`, `max()` and `clamp()` return whatever their other arguments. At the top of a value,
+    an infinity becomes the end of the range the property allows (`StyleLimits`) and NaN
+    becomes 0.
+  - **Where numbers go.** A math function that comes to a number stands wherever a number
+    does:
+    - `line-height`;
+    - `font-weight`, in `font` and `@font-face` too;
+    - `filter: invert()`;
+    - `order`, `flex-grow` and `flex`;
+    - `repeat()` counts and counter values.
+    
+    Where an integer is wanted it is rounded to the nearest, a half upward. Out of range it is
+    clamped to the range rather than refused, as an out-of-range literal is. Colour channels
+    take literals only ([#760](https://github.com/vocaro/EPUBLib/issues/760)).
 - **Custom properties.** Custom properties (`--name`) and `var()` follow CSS Custom
   Properties for Cascading Variables 1 ([#119](https://github.com/vocaro/EPUBLib/issues/119)).
   A custom property is declared on any element, `:root` and pseudo-elements included, in a
