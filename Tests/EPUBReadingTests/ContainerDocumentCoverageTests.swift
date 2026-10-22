@@ -127,9 +127,9 @@ final class ContainerDocumentCoverageTests: XCTestCase {
     }
 
     func testARootfilePathResolvesItsDotSegmentsWithinTheContainer() throws {
-        // Written out or escaped, and around an escaped separator, as in a manifest href.
+        // Written out or escaped, as in a manifest href.
         for fullPath in ["./OPS/book.opf", "OPS/./book.opf", "OPS/text/../book.opf", "OPS/%2E/book.opf", "OPS/text/%2e%2e/book.opf",
-                         "OPS%2Fbook.opf", "OPS%2ftext%2F..%2Fbook.opf", "OPS/book.opf/../book.opf"] {
+                         "OPS/book.opf/../book.opf"] {
             let book = try EPUBPublication.open(data: Fixture.packageVariant(container: container("<rootfiles><rootfile full-path=\"\(fullPath)\"/></rootfiles>")))
             XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/two.xhtml"], fullPath)
             XCTAssertEqual(book.tableOfContents.first?.href, "OPS/one.xhtml#start", fullPath)
@@ -154,8 +154,11 @@ final class ContainerDocumentCoverageTests: XCTestCase {
         let refused = [
             // A dot segment that leaves the container, or leaves no name.
             "%2e%2e/OPS/book.opf", "%2E%2E/%2E%2E/escape", ".%2E/OPS/book.opf", "%2e./OPS/book.opf", "OPS/%2e%2e/%2e%2e/OPS/book.opf", "%2E", "OPS/%2e%2e",
-            // A separator: one that hides a dot segment or makes the path absolute, and one other systems read.
-            "..%2FOPS%2Fbook.opf", "OPS%2F..%2F..%2Fescape", "OPS%2f%2e%2e%2f%2e%2e%2fescape", "%2FOPS/book.opf", "%2F%2Fexample.invalid/book.opf",
+            // A separator: an escaped slash, which is a character of its segment and of no entry's
+            // name (https://github.com/vocaro/EPUBLib/issues/660), however it reads decoded, and
+            // one other systems read.
+            "OPS%2Fbook.opf", "OPS%2ftext%2F..%2Fbook.opf", "..%2FOPS%2Fbook.opf", "OPS%2F..%2F..%2Fescape", "OPS%2f%2e%2e%2f%2e%2e%2fescape",
+            "%2FOPS/book.opf", "%2F%2Fexample.invalid/book.opf",
             "OPS%5Cbook.opf", "OPS%5cbook.opf", "..%5Cescape", "%5C%5Cexample.invalid%5Cbook.opf",
             // A NUL.
             "%00", "OPS/book.opf%00", "OPS/book%00.opf", "OPS%00/book.opf",
@@ -265,7 +268,7 @@ final class ContainerDocumentCoverageTests: XCTestCase {
             // URL, written out or escaped and through dot segments, and named as written.
             let cases: [(folder: String, package: String, fullPath: String)] = [
                 ("OPS/", "\(m)book.opf", "OPS/\(m)book.opf"), ("OPS/", "\(m)book.opf", "OPS/\(e)book.opf"), ("OPS/", "\(m)book.opf", "OPS/x/../\(m)book.opf"),
-                ("OPS/", "\(m)book.opf", "OPS/./\(m)book.opf"), ("OPS/", "\(m)book.opf", "OPS%2F\(e)book.opf"), ("\(m)OPS/", "book.opf", "\(m)OPS/book.opf"),
+                ("OPS/", "\(m)book.opf", "OPS/./\(m)book.opf"), ("OPS/", "\(m)book.opf", "OPS/%2E/\(e)book.opf"), ("\(m)OPS/", "book.opf", "\(m)OPS/book.opf"),
                 ("a/\(m)b/", "book.opf", "a/c/../\(m)b/book.opf"), ("50% off/", "\(m)book.opf", "50% off/\(m)book.opf"),
                 ("50% off/\(m)x/", "book.opf", "50% off/\(m)x/book.opf"),
                 // A colon is a character of the name (https://github.com/vocaro/EPUBLib/issues/171):
@@ -280,9 +283,9 @@ final class ContainerDocumentCoverageTests: XCTestCase {
                                [folder + "one.xhtml", folder + "two.xhtml"].map { Array($0.unicodeScalars) }, fullPath.debugDescription)
                 XCTAssertEqual(book.tableOfContents.first?.href.flatMap(\.removingPercentEncoding), folder + "one.xhtml#start", fullPath.debugDescription)
             }
-            // Neither reading takes these: out of the container, an opening or doubled slash or
-            // a backslash, as a URL and where a "%" leaves only the path as written.
-            for fullPath in ["../\(m)OPS/book.opf", "OPS/../../\(m)OPS/book.opf", "/\(m)OPS/book.opf", "OPS//\(m)book.opf", "OPS\\\(m)book.opf",
+            // Neither reading takes these: out of the container, an opening or doubled slash, an
+            // escaped slash or a backslash, as a URL and where a "%" leaves only the path as written.
+            for fullPath in ["../\(m)OPS/book.opf", "OPS/../../\(m)OPS/book.opf", "/\(m)OPS/book.opf", "OPS//\(m)book.opf", "OPS%2F\(e)book.opf", "OPS\\\(m)book.opf",
                              "50% off/../\(m)book.opf", "50% off/./\(m)book.opf", "50% off//\(m)book.opf", "50% off\\\(m)book.opf"] {
                 assertOpening(try Fixture.packageVariant(container: container("<rootfiles><rootfile full-path=\"\(fullPath)\"/></rootfiles>")),
                               throws: .invalidXML("container rootfile"), fullPath.debugDescription)

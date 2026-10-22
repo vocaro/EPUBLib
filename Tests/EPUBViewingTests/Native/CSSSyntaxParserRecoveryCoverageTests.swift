@@ -50,7 +50,7 @@ final class CSSSyntaxParserRecoveryCoverageTests: XCTestCase {
             """)
         XCTAssertEqual(CSSSyntaxSupport.subjects(sheet), ["p", "q", "i", "b", "u", "s", "em"])
         for rule in sheet.rules {
-            XCTAssertTrue(rule.declarations.contains { $0.property == .clear }, rule.selectors[0].compounds[0].name ?? "")
+            XCTAssertTrue(rule.declarations.contains { $0.property == .clear }, rule.selectors[0].compounds[0].name?.string ?? "")
         }
         XCTAssertEqual(sheet.rules[0].declarations.first, CSSDeclaration(property: .fontFamily, value: .families(["a;b}c{d", "serif"]), important: false))
     }
