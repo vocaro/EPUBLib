@@ -72,6 +72,21 @@ continues to describe the authored spine resource.
    last attribute as self-closing (the tag runs to the `/>` of a later empty element) and builds
    the rest in a second `html` beside or inside it, what that one holds is the root's, with each
    of its attributes that the root lacks, and the section is shown (#293).
+   Text NULs between a `>` and a `[` would join them into the internal subset the screen
+   refuses after a DOCTYPE, so once a file holds `<!DOCTYPE`, in any case, the first of them is
+   given to the parser as `<!>`. What keeps the text the same is libxml2 2.9.13, which reads
+   `<!>` as nothing wherever recovery writes it, `title` and `textarea` included; HTML reads it
+   as an empty comment in text. A libxml2 with an HTML tokenizer (2.14 and later) reads
+   `title`, `textarea`, `xmp`, `iframe`, `noembed`, `noframes`, `noscript` and `plaintext` as
+   RCDATA or raw text, and would show `<!>` there as written
+   ([#593](https://github.com/vocaro/EPUBLib/issues/593)). Any `>` after the file's first
+   `<!DOCTYPE` counts. The screen reads a DOCTYPE in two ways and refuses a `[` directly after
+   it in both: as XML reads it, in capitals and past a quoted `>`, and for the HTML parser, in
+   any case to its first `>` (#293). A section reaches the HTML parser after either reading,
+   and the screen also reads a DOCTYPE inside a style sheet, so recovery cannot tell which `>`
+   the screen takes for a DOCTYPE's end. `<!>` holds no quote and no `-->`, `?>` or `]]>`, so
+   it ends nothing the screen may be reading there (`<!---->` would end a comment the screen
+   reads in a style sheet) ([#246](https://github.com/vocaro/EPUBLib/issues/246)).
    A section whose file is cut off inside markup stays withheld, with its disclosure: the
    screen refuses markup left open at the end of the input before either parser runs.
    `XMLSafety` refuses entity declarations first. No DTD or network access, depth and node limits.
@@ -1777,7 +1792,9 @@ continues to describe the authored spine resource.
   most easily disagree about what the bytes are. The cost is one section of a file some tool
   wrote short; a download cut short is no readable archive at all
   ([#202](https://github.com/vocaro/EPUBLib/issues/202)). Text extraction's recovery reads the
-  matching case the same way: a `<` that is the last byte of a file is not text.
+  matching case the same way: a `<` that is the last byte of a file is not text. A `<` that
+  NULs follow at the end of a file is not its last byte, and the screen and HTML read it as a
+  character: `…<p>two <` and NULs reads `two <`, as text extraction reads the same bytes.
 - **Book pose.** New public `View.epubReaderDivision(_:)` reserves a vertical division in the
   reader's own coordinates. Columns never depend on device idiom, orientation or screen.
 

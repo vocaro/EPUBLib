@@ -608,11 +608,91 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
         XCTAssertTrue(text.unicodeScalars.dropLast(6).allSatisfy { $0 == "\u{FFFD}" }, "the halves were joined into \(text.debugDescription)")
     }
 
+    /// The screen refuses a `[` directly after a DOCTYPE's `>` in both its readings of one: as XML
+    /// reads it, in capitals and past a quoted `>`, where libxml2's XML parser reads an internal
+    /// subset, and as the HTML parser reads it, in any case and to its first `>` (#293). It passes
+    /// one that a NUL stands before. Leaving that NUL out would give the parser what the screen
+    /// refuses, so `<!>` stands there in its place: in any case, spelt in UTF-7, UTF-16 or UTF-32,
+    /// in a section only one reading admits, and where the screen ends the DOCTYPE at a `>` that
+    /// HTML reads as something else, past a quoted `>` or in a style sheet. The text is HTML's,
+    /// which ignores the NUL.
+    func testADoctypeAndABracketThatNULsStandBetweenAreKeptApart() throws {
+        let subset = "[<!ATTLIST p title CDATA \"hidden\">]><html><body><p>one<br>two</p></body></html>"
+        XCTAssertFalse(XMLSafety.hasSafeDeclarations(Data("<!DOCTYPE html>\(subset)".utf8)), "the subset as it is written")
+        XCTAssertNotEqual(XMLSafety.assess(Data("<!doctype html>\(subset)".utf8), doctypesAsHTML: true), .safe, "the subset in lowercase, read as HTML")
+        let utf7 = "<?xml version=\"1.0\" encoding=\"UTF-7\"?>+ADw-!DOCTYPE html+AD4AAABb-+ADw-!ATTLIST p title CDATA \"hidden\"+AD4-]+AD4-<html><body><p>one<br>two</p></body></html>"
+        let lost = "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN>" // Its identifier has lost its closing quote.
+        var documents: [(String, Data, String?)] = [
+            ("a NUL", Data("<!DOCTYPE html>\u{0}\(subset)".utf8), "[]>onetwo"), ("NULs", Data("<!DOCTYPE html>\u{0}\u{0}\u{0}\(subset)".utf8), "[]>onetwo"),
+            ("lowercase", Data("<!doctype html>\u{0}\(subset)".utf8), "[]>onetwo"), ("mixed case", Data("<!DocType html>\u{0}\(subset)".utf8), "[]>onetwo"),
+            ("a quoted >", Data("<!DOCTYPE html SYSTEM \"a>b\">\u{0}\(subset)".utf8), "b\">[]>onetwo"),
+            ("a NUL in a quoted identifier", Data("<!DOCTYPE html SYSTEM \"a>\u{0}[b\"><html><body><p>c<br></p></body></html>".utf8), "[b\">c"),
+            ("a lost quote", Data("\(lost)\u{0}\(subset)".utf8), "[]>onetwo"), ("a lost quote in lowercase", Data("\(lost.lowercased())\u{0}\(subset)".utf8), "[]>onetwo"),
+            // The HTML reading refuses the first DOCTYPE, so libxml2 reads the second as XML does.
+            ("XML's reading alone", Data("<!doctype x>[]><!DOCTYPE html SYSTEM \"a>b\">\u{0}\(subset)".utf8), nil),
+            ("UTF-7", Data(utf7.utf8), "[]>onetwo"),
+            ("a style sheet", Data("<html><body><style><!DOCTYPE x \"</style>\">\u{0}[<!ATTLIST p title CDATA \"hidden\">]><p>one<br>two</p></body></html>".utf8),
+             "<!DOCTYPE x \"\">[]>onetwo"),
+            // An empty comment `<!---->` would end the comment the screen reads from inside the
+            // style sheet, and show it the entity declaration.
+            ("a comment the screen reads in a style sheet", Data("<!DOCTYPE html><html><body><style><!-- </style>\u{0}[ <!ENTITY e \"x\"> --></style><p>a<br></p></body></html>".utf8), nil),
+        ]
+        documents += try Self.wide.map { ($0.label, try encoded("<!DOCTYPE html>\u{0}\(subset)", $0), "[]>onetwo") }
+        for (label, data, text) in documents {
+            let readings = [false, true].filter { XMLSafety.assess(data, doctypesAsHTML: $0) == .safe }
+            XCTAssertFalse(readings.isEmpty, "the screen refused \(label)")
+            let given = try ContentDocument.htmlSource(data, rewritten: data, path: "fallback.xhtml", limits: ContentLimits()).data
+            for asHTML in readings {
+                XCTAssertEqual(XMLSafety.assessUTF8(given, doctypesAsHTML: asHTML), .safe, "\(label): the parser was given what the screen refuses, read as \(asHTML ? "HTML" : "XML")")
+            }
+            let document = try parse(data)
+            if let text { XCTAssertEqual(bodyText(document), text, label) }
+            XCTAssertFalse(document.nodes.contains { $0.attribute("title") != nil }, "\(label) declared an attribute")
+        }
+        // Where the NUL is left out, the tree is that of the same document without it: beside a
+        // space, after a letter, and with no DOCTYPE.
+        for (label, markup) in [("before a space", "<!DOCTYPE html>\u{0} \(subset)"), ("after a space", "<!DOCTYPE html> \u{0}\(subset)"),
+                                ("after a letter", "<!DOCTYPE html><html><body><p>a\u{0}[1]<br></p></body></html>"),
+                                ("without a DOCTYPE", page("<p>a<br></p>\u{0}[1]<p>\u{0}[2]</p>"))] {
+            let twin = markup.replacingOccurrences(of: "\u{0}", with: "")
+            XCTAssertTrue(XMLSafety.hasSafeDeclarations(Data(twin.utf8)), label)
+            XCTAssertEqual(model(try parse(markup)), model(try parse(twin)), label)
+        }
+    }
+
+    /// Where `<!>` stands in place of a NUL, libxml2 2.9.13 reads nothing: the tree is that of
+    /// the same document without the NUL, in each context the scan reads as text. That includes
+    /// the elements an HTML tokenizer reads as RCDATA or raw text, where a later libxml2 would
+    /// show `<!>` as it is written (#593).
+    func testTheEmptyCommentBetweenADoctypeAndABracketReadsAsNothing() throws {
+        let open = "<!DOCTYPE html><html>", close = "<p>a<br></p></body></html>"
+        var documents = [
+            ("in a paragraph", "\(open)<body><p>\u{0}[1]<br></p></body></html>"), ("between paragraphs", "\(open)<body><p>a</p>\u{0}\u{0}[b]\(close)"),
+            ("after an end tag", "\(open)<body><p>a<b>x</b>\u{0}[b]<br></p></body></html>"), ("after a stray end tag", "\(open)<body><p>a</i>\u{0}[b]<br></p></body></html>"),
+            ("after an empty element", "\(open)<body><p>a<br/>\u{0}[b]<br></p></body></html>"), ("after an unquoted value", "\(open)<body><p class=c>\u{0}[b]<br></p></body></html>"),
+            ("after a comment", "\(open)<body><p>a<!-- c -->\u{0}[b]<br></p></body></html>"), ("after a PI", "\(open)<body><p>a<?pi x?>\u{0}[b]<br></p></body></html>"),
+            ("in html", "\(open)\u{0}[b]<body>\(close)"), ("in head", "\(open)<head>\u{0}[b]</head><body>\(close)"), ("after the document", "\(open)<body>\(close)\u{0}[b]"),
+            ("in a title", "\(open)<head><title>\u{0}[T]</title></head><body>\(close)"),
+            ("in a table row", "\(open)<body><table><tr><td>a</td>\u{0}[b]<td>c</td></tr></table>\(close)"), ("in a list", "\(open)<body><ul><li>a</li>\u{0}[b]</ul>\(close)"),
+            ("in a select", "\(open)<body><select><option>a</option>\u{0}[b]</select>\(close)"), ("in SVG", "\(open)<body><svg><text>a</text>\u{0}[b]</svg>\(close)"),
+            ("in MathML", "\(open)<body><math><mi>a</mi>\u{0}[b]</math>\(close)"), ("after a DOCTYPE in lowercase", "<!doctype html><html><body><p>\u{0}[1]<br></p></body></html>"),
+            ("after a DOCTYPE in a comment", "<!-- <!DOCTYPE --><html><body><p>\u{0}[1]<br></p></body></html>"),
+        ]
+        documents += ["textarea", "xmp", "iframe", "noscript", "noembed", "noframes", "plaintext"].map { ("in \($0)", "\(open)<body><\($0)>\u{0}[x]</\($0)>\(close)") }
+        for (label, markup) in documents {
+            let data = Data(markup.utf8)
+            let given = try ContentDocument.htmlSource(data, rewritten: data, path: "fallback.xhtml", limits: ContentLimits()).data
+            XCTAssertNotNil(given.range(of: Data("<!>".utf8)), "\(label): no `<!>` was written")
+            XCTAssertEqual(model(try parse(data)), model(try parse(markup.replacingOccurrences(of: "\u{0}", with: ""))), label)
+        }
+    }
+
     /// The scan that reads NULs, against documents whose text and markup are known because they
     /// are assembled from pieces: a NUL put into text leaves the tree of the document without
-    /// it, and one put into markup the tree of the document with U+FFFD written there.
+    /// it, and one put into markup the tree of the document with U+FFFD written there. After a
+    /// DOCTYPE that is so for a NUL in text between `>` and `[` as well, which `<!>` keeps apart.
     func testGeneratedNULsAreNothingInTextAndACharacterInMarkup() throws {
-        let texts = ["one ", "two & three ", "x < y ", "caf\u{E9} ", "&amp; &lt; ", "1 <2 ", "\u{4E2D}\u{6587}", " ", "a > b ", "it's \"quoted\" ", "p <.05 ", "\u{1F600}"]
+        let texts = ["one ", "two & three ", "x < y ", "caf\u{E9} ", "&amp; &lt; ", "1 <2 ", "\u{4E2D}\u{6587}", " ", "a > b ", "it's \"quoted\" ", "p <.05 ", "\u{1F600}", "[1] "]
         // Each is markup from its first byte to its last. What follows `|` ends raw text: a NUL
         // there would leave it open over the text of the pieces after it.
         let markups = ["<p>", "</p>", "<b>", "</b>", "<br>", "<br/>", "<i class=\"k\">", "</i>", "<!-- note -->", "<!-- a > b -->", "<span title=\"a > b\" lang=en>", "</span>",
@@ -623,12 +703,15 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
             state = state &* 6364136223846793005 &+ 1442695040888963407
             return Int((state >> 33) % UInt64(bound))
         }
-        var inText = 0, inMarkup = 0, compared = 0
+        var inText = 0, inMarkup = 0, compared = 0, apart = 0
         for round in 0..<6_000 {
             var withNULs: [UInt8] = [], expected: [UInt8] = []
             func text(_ piece: String) {
                 for byte in Array(piece.utf8) {
-                    if byte & 0xC0 != 0x80, random(6) == 0 { withNULs.append(0); inText += 1 } // Not inside a character.
+                    if byte & 0xC0 != 0x80, random(6) == 0 { // Not inside a character.
+                        if round % 3 == 0, withNULs.last == 0x3E, byte == 0x5B { apart += 1 }
+                        withNULs.append(0); inText += 1
+                    }
                     withNULs.append(byte); expected.append(byte)
                 }
             }
@@ -643,7 +726,7 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
                 }
                 for part in parts.dropFirst() { withNULs.append(contentsOf: part); expected.append(contentsOf: part) }
             }
-            markup("<html><head><title>", withNUL: false)
+            markup(round % 3 == 0 ? "<!DOCTYPE html><html><head><title>" : "<html><head><title>", withNUL: false)
             text("T")
             markup("</title></head><body>", withNUL: false)
             for _ in 0...random(12) {
@@ -665,27 +748,34 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
         XCTAssertGreaterThan(compared, 4_000)
         XCTAssertGreaterThan(inText, 2_000)
         XCTAssertGreaterThan(inMarkup, 1_000)
+        XCTAssertGreaterThan(apart, 20)
     }
 
     /// Over generated markup of no particular shape, what the scan gives the parser is the
-    /// document with each NUL left out or made U+FFFD and nothing else changed, no NUL is left,
-    /// and none is left out directly after a `<` that is still a sign.
+    /// document with each NUL left out, made U+FFFD, or made `<!>` between a `>` after a
+    /// DOCTYPE and a `[`, and nothing else changed. No NUL is left, and none is left out directly
+    /// after a `<` that is still a sign, nor between such a `>` and `[`.
     func testTheNULScanChangesNothingElseAndJoinsNoSignToAName() throws {
         let tokens = ["<", "<", ">", "\"", "'", "=", "/", " ", "a", "p", "!", "?", "-", "--", "\u{0}", "\u{0}", "\u{0}", "\u{E9}", "&lt;", "<p>", "</p>", "<p ", "<a href=", "title=\"",
                       "<br/>", "/>", "</", "<?", "<!", "<!--", "-->", "<![CDATA[", "]]>", "<!DOCTYPE", "style", "script", "<style", "</style", "<style>", "</style>", "<STYLE ",
-                      "<script>", "</script>", "<script />", "<title>", "</title>", "<html>", "<body>", "<table>", "<td>", "<div>", "</div>"]
+                      "<script>", "</script>", "<script />", "<title>", "</title>", "<html>", "<body>", "<table>", "<td>", "<div>", "</div>", "[", "[", "<!DOCTYPE html>", "<!doctype html>"]
         var state: UInt64 = 2010
         func random(_ bound: Int) -> Int {
             state = state &* 6364136223846793005 &+ 1442695040888963407
             return Int((state >> 33) % UInt64(bound))
         }
-        var withNULs = 0, replacedNULs = 0, removedNULs = 0
-        for _ in 0..<30_000 {
-            let markup = (0...random(20)).map { _ in tokens[random(tokens.count)] }.joined()
+        var withNULs = 0, replacedNULs = 0, removedNULs = 0, apartNULs = 0
+        for round in 0..<30_000 {
+            let markup = (round % 4 == 0 ? "<!DOCTYPE html>" : "") + (0...random(20)).map { _ in tokens[random(tokens.count)] }.joined()
             let input = Array(markup.utf8)
             let output = [UInt8](try XCTUnwrap(HTMLNullCharacters.replaced(in: Data(input), limit: .max)))
             guard input.contains(0) else { XCTAssertEqual(output, input); continue }
             withNULs += 1
+            let doctype = input.indices.first { HTMLDoctypes.opens(input, at: $0) } ?? input.count // In any case.
+            /// Whether the NULs from `position` stand between a `>` after a DOCTYPE and a `[`.
+            func apart(_ position: Int) -> Bool {
+                position > doctype && input[position - 1] == 0x3E && input[position...].first(where: { $0 != 0 }) == 0x5B
+            }
             var index = 0
             for (position, byte) in input.enumerated() {
                 if byte != 0 {
@@ -693,9 +783,12 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
                     index += 1
                 } else if output[index...].starts(with: [0xEF, 0xBF, 0xBD]) {
                     index += 3; replacedNULs += 1
+                } else if output[index...].starts(with: Array("<!>".utf8)), apart(position) {
+                    index += 3; apartNULs += 1
                 } else {
                     removedNULs += 1
                     guard position == 0 || input[position - 1] != 0x3C else { return XCTFail("a NUL was left out after a sign in \(markup.debugDescription)") }
+                    guard !apart(position) else { return XCTFail("a NUL was left out between a DOCTYPE's `>` and `[` in \(markup.debugDescription)") }
                 }
             }
             guard index == output.count else { return XCTFail("bytes were added to \(markup.debugDescription)") }
@@ -708,6 +801,7 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
         XCTAssertGreaterThan(withNULs, 10_000)
         XCTAssertGreaterThan(replacedNULs, 3_000)
         XCTAssertGreaterThan(removedNULs, 3_000)
+        XCTAssertGreaterThan(apartNULs, 30)
     }
 
     /// A section whose file is cut off inside markup is withheld by the screen, before either
