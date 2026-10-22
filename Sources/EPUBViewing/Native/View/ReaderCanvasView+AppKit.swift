@@ -6,9 +6,10 @@ extension ReaderCanvasView: NSTextViewDelegate {
     func platformSetUp() {
         wantsLayer = true
         clipsToBounds = true // A spread kept through a live resize never draws outside the canvas.
-        // AppKit lays out no view whose safe area changes while its size stays, as when a
-        // toolbar is shown, hidden or made compact over a full-size content view, but it tells
-        // whoever observes the view's `safeAreaInsets` (macOS 27.2). UIKit calls
+        // AppKit does not mark a view as needing layout when its safe area changes and its size
+        // does not, as when a toolbar is shown, hidden or made compact over a full-size content
+        // view; a scroll view with automatic insets marks only itself. It does tell whoever
+        // observes the view's `safeAreaInsets` (macOS 27.2), as UIKit calls
         // `safeAreaInsetsDidChange`. The pages keep clear of the new top at once, and in
         // continuous scroll the layout brings the scroll view's automatic insets with it, so
         // the text is laid out for the height that shows (#162).

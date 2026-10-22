@@ -743,7 +743,11 @@ import AppKit
     /// line below such a box moves with it, and until it is laid out again its place is an
     /// estimate, so the kept position is then rested again as after a resize: a bar shown or
     /// hidden over the reader changes the visible height and not the canvas's size (#338).
-    /// `rest` is false where the caller rests the position itself. True when it was rested.
+    /// Where there is no box, the Mac reads what is on screen again: AppKit moves the view for
+    /// the bar's new inset inside the canvas's layout, a move of the reader's own, and where the
+    /// view is as far down as it goes, by less than the inset changed, which brings an earlier
+    /// line in at the top (#162). `rest` is false where the caller rests the position itself.
+    /// True when it was rested.
     @discardableResult func updateScrollViewport(rest: Bool = true) -> Bool {
         guard let textView = scrollTextView, let geometry = scrollGeometry else { return false }
         let viewport = CGSize(width: geometry.width, height: max(0, scrollVisibleContainerRect.height))
@@ -751,7 +755,12 @@ import AppKit
         // The visible start is read from the layout the new height is about to replace.
         let retainedStart = rest && anchorFollowsScroll && textView.layoutFollowsViewport ? scrollVisibleRange()?.start : nil
         textView.readerContainer.viewportSize = viewport
-        guard textView.refreshFlowBoxLayout() else { return false }
+        guard textView.refreshFlowBoxLayout() else {
+            #if os(macOS)
+            if rest { updateVisibleRange(force: false) }
+            #endif
+            return false
+        }
         scrollPlace = nil
         guard rest else { return false }
         if let retainedStart { anchor = retainedStart }

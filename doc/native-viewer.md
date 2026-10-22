@@ -1850,10 +1850,15 @@ as they did.
   resolve is left as UIKit leaves it: when a bar hides, its text stays where it is on
   screen. On the Mac the reader is laid out when a toolbar changes its safe area (Pages,
   below), and its layout lays out the scroll view, whose automatic insets follow the toolbar
-  then; AppKit's move of the view for the new inset is made inside that layout, by as much as
-  the inset changed in the tests, so nobody has scrolled and the text on screen stays where it
-  was. Before, nothing laid the reader out for a toolbar, and the boxes stayed resolved for a
-  visible height of 620 points where 586 showed until a change of appearance or a resize did
+  then. AppKit moves the view for the new inset inside that layout, which is no scroll by the
+  person. In the middle of the book it moves the view by as much as the inset changed: the
+  line at the top of the visible area stays there, and the text moves with the bar, 34 points
+  down as a 66-point toolbar replaces the title bar alone and back up as it hides. Where the
+  view is as far down as it goes, a toolbar hidden moves it by less, and an earlier line comes
+  into view at the top; in a book with no box to resolve the reader then reads the screen
+  again, reports that line and puts the insertion point on it. Before, nothing laid the
+  reader out for a toolbar, and the boxes stayed resolved for a visible height of 620 points
+  where 586 showed until a change of appearance or a resize did
   ([#162](https://github.com/vocaro/EPUBLib/issues/162)).
   On Mac, VoiceOver
   [enters a text view at its insertion point](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point).
@@ -2144,9 +2149,10 @@ as they did.
   rotation or bar change repaginates once it ends, in steps when far into a section, with the
   old spread on screen until the new one is ready. A finished pagination keeps only its pages.
   On the Mac a toolbar shown, hidden or made compact over a reader that runs under it, as over
-  a full-size content view, changes its safe area and not its size. AppKit lays out no view
-  for that, and tells whoever observes the view's `safeAreaInsets` (macOS 27.2); the reader
-  observes its own and is laid out then, where its pages stayed 80 points down under a
+  a full-size content view, changes its safe area and not its size. AppKit does not mark the
+  reader as needing layout for that (a scroll view with automatic insets marks only itself),
+  and tells whoever observes a view's `safeAreaInsets` (macOS 27.2); the reader observes its
+  own and is laid out then, where its pages stayed 80 points down under a
   66-point toolbar until the window was resized
   ([#162](https://github.com/vocaro/EPUBLib/issues/162)).
 - **Right to left.** `page-progression-direction="rtl"` mirrors spreads, swipes and tap zones.

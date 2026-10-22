@@ -275,7 +275,9 @@ reader that is not laid out for its new safe area fails
 window whose toolbar it shows and hides. `ViewCoverageCanvasTests` holds pages and continuous
 scroll on the Mac to a toolbar shown, hidden and shown again over a canvas that fills a
 full-size content view, and `ReaderImageInspectionTests` holds the image inspector's controls
-to it. The bars are the system's own, in a test host; nothing is looked at on a screen.
+to it. `BoxAlignmentCanvasTests` also hides the toolbar with the view at the end of the book,
+where AppKit cannot move the view by the whole change in the inset. The bars are the system's
+own, in a test host; nothing is looked at on a screen.
 Each window's toolbar has an identifier of its own, for the reasons
 [offscreen AppKit hosting](https://github.com/vocaro/apple-engineering/blob/main/guides/background-mac-testing.md#offscreen-appkit-hosting)
 gives.
