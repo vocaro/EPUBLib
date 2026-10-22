@@ -151,6 +151,32 @@ struct SectionReport: Equatable, Sendable {
         generatedContentOmitted = generatedContentOmitted || other.generatedContentOmitted
         textNotLaidOut = textNotLaidOut || other.textNotLaidOut
     }
+
+    /// What this report holds that `earlier`, an earlier state of it, did not: the counts added
+    /// since and the flags set since. `formUnion` of the two gives this report back.
+    func subtracting(_ earlier: SectionReport) -> SectionReport {
+        var added = SectionReport()
+        added.scriptsRefused = scriptsRefused - earlier.scriptsRefused
+        added.remoteResourcesRefused = remoteResourcesRefused - earlier.remoteResourcesRefused
+        for (name, count) in unsupportedElements where count > earlier.unsupportedElements[name] ?? 0 {
+            added.unsupportedElements[name] = count - (earlier.unsupportedElements[name] ?? 0)
+        }
+        added.unreadableResources = unreadableResources - earlier.unreadableResources
+        added.mathFallbacks = mathFallbacks - earlier.mathFallbacks
+        added.mathApproximations = mathApproximations - earlier.mathApproximations
+        added.mathReductions = mathReductions - earlier.mathReductions
+        added.withheld = withheld && !earlier.withheld
+        added.recoveredAsHTML = recoveredAsHTML && !earlier.recoveredAsHTML
+        added.cfiUnavailable = cfiUnavailable && !earlier.cfiUnavailable
+        added.verticalWritingFlattened = verticalWritingFlattened && !earlier.verticalWritingFlattened
+        added.fixedLayoutReflowed = fixedLayoutReflowed && !earlier.fixedLayoutReflowed
+        added.stylesTruncated = stylesTruncated && !earlier.stylesTruncated
+        added.flowBoxesReflowed = flowBoxesReflowed && !earlier.flowBoxesReflowed
+        added.flexGridSimplified = flexGridSimplified && !earlier.flexGridSimplified
+        added.generatedContentOmitted = generatedContentOmitted && !earlier.generatedContentOmitted
+        added.textNotLaidOut = textNotLaidOut && !earlier.textNotLaidOut
+        return added
+    }
 }
 
 /// Maps rendered UTF-16 locations to DOM positions and back.

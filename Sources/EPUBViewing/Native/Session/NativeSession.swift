@@ -271,9 +271,9 @@ import SwiftUI
     }
 
     /// The spine section and decoded fragment an encoded publication href names, for
-    /// `.navigate(href:)` and the text start alike. An empty fragment is none: `#` is the top
-    /// of the document, whatever carries an empty id.
-    private static func target(of href: String, in publication: EPUBPublication) throws -> (section: Int, fragment: String?) {
+    /// `.navigate(href:)`, the text start and the controls' current contents entry alike. An
+    /// empty fragment is none: `#` is the top of the document, whatever carries an empty id.
+    static func target(of href: String, in publication: EPUBPublication) throws -> (section: Int, fragment: String?) {
         guard !href.isEmpty, !href.hasPrefix("#"), href.count <= 4_096 else {
             throw EPUBReaderError.invalidCommand("Empty publication href")
         }

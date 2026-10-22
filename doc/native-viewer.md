@@ -61,6 +61,17 @@ continues to describe the authored spine resource.
    ([#317](https://github.com/vocaro/EPUBLib/issues/317)).
    U+0000 does not end the section: it is left out of text and is U+FFFD in tags, comments
    and the raw text of `script` and `style`, as HTML reads it.
+   For the HTML parser a DOCTYPE ends at its first `>`, as HTML ends it even inside a quoted
+   identifier: one letter of each `PUBLIC` and `SYSTEM` in it is written as a character
+   reference, so that libxml2 reads no identifier past that `>`, wherever the screen read the
+   DOCTYPE the same way. A section whose DOCTYPE identifier has lost its closing quote, which
+   XML reads on into the document and the screen refused, never reaches the XML parser and is
+   read as HTML, with its root's attributes; one with an internal subset or a declaration on
+   either side of that `>` is still refused ([#293](https://github.com/vocaro/EPUBLib/issues/293)).
+   HTML builds one root. Where libxml2 reads a root tag that has lost the closing quote of its
+   last attribute as self-closing (the tag runs to the `/>` of a later empty element) and builds
+   the rest in a second `html` beside or inside it, what that one holds is the root's, with each
+   of its attributes that the root lacks, and the section is shown (#293).
    A section whose file is cut off inside markup stays withheld, with its disclosure: the
    screen refuses markup left open at the end of the input before either parser runs.
    `XMLSafety` refuses entity declarations first. No DTD or network access, depth and node limits.
@@ -69,9 +80,17 @@ continues to describe the authored spine resource.
    attributes produce a `ComputedStyle` per element: the CSS subset in `ComputedStyle.swift`.
    `@font-face` fonts load from the archive with CoreText. Nothing remote is fetched.
    In a section read as HTML, `epub:type` is one attribute of that name in no namespace, as
-   a browser's HTML parser makes it: `[epub\:type]` matches it, and so does `[epub|type]`
-   when the sheet binds the prefix `epub` to the OPS namespace. In XHTML only `[epub|type]`
-   does ([#111](https://github.com/vocaro/EPUBLib/issues/111)).
+   a browser's HTML parser makes it, and `[epub\:type]` matches it. A namespaced selector
+   reaches it as in XHTML, by namespace: `[ops|type]` matches it when the sheet binds `ops` to
+   the namespace the attribute's prefix stands for, whatever prefix either wrote (Selectors 4
+   §6.7), and `[*|type]` matches it too. The prefix stands for the namespace the book's
+   `xmlns:` declaration in scope gives it, as an XML parser would read it; `xml` is the XML
+   namespace, and `epub`, where the book declares none for it, the OPS namespace, as the
+   reader reads an undeclared `epub:type` for its notes (`HTMLAttributePrefixes`). Either
+   route that reads a section as HTML names an attribute whose prefix stands for OPS `epub:`,
+   so a book's `ops:type` is `epub:type`, for its notes and for `[epub\:type]`, whichever read
+   it. A browser's HTML parser would keep `ops:type`. In XHTML only `[epub|type]` matches
+   ([#111](https://github.com/vocaro/EPUBLib/issues/111), [#642](https://github.com/vocaro/EPUBLib/issues/642)).
    Media queries for the reader's appearance govern only what paints (**Appearance media**
    under [Decisions](#decisions)), so neither the reader's size nor its appearance changes
    what the next step writes.
@@ -132,9 +151,20 @@ continues to describe the authored spine resource.
   compare them equal: a section's anchors, legacy `<a name>` anchors and notes, the target of a
   link or a `navigate(href:)` fragment, the TOC and page-list positions, CSS `#id` selectors, SVG
   references, and the manifest IDs that choose a fallback. Tables of IDs are keyed by
-  `EPUBElementID`, which compares and hashes an ID's UTF-8 bytes. Class names and attribute
-  values in a selector still compare as strings ([#635](https://github.com/vocaro/EPUBLib/issues/635);
+  `EPUBElementID`, which compares and hashes an ID's UTF-8 bytes ([#635](https://github.com/vocaro/EPUBLib/issues/635);
   [element IDs](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#element-ids-compare-code-units-swift-strings-do-not)).
+- **Selector strings.** A selector compares everything else it names code unit for code unit
+  too, as browsers do: class names, attribute names and values under every operator, element
+  names, namespace URIs and `:lang()` ranges. So `.caf\E9` does not style
+  `class="cafe&#x301;"`, and `[id^="e"]` matches `id="e&#x301;x"`, whose first `Character` is
+  not `e`. The `i` flag and `:lang()` fold the ASCII letters alone (Selectors 4 §6.3 and §7.2),
+  so `[title="caf\C9" i]` misses `title="café"` and `:lang(k)` misses the Kelvin sign. The
+  selector holds these as `CodeUnitString`, so two selectors that differ only in code units are
+  never indexed, interned or memoized as one. The ancestor filter still hashes names as
+  strings, which only makes it coarser than the match
+  ([#640](https://github.com/vocaro/EPUBLib/issues/640)). The SVG reference screen still
+  compares the classes of an SVG's own rules as strings
+  ([#752](https://github.com/vocaro/EPUBLib/issues/752)).
 - **ID assertions.** An ID assertion names the element whose `id` has the same code units, as
   every ID lookup does (above), so `caf&#xE9;` and `cafe&#x301;` are two IDs. Every CFI the reader issues passes the check `restore` applies to
   a bookmark (`EPUBCFI.isWellFormed`), which refuses a C0 or C1 control character, a line or
@@ -276,6 +306,17 @@ continues to describe the authored spine resource.
   publication bytes are preserved. Opaque images and transparent light artwork retain their
   pixels; an author's explicit CSS inversion retains its own appearance treatment. Display
   renditions are cached separately by appearance under the existing image memory budget.
+- **Media queries.** A `media` attribute, `@import` and `@media` are evaluated by Media
+  Queries 4 against a screen of the nominal 600 × 800 CSS pixels, an `em` of 16, a resolution
+  of 2dppx, colour, no scripting and the reader's appearance (**Appearance media**). A query
+  has three values: a feature the reader does not know, a value or a `min-`/`max-` prefix its
+  feature does not take, and parentheses around anything that is neither a condition nor a
+  feature are unknown. `not` leaves unknown unknown and `and` and `or` combine it as browsers
+  do, so `not (bogus)` and `not all and (min-orientation: portrait)` apply nowhere, while
+  `(color) or (bogus)` applies; a query that comes to unknown is `not all`, and the others in
+  its list still count ([#114](https://github.com/vocaro/EPUBLib/issues/114)). A feature's
+  value is a literal: `calc()` and the lengths other than `px`, `em`, `rem` and the absolute
+  units are unknown.
 - **Appearance media.** `prefers-color-scheme` follows the reader's appearance only for what
   paints: `color`, `background-color`, the border colours, `text-decoration-color` and `filter`
   (`CSSProperty.followsAppearance`). Every other property in a rule for one appearance, and
@@ -332,11 +373,14 @@ continues to describe the authored spine resource.
   iPhone and iPad. The book hid the words, so the link that is such a picture alone is an
   image link without a name. A hidden label reads nothing for an
   image or an inline SVG with a presentational role. Where such an image cannot be drawn,
-  its words are shown in its place as text and read as text. In a table cell the words of
+  its words are shown in its place as text and read as text, and so are kept from VoiceOver
+  where `aria-hidden` keeps the image, as any text it keeps is. In a table cell the words of
   such an image are still read: on iPhone and iPad in the cell's text, and on Mac in what
   its row is called. They are the words a copy of the row takes
   ([#551](https://github.com/vocaro/EPUBLib/issues/551)). Shown text with `aria-hidden` is
-  read as any other ([#552](https://github.com/vocaro/EPUBLib/issues/552)), and an image is
+  kept from VoiceOver too, and a formula with it is passed over as such an image is
+  ([Text kept from assistive technology](#text-kept-from-assistive-technology),
+  [#552](https://github.com/vocaro/EPUBLib/issues/552)). An image is
   not named by `aria-label` ([#167](https://github.com/vocaro/EPUBLib/issues/167)). On
   iPhone and iPad an image in a table cell is read by its words in the cell's text, and one
   without words is not announced there. On Mac a cell is a text area of its own, which
@@ -558,7 +602,12 @@ continues to describe the authored spine resource.
   one image-drawn attachment per row so pages can break between any two rows; rows a rowspan
   joins, and the header, keep with the next row and share a page when they fit. `colspan`/
   `rowspan` honoured (`rowspan="0"` spans one row, as WebKit does); a spanning cell is drawn in
-  each row it covers. Consecutive columns spanned by exactly the same cells, and declared by no
+  each row it covers. A table, its columns, rows and cells take their sizes, and a cell where
+  its content sits, from the cascade, where `width`, `height` and `valign` are presentational
+  hints that an author rule beats (HTML §15.3.8): a table's width of zero and a cell's width
+  or height of zero are no size at all ([#121](https://github.com/vocaro/EPUBLib/issues/121)),
+  and a row group's alignment reaches its rows and their cells, which inherit it
+  ([#142](https://github.com/vocaro/EPUBLib/issues/142)). Consecutive columns spanned by exactly the same cells, and declared by no
   `col` or `colgroup`, are laid out as one (CSS Tables 3 §3.3.2, track merging): the 98 columns
   a title row's `colspan="100"` runs past over a two-column body add one border spacing to the
   table, not 98 ([#140](https://github.com/vocaro/EPUBLib/issues/140)). The model keeps the
@@ -1426,9 +1475,24 @@ continues to describe the authored spine resource.
     names, and navigates where the id names none (a later child of a note that stays in the
     flow, or its first of several items). Deeper into a note that is in the flow it is an ordinary link and navigates.
     Inside a popover, a link to the note being shown is plain text.
-  - An eligible legacy `<a name>` can name a note by the same rules as its fragment target:
-    ids take precedence, an anchor with an id uses that id, and the first eligible name wins.
-    Table cells and captions inside a note inherit its backlink and nested-note rules.
+  - A legacy `<a name>` names a note, and is a fragment target, as HTML 7.4.6.4 finds the
+    element a fragment indicates: the element whose id it is comes first, then the first `a`
+    whose `name` it is, whether or not that `a` has an id as well, so `<a id="page12"
+    name="p12">` answers to both. Inside a table, formula or image the name points at it, as
+    an id there does ([#133](https://github.com/vocaro/EPUBLib/issues/133)). Table cells and
+    captions inside a note inherit its backlink and nested-note rules.
+  - `epub:type` is read only where EPUB 3.3 allows it, and EPUB Reading Systems 3.3 §10 has a
+    reading system ignore it anywhere else: not on the `head` or anything in it, nor on HTML's
+    metadata content (`title`, `meta`, `link`, `base`, `style`, `script`, `noscript`,
+    `template`) wherever it stands, and in SVG only on a renderable element. A
+    `title` typed `footnote` is no note, and a `noteref` to it opens none (W3C test
+    `pss-support_ignore-title`). A DPUB-ARIA role on one of those elements makes no note
+    either: ARIA in HTML allows those HTML elements no role
+    ([#133](https://github.com/vocaro/EPUBLib/issues/133)).
+  - What a note holds is disclosed once. The section counts it where it shows it, in the flow
+    or in a table's cell, and the note's own rendering for its popover counts only what the
+    section shows nowhere else: a footnote hidden from the flow, a note in hidden content
+    ([#258](https://github.com/vocaro/EPUBLib/issues/258)).
   - A footnote `aside` with neither an id nor an eligible name anywhere in it cannot be
     referred to and is not shown.
   - An empty id names nothing: a link to `#` goes to the top of its document, whatever
@@ -1448,7 +1512,10 @@ continues to describe the authored spine resource.
   dimensions before measuring and removes resize metadata from page slices so continuation
   indentation and spacing do not repeat. Continuous-scroll layout starts from immutable source
   dimensions on each resize, changing attributes while preserving characters, selection ranges
-  and DOM maps.
+  and DOM maps. A list item's first line takes its `text-indent` after an outside marker,
+  which stays outside the item's box (CSS 2.2 16.1), in the item's own paragraph and in a first
+  paragraph inside it. A negative indent there, which would set the line's first words over
+  the marker, is not applied ([#133](https://github.com/vocaro/EPUBLib/issues/133)).
 
   `ex` lengths use CoreText's x-height for the face selected by the font registry, including
   embedded `@font-face` resources. An `ex` font size uses its parent's metrics. Font metric
@@ -1515,7 +1582,12 @@ continues to describe the authored spine resource.
   around a `q` are generated the same way, from the user-agent sheet's `q::before` and
   `q::after` as HTML gives them, so a book's `quotes`, and the reset stylesheets that write
   `q:before, q:after { content: none }`, apply to them as they do in a browser. Before, the
-  marks were drawn whatever the book's styles said.
+  marks were drawn whatever the book's styles said. With `quotes: auto` the marks are CLDR's
+  for the content's language, script and region, outer and inner, as the platform's locale
+  data has them: “ ” in Brazilian Portuguese and Turkish, « » in European Portuguese,
+  «bonjour «toi»» in French, with no space added inside them, as Firefox, whose table is made
+  from CLDR, shows them. Arabic and Hebrew take CLDR's marks, where Apple's locale data has
+  the typewriter `"` and `'` ([#133](https://github.com/vocaro/EPUBLib/issues/133)).
   - **Where it stands.** An inline box is written in its line, and white space collapses
     across it as across the book's text. A block box is a paragraph of its own. A box that
     floats or is positioned is written in its line, with the disclosure of the boxes left in
@@ -1559,6 +1631,29 @@ continues to describe the authored spine resource.
     content of a table laid out as a grid and of its rows and row groups, where that of its
     cells and captions is shown; and what passes a bound of 1,048,576 UTF-16 units of
     generated text in one section, which only a hostile stylesheet reaches.
+- **Calculations.** `calc()`, `min()`, `max()` and `clamp()` follow CSS Values 4 §10 for
+  numbers, lengths and percentages ([#122](https://github.com/vocaro/EPUBLib/issues/122)).
+  - **Factors and divisors.** Any sub-expression that is a number can be a factor on either
+    side of `*` or a divisor after `/`: a parenthesised sum, a nested function or a constant
+    (`e`, `pi`, `infinity`, `-infinity`, `NaN`). A number depends on nothing, so it is worked
+    out when the value is parsed.
+  - **Typed arithmetic.** A product of two lengths, and a division by a length, are invalid
+    ([#761](https://github.com/vocaro/EPUBLib/issues/761)).
+  - **Infinity and NaN.** Division by zero gives an infinity, and zero by zero gives NaN, which
+    `min()`, `max()` and `clamp()` return whatever their other arguments. At the top of a value,
+    an infinity becomes the end of the range the property allows (`StyleLimits`) and NaN
+    becomes 0.
+  - **Where numbers go.** A math function that comes to a number stands wherever a number
+    does:
+    - `line-height`;
+    - `font-weight`, in `font` and `@font-face` too;
+    - `filter: invert()`;
+    - `order`, `flex-grow` and `flex`;
+    - `repeat()` counts and counter values.
+    
+    Where an integer is wanted it is rounded to the nearest, a half upward. Out of range it is
+    clamped to the range rather than refused, as an out-of-range literal is. Colour channels
+    take literals only ([#760](https://github.com/vocaro/EPUBLib/issues/760)).
 - **Custom properties.** Custom properties (`--name`) and `var()` follow CSS Custom
   Properties for Cascading Variables 1 ([#119](https://github.com/vocaro/EPUBLib/issues/119)).
   A custom property is declared on any element, `:root` and pseudo-elements included, in a
@@ -2116,16 +2211,29 @@ as they did.
   TextKit layout of every page during pagination, and it moves a few page starts from where
   the section's layout put them; the cost on the standard book corpora is on
   [#570](https://github.com/vocaro/EPUBLib/issues/570#issuecomment-6184463894).
-  A first line taller than the clip, or a positioned first line outside it, falls back to
-  native in-flow text with bounded typography, on every page: committed, its characters would
-  be on no visible line, and a table row laid out on that line would lose its continuation
-  pages. That exceptional slice retains its characters, DOM mapping, links and heading
-  roles; it can change positioning, font size, baseline shifts and paragraph spacing to make
-  its content reachable. It fits each run, table row and image to the clip; when the line
-  they make together is still taller (a small run's line height applied to a large run, text
-  beside a row), it lowers that target by the line's overshoot, or in proportion if that is
-  lower, and lays the slice out again, at most eight more times
+  A first line taller than the clip, a positioned first line outside it, or a slice whose
+  own layout sets none of its characters on a line (its container refused TextKit the first
+  line), falls back to native in-flow text with bounded typography, on every page: committed,
+  its characters would be on no visible line, and a table row laid out on that line would
+  lose its continuation pages. That exceptional slice retains its characters, DOM mapping,
+  links and heading roles; it can change positioning, font size, baseline shifts, paragraph
+  spacing and tab intervals to make its content reachable. It fits each run, table row, image
+  and formula to the clip, and gives a tab with neither a stop after it nor an interval one;
+  when the line they make together is still taller (a small run's line height applied to a
+  large run, text beside a row), it lowers that target by the line's overshoot, or in
+  proportion if that is lower, and lays the slice out again, at most eight more times
   ([#303](https://github.com/vocaro/EPUBLib/issues/303), [#192](https://github.com/vocaro/EPUBLib/issues/192), [#242](https://github.com/vocaro/EPUBLib/issues/242), [#289](https://github.com/vocaro/EPUBLib/issues/289), [#570](https://github.com/vocaro/EPUBLib/issues/570)).
+  When no height shows the first line, the page keeps the longest start of that line that
+  shows, laid out alone as planned or as the fallback, and the rest carries to the next page,
+  as a line below the clip does. So no page is committed whose own layout shows no line of its
+  characters, unless its clip can show no glyph or no layout can show its first character
+  ([#576](https://github.com/vocaro/EPUBLib/issues/576)). No content the reader makes is known
+  to need that division. A character cluster that no layout shows, as an attachment of fixed
+  size made outside the reader can be, is committed as planned with the white space after it
+  on its line, so that pagination advances. Debug builds check each page as it is committed:
+  that it starts where the page before ended (or repeats the row whose continuation it holds,
+  or follows text TextKit set on no line), that it advances, and that its own layout shows a
+  line of its characters, or that no layout shows its first.
   A page that is shown is laid out twice: by the paginator, to measure it, and by its column.
   Handing the measuring layout to the column was left out of #570. A column is a persistent
   `ReaderTextView` that owns its TextKit stack from its creation and keeps it across page
@@ -2156,9 +2264,10 @@ as they did.
   half a point for that glyph. Fallback requires its measured one-point minimum drawing box
   plus the existing one-point safety inset after top spacing. Below that budget pagination
   preserves the original fonts and one-source-line progress, without claiming visible
-  glyphs. A failed fitted retry also preserves the original page. No font or page-range
-  alteration is committed for an impossible clip. A 600-point source glyph fits its
-  500-point page through the fallback, and its original page boundaries remain unchanged
+  glyphs. No font or page-range alteration is committed for an impossible clip; at a clip
+  that can show a glyph, a first line that no fitted retry shows is divided instead, as
+  above. A 600-point source glyph fits its 500-point page through the fallback, and its
+  original page boundaries remain unchanged
   ([record](https://github.com/vocaro/EPUBLib/issues/242#issuecomment-6159295037); [generated pages](testing.md#generated-page-text)).
   Paginations are cached per section and column size; a resize,
   rotation or bar change repaginates once it ends, in steps when far into a section, with the
@@ -2192,7 +2301,9 @@ of the requested side, with all it holds, a float it opens with included; inside
 clears again, so its later lines wrap beside its own floats. An empty block that clears moves
 what follows it. On a float, `clear` moves that float alone below the earlier floats of the
 side (CSS 2.2 9.5.2), and on a `br` it moves the line after the break, as browsers do
-([#151](https://github.com/vocaro/EPUBLib/issues/151)).
+([#151](https://github.com/vocaro/EPUBLib/issues/151)). So does a `br`'s `clear` attribute,
+`left`, `right`, `all` or `both` in any case, which HTML maps to the property as a
+presentational hint (HTML §15.3.4, [#121](https://github.com/vocaro/EPUBLib/issues/121)).
 
 A float, and a sized `inline-block`, is placed and sized in its containing block: the content
 box of the block it is in, between the content edges where that block's own lines are set
@@ -2386,11 +2497,65 @@ its room and draws nothing, nor do the words shown where an image or a formula c
 ([#132](https://github.com/vocaro/EPUBLib/issues/132)). A hidden table draws none of its
 borders and backgrounds, its rows' or its cells'. One that sets `visibility: visible` again
 inside a hidden box is drawn, a table's row or cell among them; a part of an SVG drawing or
-a formula is not, since the attachment the whole is drawn by is hidden. All of them are still
-read ([#549](https://github.com/vocaro/EPUBLib/issues/549)), and a hidden image is still
-opened by a double click or a tap on its room. A note's popover on iPhone and iPad
-gives VoiceOver UIKit's own text accessibility, which these changes do not reach
-([#550](https://github.com/vocaro/EPUBLib/issues/550)).
+a formula is not, since the attachment the whole is drawn by is hidden.
+
+What is read of them is what is read of hidden text
+([#549](https://github.com/vocaro/EPUBLib/issues/549)). The character of a hidden image,
+drawing, formula or rule carries `.readerHidden`, and so do the words shown where it cannot
+be drawn, so that VoiceOver, Copy, the selection a host is told of, search and a table cell's
+words leave its words out as above, and on the Mac it is a space. The attachment is also
+passed over by assistive technology (`isPassedOverByAssistiveTechnology`, `passesOver`), and
+nothing keeps it, as a link keeps a picture the book keeps from assistive technology: hidden
+content has no link. It has no element on iPhone and iPad, not even on a page of nothing
+else, where decoration is listed, nor on the Mac, nor in a table cell, and offers no Inspect
+Image. A hidden rule is no stop, and on the Mac it is given as a rule the book keeps from
+assistive technology is ("Rules" under Decisions): its character and the break after it are
+spaces and its line is part of the line after it. A table is not hidden as a whole, since
+each of its cells can be shown again: what its cells hold is marked as it is written, and a
+row whose cells are all hidden reads nothing. A tap or a double click on a hidden image's
+room opens nothing, and the inspector does not open for it whatever asks. Two places still
+offer it, and do nothing when chosen: the Inspect Image of a text item's menu on iPhone and
+iPad, and of a table cell's menu ([#775](https://github.com/vocaro/EPUBLib/issues/775)). On
+the Mac a row of a table that is not data, whose cells hold a hidden formula or rule and
+nothing else, is a group with no name, where a row of hidden text or hidden pictures alone is
+passed over ([#774](https://github.com/vocaro/EPUBLib/issues/774)). A note's popover on
+iPhone and iPad gives VoiceOver UIKit's own text accessibility, which these changes do not
+reach ([#550](https://github.com/vocaro/EPUBLib/issues/550)).
+
+### Text kept from assistive technology
+
+Shown text that the book keeps from assistive technology with `aria-hidden="true"`, on its
+element or on one round it, is hidden from VoiceOver and from nothing else, as WAI-ARIA 1.2
+and HTML-AAM have it
+([hiding](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/accessibility.md#map-html-alternatives-and-hiding-as-html-aam-does))
+and as an image or a rule kept so is ("Alternative text" under Decisions,
+[#552](https://github.com/vocaro/EPUBLib/issues/552)): a row of stars between scenes, the
+big first letter of a word the line also gives whole, a mark repeated for the eye. It is
+drawn and laid out as the same text without `aria-hidden`, and copied and found as it,
+generated text and list markers included; `aria-hidden="false"` inside it shows nothing to
+VoiceOver again. Its characters carry `.readerUnspoken`, and what VoiceOver is given
+(`readerPlainText(in:spoken:)`) leaves them out as it leaves hidden text out: the breaks
+stay, and kept words between two shown ones read as one space.
+
+- **iPhone and iPad.** A line that holds kept words alone has no element, and a heading of
+  kept words alone is no heading.
+- **On the Mac.** Each kept character but a break is given to an assistive client as a space,
+  as a hidden one is, in the value, the strings, the rich text and the selected text of a
+  page, of continuous scroll, of a note and of a table cell's text area. A heading of kept
+  words alone has no level, and a line of kept words alone, as a row of stars is, is a line of
+  spaces, which no session has moved onto yet.
+- **Links.** A link of kept words alone stays a link, without a name, as one that is all a
+  picture kept so is: it has to be reachable whatever its words say. On iPhone and iPad its
+  element is a link and nothing else; on the Mac the link's element has no title. Kept words
+  beside others in a link leave the link to them.
+- **Formulas and lost pictures.** A formula with `aria-hidden` on it or round it is passed
+  over as a picture kept so is, and its words are copied. The words shown where a picture
+  kept by `aria-hidden` cannot be drawn are kept text.
+- **Table cells.** VoiceOver still reads kept words where it reads a cell's words, on iPhone
+  and iPad in the cell's element and on the Mac in what its row is called, because those
+  words are also what a copy of the row takes
+  ([#551](https://github.com/vocaro/EPUBLib/issues/551)). On the Mac the cell's own text
+  area gives them as spaces.
 
 ### Flex and grid alignment
 
@@ -2577,7 +2742,11 @@ The following are the defaults. Host commands and accessibility actions stay ena
   first of the lines the scroll view lists (see "Continuous scroll" under Layout). After a
   search result is shown it starts at the result's line, which rests below the top. Text that
   a book hides from the page and keeps for assistive technology is read where it stands, as
-  text ([hidden labels](#floats-and-positioned-boxes)). An image is read by its `alt`, one
+  text ([hidden labels](#floats-and-positioned-boxes)). Text it shows and keeps from
+  assistive technology with `aria-hidden` is not read
+  ([Text kept from assistive technology](#text-kept-from-assistive-technology)), and nor is
+  anything `visibility: hidden` hides, text, pictures, formulas or rules
+  ([Hidden text](#hidden-text)). An image is read by its `alt`, one
   with an empty `alt` is passed over, and so is one the book keeps from assistive
   technology with `aria-hidden` or a presentational role, and one with no `alt` is
   announced as an image without a name ("Alternative text" under Decisions). At a rule

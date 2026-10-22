@@ -264,14 +264,12 @@ enum TableContent {
                     let items = child.name == "col" ? [child] : child.elementChildren.filter { $0.isHTML("col") }
                     if items.isEmpty {
                         let span = min(1000, max(1, Int(child.attribute("span") ?? "") ?? 1))
-                        columns += Array(repeating: TableContent.length(groupStyle.width, hint: child.attribute("width"), style: groupStyle), count: span)
+                        columns += Array(repeating: groupStyle.width, count: span)
                     }
                     for col in items {
                         let colStyle = context.style(col, groupStyle)
                         let span = min(1000, max(1, Int(col.attribute("span") ?? "") ?? 1))
-                        var width = TableContent.length(colStyle.width, hint: col.attribute("width"), style: colStyle)
-                        if width == .auto { width = TableContent.length(groupStyle.width, hint: child.attribute("width"), style: groupStyle) }
-                        columns += Array(repeating: width, count: span)
+                        columns += Array(repeating: colStyle.width == .auto ? groupStyle.width : colStyle.width, count: span)
                     }
                 case "thead", "tbody", "tfoot":
                     closeImplicit()
@@ -378,7 +376,7 @@ enum TableContent {
                     while result.occupied.count <= index { result.occupied.append([]) }
                     result.rowElements.append((row.element, group.element))
                     let background = row.element.flatMap { row.style.backgroundColor ?? TableContent.color($0.attribute("bgcolor")) }
-                    let height = row.element.flatMap { TableContent.length(row.style.height, hint: $0.attribute("height"), style: row.style).points }
+                    let height = row.element == nil ? nil : row.style.height.points
                     result.rows.append(TableModel.Row(background: isDark || row.style.isHidden ? nil : background?.cgColor, height: height ?? 0,
                                                       isHeader: group.isHeader))
                     var column = 0
@@ -441,8 +439,7 @@ enum TableContent {
             return context.renderContent(element, cell.style)
         }
 
-        private func makeCell(_ item: Placed, rows: [TableModel.Row], rowElements: [(row: ContentNode?, group: ContentNode?)],
-                              columnCount: Int, tableBorders: TableModel.Borders, collapse: Bool,
+        private func makeCell(_ item: Placed, rows: [TableModel.Row], columnCount: Int, tableBorders: TableModel.Borders, collapse: Bool,
                               cellPadding: CGFloat?, hinted: Bool, defaultColor: PlatformColor, content: NSAttributedString) -> TableModel.Cell {
             // The table's `cellpadding` and `border` are hints for its `td` and `th` elements: an
             // anonymous cell has neither padding nor borders.
@@ -472,11 +469,9 @@ enum TableContent {
             } else {
                 chrome.top += own.top; chrome.bottom += own.bottom; chrome.left += own.left; chrome.right += own.right
             }
-            let rowContext = rowElements[item.row]
             let noWrap = !cellStyle.whiteSpace.wraps || element?.attribute("nowrap") != nil
             let maxContent = TableMeasure.maximumWidth(content)
             let minContent = noWrap ? maxContent : min(maxContent, TableMeasure.minimumWidth(content))
-            let valign = element?.attribute("valign") ?? rowContext.row?.attribute("valign") ?? rowContext.group?.attribute("valign")
             return TableModel.Cell(
                 row: item.row, column: item.column, rowSpan: item.rowSpan, columnSpan: item.columnSpan,
                 content: content, text: TableMeasure.spokenText(content), isHeader: element?.isHTML("th") ?? false,
@@ -484,9 +479,8 @@ enum TableContent {
                 padding: padding, borders: borders, chrome: chrome,
                 background: isDark || cellStyle.isHidden ? nil
                     : (cellStyle.backgroundColor ?? TableContent.color(element?.attribute("bgcolor")))?.cgColor,
-                placement: TableContent.placement(cellStyle.verticalAlign, hint: valign),
-                width: TableContent.length(cellStyle.width, hint: element?.attribute("width"), style: cellStyle),
-                height: TableContent.length(cellStyle.height, hint: element?.attribute("height"), style: cellStyle).points ?? 0,
+                placement: TableContent.placement(cellStyle.verticalAlign),
+                width: cellStyle.width, height: cellStyle.height.points ?? 0,
                 minContent: minContent, maxContent: maxContent)
         }
         func build() -> Built? {
@@ -545,7 +539,7 @@ enum TableContent {
             let collapse = style.borderCollapse
 
             let cells = zip(placed, rendered).map { item, content in
-                makeCell(item, rows: rows, rowElements: rowElements, columnCount: columnCount,
+                makeCell(item, rows: rows, columnCount: columnCount,
                          tableBorders: tableBorders, collapse: collapse, cellPadding: cellPadding,
                          hinted: hinted, defaultColor: defaultColor, content: content)
             }
@@ -559,7 +553,7 @@ enum TableContent {
             }
             let model = TableModel(
                 cells: cells, rows: rows, columnCount: columnCount, columns: columns,
-                width: TableContent.length(style.width, hint: table.attribute("width"), style: style), collapse: collapse,
+                width: style.width, collapse: collapse,
                 spacing: spacing, borders: tableBorders,
                 background: isDark || style.isHidden ? nil : (style.backgroundColor ?? TableContent.color(table.attribute("bgcolor")))?.cgColor,
                 alignment: alignment, isRightToLeft: style.direction == .rtl,
@@ -624,25 +618,17 @@ enum TableContent {
                 ruled.filter { $0.right != nil }].contains { $0.count >= needed }
     }
 
-    private static func length(_ css: ComputedStyle.Length, hint: String?, style: ComputedStyle) -> ComputedStyle.Length {
-        css == .auto ? ImageSizing.length(hint, fontSize: style.fontSize) ?? .auto : css
-    }
-
     private static func insets(_ edges: ComputedStyle.Edges<ComputedStyle.Length>) -> TableModel.Insets {
         TableModel.Insets(top: edges.top.points ?? 0, right: edges.right.points ?? 0,
                           bottom: edges.bottom.points ?? 0, left: edges.left.points ?? 0)
     }
 
-    private static func placement(_ align: ComputedStyle.VerticalAlign, hint: String?) -> TableModel.Placement {
+    /// Where a cell's content sits, from its computed `vertical-align`, which a `valign` reaches
+    /// as a hint and a row and its group pass down (HTML §15.3.8). A baseline is placed at the top.
+    private static func placement(_ align: ComputedStyle.VerticalAlign) -> TableModel.Placement {
         switch align {
         case .middle: return .middle
         case .bottom, .textBottom: return .bottom
-        case .baseline:
-            switch hint?.lowercased() {
-            case "middle"?, "center"?: return .middle
-            case "bottom"?: return .bottom
-            default: return .top
-            }
         default: return .top
         }
     }
