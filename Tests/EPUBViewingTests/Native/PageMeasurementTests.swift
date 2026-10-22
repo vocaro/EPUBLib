@@ -12,6 +12,7 @@ import XCTest
 /// never measured laid out one more line than the section (kind 1), the fallback fitted each
 /// run but not the line they made (kind 2), or measuring committed a first line taller than
 /// its page (kind 3, which measuring every page would cause without the first-line check).
+/// Nor is a page committed whose own layout shows no line of its characters (#576).
 @MainActor final class PageMeasurementTests: XCTestCase {
     private typealias H = BoxLayoutHarness
 
@@ -131,6 +132,126 @@ import XCTest
         for page in pages {
             XCTAssertLessThanOrEqual(page.height, 90 - page.topSpacing + 0.75, "no page is committed taller than its column")
         }
+    }
+
+    // MARK: A page whose own layout shows no line of its characters (#576)
+
+    /// A paragraph with a hanging indent, one tab stop and no default tab interval, in a
+    /// section with a box plan. The builder gives every paragraph style an interval
+    /// (`InlineStyling.tabInterval`); this one is taken away by hand, as in
+    /// `UnplacedTextLayoutTests`. The section sets the tab on its line, but the page that starts
+    /// at that line, laid out alone, cannot: its first line takes the hanging indent as its
+    /// first-line indent, the stop then lies before the tab, and the container refuses TextKit
+    /// the line (`ReaderTextContainer.askLimit`). The page's own layout sets no line of its
+    /// characters. Before #576 it was committed as the section planned it, every character of
+    /// it on no line; it now goes to the fallback, which gives the tab an interval.
+    func testAPageWhoseOwnLayoutSetsNoLineOfItsCharactersGoesToTheFallback() throws {
+        let section = try H.build("<p style='white-space:pre-wrap'>Lead line.<br/>ab&#9;ghi end&#9;x.</p>"
+            + "<div style='float:left; width:40px; height:20px'>F</div><p>After the float.</p>", css: H.reset)
+        let text = NSMutableAttributedString(attributedString: section.string)
+        let string = text.string as NSString
+        text.enumerateAttribute(.paragraphStyle, in: string.paragraphRange(for: string.range(of: "Lead line."))) { value, run, _ in
+            let style = (value as? NSParagraphStyle ?? .default).mutableCopy() as! NSMutableParagraphStyle
+            style.firstLineHeadIndent = 0
+            style.headIndent = 50
+            style.tabStops = [NSTextTab(textAlignment: .natural, location: 40)]
+            style.defaultTabInterval = 0
+            text.addAttribute(.paragraphStyle, value: style, range: run)
+        }
+        for size in [CGSize(width: 300, height: 28), CGSize(width: 150, height: 40)] {
+            let label = "\(size)"
+            XCTAssertNotNil(ReaderBoxLayout.resolve(text, viewport: size).geometry, "\(label): the section has a box plan")
+            var result: (missing: IndexSet, pages: [ReaderPage]) = (IndexSet(), [])
+            var asPlanned: ReaderTextView?
+            var placed = 0
+            let unfinished = try BoundedLayout.run(limit: 100 * ReaderTextContainer.askLimit) {
+                let paginator = ReaderPaginator(text: text, size: size)
+                placed = H.lines(in: H.view(paginator.text, size: size)).reduce(0) { $0 + $1.range.length }
+                result = Self.charactersOnNoVisibleLine(text, size: size)
+                if var page = result.pages.first(where: \.usesFlowFallback) {
+                    page.usesFlowFallback = false
+                    page.fallbackScale = 1
+                    asPlanned = H.pageView(paginator, page: page)
+                }
+            }
+            XCTAssertFalse(unfinished, "\(label): every layout ends")
+            XCTAssertEqual(placed, text.length, "\(label): the section sets every character on a line")
+            XCTAssertEqual(result.missing.count, 0, "\(label): characters on no visible line \(Array(result.missing.rangeView))")
+            ViewCoverage.assertPartition(result.pages, of: text, label)
+            let page = try XCTUnwrap(result.pages.first(where: \.usesFlowFallback), "\(label): a page is shown as the fallback")
+            XCTAssertEqual(page.range.location, string.range(of: "ab\t").location, "\(label): the page that starts at the tab's line")
+            XCTAssertLessThan(page.height, size.height, "\(label): its line fits the page, so the fallback is not for a line too tall")
+            let view = try XCTUnwrap(asPlanned)
+            XCTAssertTrue(H.lines(in: view).allSatisfy { $0.range.location >= page.range.length },
+                          "\(label): laid out as the section planned it, the page sets no line of its characters")
+        }
+    }
+
+    /// A formula takes its size from the viewport, not from its run's font, so it is as tall as
+    /// the page at most. Below spacing kept at the section's start, its line is taller than the
+    /// clip, and the fallback fitted each run's font but not the formula: the page was committed
+    /// as planned, the formula below the clip. The fallback now fits the formula to its height.
+    func testAFormulaTallerThanItsClipIsFittedByTheFallback() throws {
+        var tower = MathFixtures.n("1")
+        for index in 0..<14 { tower = MathFixtures.frac(MathFixtures.n("\(index)"), tower) }
+        let matrix = MathFixtures.table((0..<30).map { row in (0..<3).map { MathFixtures.n("\(row * 3 + $0)") } })
+        for (name, formula) in [("nested fractions", tower), ("matrix", matrix)] {
+            for size in [CGSize(width: 200, height: 150), CGSize(width: 300, height: 200)] {
+                let section = try H.build("<div style='margin-top:40px'>\(MathFixtures.math(formula, attributes: "display=\"block\""))</div>"
+                    + "<p>After the formula.</p>", css: H.reset)
+                let pages = assertEveryCharacterVisible(section, size: size, "\(name) at \(size)")
+                XCTAssertTrue(pages[0].usesFlowFallback && pages[0].topSpacing > 0, "\(name) at \(size): the formula's page keeps its spacing and is fitted")
+            }
+        }
+    }
+
+    /// Content the fallback does not size, as a kind of attachment it does not know would be:
+    /// fixed bounds, rising above the baseline or hanging below it.
+    private final class FixedAttachment: NSTextAttachment {
+        let height: CGFloat, rises: Bool
+        init(height: CGFloat, rises: Bool) {
+            self.height = height; self.rises = rises
+            super.init(data: nil, ofType: nil)
+        }
+        required init?(coder: NSCoder) { nil }
+        override func attachmentBounds(for attributes: [NSAttributedString.Key: Any], location: any NSTextLocation,
+                                       textContainer: NSTextContainer?, proposedLineFragment: CGRect, position: CGPoint) -> CGRect {
+            CGRect(x: 0, y: rises ? 0 : -height, width: 12, height: height)
+        }
+    }
+
+    /// A line the fallback cannot fit at any height: two attachments it does not size, one
+    /// rising three fifths of the page above the baseline and one hanging as far below it. Each
+    /// fits the page alone, but their line does not. Such a page was committed as planned, its
+    /// line taller than the clip. Now the page keeps as much of the line as it shows, and the
+    /// rest carries to the next page, so every character is on a visible line, each once.
+    func testALineTheFallbackCannotFitIsDividedBetweenPages() throws {
+        let size = CGSize(width: 300, height: 100)
+        let font = PlatformFont.systemFont(ofSize: 16)
+        let style = NSMutableParagraphStyle()
+        style.defaultTabInterval = InlineStyling.tabInterval(font)
+        let text = NSMutableAttributedString()
+        for index in 0..<3 {
+            text.append(NSAttributedString(string: "Before \(index) ", attributes: [.font: font, .paragraphStyle: style]))
+            for rises in [true, false] {
+                text.append(NSAttributedString(attachment: FixedAttachment(height: 60, rises: rises)))
+                text.addAttributes([.font: font, .paragraphStyle: style], range: NSRange(location: text.length - 1, length: 1))
+            }
+            text.append(NSAttributedString(string: " after.\n", attributes: [.font: font, .paragraphStyle: style]))
+        }
+        let result = Self.charactersOnNoVisibleLine(text, size: size)
+        XCTAssertEqual(result.missing.count, 0, "characters on no visible line \(Array(result.missing.rangeView))")
+        ViewCoverage.assertPartition(result.pages, of: text)
+        let string = text.string as NSString
+        var hanging: [Int] = []
+        string.enumerateSubstrings(in: NSRange(location: 0, length: string.length), options: .byComposedCharacterSequences) { _, range, _, _ in
+            if (text.attribute(.attachment, at: range.location, effectiveRange: nil) as? FixedAttachment)?.rises == false { hanging.append(range.location) }
+        }
+        XCTAssertEqual(hanging.count, 3)
+        for location in hanging {
+            XCTAssertTrue(result.pages.contains { $0.range.location == location }, "a page starts at the attachment hanging below the line, at \(location)")
+        }
+        XCTAssertTrue(result.pages.allSatisfy { $0.measuredLineLengths?.isEmpty == false }, "every page is measured")
     }
 
     // MARK: A justified paragraph's context ends at a line break
