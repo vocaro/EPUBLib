@@ -1716,17 +1716,18 @@ continues to describe the authored spine resource.
   After a live change the canvas changes appearance once and never back. It keeps the old
   appearance, with the old text, until the sections on screen and those one page turn reaches
   are built for the new: the section before a section's first page and after its last, and in
-  continuous scroll the section on each side. The page and the canvas then change together.
-  The section on screen is rebuilt first and the rest nearest first, so the change waits for
-  at most the builds beside it; a page turned to meanwhile is shown as built, in the old
-  appearance, and one that is already built for the new brings the change with it. Once the
-  canvas has changed, a page turn, a contents entry, a link or a search result that reaches a
-  section still built for the old appearance builds it for the new first, with the page on
-  screen kept (`ReaderCanvasDataSource.canShow`); that section's text still serves headings,
-  selection and progress meanwhile. A move VoiceOver makes to a heading in another section is
-  shown at once, as its rotor needs: a section still built for the old appearance takes the
-  canvas back to it, to change again once it and those beside it are rebuilt. A note is shown
-  in the appearance its text was built for, the new one, whatever the page behind it shows.
+  continuous scroll the section on each side. Those build together, the section on screen
+  among them, so the change waits for one build; the page and the canvas then change together.
+  A page turned to meanwhile is shown as built, in the old appearance, and one already built
+  for the new brings the change with it. Once the canvas has changed, a page turn, a contents
+  entry, a link or a search result that reaches a section still built for the old appearance
+  builds it for the new first, with the page on screen kept (`ReaderCanvasDataSource.canShow`);
+  that section's text still serves selection and progress meanwhile. A page turn or search
+  result that waits so is dropped when the page moves before the build arrives, by a key, a
+  click or tap, a swipe, the wheel, VoiceOver or a command. VoiceOver's move by heading shows
+  the heading it finds at once, so it stops at a section still built for the old appearance,
+  as at one not built yet, and goes on once that section is rebuilt. A note is shown in the
+  appearance its text was built for, the new one, whatever the page behind it shows.
   `effectiveAppearance` reports the new appearance at once.
 - **Release.** A typography change keeps each built section on screen until its rebuild
   arrives. A rebuilt SVG shares the font database its replaced build still holds, so a
@@ -2947,7 +2948,8 @@ The following are the defaults. Host commands and accessibility actions stay ena
   book, which each element keeps, so that it
   [gives the same answer twice](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#a-custom-heading-rotor-must-give-the-same-answer-twice).
   A section that is not built yet
-  ends the search, and so does the end of the book. A rotor is not an action: VoiceOver says
+  ends the search, as does one still built for an appearance the reader has left (**One
+  appearance on screen** under [Decisions](#decisions)), and so does the end of the book. A rotor is not an action: VoiceOver says
   "Actions available" of a line for the actions the line is offered, with the rotor and
   without it.
   On Mac a text area has no elements for its lines, so the heading's characters carry its
@@ -2968,7 +2970,8 @@ The following are the defaults. Host commands and accessibility actions stay ena
   list when its rotor opens, and neither does the request for a range. After the turn
   VoiceOver reads the page from its top, as after any page turn, with its cursor on the
   heading. The list takes in the sections page turns reach and the one on screen, and a
-  section that is not built yet ends it on that side: in the seconds after a book opens
+  section that is not built yet, or still built for an appearance the reader has left, ends
+  it on that side: in the seconds after a book opens
   it holds the sections built so far around the page. A heading that begins on an earlier
   page and ends on this one is listed once, where it begins.
   The search is written to
