@@ -132,9 +132,20 @@ continues to describe the authored spine resource.
   compare them equal: a section's anchors, legacy `<a name>` anchors and notes, the target of a
   link or a `navigate(href:)` fragment, the TOC and page-list positions, CSS `#id` selectors, SVG
   references, and the manifest IDs that choose a fallback. Tables of IDs are keyed by
-  `EPUBElementID`, which compares and hashes an ID's UTF-8 bytes. Class names and attribute
-  values in a selector still compare as strings ([#635](https://github.com/vocaro/EPUBLib/issues/635);
+  `EPUBElementID`, which compares and hashes an ID's UTF-8 bytes ([#635](https://github.com/vocaro/EPUBLib/issues/635);
   [element IDs](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#element-ids-compare-code-units-swift-strings-do-not)).
+- **Selector strings.** A selector compares everything else it names code unit for code unit
+  too, as browsers do: class names, attribute names and values under every operator, element
+  names, namespace URIs and `:lang()` ranges. So `.caf\E9` does not style
+  `class="cafe&#x301;"`, and `[id^="e"]` matches `id="e&#x301;x"`, whose first `Character` is
+  not `e`. The `i` flag and `:lang()` fold the ASCII letters alone (Selectors 4 §6.3 and §7.2),
+  so `[title="caf\C9" i]` misses `title="café"` and `:lang(k)` misses the Kelvin sign. The
+  selector holds these as `CodeUnitString`, so two selectors that differ only in code units are
+  never indexed, interned or memoized as one. The ancestor filter still hashes names as
+  strings, which only makes it coarser than the match
+  ([#640](https://github.com/vocaro/EPUBLib/issues/640)). The SVG reference screen still
+  compares the classes of an SVG's own rules as strings
+  ([#752](https://github.com/vocaro/EPUBLib/issues/752)).
 - **ID assertions.** An ID assertion names the element whose `id` has the same code units, as
   every ID lookup does (above), so `caf&#xE9;` and `cafe&#x301;` are two IDs. Every CFI the reader issues passes the check `restore` applies to
   a bookmark (`EPUBCFI.isWellFormed`), which refuses a C0 or C1 control character, a line or
