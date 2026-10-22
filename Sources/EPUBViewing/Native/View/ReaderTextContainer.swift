@@ -155,9 +155,11 @@ final class ReaderTextContainer: NSTextContainer {
 
     /// What the line starting at `index` keeps clear at each side of a box `width` wide: its
     /// paragraph's first-line or head indent at the leading edge, its tail indent at the other.
-    private func lineInsets(at index: Int, writingDirection: NSWritingDirection, width: CGFloat) -> (left: CGFloat, right: CGFloat) {
+    /// `firstLine` takes the line for the paragraph's first wherever `index` is in it.
+    private func lineInsets(at index: Int, writingDirection: NSWritingDirection, width: CGFloat,
+                            firstLine: Bool = false) -> (left: CGFloat, right: CGFloat) {
         guard let text = layoutText, let style = paragraphStyle(at: index) else { return (0, 0) }
-        let opensParagraph = index == 0 || ReaderAlignmentLayout.isParagraphBreak((text.string as NSString).character(at: index - 1))
+        let opensParagraph = firstLine || index == 0 || ReaderAlignmentLayout.isParagraphBreak((text.string as NSString).character(at: index - 1))
         let leading = max(0, opensParagraph ? style.firstLineHeadIndent : style.headIndent)
         let trailing = max(0, style.tailIndent <= 0 ? -style.tailIndent : width - style.tailIndent)
         var insets = writingDirection == .rightToLeft ? (left: trailing, right: leading) : (left: leading, right: trailing)
@@ -440,6 +442,40 @@ final class ReaderTextContainer: NSTextContainer {
             return region.contentFrame ?? region.frame
         }
         return boxColumn ?? boxPage?.geometry.paragraph(at: sourceIndex)?.column
+    }
+
+    /// Whether this container gives each line its paragraph's indents itself (`lineInsets`), and
+    /// TextKit is shown paragraphs without them (`textContentStorage(_:textParagraphWith:)`).
+    var setsLineIndents: Bool { deliversIndents && !isSimpleRectangularTextContainer }
+
+    /// The indents of the paragraph an attachment at `index` is in, in a column `width` wide:
+    /// what the attachment's line keeps clear at each side (`lineInsets`); how far from that
+    /// line's start the attachment stands at least, at the stop of a list item's marker it stands
+    /// past (`markerStop`); and whether it does. Such an attachment, or one that opens its
+    /// paragraph, is on the paragraph's first line; any other is taken to be on a later one, as
+    /// it is unless it follows text on the first. Nil where the text is not known.
+    func attachmentIndents(at index: Int?, width: CGFloat) -> (left: CGFloat, right: CGFloat, hang: CGFloat, pastMarker: Bool)? {
+        guard let index, let text = layoutText, let style = paragraphStyle(at: index) else { return nil }
+        let stop = Self.markerStop(before: index, in: text.string as NSString, style: style)
+        let line = lineInsets(at: index, writingDirection: style.baseWritingDirection, width: width, firstLine: stop != nil)
+        return (line.left, line.right, stop.map { max(0, $0 - max(0, style.firstLineHeadIndent)) } ?? 0, stop != nil)
+    }
+
+    /// The stop of the list item's marker whose tab is just before `index`, from the paragraph's
+    /// leading edge; nil where there is no such marker. An outside marker hangs before the head
+    /// indent, and the tab after it is its paragraph's first, to the paragraph's one stop: the
+    /// head indent, or the `text-indent` past it (`SectionWriter.markerStop`). A tab later in
+    /// such a paragraph, or in any other, is not a marker's.
+    static func markerStop(before index: Int, in string: NSString, style: NSParagraphStyle) -> CGFloat? {
+        guard index > 0, index <= string.length, string.character(at: index - 1) == 0x09,
+              style.firstLineHeadIndent < style.headIndent, style.tabStops.count == 1,
+              style.tabStops[0].location >= style.headIndent - edgeSlack else { return nil }
+        var cursor = index - 2
+        while cursor >= 0, !ReaderAlignmentLayout.isParagraphBreak(string.character(at: cursor)) {
+            if string.character(at: cursor) == 0x09 { return nil }
+            cursor -= 1
+        }
+        return style.tabStops[0].location
     }
 
     /// The size an attachment may use: the proposed line width, and the viewport height (or a

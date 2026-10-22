@@ -637,6 +637,10 @@ continues to describe the authored spine resource.
   A continuation sharing a page with following rows or prose uses the displayed page’s exact
   bounds; overflowing content advances to the next page once, without laying out the whole
   section again ([#546](https://github.com/vocaro/EPUBLib/issues/546)).
+  A row is drawn across the content box of the block or list item its table is in, inside
+  its margins, borders and padding on both sides, in either direction and with or without a
+  float in the section; a list item's marker hangs in the indent beside the first row
+  ([#376](https://github.com/vocaro/EPUBLib/issues/376)).
   Continuous scroll retains full row heights. Tables too wide for the line shrink their text
   to 60%, then wrap by character. Only the outer table scales: tables inside cells inherit
   that scale and wrap at their cell's width, so nesting never multiplies text reductions.
@@ -2441,7 +2445,17 @@ indent. Margins, centring, right alignment, justification and list markers are t
 are in a text without boxes, and a paragraph with its own margin beside a float starts at the
 float's edge, its margin underneath it
 ([#63](https://github.com/vocaro/EPUBLib/issues/63),
-[#150](https://github.com/vocaro/EPUBLib/issues/150)). TextKit breaks a justified paragraph's
+[#150](https://github.com/vocaro/EPUBLib/issues/150)). An attachment is sized to the same
+line, between its paragraph's indents: a table's rows are as wide as the content box of the
+block or list item they are in, and so are a rule and an image of `width: 100%` where the
+block is indented by less than 15% of the line
+([#376](https://github.com/vocaro/EPUBLib/issues/376); further in, they are not:
+[#769](https://github.com/vocaro/EPUBLib/issues/769)). Past a tab, TextKit 2
+[sizes an attachment at a stop it measures from the line's start](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#textkit-2-sizes-an-attachment-past-a-tab-from-the-lines-start)
+and draws it at one it measures from the paragraph's edge. Past a list item's marker the two
+are the same stop, and the reader sizes the attachment where it is drawn; past any other tab an
+attachment can be a few points narrower than the room left on its line
+([#788](https://github.com/vocaro/EPUBLib/issues/788)). TextKit breaks a justified paragraph's
 lines a little differently where the container places them; their edges are the same.
 The plan measures its paragraphs one at a time, and measures each as the text lays it out:
 with the container, those above the text's first box included, since where TextKit applies the
