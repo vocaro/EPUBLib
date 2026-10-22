@@ -95,7 +95,7 @@ import Foundation
             try require(!listed.isEmpty, "The supplied text must have at least one search result")
             try require(listed.query == text, "Results name another query")
             try require(listed.results.map(\.index) == Array(listed.results.indices), "Result indices must match their order")
-            try require(listed.results.allSatisfy { $0.location.publicationID == publication.id }, "Result belongs to another publication")
+            try require(listed.results.allSatisfy { $0.location.publicationID == publication.persistentID }, "Result belongs to another publication")
             try require(listed.currentIndex.map(listed.results.indices.contains) ?? true, "Current match is not a listed result")
             func current() -> Int? { published(since: start).last.flatMap { $0 }?.currentIndex }
 
@@ -148,7 +148,7 @@ import Foundation
             try await session.send(.navigate(href: firstHref))
             try await wait("first href") { locations().last?.href == firstHref }
             let saved = locations().last!
-            try require(saved.publicationID == publication.id, "Wrong publication identity")
+            try require(saved.publicationID == publication.persistentID, "Wrong publication identity")
             let secondStart = events.count
             try await session.send(.navigate(href: secondHref))
             try await wait("second href") { locations(since: secondStart).contains { $0.href == secondHref } }
@@ -157,6 +157,20 @@ import Foundation
                 let restoreStart = events.count
                 try await session.send(.restore(saved))
                 try await wait("restoration") { locations(since: restoreStart).contains { $0.href == saved.href } }
+                // A location saved before `persistentID` carries the book's `id` (#679).
+                if publication.id != publication.persistentID {
+                    var earlier = saved
+                    earlier.publicationID = publication.id
+                    let awayStart = events.count
+                    try await session.send(.navigate(href: secondHref))
+                    try await wait("second href again") { locations(since: awayStart).contains { $0.href == secondHref } }
+                    let earlierStart = events.count
+                    do { try await session.send(.restore(earlier)) }
+                    catch { throw Failure(description: "A location saved under the book's id was refused: \(error)") }
+                    try await wait("restoration of an earlier identity") {
+                        locations(since: earlierStart).contains { $0.href == saved.href }
+                    }
+                }
                 var foreign = saved
                 foreign.publicationID += "-different"
                 try await expect(.restore(foreign), error: .incompatibleLocation)
@@ -167,11 +181,11 @@ import Foundation
             }
         }
         if !session.capabilities.contains(.bookmarks) {
-            try await expect(.restore(.init(publicationID: publication.id)), error: .unsupported(.bookmarks))
+            try await expect(.restore(.init(publicationID: publication.persistentID)), error: .unsupported(.bookmarks))
         } else {
             try await wait("bookmark") { locations().contains { $0.bookmark != nil } }
             for location in locations() {
-                try require(location.publicationID == publication.id, "Location belongs to another publication")
+                try require(location.publicationID == publication.persistentID, "Location belongs to another publication")
                 if let bookmark = location.bookmark {
                     try require(bookmark.engineID == engine.id && !bookmark.format.isEmpty && !bookmark.value.isEmpty,
                                 "Invalid engine bookmark")
@@ -192,7 +206,7 @@ import Foundation
             if session.capabilities.contains(capability) { try await session.send(command) }
             else { try await expect(command, error: .unsupported(capability)) }
         }
-        let unlisted = EPUBSearchResult(index: 0, location: .init(publicationID: publication.id), spineIndex: 0, matchedText: text)
+        let unlisted = EPUBSearchResult(index: 0, location: .init(publicationID: publication.persistentID), spineIndex: 0, matchedText: text)
         if session.capabilities.contains(.searchResults) {
             try await verifySearchResults(unlisted: unlisted)
         } else {

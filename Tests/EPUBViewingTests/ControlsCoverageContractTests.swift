@@ -80,7 +80,7 @@ import XCTest
         case .noBookmarks: bookmark = nil
         default: break
         }
-        return EPUBLocation(publicationID: fault == .locationsOfAnotherPublication ? "another publication" : book.id, href: href,
+        return EPUBLocation(publicationID: fault == .locationsOfAnotherPublication ? "another publication" : book.persistentID, href: href,
                             bookmark: capabilities.contains(.bookmarks) ? bookmark : nil)
     }
 
@@ -132,7 +132,7 @@ import XCTest
             return
         }
         var listed = book.spine.enumerated().map { index, item in
-            EPUBSearchResult(index: index, location: EPUBLocation(publicationID: fault == .resultsOfAnotherPublication ? "another publication" : book.id,
+            EPUBSearchResult(index: index, location: EPUBLocation(publicationID: fault == .resultsOfAnotherPublication ? "another publication" : book.persistentID,
                                                                   href: item.resource.href, quote: text),
                              spineIndex: index, sectionTitle: "Section \(index + 1)", matchedText: text)
         }
@@ -162,7 +162,7 @@ import XCTest
             relocate(href)
         case .restore(let location):
             guard try require(.bookmarks) else { return }
-            let compatible = (location.publicationID == book.id || fault == .acceptsAForeignPublication)
+            let compatible = (book.publicationIDs.contains(location.publicationID) || fault == .acceptsAForeignPublication)
                 && (location.bookmark?.engineID == place(location.href ?? "").bookmark?.engineID || fault == .acceptsAForeignEngine)
                 && (location.bookmark?.format == place(location.href ?? "").bookmark?.format || fault == .acceptsAForeignFormat)
             guard compatible else {

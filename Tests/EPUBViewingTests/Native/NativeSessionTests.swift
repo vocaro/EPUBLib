@@ -359,7 +359,7 @@ import XCTest
         XCTAssertEqual(selection.location.bookmark?.engineID, EPUBReader.identifier)
         canvasRequestsSelectionAction(session)
         XCTAssertEqual(selected?.text, selection.text)
-        XCTAssertEqual(selected?.location.publicationID, session.publication.id)
+        XCTAssertEqual(selected?.location.publicationID, session.publication.persistentID)
 
         let saved = try XCTUnwrap(locations(events()).last)
         XCTAssertEqual(saved.href, "OPS/two.xhtml")
