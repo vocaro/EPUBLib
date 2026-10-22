@@ -50,10 +50,13 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     }
 
     func applyAppearance() {
-        let dark = configuration.isDark
-        overrideUserInterfaceStyle = dark ? .dark : .light
-        backgroundColor = ReaderPalette.background(dark: dark)
-        scrollTextView?.backgroundColor = ReaderPalette.background(dark: dark)
+        let theme = configuration.theme
+        overrideUserInterfaceStyle = theme.isDark ? .dark : .light
+        backgroundColor = theme.background
+        scrollTextView?.backgroundColor = theme.background
+        // UIKit draws a text view's selection, its handles and its caret, and a table cell's
+        // selection, in the tint colour: the theme's links, which keep 4.5:1 on its page.
+        tintColor = theme.link
     }
 
     override func layoutSubviews() {
@@ -96,7 +99,7 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     func makeScrollView() -> (PlatformView, ReaderTextView) {
         let view = ReaderTextView(pageColumn: false)
         view.delegate = self
-        view.backgroundColor = ReaderPalette.background(dark: configuration.isDark)
+        view.backgroundColor = configuration.theme.background
         view.readerContainer.widthTracksTextView = false // `applyScrollGeometry` sets the column width.
         view.contentInsetAdjustmentBehavior = .automatic
         view.contentInset = UIEdgeInsets(top: ReaderCanvasGeometry.verticalMargin, left: 0, bottom: 64, right: 0)
@@ -517,10 +520,12 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         while let current = responder, !(current is UIViewController) { responder = current.next }
         guard var presenter = responder as? UIViewController, window != nil else { return }
         while let presented = presenter.presentedViewController, !presented.isBeingDismissed { presenter = presented }
-        let controller = ReaderNoteViewController(text: text, dark: configuration.isDark,
+        let controller = ReaderNoteViewController(text: text, theme: configuration.theme,
                                                   width: min(360, max(200, bounds.width - 32)))
         controller.modalPresentationStyle = .popover
         if let popover = controller.popoverPresentationController {
+            // The arrow and the edges the popover draws round the note, in the page's colour.
+            popover.backgroundColor = configuration.theme.background
             popover.sourceView = self
             popover.sourceRect = rect
             popover.permittedArrowDirections = [.up, .down]
@@ -535,11 +540,16 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
 final class ReaderNoteViewController: UIViewController, UIPopoverPresentationControllerDelegate, UITextViewDelegate {
     let textView = ReaderTextView(pageColumn: false)
 
-    init(text: NSAttributedString, dark: Bool, width: CGFloat) {
+    convenience init(text: NSAttributedString, dark: Bool, width: CGFloat) {
+        self.init(text: text, theme: dark ? .dark : .light, width: width)
+    }
+
+    init(text: NSAttributedString, theme: ReaderTheme, width: CGFloat) {
         super.init(nibName: nil, bundle: nil)
-        overrideUserInterfaceStyle = dark ? .dark : .light
+        overrideUserInterfaceStyle = theme.isDark ? .dark : .light
         textView.delegate = self
-        textView.backgroundColor = ReaderPalette.background(dark: dark)
+        textView.backgroundColor = theme.background
+        textView.tintColor = theme.link
         textView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         textView.readerContainer.viewportSize = CGSize(width: width - 32, height: 400)
         textView.setContent(text)

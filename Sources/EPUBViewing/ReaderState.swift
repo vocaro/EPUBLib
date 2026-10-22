@@ -11,7 +11,8 @@ public struct EPUBReaderStatus: Equatable, Sendable {
     public var lifecycle: EPUBReaderLifecycle = .loading
     public var capabilities: Set<EPUBReaderCapability>
     public var style = EPUBReaderStyle()
-    /// The resolved appearance of the mounted viewer: always Light or Dark.
+    /// The resolved appearance of the mounted viewer: always Light or Dark, whether its theme's
+    /// background is dark (`EPUBReaderColors.isDark`). Sepia is Light and Black is Dark.
     public var effectiveAppearance: EPUBReaderAppearance = .light
     public var location: EPUBLocation?
     public var canGoPrevious: Bool?
@@ -21,6 +22,9 @@ public struct EPUBReaderStatus: Equatable, Sendable {
     /// `.searchResults`. nil unless `search` is `.completed`.
     public var searchResults: EPUBSearchResults?
     public var activeCommands = 0
+    /// The colours the mounted viewer draws with: its theme's, as Increase Contrast leaves
+    /// them. A host can draw its own controls in them.
+    public var effectiveColors: EPUBReaderColors = .light
     public init(capabilities: Set<EPUBReaderCapability>) { self.capabilities = capabilities }
 }
 

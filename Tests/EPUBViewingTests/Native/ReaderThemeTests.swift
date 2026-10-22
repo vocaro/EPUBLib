@@ -1,0 +1,437 @@
+import CoreGraphics
+import CoreText
+import EPUBCore
+import EPUBReading
+import EPUBTestSupport
+import ImageIO
+import SwiftUI
+import XCTest
+@testable import EPUBViewing
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
+/// Reading themes, Increase Contrast and Bold Text (#674): the colours the reader derives from a
+/// theme, a section built in each, and an open book recoloured, made higher in contrast and
+/// drawn heavier in both flows. Contrast expectations are WCAG 2.2's: 4.5:1 for text, 7:1
+/// enhanced, 3:1 for graphics.
+@MainActor final class ReaderThemeTests: XCTestCase {
+    /// Cream on navy: a dark custom theme of the kind a reader with low vision chooses.
+    static let navy = EPUBReaderColors(background: EPUBReaderColor(hex: "#14213D")!, text: EPUBReaderColor(hex: "#FCE8B2")!,
+                                       link: EPUBReaderColor(hex: "#9AD1FF")!)
+    static let presets: [(String, EPUBReaderColors)] = [("light", .light), ("dark", .dark), ("sepia", .sepia), ("black", .black)]
+    static let appearances: [(EPUBReaderAppearance, EPUBReaderColors)] = [
+        (.light, .light), (.dark, .dark), (.sepia, .sepia), (.black, .black), (.custom, navy),
+    ]
+
+    // MARK: - Derived colours
+
+    /// What the reader draws beside and behind text keeps the text readable in every preset, and
+    /// Increase Contrast makes each of them stand further from the page.
+    func testDerivedColoursKeepTextReadableAndIncreaseContrastStrengthensThem() {
+        for (name, colors) in Self.presets {
+            let standard = ReaderTheme(colors), increased = ReaderTheme(colors, increasesContrast: true)
+            let page = colors.background
+            XCTAssertEqual(increased.colors, colors.increasingContrast, name)
+            XCTAssertEqual(standard.isDark, colors.isDark, name)
+            func fill(_ theme: ReaderTheme, _ kind: ReaderHighlight.Kind) -> EPUBReaderColor {
+                // The current result is drawn over its own search highlight.
+                let beneath = kind == .currentSearch ? theme.composite(theme.highlightFill(.search), over: page) : page
+                return theme.composite(theme.highlightFill(kind), over: beneath)
+            }
+            for (theme, label) in [(standard, "standard"), (increased, "Increase Contrast")] {
+                let floor = theme.increasesContrast ? 7.0 : 4.5
+                XCTAssertGreaterThanOrEqual(theme.secondaryTextColor.contrastRatio(to: page), floor, "\(name) \(label): secondary text")
+                for kind in [ReaderHighlight.Kind.search, .annotation, .currentSearch] {
+                    XCTAssertGreaterThanOrEqual(theme.colors.text.contrastRatio(to: fill(theme, kind)), 4.5,
+                                                "\(name) \(label): text over a \(kind) highlight")
+                }
+                XCTAssertGreaterThanOrEqual(theme.colors.text.contrastRatio(to: theme.selectionColor), 4.5, "\(name) \(label): selected text")
+            }
+            XCTAssertGreaterThanOrEqual(increased.ruleColor.contrastRatio(to: page), 3, "\(name): a rule with Increase Contrast")
+            XCTAssertGreaterThan(increased.ruleColor.contrastRatio(to: page), standard.ruleColor.contrastRatio(to: page), name)
+            XCTAssertGreaterThan(increased.selectionColor.contrastRatio(to: page), standard.selectionColor.contrastRatio(to: page),
+                                 "\(name): the selection stands further from the page")
+            for kind in [ReaderHighlight.Kind.search, .annotation, .currentSearch] {
+                XCTAssertGreaterThan(fill(increased, kind).contrastRatio(to: page), fill(standard, kind).contrastRatio(to: page),
+                                     "\(name): a \(kind) highlight stands further from the page with Increase Contrast")
+            }
+        }
+    }
+
+    /// Light and Dark keep the reader's palette: what was drawn before themes is what they draw,
+    /// but for Dark's page, now the grey that sets it apart from Black.
+    func testLightAndDarkAreThePalettesThemes() {
+        for dark in [false, true] {
+            let theme: ReaderTheme = dark ? .dark : .light
+            XCTAssertEqual(ReaderPalette.background(dark: dark), theme.background)
+            XCTAssertEqual(ReaderPalette.text(dark: dark), theme.text)
+            XCTAssertEqual(ReaderPalette.link(dark: dark), theme.link)
+            XCTAssertEqual(ReaderPalette.rule(dark: dark), theme.rule)
+            XCTAssertEqual(ReaderPalette.secondaryText(dark: dark), theme.secondaryText)
+            XCTAssertEqual(ReaderPalette.highlight(.currentSearch, dark: dark), theme.highlight(.currentSearch))
+            XCTAssertEqual(theme.isDark, dark)
+        }
+        XCTAssertEqual(NativeTypography(isDark: true).theme, .dark)
+        XCTAssertEqual(NativeTypography(isDark: false), NativeTypography(theme: .light))
+        XCTAssertFalse(NativeTypography().boldText)
+        var configuration = ReaderCanvasConfiguration()
+        configuration.isDark = true
+        XCTAssertEqual(configuration.theme, .dark)
+        configuration.theme = ReaderTheme(.sepia)
+        XCTAssertFalse(configuration.isDark)
+        configuration.theme = ReaderTheme(.black)
+        XCTAssertTrue(configuration.isDark)
+    }
+
+    // MARK: - A section in each theme
+
+    /// Transparent black line art, which a dark page would swallow.
+    private static func lineArt() -> Data {
+        let context = CGContext(data: nil, width: 120, height: 60, bitsPerComponent: 8, bytesPerRow: 480,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.setFillColor(CGColor(gray: 0, alpha: 1))
+        context.fill(CGRect(x: 10, y: 26, width: 100, height: 8))
+        let data = NSMutableData()
+        let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil)!
+        CGImageDestinationAddImage(destination, context.makeImage()!, nil)
+        precondition(CGImageDestinationFinalize(destination))
+        return data as Data
+    }
+
+    private static let chapter = """
+        <html xmlns="http://www.w3.org/1999/xhtml"><head><title>Themes</title><style>\
+        .red { color: #c00000 } .mark { background-color: #ffff00 } \
+        @media (prefers-color-scheme: dark) { img.art { filter: invert(1) } }\
+        </style></head><body>\
+        <p>Plain words and <a href="two.xhtml">a link</a> and <span class="red">red words</span> and <span class="mark">marked words</span>.</p>\
+        <p><b>Bold words</b> beside regular words.</p>\
+        <hr/><p><img src="art.png" alt="Line art"/></p><p><img class="art" src="art.png" alt="Inverted art"/></p>\
+        <p><img src="missing.png" alt="A lost picture"/></p>\
+        <table border="1"><tr><td>Alpha cell</td><td>Beta cell</td></tr></table>\
+        \(String(repeating: "<p>A paragraph of ordinary reading text for pagination.</p>", count: 40))\
+        </body></html>
+        """
+
+    private func book() throws -> Data {
+        var files = try Fixture.files()
+        files["OPS/one.xhtml"] = Data(Self.chapter.utf8)
+        files["OPS/art.png"] = Self.lineArt()
+        return try Fixture.archive(files)
+    }
+
+    private func section(_ typography: NativeTypography, publication: EPUBPublication) -> SectionText {
+        SectionBuilder.build(SectionBuildRequest(publication: publication, spineIndex: 0, typography: typography,
+                                                 fonts: FontRegistry(publication: publication), rich: NativeRichContent()))
+    }
+
+    private func attribute(_ key: NSAttributedString.Key, of words: String, in section: SectionText,
+                           file: StaticString = #filePath, line: UInt = #line) throws -> Any? {
+        let range = (section.string.string as NSString).range(of: words)
+        XCTAssertNotEqual(range.location, NSNotFound, words, file: file, line: line)
+        guard range.location != NSNotFound else { return nil }
+        return section.string.attribute(key, at: range.location, effectiveRange: nil)
+    }
+
+    private func attachments<T>(_ type: T.Type, in section: SectionText) -> [T] {
+        var found: [T] = []
+        section.string.enumerateAttribute(.attachment, in: NSRange(location: 0, length: section.string.length)) { value, _, _ in
+            if let value = value as? T { found.append(value) }
+        }
+        return found
+    }
+
+    /// Each theme colours text, links, rules, secondary text and tables; a dark one takes the
+    /// book's own colours away and puts dark line art on a white backdrop, as Dark always has, and
+    /// `prefers-color-scheme: dark` follows the theme, not the system. The characters are the
+    /// same in every theme, so positions hold across a change.
+    func testASectionTakesItsThemesColours() throws {
+        let publication = try EPUBPublication.open(data: book())
+        var characters: Set<String> = []
+        for (appearance, colors) in Self.appearances {
+            for increases in [false, true] {
+                let theme = ReaderTheme(colors, increasesContrast: increases)
+                let label = "\(appearance)\(increases ? " with Increase Contrast" : "")"
+                let text = section(NativeTypography(theme: theme), publication: publication)
+                characters.insert(text.string.string)
+                XCTAssertEqual(try attribute(.foregroundColor, of: "Plain words", in: text) as? PlatformColor, theme.text, label)
+                XCTAssertEqual(try attribute(.foregroundColor, of: "a link", in: text) as? PlatformColor, theme.link, label)
+                XCTAssertEqual(try attribute(.foregroundColor, of: "A lost picture", in: text) as? PlatformColor, theme.secondaryText, label)
+                let red = try attribute(.foregroundColor, of: "red words", in: text) as? PlatformColor
+                let marked = try attribute(.backgroundColor, of: "marked words", in: text)
+                if colors.isDark {
+                    XCTAssertEqual(red, theme.text, "\(label): the book's colours give way")
+                    XCTAssertNil(marked, "\(label): the book's backgrounds give way")
+                } else {
+                    XCTAssertEqual(red?.cgColor.components?.prefix(3).map { ($0 * 255).rounded() }, [192, 0, 0], "\(label): the book's own colour")
+                    XCTAssertNotNil(marked, "\(label): the book's own background")
+                }
+                let rule = try XCTUnwrap(attachments(ReaderRuleAttachment.self, in: text).first, label)
+                XCTAssertEqual(rule.color, theme.rule, label)
+                let images = attachments(ReaderImageAttachment.self, in: text)
+                XCTAssertEqual(images.count, 2, label)
+                XCTAssertEqual(images.map(\.isDark), [colors.isDark, colors.isDark], "\(label): white backdrop on any dark page")
+                XCTAssertEqual(images.map(\.invertsColors), [false, colors.isDark], "\(label): prefers-color-scheme follows the theme")
+                let table = try XCTUnwrap(attachments(TableRowAttachment.self, in: text).first?.table, label)
+                if colors.isDark { XCTAssertEqual(table.cells[0].borders.top?.color, theme.rule.cgColor, label) }
+            }
+        }
+        XCTAssertEqual(characters.count, 1, "a theme never changes a section's characters")
+    }
+
+    // MARK: - An open book
+
+    private func waitOrFail(_ label: String, timeout: TimeInterval = 30, file: StaticString = #filePath, line: UInt = #line,
+                            until condition: () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            guard Date() < deadline else {
+                XCTFail("Timed out waiting for \(label)", file: file, line: line)
+                throw CancellationError()
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    private func open() throws -> SessionCoverageReader { try SessionCoverageReader(book()) }
+
+    /// The background colours drawn behind the text of the canvas's text views.
+    private func drawnHighlights(_ canvas: ReaderCanvasView) -> [PlatformColor] {
+        var colors: [PlatformColor] = []
+        for view in canvas.textViews {
+            let layoutManager = view.readerLayoutManager
+            layoutManager.enumerateRenderingAttributes(from: layoutManager.documentRange.location, reverse: false) { _, attributes, _ in
+                if let color = attributes[.backgroundColor] as? PlatformColor { colors.append(color) }
+                return true
+            }
+        }
+        return colors
+    }
+
+    private func canvasBackground(_ canvas: ReaderCanvasView, flow: EPUBReadingFlow) -> [CGColor?] {
+        #if os(macOS)
+        [canvas.layer?.backgroundColor] + (flow == .scrolled ? [(canvas.scrollContainer as? NSScrollView)?.backgroundColor.cgColor] : [])
+        #else
+        [canvas.backgroundColor?.cgColor] + (flow == .scrolled ? [canvas.scrollTextView?.backgroundColor?.cgColor] : [])
+        #endif
+    }
+
+    /// The issue's first acceptance: each preset and a custom theme recolour both flows, with
+    /// popovers, selection, search highlights and tables, and keep the position.
+    func testEveryThemeRecoloursBothFlowsAndKeepsThePosition() async throws {
+        for flow in [EPUBReadingFlow.paginated, .scrolled] {
+            let reader = try open()
+            defer { reader.close() }
+            let session = reader.session, state = try XCTUnwrap(session.readerState)
+            try await waitOrFail("ready") { reader.events.contains(.ready) && session.book.isComplete }
+            var style = EPUBReaderStyle(fontSize: 17, appearance: .light, flow: flow)
+            style.customColors = Self.navy
+            try await session.send(.style(style))
+            try await session.send(.search(text: "ordinary reading text"))
+            let current = try XCTUnwrap(session.searchResults?.currentIndex)
+            let match = session.searchResultRanges[current]
+            for (appearance, colors) in Self.appearances {
+                style.appearance = appearance
+                try await session.send(.style(style))
+                let theme = ReaderTheme(colors)
+                try await waitOrFail("\(appearance) in \(flow)") {
+                    session.book.isComplete && session.book.typography.theme == theme && session.canvas?.configuration.theme == theme
+                }
+                let canvas = try XCTUnwrap(session.canvas)
+                let label = "\(appearance), \(flow)"
+                XCTAssertEqual(state.status.effectiveColors, colors, label)
+                XCTAssertEqual(state.status.effectiveAppearance, colors.isDark ? .dark : .light, label)
+                XCTAssertEqual(state.status.style.appearance, appearance, label)
+                let visible = try XCTUnwrap(session.visibleRange)
+                XCTAssertTrue(visible.start <= match.start && match.start < visible.end, "\(label): the position is kept")
+                let text = try XCTUnwrap(session.book.section(match.start.section))
+                XCTAssertEqual(text.string.attribute(.foregroundColor, at: match.start.offset, effectiveRange: nil) as? PlatformColor,
+                               theme.text, label)
+                let backgrounds = canvasBackground(canvas, flow: flow)
+                XCTAssertEqual(backgrounds.count, flow == .scrolled ? 2 : 1, label)
+                for background in backgrounds { XCTAssertEqual(background, theme.background.cgColor, "\(label): the page") }
+                let highlights = drawnHighlights(canvas)
+                XCTAssertTrue(highlights.contains(theme.highlight(.search)), "\(label): search highlights")
+                XCTAssertTrue(highlights.contains(theme.highlight(.currentSearch)), "\(label): the current result")
+                #if os(macOS)
+                XCTAssertFalse(canvas.textViews.isEmpty)
+                for view in canvas.textViews {
+                    XCTAssertEqual(view.selectedTextAttributes[.backgroundColor] as? NSColor, theme.selection, "\(label): selection")
+                }
+                #else
+                XCTAssertEqual(canvas.tintColor, theme.link, "\(label): selection, its handles and the caret")
+                #endif
+                try assertNote(on: canvas, theme: theme, label: label)
+            }
+        }
+    }
+
+    /// A note's popover is drawn on the page's colour.
+    private func assertNote(on canvas: ReaderCanvasView, theme: ReaderTheme, label: String) throws {
+        canvas.presentNote(NSAttributedString(string: "A note."), from: CGRect(x: 100, y: 100, width: 20, height: 20))
+        #if os(macOS)
+        let popover = try XCTUnwrap(canvas.presentedNote as? NSPopover, label)
+        defer { popover.close() }
+        XCTAssertEqual(popover.appearance?.name, theme.isDark ? .darkAqua : .aqua, label)
+        let controller = try XCTUnwrap(popover.contentViewController as? ReaderNoteViewController, label)
+        let scrollView = try XCTUnwrap(controller.view as? NSScrollView, label)
+        XCTAssertTrue(scrollView.drawsBackground, label)
+        XCTAssertEqual(scrollView.backgroundColor, theme.background, "\(label): the note's page")
+        XCTAssertEqual(controller.textView.selectedTextAttributes[.backgroundColor] as? NSColor, theme.selection, label)
+        #else
+        let controller = try XCTUnwrap(canvas.presentedNote as? ReaderNoteViewController, label)
+        defer { controller.dismiss(animated: false) }
+        XCTAssertEqual(controller.textView.backgroundColor, theme.background, "\(label): the note's page")
+        XCTAssertEqual(controller.popoverPresentationController?.backgroundColor, theme.background, "\(label): the popover round it")
+        XCTAssertEqual(controller.textView.tintColor, theme.link, label)
+        XCTAssertEqual(controller.overrideUserInterfaceStyle, theme.isDark ? .dark : .light, label)
+        #endif
+    }
+
+    /// The issue's last acceptance, for Increase Contrast: turning it on or off changes an open
+    /// book's text in every theme, its highlights with it, and keeps the position.
+    func testIncreaseContrastChangesAnOpenBooksText() async throws {
+        let reader = try open()
+        defer { reader.close() }
+        let session = reader.session, state = try XCTUnwrap(session.readerState), window = try XCTUnwrap(reader.window)
+        try await waitOrFail("ready") { reader.events.contains(.ready) && session.book.isComplete }
+        XCTAssertFalse(session.systemIncreasesContrast, "the test window keeps Increase Contrast off until asked")
+        var style = EPUBReaderStyle(fontSize: 17, appearance: .light, flow: .paginated)
+        style.customColors = Self.navy
+        try await session.send(.search(text: "ordinary reading text"))
+        let match = session.searchResultRanges[try XCTUnwrap(session.searchResults?.currentIndex)]
+        func drawn() throws -> (text: PlatformColor?, link: PlatformColor?) {
+            let section = try XCTUnwrap(session.book.section(0))
+            let link = (section.string.string as NSString).range(of: "a link").location
+            return (section.string.attribute(.foregroundColor, at: match.start.offset, effectiveRange: nil) as? PlatformColor,
+                    section.string.attribute(.foregroundColor, at: link, effectiveRange: nil) as? PlatformColor)
+        }
+        for (appearance, colors) in Self.appearances {
+            style.appearance = appearance
+            try await session.send(.style(style))
+            for increases in [true, false, true, false] {
+                window.pageControls.increasesContrast = increases
+                let theme = ReaderTheme(colors, increasesContrast: increases)
+                try await waitOrFail("\(appearance), Increase Contrast \(increases)") {
+                    session.systemIncreasesContrast == increases && session.book.isComplete
+                        && session.book.typography.theme == theme && session.canvas?.configuration.theme == theme
+                }
+                let label = "\(appearance), Increase Contrast \(increases ? "on" : "off")"
+                let (text, link) = try drawn()
+                XCTAssertEqual(text, theme.text, label)
+                XCTAssertEqual(link, theme.link, label)
+                XCTAssertEqual(state.status.effectiveColors, theme.colors, label)
+                XCTAssertTrue(drawnHighlights(try XCTUnwrap(session.canvas)).contains(theme.highlight(.currentSearch)), label)
+                let visible = try XCTUnwrap(session.visibleRange)
+                XCTAssertTrue(visible.start <= match.start && match.start < visible.end, "\(label): the position is kept")
+            }
+            let standard = ReaderTheme(colors), increased = ReaderTheme(colors, increasesContrast: true)
+            XCTAssertTrue(standard.text != increased.text || standard.link != increased.link,
+                          "\(appearance): Increase Contrast changes the text or its links")
+            XCTAssertNotEqual(standard.highlight(.search), increased.highlight(.search), "\(appearance): and the highlights")
+        }
+    }
+
+    private func weight(_ font: PlatformFont?) -> CGFloat {
+        guard let font else { return .nan }
+        let traits = CTFontCopyTraits(font as CTFont) as NSDictionary
+        return (traits[kCTFontWeightTrait] as? NSNumber).map { CGFloat($0.doubleValue) } ?? .nan
+    }
+
+    /// The issue's last acceptance, for Bold Text: turning it on draws an open book's text
+    /// heavier, regular and bold alike, and turning it off draws it as before, its characters
+    /// and its position unchanged.
+    func testBoldTextDrawsAnOpenBooksTextHeavier() async throws {
+        let reader = try open()
+        defer { reader.close() }
+        let session = reader.session, window = try XCTUnwrap(reader.window)
+        try await waitOrFail("ready") { reader.events.contains(.ready) && session.book.isComplete }
+        XCTAssertFalse(session.systemBoldText, "the test window keeps Bold Text off until asked")
+        try await session.send(.search(text: "ordinary reading text"))
+        let match = session.searchResultRanges[try XCTUnwrap(session.searchResults?.currentIndex)]
+        func fonts() throws -> (regular: CGFloat, bold: CGFloat, string: String) {
+            let section = try XCTUnwrap(session.book.section(0))
+            let bold = (section.string.string as NSString).range(of: "Bold words").location
+            return (weight(section.string.attribute(.font, at: match.start.offset, effectiveRange: nil) as? PlatformFont),
+                    weight(section.string.attribute(.font, at: bold, effectiveRange: nil) as? PlatformFont), section.string.string)
+        }
+        let before = try fonts()
+        XCTAssertGreaterThan(before.bold, before.regular, "the book's bold is bolder than its text")
+        for flow in [EPUBReadingFlow.paginated, .scrolled] {
+            try await session.send(.style(EPUBReaderStyle(fontSize: 17, appearance: .light, flow: flow)))
+            window.pageControls.boldText = true
+            try await waitOrFail("Bold Text in \(flow)") { session.systemBoldText && session.book.isComplete && session.book.typography.boldText }
+            let bold = try fonts()
+            XCTAssertGreaterThan(bold.regular, before.regular, "\(flow): text is drawn heavier")
+            XCTAssertGreaterThan(bold.bold, before.bold, "\(flow): bold text is drawn heavier still")
+            XCTAssertEqual(bold.string, before.string, "\(flow): the same characters")
+            var visible = try XCTUnwrap(session.visibleRange)
+            XCTAssertTrue(visible.start <= match.start && match.start < visible.end, "\(flow): the position is kept")
+            window.pageControls.boldText = false
+            try await waitOrFail("Bold Text off in \(flow)") { !session.systemBoldText && session.book.isComplete && !session.book.typography.boldText }
+            let after = try fonts()
+            XCTAssertEqual(after.regular, before.regular, "\(flow)")
+            XCTAssertEqual(after.bold, before.bold, "\(flow)")
+            visible = try XCTUnwrap(session.visibleRange)
+            XCTAssertTrue(visible.start <= match.start && match.start < visible.end, "\(flow): the position is kept")
+        }
+    }
+
+    /// Bold Text adds 200 to a weight, to at most 900, and no rule takes it away: it is the
+    /// reader's, not the book's.
+    func testBoldTextIsAWeightHeavierWhereverTheBookSetsOne() throws {
+        let publication = try EPUBPublication.open(data: book())
+        let resolver = StyleResolver(document: try ContentDocument.parse(publication.data(at: "OPS/one.xhtml"), path: "OPS/one.xhtml"),
+                                     stylesheets: [], typography: NativeTypography(theme: .light, boldText: true))
+        XCTAssertTrue(resolver.initialStyle.usesBoldText)
+        var style = ComputedStyle()
+        for (weight, used) in [(100, 300), (400, 600), (700, 900), (800, 900), (900, 900)] {
+            style.fontWeight = weight
+            style.usesBoldText = false
+            XCTAssertEqual(style.usedFontWeight, weight)
+            style.usesBoldText = true
+            XCTAssertEqual(style.usedFontWeight, used, "\(weight)")
+        }
+        let plain = StyleResolver(document: resolver.document, stylesheets: [], typography: NativeTypography(theme: .light))
+        XCTAssertFalse(plain.initialStyle.usesBoldText)
+    }
+
+    #if os(iOS)
+    /// On iPhone and iPad the settings reach the reader as its window's traits, as they do from
+    /// Settings, through SwiftUI's environment.
+    func testTheWindowsTraitsReachTheReader() async throws {
+        let reader = try open()
+        defer { reader.close() }
+        let session = reader.session, window = try XCTUnwrap(reader.window)
+        try await waitOrFail("ready") { reader.events.contains(.ready) && session.book.isComplete }
+        window.pageControls.accessibilityFollowsWindow = true
+        window.window.traitOverrides.accessibilityContrast = .high
+        try await waitOrFail("Increase Contrast from the window") { session.systemIncreasesContrast && session.book.isComplete }
+        XCTAssertTrue(session.book.typography.theme.increasesContrast)
+        window.window.traitOverrides.legibilityWeight = .bold
+        try await waitOrFail("Bold Text from the window") { session.systemBoldText && session.book.isComplete }
+        XCTAssertTrue(session.book.typography.boldText)
+        window.window.traitOverrides.accessibilityContrast = .normal
+        window.window.traitOverrides.legibilityWeight = .regular
+        try await waitOrFail("both off again") {
+            !session.systemIncreasesContrast && !session.systemBoldText && session.book.isComplete && session.book.typography == NativeTypography(theme: .light)
+        }
+    }
+
+    /// Bold Text draws regular text as iOS draws its own with Bold Text on: the system font's
+    /// regular weight becomes the weight UIKit gives body text under a bold legibility weight.
+    func testBoldTextMatchesTheSystemsOwnBoldText() {
+        let bold = UITraitCollection(legibilityWeight: .bold), regular = UITraitCollection(legibilityWeight: .regular)
+        let systemBold = weight(UIFont.preferredFont(forTextStyle: .body, compatibleWith: bold))
+        let systemRegular = weight(UIFont.preferredFont(forTextStyle: .body, compatibleWith: regular))
+        XCTAssertGreaterThan(systemBold, systemRegular)
+        var style = ComputedStyle(fontSize: 17)
+        style.fontFamilies = ["system-ui"]
+        style.usesBoldText = true
+        let ours = weight(FontRegistry.systemFont(families: style.fontFamilies, size: 17, weight: style.usedFontWeight, italic: false))
+        XCTAssertEqual(ours, systemBold, accuracy: 0.01, "regular text drawn as the system draws body text with Bold Text")
+    }
+    #endif
+}

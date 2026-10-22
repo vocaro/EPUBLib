@@ -250,6 +250,11 @@ struct ReaderTableAction {
                             return owner?.canvas?.selectionText(for: self)
                         }
                         cell.onImage = { [weak owner] image in owner?.canvas?.inspectImage(image) }
+                        #if os(macOS)
+                        if let theme = owner.canvas?.configuration.theme {
+                            cell.selectedTextAttributes = ReaderCanvasView.selectedTextAttributes(theme)
+                        }
+                        #endif
                         cells[key] = cell
                         owner.addSubview(cell)
                     }
@@ -341,6 +346,9 @@ struct ReaderTableAction {
     func highlights(_ highlights: [ReaderHighlight]) {
         guard let owner, let canvas = owner.canvas, let storage = owner.contentStorage.textStorage else { return }
         for (key, cell) in cells {
+            #if os(macOS)
+            cell.selectedTextAttributes = ReaderCanvasView.selectedTextAttributes(canvas.configuration.theme)
+            #endif
             var runs: [(NSRange, PlatformColor)] = []
             guard let position = canvas.position(at: key.location, in: owner),
                   let row = storage.attribute(.attachment, at: key.location, effectiveRange: nil) as? TableRowAttachment else { continue }
@@ -357,7 +365,7 @@ struct ReaderTableAction {
                 } else if position >= end { continue }
                 if upper > lower {
                     runs.append((NSRange(location: lower, length: upper - lower),
-                                 ReaderPalette.highlight(highlight.kind, dark: canvas.configuration.isDark)))
+                                 canvas.configuration.theme.highlight(highlight.kind)))
                 }
             }
             cell.setCellHighlights(runs)

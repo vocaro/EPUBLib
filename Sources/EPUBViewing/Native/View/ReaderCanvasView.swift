@@ -345,7 +345,7 @@ import AppKit
             wheelTurner = ReaderWheelPageTurner()
             updateInputHandlers()
         }
-        if old.isDark != configuration.isDark {
+        if old.theme != configuration.theme {
             applyAppearance()
             applyHighlights()
         }
@@ -1416,7 +1416,7 @@ import AppKit
         }
         let indicator = selectionContinuation ?? ReaderSelectionContinuation(canvas: self)
         selectionContinuation = indicator
-        indicator.configure(previous: previous, next: next, dark: configuration.isDark)
+        indicator.configure(previous: previous, next: next, theme: configuration.theme)
         indicator.frame = CGRect(x: pageArea.minX + 12, y: pageArea.maxY - 44, width: max(0, pageArea.width - 24), height: 44)
         if indicator.superview == nil { addSubview(indicator) }
         #if os(macOS)
@@ -1600,14 +1600,14 @@ import AppKit
     }
 
     private func applyHighlights() {
-        let dark = configuration.isDark
+        let theme = configuration.theme
         // Search matches draw over host highlights, the current match over both.
         let ordered = ReaderHighlight.drawingOrder(highlights)
         for view in textViews {
             view.setTableHighlights(ordered)
             view.setHighlights(ordered.compactMap { highlight in
                 guard let range = localRange(of: highlight.range, in: view) else { return nil }
-                let color = ReaderPalette.highlight(highlight.kind, dark: dark)
+                let color = theme.highlight(highlight.kind)
                 return (range, color)
             })
         }

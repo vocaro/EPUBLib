@@ -229,6 +229,12 @@ public struct EPUBReaderControl: View {
                     Text("System").tag(EPUBReaderAppearance.system)
                     Text("Light").tag(EPUBReaderAppearance.light)
                     Text("Dark").tag(EPUBReaderAppearance.dark)
+                    Text("Sepia").tag(EPUBReaderAppearance.sepia)
+                    Text("Black").tag(EPUBReaderAppearance.black)
+                    // The reader's own colours, once a host has given some.
+                    if controls.status?.style.customColors != nil || controls.status?.style.appearance == .custom {
+                        Text("Custom").tag(EPUBReaderAppearance.custom)
+                    }
                 }
             }
             if controls.isBusy { Text("Applying commands…") }

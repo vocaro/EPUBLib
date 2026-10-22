@@ -69,6 +69,7 @@ final class StyleResolver: @unchecked Sendable {
         style.fontFamilies = ["serif"]
         style.lineHeight = .multiple(1.4)
         style.hyphens = .auto
+        style.usesBoldText = typography.boldText
         return style
     }
 

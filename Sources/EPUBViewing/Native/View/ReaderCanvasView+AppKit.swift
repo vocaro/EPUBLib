@@ -27,10 +27,17 @@ extension ReaderCanvasView: NSTextViewDelegate {
     }
 
     func applyAppearance() {
-        let dark = configuration.isDark
-        appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        layer?.backgroundColor = ReaderPalette.background(dark: dark).cgColor
-        (scrollContainer as? NSScrollView)?.backgroundColor = ReaderPalette.background(dark: dark)
+        let theme = configuration.theme
+        appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
+        layer?.backgroundColor = theme.background.cgColor
+        (scrollContainer as? NSScrollView)?.backgroundColor = theme.background
+        for view in textViews { view.selectedTextAttributes = Self.selectedTextAttributes(theme) }
+    }
+
+    /// The theme's selection behind selected text, whose own colours stay: AppKit's would draw
+    /// the system's selection colour, and its selected text colour over the theme's.
+    static func selectedTextAttributes(_ theme: ReaderTheme) -> [NSAttributedString.Key: Any] {
+        [.backgroundColor: theme.selection]
     }
 
     override var isFlipped: Bool { true }
@@ -46,6 +53,7 @@ extension ReaderCanvasView: NSTextViewDelegate {
     func makeColumnView() -> ReaderTextView {
         let view = ReaderTextView(pageColumn: true)
         view.delegate = self
+        view.selectedTextAttributes = Self.selectedTextAttributes(configuration.theme)
         addSubview(view)
         return view
     }
@@ -57,10 +65,11 @@ extension ReaderCanvasView: NSTextViewDelegate {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = true
-        scrollView.backgroundColor = ReaderPalette.background(dark: configuration.isDark)
+        scrollView.backgroundColor = configuration.theme.background
         scrollView.automaticallyAdjustsContentInsets = true
         let textView = ReaderTextView(pageColumn: false)
         textView.delegate = self
+        textView.selectedTextAttributes = Self.selectedTextAttributes(configuration.theme)
         textView.frame = CGRect(origin: .zero, size: scrollView.contentSize)
         scrollView.documentView = textView
         scrollView.contentView.postsBoundsChangedNotifications = true
@@ -477,9 +486,9 @@ extension ReaderCanvasView: NSTextViewDelegate {
         (presentedNote as? NSPopover)?.close()
         let popover = NSPopover()
         popover.behavior = .transient
-        popover.appearance = NSAppearance(named: configuration.isDark ? .darkAqua : .aqua)
+        popover.appearance = NSAppearance(named: configuration.theme.isDark ? .darkAqua : .aqua)
         popover.contentViewController = ReaderNoteViewController(
-            text: text, dark: configuration.isDark, width: min(360, max(200, bounds.width - 32)))
+            text: text, theme: configuration.theme, width: min(360, max(200, bounds.width - 32)))
         popover.show(relativeTo: rect, of: self, preferredEdge: .maxY)
         presentedNote = popover
     }
@@ -488,14 +497,19 @@ extension ReaderCanvasView: NSTextViewDelegate {
 /// A note shown in place: its text in a TextKit 2 view whose links do nothing.
 final class ReaderNoteViewController: NSViewController, NSTextViewDelegate {
     let textView = ReaderTextView(pageColumn: false)
-    private let dark: Bool
+    private let theme: ReaderTheme
     private let width: CGFloat
 
-    init(text: NSAttributedString, dark: Bool, width: CGFloat) {
-        self.dark = dark
+    convenience init(text: NSAttributedString, dark: Bool, width: CGFloat) {
+        self.init(text: text, theme: dark ? .dark : .light, width: width)
+    }
+
+    init(text: NSAttributedString, theme: ReaderTheme, width: CGFloat) {
+        self.theme = theme
         self.width = width
         super.init(nibName: nil, bundle: nil)
         textView.delegate = self
+        textView.selectedTextAttributes = ReaderCanvasView.selectedTextAttributes(theme)
         textView.textContainerInset = NSSize(width: 0, height: 16)
         textView.columnMinX = 16
         textView.readerContainer.size = CGSize(width: width - 32, height: 0)
@@ -512,7 +526,9 @@ final class ReaderNoteViewController: NSViewController, NSTextViewDelegate {
         let scrollView = NSScrollView(frame: CGRect(origin: .zero, size: preferredContentSize))
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
+        // The note on the page's colour. The popover's arrow is AppKit's own.
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = theme.background
         textView.frame = CGRect(origin: .zero, size: scrollView.contentSize)
         scrollView.documentView = textView
         view = scrollView

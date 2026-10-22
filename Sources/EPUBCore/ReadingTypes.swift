@@ -51,13 +51,24 @@ public struct EPUBSelection: Equatable, Sendable {
 
 public enum EPUBReadingFlow: String, Codable, Sendable { case paginated, scrolled }
 
-public enum EPUBReaderAppearance: String, CaseIterable, Codable, Sendable { case system, light, dark }
+public enum EPUBReaderAppearance: String, CaseIterable, Codable, Sendable {
+    case system, light, dark
+    /// Dark brown on warm paper (`EPUBReaderColors.sepia`).
+    case sepia
+    /// Light grey on pure black (`EPUBReaderColors.black`).
+    case black
+    /// The style's `customColors`, the reader's own.
+    case custom
+}
 
 public struct EPUBReaderStyle: Equatable, Sendable {
     public var fontSize: Double
     /// System follows the mounted view's color scheme, including live OS theme changes.
     public var appearance: EPUBReaderAppearance
     public var flow: EPUBReadingFlow
+    /// The colours `.custom` draws with. nil draws Light's. They are kept while another
+    /// appearance is chosen, so choosing Custom again brings them back.
+    public var customColors: EPUBReaderColors?
     public init(fontSize: Double = 17, appearance: EPUBReaderAppearance = .system, flow: EPUBReadingFlow = .paginated) {
         self.fontSize = fontSize; self.appearance = appearance; self.flow = flow
     }

@@ -23,47 +23,38 @@ struct NativeTypography: Equatable, Hashable, Sendable {
     static let maximumFontSize: CGFloat = 96
     /// Base size in points, clamped to 12–96. CSS `1em` at the root is this size.
     var fontSize: CGFloat
-    var isDark: Bool
+    /// The theme's background is dark (`ReaderTheme.isDark`).
+    var isDark: Bool { theme.isDark }
+    /// The colours the text is drawn in.
+    var theme: ReaderTheme
+    /// The system's Bold Text: book text is drawn heavier (`ComputedStyle.usesBoldText`).
+    var boldText = false
     init(fontSize: CGFloat = 17, isDark: Bool = false) {
+        self.init(fontSize: fontSize, theme: isDark ? .dark : .light)
+    }
+    init(fontSize: CGFloat = 17, theme: ReaderTheme, boldText: Bool = false) {
         self.fontSize = min(max(fontSize, Self.minimumFontSize), Self.maximumFontSize)
-        self.isDark = isDark
+        self.theme = theme
+        self.boldText = boldText
     }
 }
 
-/// The reader's own colors. Book colors apply in light appearance only; dark appearance uses
-/// these throughout, as the WebKit reader's `Canvas`/`CanvasText`/`LinkText` override did.
+/// The reader's own colors in Light and Dark (`ReaderTheme.light`, `ReaderTheme.dark`). Book
+/// colors apply in a light theme only; a dark one uses its own throughout, as the WebKit
+/// reader's `Canvas`/`CanvasText`/`LinkText` override did.
 enum ReaderPalette {
-    static func background(dark: Bool) -> PlatformColor { dark ? .black : .white }
-    static func text(dark: Bool) -> PlatformColor {
-        dark ? PlatformColor(white: 0.92, alpha: 1) : .black
-    }
-    static func secondaryText(dark: Bool) -> PlatformColor {
-        dark ? PlatformColor(white: 0.62, alpha: 1) : PlatformColor(white: 0.38, alpha: 1)
-    }
-    static func link(dark: Bool) -> PlatformColor {
-        dark ? PlatformColor(red: 0.45, green: 0.68, blue: 1, alpha: 1) : PlatformColor(red: 0, green: 0.36, blue: 0.85, alpha: 1)
-    }
-    static func rule(dark: Bool) -> PlatformColor {
-        dark ? PlatformColor(white: 0.35, alpha: 1) : PlatformColor(white: 0.75, alpha: 1)
-    }
+    private static func theme(_ dark: Bool) -> ReaderTheme { dark ? .dark : .light }
+    static func background(dark: Bool) -> PlatformColor { theme(dark).background }
+    static func text(dark: Bool) -> PlatformColor { theme(dark).text }
+    static func secondaryText(dark: Bool) -> PlatformColor { theme(dark).secondaryText }
+    static func link(dark: Bool) -> PlatformColor { theme(dark).link }
+    static func rule(dark: Bool) -> PlatformColor { theme(dark).rule }
     /// Search matches (`searchHighlight`).
-    static func searchHighlight(dark: Bool) -> PlatformColor {
-        dark ? PlatformColor(red: 0.55, green: 0.42, blue: 0, alpha: 0.6) : PlatformColor(red: 1, green: 0.83, blue: 0.2, alpha: 0.45)
-    }
+    static func searchHighlight(dark: Bool) -> PlatformColor { theme(dark).highlight(.search) }
     /// Host highlights (`setHighlights`).
-    static func annotationHighlight(dark: Bool) -> PlatformColor {
-        dark ? PlatformColor(red: 0.9, green: 0.75, blue: 0.1, alpha: 0.35) : PlatformColor(red: 1, green: 0.9, blue: 0.3, alpha: 0.55)
-    }
+    static func annotationHighlight(dark: Bool) -> PlatformColor { theme(dark).highlight(.annotation) }
     /// The search result last shown: darker than the other matches as well as a different
     /// hue, so it stands apart without relying on color alone.
-    static func currentSearchHighlight(dark: Bool) -> PlatformColor {
-        dark ? PlatformColor(red: 0.85, green: 0.35, blue: 0, alpha: 0.7) : PlatformColor(red: 1, green: 0.58, blue: 0.1, alpha: 0.7)
-    }
-    static func highlight(_ kind: ReaderHighlight.Kind, dark: Bool) -> PlatformColor {
-        switch kind {
-        case .search: searchHighlight(dark: dark)
-        case .annotation: annotationHighlight(dark: dark)
-        case .currentSearch: currentSearchHighlight(dark: dark)
-        }
-    }
+    static func currentSearchHighlight(dark: Bool) -> PlatformColor { theme(dark).highlight(.currentSearch) }
+    static func highlight(_ kind: ReaderHighlight.Kind, dark: Bool) -> PlatformColor { theme(dark).highlight(kind) }
 }

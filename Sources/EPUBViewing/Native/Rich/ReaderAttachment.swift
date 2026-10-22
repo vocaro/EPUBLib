@@ -191,7 +191,11 @@ final class ReaderRuleAttachment: ReaderAttachment {
     }
     #endif
 
-    init(style: ComputedStyle, isDark: Bool, isHiddenFromAssistiveTechnology: Bool = false) {
+    convenience init(style: ComputedStyle, isDark: Bool, isHiddenFromAssistiveTechnology: Bool = false) {
+        self.init(style: style, theme: isDark ? .dark : .light, isHiddenFromAssistiveTechnology: isHiddenFromAssistiveTechnology)
+    }
+
+    init(style: ComputedStyle, theme: ReaderTheme, isHiddenFromAssistiveTechnology: Bool = false) {
         self.isHiddenFromAssistiveTechnology = isHiddenFromAssistiveTechnology
         width = style.width
         let border = style.border.top
@@ -203,7 +207,7 @@ final class ReaderRuleAttachment: ReaderAttachment {
         case (_, .auto): alignment = .leading
         default: alignment = .center
         }
-        color = ReaderPalette.rule(dark: isDark)
+        color = theme.rule
         fontSize = style.fontSize
         super.init(isHidden: style.isHidden)
     }

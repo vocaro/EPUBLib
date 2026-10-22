@@ -34,7 +34,13 @@ import SwiftUI
     private(set) var closed = false
     private(set) var style = EPUBReaderStyle()
     @ObservationIgnored private(set) var systemIsDark = false
-    private var effectiveIsDark: Bool { style.appearance == .system ? systemIsDark : style.appearance == .dark }
+    /// The system's Increase Contrast and Bold Text, as the mounted view's environment has them.
+    @ObservationIgnored private(set) var systemIncreasesContrast = false
+    @ObservationIgnored private(set) var systemBoldText = false
+    /// The colours the reader draws with: the style's theme, as Increase Contrast leaves it.
+    private var effectiveTheme: ReaderTheme {
+        ReaderTheme(style.colors(systemIsDark: systemIsDark), increasesContrast: systemIncreasesContrast)
+    }
     /// The host's reserved division, from `View.epubReaderDivision(_:)`.
     var division: CGRect? { didSet { if division != oldValue { applyConfiguration() } } }
 
@@ -142,7 +148,7 @@ import SwiftUI
     private var configuration: ReaderCanvasConfiguration {
         var configuration = ReaderCanvasConfiguration()
         configuration.flow = style.flow
-        configuration.isDark = effectiveIsDark
+        configuration.theme = effectiveTheme
         configuration.isRightToLeft = publication.pageProgression == .rtl
         configuration.division = division
         configuration.pageControls = pageControls
@@ -538,13 +544,24 @@ import SwiftUI
         if style.appearance == .system { updatePresentation() }
     }
 
+    /// Increase Contrast and Bold Text apply in every appearance, so either changes an open
+    /// book's text whatever it is.
+    func updateSystemAccessibility(increasesContrast: Bool, boldText: Bool) {
+        guard !closed, systemIncreasesContrast != increasesContrast || systemBoldText != boldText else { return }
+        systemIncreasesContrast = increasesContrast
+        systemBoldText = boldText
+        updatePresentation()
+    }
+
     private func updatePresentation() {
+        let theme = effectiveTheme
         readerState?.modify {
             $0.style = style
-            $0.effectiveAppearance = effectiveIsDark ? .dark : .light
+            $0.effectiveAppearance = theme.isDark ? .dark : .light
+            $0.effectiveColors = theme.colors
         }
         applyConfiguration()
-        let typography = NativeTypography(fontSize: style.fontSize, isDark: effectiveIsDark)
+        let typography = NativeTypography(fontSize: style.fontSize, theme: theme, boldText: systemBoldText)
         if typography != book.typography {
             book.setTypography(typography)
             let current = visibleRange?.start.section ?? initialSection
@@ -853,18 +870,25 @@ private struct NativeSurface: View {
     @Environment(\.epubReaderDivision) private var division
     @Environment(\.epubReaderPageControls) private var pageControls
     @Environment(\.colorScheme) private var colorScheme
+    /// Increase Contrast, on iPhone, iPad and Mac.
+    @Environment(\.colorSchemeContrast) private var contrast
+    /// Bold Text, on iPhone and iPad.
+    @Environment(\.legibilityWeight) private var legibilityWeight
 
     var body: some View {
         if !session.closed {
             NativeCanvasHost(session: session)
                 .onAppear {
                     session.updateSystemAppearance(isDark: colorScheme == .dark)
+                    updateSystemAccessibility()
                     session.division = division
                     session.pageControls = pageControls
                 }
                 .onChange(of: division) { session.division = division }
                 .onChange(of: pageControls) { session.pageControls = pageControls }
                 .onChange(of: colorScheme) { session.updateSystemAppearance(isDark: colorScheme == .dark) }
+                .onChange(of: contrast) { updateSystemAccessibility() }
+                .onChange(of: legibilityWeight) { updateSystemAccessibility() }
                 #if os(iOS)
                 .accessibilityScrollAction { edge in
                     if edge == .leading { submit(.previousPage) }
@@ -872,6 +896,10 @@ private struct NativeSurface: View {
                 }
                 #endif
         }
+    }
+
+    private func updateSystemAccessibility() {
+        session.updateSystemAccessibility(increasesContrast: contrast == .increased, boldText: legibilityWeight == .bold)
     }
 
     #if os(iOS)

@@ -88,7 +88,7 @@ enum SectionBuilder {
         paragraph.defaultTabInterval = InlineStyling.tabInterval(font)
         let notice = NSAttributedString(string: "This section could not be shown.", attributes: [
             .font: font, .paragraphStyle: paragraph,
-            .foregroundColor: ReaderPalette.secondaryText(dark: request.typography.isDark),
+            .foregroundColor: request.typography.theme.secondaryText,
         ])
         return SectionText(spineIndex: request.spineIndex, href: item.resource.href, document: empty, string: notice,
                            map: TextMap(length: notice.length), anchors: [:], notes: [:], title: nil, report: report)
@@ -157,7 +157,7 @@ final class SectionBuildState {
          initialStyle: ComputedStyle) {
         self.request = request; self.document = document; self.style = style; self.initialStyle = initialStyle
         bodyStyle = initialStyle
-        styling = InlineStyling(fonts: request.fonts, isDark: request.typography.isDark)
+        styling = InlineStyling(fonts: request.fonts, theme: request.typography.theme)
         languageHint = request.publication.metadata.languages.first.flatMap { $0.isEmpty ? nil : $0 }
         isFixedLayout = request.publication.spine[request.spineIndex].layout == .prePaginated
     }

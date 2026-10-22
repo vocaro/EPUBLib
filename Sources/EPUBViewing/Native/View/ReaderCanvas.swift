@@ -104,7 +104,13 @@ extension ReaderHighlight {
 struct ReaderCanvasConfiguration: Equatable, Sendable {
     var pageControls = EPUBPageControls()
     var flow: EPUBReadingFlow = .paginated
-    var isDark = false
+    /// The colours the page, its highlights, its selection and its popovers are drawn in.
+    var theme = ReaderTheme.light
+    /// The theme's background is dark. Setting it chooses Light or Dark.
+    var isDark: Bool {
+        get { theme.isDark }
+        set { theme = newValue ? .dark : .light }
+    }
     /// The spine's `page-progression-direction` is `rtl`: spreads read right to left and the
     /// visual page-turn directions (swipes, tap zones) are mirrored.
     var isRightToLeft = false

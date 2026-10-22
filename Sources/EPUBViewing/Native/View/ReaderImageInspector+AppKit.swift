@@ -12,10 +12,10 @@ import AppKit
     private var lastViewport = CGSize.zero
     var onClose: (() -> Void)?
 
-    init(bitmap: CGImage, label: String, dark: Bool) {
+    init(bitmap: CGImage, label: String, theme: ReaderTheme) {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.backgroundColor = ReaderPalette.background(dark: dark).cgColor
+        layer?.backgroundColor = theme.background.cgColor
         setAccessibilityRole(.group)
         setAccessibilityLabel("Image inspection")
         scrollView.hasHorizontalScroller = true
@@ -23,7 +23,7 @@ import AppKit
         scrollView.autohidesScrollers = true
         scrollView.allowsMagnification = true
         scrollView.drawsBackground = true
-        scrollView.backgroundColor = ReaderPalette.background(dark: dark)
+        scrollView.backgroundColor = theme.background
         imageView.image = NSImage(cgImage: bitmap, size: CGSize(width: bitmap.width, height: bitmap.height))
         imageView.imageScaling = .scaleNone
         imageView.frame = CGRect(x: 0, y: 0, width: bitmap.width, height: bitmap.height)
