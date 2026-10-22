@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Complete a search whose task is cancelled after its results are published, whatever callback or observer cancels it, where the search then read idle while its results stayed listed and drawn ([#157](https://github.com/vocaro/EPUBLib/issues/157)).
 - Require a phrase with two or more search results in `EPUBEngineContract.verify`, which now fails a call whose phrase has one, where it passed its step and wrap checks without the current match moving ([#730](https://github.com/vocaro/EPUBLib/issues/730)).
 - Fail an engine in `EPUBEngineContract.verify` whose next search result stays on the last result instead of returning to the first, or that shows an unlisted result because its index is in range, where the verifier stepped forward only from the first result and tried no unlisted result with a listed index ([#160](https://github.com/vocaro/EPUBLib/issues/160)).
 - End a DOCTYPE at its first `>`, as the HTML Standard does inside a quoted identifier, in text extraction's recovery and in the reader, and put no element of HTML content in another namespace for its `xmlns` in recovery, where a chapter whose DOCTYPE identifier had lost its closing quote was refused as a DOCTYPE that never ends and not shown at all, and one whose root's `xmlns` value had lost its closing quote was refused in recovery ([#293](https://github.com/vocaro/EPUBLib/issues/293)).

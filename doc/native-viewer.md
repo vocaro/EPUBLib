@@ -3106,8 +3106,10 @@ The following are the defaults. Host commands and accessibility actions stay ena
 | `setHighlights` | Replaces drawn host highlights. |
 
 `.searchResultsChanged` reports the result list before `.searchChanged(.completed)`, then each
-change of the current match, and nil when a clear, another query, a failure, a cancellation or
-`.locate` withdraws the list. Results are in spine order, then document order
+change of the current match, and nil when a clear, another query, a failure or `.locate`
+withdraws the list. A search cancelled before its results are published ends with none; a
+cancellation that arrives after they are published withdraws nothing, and the search completes.
+Results are in spine order, then document order
 (see [search results](reader-controls.md#search-results)).
 
 `.ready` is emitted once, when the opening section is on screen in a mounted view, and the first
