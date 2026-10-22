@@ -2768,7 +2768,21 @@ The following are the defaults. Host commands and accessibility actions stay ena
   backward step is shortened to keep at least half of it on screen
   ([#161](https://github.com/vocaro/EPUBLib/issues/161)).
   `ViewCoverageScrollTests.testAPageTurnBackAfterAJumpPastFiguresKeepsTheLineThatWasFirstOnScreen`
-  covers a jump past figures and successive backward turns.
+  covers a jump past figures and successive backward turns. Where the book has a float or
+  positioned box anywhere the reader places every line itself, and TextKit 2 gives the text
+  it has not laid out no height, so the document ends at the last line laid out, and on Mac
+  a turn stopped there, short of a screen
+  ([#369](https://github.com/vocaro/EPUBLib/issues/369#issuecomment-6341377089)). So before
+  a scroll past that end the screen it opens is laid out, which for a turn forward is a
+  screen at most. A turn back into a section before the book is built shows the section's
+  end (`scrollToAnchorLine`), and lays out the whole of that section to reach it, on the main
+  thread in the key press or action that turned the page; the cost grows with the section's
+  length ([measured](https://github.com/vocaro/EPUBLib/issues/369#issuecomment-6341953637)).
+  Laying out only its last screen is not possible: TextKit 2 estimates nothing in such a
+  text, so the last screen's place is known only once everything above it is laid out
+  ([#746](https://github.com/vocaro/EPUBLib/issues/746)). Once the book is built no turn
+  asks for a section's end. On iOS the scroll view's content has the whole text's height
+  already.
 - VoiceOver: the text offers the page turn itself, and reads in order from the text views.
   On iPhone and iPad each line of a page offers Next Page and Previous Page, and the
   reader's SwiftUI surface has a page-turn `accessibilityScrollAction`. On Mac each text
