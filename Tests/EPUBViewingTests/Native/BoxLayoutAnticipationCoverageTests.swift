@@ -215,4 +215,81 @@ import XCTest
         let none = ReaderBoxLayout.Anticipation([], disabled: [NSRange(location: 0, length: 10)])
         XCTAssertTrue(none.unplaced.isEmpty); XCTAssertTrue(none.unplaced(wrappingTextIn: nil).isEmpty)
     }
+
+    // MARK: Runs of containers
+
+    private static let note = "P. Ordinary prose wraps beside the box and returns."
+    private static let notes = ".rel { position:relative } aside { position:absolute; right:0; top:0; width:120px; height:50px }"
+
+    /// Where each of `phrase`'s occurrences is in `section`, in order.
+    private func occurrences(of phrase: String, in section: SectionText) -> [NSRange] {
+        let text = section.string.string as NSString
+        var ranges: [NSRange] = [], start = 0
+        while start < text.length {
+            let range = text.range(of: phrase, range: NSRange(location: start, length: text.length - start))
+            guard range.location != NSNotFound else { break }
+            ranges.append(range); start = range.upperBound
+        }
+        return ranges
+    }
+
+    /// A chapter of margin notes: `count` relative containers, each holding a paragraph and,
+    /// written after it, a note positioned at the container's top-right corner, with a paragraph
+    /// between one container and the next. A note's insets are measured from its own container
+    /// (CSS 2.2 10.6.4), so where it stands depends on the containers above it and on nothing
+    /// below: at the top of its paragraph's first line, 120 by 50 points, against the column's
+    /// right edge. The paragraph written before it wraps beside it, and so does a separator that
+    /// comes into its rows.
+    @discardableResult
+    private func assertNotesBesideTheirParagraphs(_ count: Int, paragraph: String = note,
+                                                  file: StaticString = #filePath, line: UInt = #line) throws -> SectionText {
+        let section = try H.build(String(repeating: "<div class='rel'><p>\(paragraph)</p><aside>A.</aside></div><p>Separator.</p>", count: count),
+                                  css: H.reset + Self.notes)
+        let resolved = ReaderBoxLayout.resolve(section.string, viewport: size)
+        XCTAssertEqual(resolved.text.string, section.string.string, file: file, line: line)
+        let plan = try XCTUnwrap(resolved.geometry, "\(count) containers have a plan", file: file, line: line)
+        let notes = plan.regions.filter(\.wrapsEarlierText)
+        XCTAssertEqual(notes.count, count, "every note keeps its region", file: file, line: line)
+        let boxes = occurrences(of: "A.", in: section), paragraphs = occurrences(of: paragraph, in: section)
+        let separators = occurrences(of: "Separator.", in: section)
+        XCTAssertEqual(boxes.count, count, file: file, line: line); XCTAssertEqual(paragraphs.count, count, file: file, line: line)
+        for (index, note) in notes.enumerated() where index < count {
+            let label = "note \(index + 1) of \(count)"
+            XCTAssertGreaterThan(NSIntersectionRange(note.range, boxes[index]).length, 0, label, file: file, line: line)
+            let lines = plan.paragraph(at: paragraphs[index].location)?.lines ?? []
+            let top = try XCTUnwrap(lines.first?.frame.minY, label, file: file, line: line)
+            XCTAssertEqual(note.frame.minY, top, accuracy: 0.5, "\(label) stands at its container's top", file: file, line: line)
+            XCTAssertEqual(note.frame.minX, size.width - 120, accuracy: 1, label, file: file, line: line)
+            XCTAssertEqual(note.frame.width, 120, accuracy: 1, label, file: file, line: line)
+            XCTAssertEqual(note.frame.height, 50, accuracy: 1, label, file: file, line: line)
+            let following = plan.paragraph(at: separators[index].location)?.lines ?? []
+            let beside = (lines + following).filter { $0.frame.minY < note.frame.maxY - 0.5 && $0.frame.maxY > note.frame.minY + 0.5 }
+            XCTAssertGreaterThanOrEqual(beside.count, 2, "\(label) has its paragraph's lines beside it", file: file, line: line)
+            XCTAssertTrue(beside.allSatisfy { $0.frame.maxX <= note.frame.minX + 0.5 }, "\(label) has the text beside it keep clear of it",
+                          file: file, line: line)
+        }
+        return section
+    }
+
+    /// The issue's chapter (#209). Each paragraph is one line across the column and two beside its
+    /// note, so it is taller in the pass that knows of the note than in the pass that placed it,
+    /// and every container below it stands lower. Each pass found the right place for a few more
+    /// notes than the pass before, and with no more passes to make, twelve containers had every
+    /// note left in flow and eight were placed. With a paragraph twice as long, six were placed
+    /// and twelve were not.
+    func testEveryNoteInALongRunOfRelativeContainersIsPlaced() throws {
+        try assertNotesBesideTheirParagraphs(8)
+        let section = try assertNotesBesideTheirParagraphs(12)
+        try assertNotesBesideTheirParagraphs(12, paragraph: "P. Ordinary prose wraps beside the box and returns. Ordinary prose wraps beside the box again.")
+        // The layout sets the lines where the plan has them and pages every character.
+        let measured = try XCTUnwrap(BoxPlanAgreementTests.disagreement(section, viewport: size))
+        XCTAssertGreaterThan(measured.compared, 24)
+        XCTAssertLessThan(measured.worst, 0.75, "the plan puts every line where the layout does: \(measured.at)")
+        H.pages(section, size: size)
+    }
+
+    /// A few hundred: the chapter is longer than many pages, and every note is still placed.
+    func testEveryNoteInHundredsOfRelativeContainersIsPlaced() throws {
+        try assertNotesBesideTheirParagraphs(300)
+    }
 }
