@@ -994,8 +994,12 @@ TABLE_NARROW_SECTIONS=400 swift test --jobs 1 --filter TableNarrowCellTests
 ([#570](https://github.com/vocaro/EPUBLib/issues/570)), each by its whole-page character rule:
 `PageTextGeometryTests`' seed 22 section 443, small justified and Chinese-text paragraphs, lines
 taller than their page that mix large and small runs or text and a table row, and a page whose
-own first line holds a tall row. It also holds a justified paragraph of verse, a `<br>` after
-each line: a page inside it lays out the paragraph only up to the next line break that ends a
+own first line holds a tall row. It holds the pages whose characters were on no visible line
+before [#576](https://github.com/vocaro/EPUBLib/issues/576): a page whose own layout sets none
+of its characters on a line (a continued line whose tab no stop follows, its interval taken
+away by hand), a formula taller than its clip below kept spacing, and a line of two
+attachments the fallback does not size, which is divided between pages. It also holds a
+justified paragraph of verse, a `<br>` after each line: a page inside it lays out the paragraph only up to the next line break that ends a
 line of text, with the same lines and character positions as with the paragraph's whole rest. Its generated sections have no box plan and pages ending
 inside justified, tabbed and indented paragraphs; `PAGE_MEASUREMENT_SECTIONS` (default 120)
 and `PAGE_MEASUREMENT_SEED` (default 570) choose them.

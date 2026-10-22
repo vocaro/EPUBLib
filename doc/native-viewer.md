@@ -2153,16 +2153,29 @@ as they did.
   TextKit layout of every page during pagination, and it moves a few page starts from where
   the section's layout put them; the cost on the standard book corpora is on
   [#570](https://github.com/vocaro/EPUBLib/issues/570#issuecomment-6184463894).
-  A first line taller than the clip, or a positioned first line outside it, falls back to
-  native in-flow text with bounded typography, on every page: committed, its characters would
-  be on no visible line, and a table row laid out on that line would lose its continuation
-  pages. That exceptional slice retains its characters, DOM mapping, links and heading
-  roles; it can change positioning, font size, baseline shifts and paragraph spacing to make
-  its content reachable. It fits each run, table row and image to the clip; when the line
-  they make together is still taller (a small run's line height applied to a large run, text
-  beside a row), it lowers that target by the line's overshoot, or in proportion if that is
-  lower, and lays the slice out again, at most eight more times
+  A first line taller than the clip, a positioned first line outside it, or a slice whose
+  own layout sets none of its characters on a line (its container refused TextKit the first
+  line), falls back to native in-flow text with bounded typography, on every page: committed,
+  its characters would be on no visible line, and a table row laid out on that line would
+  lose its continuation pages. That exceptional slice retains its characters, DOM mapping,
+  links and heading roles; it can change positioning, font size, baseline shifts, paragraph
+  spacing and tab intervals to make its content reachable. It fits each run, table row, image
+  and formula to the clip, and gives a tab with neither a stop after it nor an interval one;
+  when the line they make together is still taller (a small run's line height applied to a
+  large run, text beside a row), it lowers that target by the line's overshoot, or in
+  proportion if that is lower, and lays the slice out again, at most eight more times
   ([#303](https://github.com/vocaro/EPUBLib/issues/303), [#192](https://github.com/vocaro/EPUBLib/issues/192), [#242](https://github.com/vocaro/EPUBLib/issues/242), [#289](https://github.com/vocaro/EPUBLib/issues/289), [#570](https://github.com/vocaro/EPUBLib/issues/570)).
+  When no height shows the first line, the page keeps the longest start of that line that
+  shows, laid out alone as planned or as the fallback, and the rest carries to the next page,
+  as a line below the clip does. So no page is committed whose own layout shows no line of its
+  characters, unless its clip can show no glyph or no layout can show its first character
+  ([#576](https://github.com/vocaro/EPUBLib/issues/576)). No content the reader makes is known
+  to need that division. A character cluster that no layout shows, as an attachment of fixed
+  size made outside the reader can be, is committed as planned with the white space after it
+  on its line, so that pagination advances. Debug builds check each page as it is committed:
+  that it starts where the page before ended (or repeats the row whose continuation it holds,
+  or follows text TextKit set on no line), that it advances, and that its own layout shows a
+  line of its characters, or that no layout shows its first.
   A page that is shown is laid out twice: by the paginator, to measure it, and by its column.
   Handing the measuring layout to the column was left out of #570. A column is a persistent
   `ReaderTextView` that owns its TextKit stack from its creation and keeps it across page
@@ -2193,9 +2206,10 @@ as they did.
   half a point for that glyph. Fallback requires its measured one-point minimum drawing box
   plus the existing one-point safety inset after top spacing. Below that budget pagination
   preserves the original fonts and one-source-line progress, without claiming visible
-  glyphs. A failed fitted retry also preserves the original page. No font or page-range
-  alteration is committed for an impossible clip. A 600-point source glyph fits its
-  500-point page through the fallback, and its original page boundaries remain unchanged
+  glyphs. No font or page-range alteration is committed for an impossible clip; at a clip
+  that can show a glyph, a first line that no fitted retry shows is divided instead, as
+  above. A 600-point source glyph fits its 500-point page through the fallback, and its
+  original page boundaries remain unchanged
   ([record](https://github.com/vocaro/EPUBLib/issues/242#issuecomment-6159295037); [generated pages](testing.md#generated-page-text)).
   Paginations are cached per section and column size; a resize,
   rotation or bar change repaginates once it ends, in steps when far into a section, with the
