@@ -61,7 +61,8 @@ as one space and none left at either end. EPUB Reading Systems 3.3 §5.3 require
 Core and `meta` values, and it is how a browser renders a link, so a title or a label its
 authoring tool wrapped and indented is one line. The values are the Dublin Core title, creators,
 languages and identifiers and the `rendition:layout` `meta`; the labels are a contents entry's
-link or heading, a landmark's link, a page-list link and an NCX `navLabel`. An image, an SVG
+link or heading, a landmark's link, a page-list link, an NCX `navLabel` and an EPUB 2 guide
+reference's `title` ([#269](https://github.com/vocaro/EPUBLib/issues/269)). An image, an SVG
 drawing, a formula or other embedded element in a label is read as its alternative text, as EPUB
 Reading Systems 3.3 §7 recommends: its `alt`, else its `title`, else a drawing's `title` element
 or a formula's `alttext`. One with none of these is read by its content, such as a formula's
@@ -77,7 +78,7 @@ no host can show one. A value left empty is not listed among the metadata; an en
 is left empty stays, without a title. `xml:space` changes nothing. White space is found as
 [normalizing by scalar and by byte](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#normalize-text-by-scalar-and-by-byte-not-by-character)
 says. An attribute's value is not such text, but for an alternative or `title` read into
-a label, and a guide reference's `title` is read as written. A font obfuscation key is made from the identifier's text by its algorithm's own rule,
+a label and a guide reference's `title`. A font obfuscation key is made from the identifier's text by its algorithm's own rule,
 not from the value read here. IDPF's removes the space, tab, carriage return and line feed and
 nothing else (EPUB 3.3 §4.4.3), each as its byte: other white space is part of the key, at the
 identifier's ends too, and so is a mark after a space. Adobe's is the UUID whatever white space
@@ -129,9 +130,21 @@ disclosed:
   Manifest IDs and the references to them (the spine's `idref`, `fallback`, the NCX `toc`, the
   EPUB 2 cover and `unique-identifier`) compare code unit for code unit, as XML compares IDs:
   `caf&#xE9;` and `cafe&#x301;` are two items ([#635](https://github.com/vocaro/EPUBLib/issues/635)).
+  Each is read first as XML Schema reads the name types (`NCName`, `ID`, `IDREF`) the package
+  schema gives them, its white space collapsed: no XML white space (space, tab, line feed,
+  carriage return) at either end, and each run of it inside one space. So `id=" one "` is the item `idref="one"` names, as EPUBCheck
+  reads it, an item that differs from another only so repeats it, and an id of nothing but that
+  white space is empty, as `id=""` is. Other white space, a no-break space among it, is part of
+  the ID. A `dc:identifier`'s `id`, which `unique-identifier` names, is read the same way. The cover
+  `meta`'s `content` is not typed as an IDREF but names an ID, and is read the same way
+  ([#80](https://github.com/vocaro/EPUBLib/issues/80)).
   Missing and remote declarations remain available to chain traversal, while resource access
   still reads archive-local entries only; the authored spine entries remain unchanged
   ([#78](https://github.com/vocaro/EPUBLib/issues/78)).
+- **Spine.** An itemref that overrides the package's `rendition:layout` more than once, which
+  EPUB 3.3 does not allow, is laid out by the first override its `properties` writes, whatever
+  stands between them, as EPUB Reading Systems 3.3 §5.5.1 has a reading system do
+  ([#79](https://github.com/vocaro/EPUBLib/issues/79)).
 - **Contents.** An entry whose href does not resolve keeps its title and children, without an
   href. A landmark or page that does not resolve is left out.
 - **NCX.** The NCX is the item the spine's `toc` names, whatever its media type. Where `toc` is
