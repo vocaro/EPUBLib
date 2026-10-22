@@ -910,6 +910,13 @@ extension NativeSession: ReaderCanvasDelegate {
         }
     }
 
+    /// Ahead of the background rebuild, which goes nearest first, at a person's priority: the
+    /// next move by heading finds what the section holds within one build (#243).
+    func canvas(_ canvas: any ReaderCanvas, wantsSection index: Int) {
+        guard !closed, !book.isCurrent(index) else { return }
+        tasks.append(Task { [weak self] in _ = await self?.book.build(index) })
+    }
+
     func canvas(_ canvas: any ReaderCanvas, needsSection index: Int, forward: Bool) {
         let ticket = beginNavigation(), changes = pageChanges
         tasks.append(Task { [weak self] in

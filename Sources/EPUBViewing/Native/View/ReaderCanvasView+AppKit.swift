@@ -326,10 +326,13 @@ extension ReaderCanvasView: NSTextViewDelegate {
     }
 
     /// The heading that begins at `position`, when one still does, in a section a page turn
-    /// would show as it is built (`bookHeading`).
+    /// would show as it is built; for one it would not, its build is asked for (`bookHeading`).
     private func heading(at position: ReaderTextPosition) -> ReaderBookHeading? {
-        guard dataSource?.canShow(section: position.section) != false,
-              let found = headings(inSection: position.section)?.first(where: { $0.range.location == position.offset }) else { return nil }
+        if dataSource?.canShow(section: position.section) == false {
+            delegate?.canvas(self, wantsSection: position.section)
+            return nil
+        }
+        guard let found = headings(inSection: position.section)?.first(where: { $0.range.location == position.offset }) else { return nil }
         return ReaderBookHeading(heading: found.heading, section: position.section, range: found.range)
     }
 

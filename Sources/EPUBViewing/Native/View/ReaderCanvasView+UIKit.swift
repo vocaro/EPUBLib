@@ -250,8 +250,13 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// link, text is selected, or the touch was a long press (a selection beginning). The press
     /// is timed by the touch's own timestamps, from when it went down to when it lifted.
     @objc private func tapped(_ recognizer: ReaderEdgeTapRecognizer) {
-        guard let down = pointerDown, let lift = recognizer.liftTime, lift - down.time < 0.35,
-              let forward = edgeTurn(at: recognizer.location(in: self)) else { return }
+        edgeTap(at: recognizer.location(in: self), liftedAt: recognizer.liftTime)
+    }
+
+    /// The tap's own work, for a touch that lifted at `lift` at `location`: what an in-process
+    /// test delivers, as UIKit makes no touch there (`ReaderEdgeTapRecognizer`).
+    func edgeTap(at location: CGPoint, liftedAt lift: TimeInterval?) {
+        guard let down = pointerDown, let lift, lift - down.time < 0.35, let forward = edgeTurn(at: location) else { return }
         turnPageFromInput(forward: forward)
     }
 

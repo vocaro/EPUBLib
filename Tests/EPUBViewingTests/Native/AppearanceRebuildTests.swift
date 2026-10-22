@@ -376,6 +376,38 @@ import UIKit
         assertChangesOnce(seen, to: true)
     }
 
+    /// A move by heading that stops at a section still to be rebuilt asks for its build at once,
+    /// ahead of the background rebuild, so the next move finds the heading. Here the background
+    /// is held at the sections in between, which page turns step over, so only the move's own
+    /// request builds the far one.
+    func testAMoveByHeadingThatStopsAsksForItsSectionsBuildAtOnce() async throws {
+        let width = max(2, min(8, ProcessInfo.processInfo.activeProcessorCount - 1)) // `NativeBook.buildRemaining`
+        let between = (1...width).map { "note\($0)" }
+        let held = expectation(description: "the background rebuild is held")
+        let gate = DarkBuildGate(holding: Set(between.map { "OPS/\($0).xhtml" }), held: held)
+        defer { gate.release() }
+        let data = try SessionCoverageBook.epub(
+            [.init("one", "<h1>The first chapter</h1>" + SessionCoverageBook.filler(60))]
+                + between.map { .init($0, "<p>A note.</p><hr/>", linear: false) }
+                + [.init("far", "<h1>The far chapter</h1>" + SessionCoverageBook.filler(4))])
+        let far = width + 1
+        let session = try NativeSession(publication: try EPUBPublication.open(data: data), action: nil, rich: gate) { _ in }
+        let window = ReaderTestWindow(session: session)
+        defer { session.close(); window.close() }
+        try await wait("the Light reader") { session.isReady && session.book.isComplete }
+
+        window.pageControls.colorScheme = .dark
+        await waitFor([held])
+        try await wait("the first section in Dark") { session.canvas?.configuration.isDark == true }
+        let canvas = try await laidOutCanvas(session, dark: true)
+        XCTAssertFalse(try moveToTheNextHeading(on: canvas), "the move by heading reached a section still built for Light")
+        try await wait("the far section's Dark build, asked for by the move") { session.book.isCurrent(far) }
+        XCTAssertTrue(try moveToTheNextHeading(on: canvas), "the next move by heading did not reach the rebuilt section")
+        _ = await look(canvas, "the far chapter's heading")
+        XCTAssertEqual(session.visibleRange?.start.section, far)
+        XCTAssertEqual(shownAppearances(canvas), [true], "the far section is not shown in Dark")
+    }
+
     func testASessionClosedWhileATurnWaitsForItsSectionsDarkBuildDoesNothingMore() async throws {
         let held = expectation(description: "the second section's Dark rebuild is held")
         let gate = DarkBuildGate(holding: "OPS/two.xhtml", held: held)
@@ -537,7 +569,7 @@ import UIKit
     #if os(macOS)
     private enum ReaderInput: String, CaseIterable { case key, click, wheel, voiceOver }
     #else
-    private enum ReaderInput: String, CaseIterable { case key, swipe, voiceOver }
+    private enum ReaderInput: String, CaseIterable { case key, tap, swipe, voiceOver }
     #endif
 
     /// A turn back a page, made as the reader makes it with `input`.
@@ -572,6 +604,11 @@ import UIKit
         case .key:
             canvas.pageTurnKeyCommand(UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [],
                                                    action: #selector(ReaderCanvasView.pageTurnKeyCommand(_:))))
+        case .tap:
+            // As the recognizer gives it: down in the left zone, lifted a tenth of a second later.
+            let edge = CGPoint(x: canvas.bounds.minX + 5, y: canvas.bounds.midY)
+            canvas.pointerDown = (edge, 100)
+            canvas.edgeTap(at: edge, liftedAt: 100.1)
         case .swipe:
             let swipe = try XCTUnwrap(canvas.gestureRecognizers?.compactMap { $0 as? UISwipeGestureRecognizer }.first { $0.direction == .right })
             canvas.perform(NSSelectorFromString("swiped:"), with: swipe)
@@ -632,18 +669,19 @@ import UIKit
     }
 }
 
-/// Holds every build for Dark of one document at its rule, until released; builds for Light
-/// pass. One release lets every held build finish, and `passes` counts them.
+/// Holds every build for Dark of some documents at their rules, until released; builds for
+/// Light pass. One release lets every held build finish, and `passes` counts them.
 private final class DarkBuildGate: RichContentFactory, @unchecked Sendable {
     private let condition = NSCondition()
-    private let path: String
+    private let paths: Set<String>
     private let held: XCTestExpectation
     private var announced = false
     private var released = false
     private var passed = 0
     private let content = NativeRichContent()
 
-    init(holding path: String, held: XCTestExpectation) { self.path = path; self.held = held }
+    init(holding paths: Set<String>, held: XCTestExpectation) { self.paths = paths; self.held = held }
+    convenience init(holding path: String, held: XCTestExpectation) { self.init(holding: [path], held: held) }
 
     /// How many held builds have been let through.
     var passes: Int {
@@ -660,7 +698,7 @@ private final class DarkBuildGate: RichContentFactory, @unchecked Sendable {
     }
 
     func horizontalRule(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString {
-        if context.typography.isDark, context.document.path == path {
+        if context.typography.isDark, paths.contains(context.document.path) {
             condition.lock()
             if !announced { announced = true; held.fulfill() }
             while !released { condition.wait() }

@@ -1550,8 +1550,9 @@ import AppKit
     /// position it begins after and before one it ends at or before, so the heading a position
     /// is inside is neither. A section that page turns step over is passed over unless the
     /// search starts in it or it is the one on screen, and a section not built yet ends the
-    /// search, as does one a page turn would wait to have built again (`canShow`): the move
-    /// that finds a heading shows it at once. From no position the search takes in every
+    /// search, as does one a page turn would wait to have built again (`canShow`), whose build
+    /// is then asked for (`wantsSection`): the move that finds a heading shows it at once. From
+    /// no position the search takes in every
     /// heading it can reach from the section on screen, and begins before the first of them, or
     /// after the last: the whole book once it is built, and until then the sections built so far
     /// around the reader.
@@ -1570,7 +1571,10 @@ import AppKit
         }
         while section >= 0, section < dataSource.sectionCount {
             if searched(section) {
-                guard built(section), let headings = headings(inSection: section) else { return nil }
+                guard built(section), let headings = headings(inSection: section) else {
+                    if dataSource.text(forSection: section) != nil { delegate?.canvas(self, wantsSection: section) }
+                    return nil
+                }
                 let found: (heading: ReaderHeading, range: NSRange)?
                 if let position {
                     found = forward ? headings.first { section > position.section || $0.range.location > position.offset }

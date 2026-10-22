@@ -170,6 +170,14 @@ extension ReaderCanvasDataSource {
     /// A page turn or scroll needs a section that is not built. When it is, the session shows
     /// its start (`forward`) or end.
     func canvas(_ canvas: any ReaderCanvas, needsSection index: Int, forward: Bool)
+    /// A search that shows what it finds, as VoiceOver's move by heading, stopped at a section
+    /// that must be built again before it is shown (`ReaderCanvasDataSource.canShow`): build it
+    /// now, showing nothing, so that the next search finds what it holds.
+    func canvas(_ canvas: any ReaderCanvas, wantsSection index: Int)
+}
+
+extension ReaderCanvasDelegate {
+    func canvas(_ canvas: any ReaderCanvas, wantsSection index: Int) {}
 }
 
 /// The TextKit 2 surface: continuous scroll in a real scroll view, or columns paginated from the
