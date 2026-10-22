@@ -767,23 +767,28 @@ enum ReaderBoxLayout {
         }
 
         private let regions: [ReaderBoxGeometry.Region]
-        private let wrapping: [UUID?: [ReaderBoxGeometry.Region]]
-        /// Where the earlier pass's vertical insets put its boxes, by range.
-        private let insets: [NSRange: Inset]
+        private let ranges: [NSRange]
+        /// The boxes the text of each scope wraps around, as indexes into `regions`.
+        private let wrapping: [UUID?: [Int]]
+        /// Where the earlier pass's vertical insets put the boxes of `regions`, by index.
+        private let insets: [Inset?]
         private var placed: Set<NSRange> = []
-        /// Where this pass anticipates each box whose inset's origin has moved, by range: settled
-        /// once, when a question first finds the origin, for every later question to read.
-        private var moved: [NSRange: ReaderBoxGeometry.Region] = [:]
+        /// Where this pass anticipates each box of `regions`, by index, once that is known: from
+        /// the start where the box was set by no inset, and otherwise once a question finds its
+        /// inset's origin. Every later question reads it.
+        private var anticipations: [ReaderBoxGeometry.Region?]
 
         /// `regions` in the order the earlier pass placed them. One that meets a `disabled`
         /// range is a box this pass leaves in flow: text does not wrap ahead of it.
         init(_ regions: [ReaderBoxGeometry.Region], insets: [NSRange: Inset] = [:], disabled: [NSRange]) {
             self.regions = regions
-            self.insets = insets
-            var wrapping: [UUID?: [ReaderBoxGeometry.Region]] = [:]
-            for region in regions where region.wrapsEarlierText
+            ranges = regions.map(\.range)
+            self.insets = regions.map { insets[$0.range] }
+            anticipations = regions.map { insets[$0.range] == nil ? $0 : nil }
+            var wrapping: [UUID?: [Int]] = [:]
+            for (index, region) in regions.enumerated() where region.wrapsEarlierText
                 && !disabled.contains(where: { NSIntersectionRange($0, region.range).length > 0 }) {
-                wrapping[region.scope, default: []].append(region)
+                wrapping[region.scope, default: []].append(index)
             }
             self.wrapping = wrapping
         }
@@ -798,7 +803,7 @@ enum ReaderBoxLayout {
         /// found for an inset (nil while it has yet to find it), and `frames`, the frames of the
         /// boxes positioned by an inset that it has placed so far.
         mutating func unplaced(origin: (Inset) -> CGFloat?, below frames: () -> [CGRect]) -> [ReaderBoxGeometry.Region] {
-            anticipated(unplaced, origin: origin, below: frames)
+            anticipated(ranges.indices.filter { !placed.contains(ranges[$0]) }, origin: origin, below: frames)
         }
 
         /// Those of `unplaced` that the text of `scope` wraps around, each where this pass
@@ -806,34 +811,37 @@ enum ReaderBoxLayout {
         mutating func unplaced(wrappingTextIn scope: UUID?, origin: (Inset) -> CGFloat? = { _ in nil },
                       below frames: () -> [CGRect] = { [] }) -> [ReaderBoxGeometry.Region] {
             guard let boxes = wrapping[scope] else { return [] }
-            return anticipated(boxes.filter { !placed.contains($0.range) }, origin: origin, below: frames)
+            return anticipated(boxes.filter { !placed.contains(ranges[$0]) }, origin: origin, below: frames)
         }
 
         /// Whether this pass has found the origin of a box's inset elsewhere than the earlier
         /// pass did, and so anticipated the box elsewhere than that pass placed it.
         func hasMoved(origin: (Inset) -> CGFloat?) -> Bool {
-            insets.values.contains { inset in origin(inset).map { $0 != inset.origin } ?? false }
+            insets.contains { inset in inset.flatMap { inset in origin(inset).map { $0 != inset.origin } } ?? false }
         }
 
-        /// `regions`, in source order, where this pass anticipates them. One whose inset's origin
-        /// has moved is set where its inset puts it from there, below the boxes placed before it,
-        /// as it will be placed: the boxes this pass has placed and those anticipated before it.
-        /// Each is settled once a pass: settling every moved box again for every float and every
-        /// paragraph that asks, below a list that grows with each, cost the cube of the box count
-        /// for a container of many floats or paragraphs and then many boxes, below one that moved.
-        private mutating func anticipated(_ regions: [ReaderBoxGeometry.Region], origin: (Inset) -> CGFloat?,
+        /// The boxes of `regions` at `indexes`, in source order, where this pass anticipates them.
+        /// One whose inset's origin has moved is set where its inset puts it from there, below the
+        /// boxes placed before it, as it will be placed: the boxes this pass has placed and those
+        /// anticipated before it. Each is anticipated once a pass: settling every moved box again
+        /// for every float and every paragraph that asks, below a list that grows with each, cost
+        /// the cube of the box count for a container of many floats or paragraphs and then many
+        /// boxes, below one that moved.
+        private mutating func anticipated(_ indexes: [Int], origin: (Inset) -> CGFloat?,
                                           below frames: () -> [CGRect]) -> [ReaderBoxGeometry.Region] {
             var result: [ReaderBoxGeometry.Region] = []
+            result.reserveCapacity(indexes.count)
             var obstacles: [CGRect]?
-            for var region in regions {
-                if let known = moved[region.range] {
-                    region = known
-                } else if let inset = insets[region.range], let now = origin(inset), now != inset.origin {
-                    if obstacles == nil { obstacles = frames() + result.map(\.frame) }
-                    region.frame.origin.y = max(0, now + inset.offset)
-                    region.frame = ReaderBoxLayout.settled(region.frame, below: obstacles ?? [])
-                    region.contentFrame?.origin.y = region.frame.minY
-                    moved[region.range] = region
+            for index in indexes {
+                var region = anticipations[index] ?? regions[index]
+                if anticipations[index] == nil, let inset = insets[index], let now = origin(inset) {
+                    if now != inset.origin {
+                        if obstacles == nil { obstacles = frames() + result.map(\.frame) }
+                        region.frame.origin.y = max(0, now + inset.offset)
+                        region.frame = ReaderBoxLayout.settled(region.frame, below: obstacles ?? [])
+                        region.contentFrame?.origin.y = region.frame.minY
+                    }
+                    anticipations[index] = region
                 }
                 obstacles?.append(region.frame)
                 result.append(region)
