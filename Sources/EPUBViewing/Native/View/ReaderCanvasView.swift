@@ -1550,24 +1550,27 @@ import AppKit
     /// position it begins after and before one it ends at or before, so the heading a position
     /// is inside is neither. A section that page turns step over is passed over unless the
     /// search starts in it or it is the one on screen, and a section not built yet ends the
-    /// search. From no position the search takes in every heading it can reach from the section
-    /// on screen, and begins before the first of them, or after the last: the whole book once
-    /// it is built, and until then the sections built so far around the reader.
+    /// search, as does one a page turn would wait to have built again (`canShow`): the move
+    /// that finds a heading shows it at once. From no position the search takes in every
+    /// heading it can reach from the section on screen, and begins before the first of them, or
+    /// after the last: the whole book once it is built, and until then the sections built so far
+    /// around the reader.
     func bookHeading(from position: ReaderTextPosition?, forward: Bool) -> ReaderBookHeading? {
         guard let dataSource, dataSource.sectionCount > 0 else { return nil }
         let shown = visibleRange?.start.section
         func searched(_ section: Int) -> Bool { section == position?.section || section == shown || dataSource.isLinear(section: section) }
+        func built(_ section: Int) -> Bool { dataSource.text(forSection: section) != nil && dataSource.canShow(section: section) }
         var section: Int
         if let position { section = position.section } else {
             // Back from the section on screen, against the search, through the sections built.
             section = min(max(0, shown ?? 0), dataSource.sectionCount - 1)
             let back = forward ? -1 : 1
             while section + back >= 0, section + back < dataSource.sectionCount,
-                  !searched(section + back) || dataSource.text(forSection: section + back) != nil { section += back }
+                  !searched(section + back) || built(section + back) { section += back }
         }
         while section >= 0, section < dataSource.sectionCount {
             if searched(section) {
-                guard let headings = headings(inSection: section) else { return nil }
+                guard built(section), let headings = headings(inSection: section) else { return nil }
                 let found: (heading: ReaderHeading, range: NSRange)?
                 if let position {
                     found = forward ? headings.first { section > position.section || $0.range.location > position.offset }

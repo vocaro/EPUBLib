@@ -55,6 +55,10 @@ import SwiftUI
     @ObservationIgnored private(set) var lastLocation: EPUBLocation?
     @ObservationIgnored private(set) var selection: ReaderSelection?
     @ObservationIgnored private var navigation = 0
+    /// How often the page on screen has changed, by a move from anywhere (a key, a click or tap,
+    /// a swipe, the wheel, VoiceOver, a command) or a relayout. A page turn or search result that
+    /// waits for a build is dropped if the page has changed since it was asked for.
+    @ObservationIgnored private var pageChanges = 0
     @ObservationIgnored private var highlights: [EPUBHighlight] = []
     @ObservationIgnored private var unresolvedHighlights: Set<String> = []
     @ObservationIgnored private var searchMatches: [Int: [TextSearch.Match]] = [:]
@@ -478,8 +482,9 @@ import SwiftUI
         emit(.searchResultsChanged(results))
         if let first, let navigationTicket {
             // As a step through the results shows one (`showSearchResult(at:)`).
+            let changes = pageChanges
             if !canShow(section: first.start.section) { _ = await book.build(first.start.section) }
-            if isCurrent(navigationTicket) {
+            if isCurrent(navigationTicket), pageChanges == changes {
                 canvas?.clearSelection()
                 canvas?.showFound(first.start)
             }
@@ -554,9 +559,9 @@ import SwiftUI
         searchResults = results
         drawCurrentSearchResult()
         emit(.searchResultsChanged(results))
-        let position = searchResultRanges[index].start
+        let position = searchResultRanges[index].start, changes = pageChanges
         if !canShow(section: position.section) { _ = await book.build(position.section) }
-        guard isCurrent(ticket) else { return }
+        guard isCurrent(ticket), pageChanges == changes else { return }
         canvas?.clearSelection()
         canvas?.showFound(position)
     }
@@ -600,16 +605,22 @@ import SwiftUI
         let typography = NativeTypography(fontSize: style.fontSize, isDark: effectiveIsDark)
         if typography != book.typography {
             book.setTypography(typography)
-            buildBook(from: visibleRange?.start.section ?? initialSection)
+            buildBook(from: visibleRange?.start.section ?? initialSection,
+                      alongside: visibleRange.map { sections(inReachOf: $0) } ?? [])
         }
     }
 
     /// Builds `section` for the current typography, then the rest. A section already built for
     /// it, as when a host turns back to the appearance it reported before, stores nothing and
-    /// reports no build, so whether the opening page can be shown is asked again here.
-    private func buildBook(from section: Int) {
+    /// reports no build, so whether the opening page can be shown is asked again here. The
+    /// sections `alongside`, those in reach of the page, build at the same time: a change of
+    /// appearance waits for them (`showNewAppearanceIfReady`), so for one build, not two.
+    private func buildBook(from section: Int, alongside reach: [Int] = []) {
+        let book = book
         tasks.append(Task { [weak self] in
-            _ = await self?.book.build(section)
+            await withTaskGroup(of: Void.self) { group in
+                for index in Set(reach + [section]) { group.addTask { _ = await book.build(index) } }
+            }
             self?.becomeReadyIfPossible()
             self?.book.buildRemaining(from: section)
         })
@@ -828,6 +839,7 @@ extension NativeSession: ReaderCanvasDataSource {
 
 extension NativeSession: ReaderCanvasDelegate {
     func canvas(_ canvas: any ReaderCanvas, didShow range: ReaderTextRange, sectionProgress: Double) {
+        if range != visibleRange { pageChanges += 1 }
         visibleRange = range
         // A page of text built for the appearance asked for brings it to the canvas (`shownIsDark`).
         applyConfiguration()
@@ -899,9 +911,10 @@ extension NativeSession: ReaderCanvasDelegate {
     }
 
     func canvas(_ canvas: any ReaderCanvas, needsSection index: Int, forward: Bool) {
-        let ticket = beginNavigation()
+        let ticket = beginNavigation(), changes = pageChanges
         tasks.append(Task { [weak self] in
-            guard let text = await self?.book.build(index), let self, self.isCurrent(ticket) else { return }
+            guard let text = await self?.book.build(index), let self, self.isCurrent(ticket),
+                  self.pageChanges == changes else { return }
             self.canvas?.show(ReaderTextPosition(section: index, offset: forward ? 0 : text.string.length), selecting: nil,
                               entry: .firstLine)
         })

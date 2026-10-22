@@ -305,6 +305,77 @@ import UIKit
         }
     }
 
+    /// A turn that waits for its section's Dark build is the reader's to take back: a move back
+    /// made with any input the reader has drops it, and when the build arrives the page stays
+    /// where that move left it.
+    func testAMoveBackByAnyInputDropsATurnThatWaitsForItsSectionsBuild() async throws {
+        for input in ReaderInput.allCases {
+            let held = expectation(description: "the second section's Dark rebuild is held, \(input)")
+            let gate = DarkBuildGate(holding: "OPS/two.xhtml", held: held)
+            defer { gate.release() }
+            let session = try NativeSession(publication: try EPUBPublication.open(data: Self.threeSections()), action: nil, rich: gate) { _ in }
+            let window = ReaderTestWindow(session: session)
+            defer { session.close(); window.close() }
+            try await wait("the Light reader") { session.isReady && session.book.isComplete }
+
+            window.pageControls.colorScheme = .dark
+            await waitFor([held])
+            try await wait("the first section in Dark") { session.canvas?.configuration.isDark == true }
+            let canvas = try await laidOutCanvas(session, dark: true)
+            try await turnToTheEnd(of: 0, session) {}
+            let last = session.visibleRange
+            try await session.send(.nextPage)
+            await settle(canvas)
+            XCTAssertEqual(session.visibleRange, last, "the turn did not wait for the second section's Dark build, \(input)")
+            try turnBack(by: input, on: canvas)
+            await settle(canvas)
+            let left = try XCTUnwrap(session.visibleRange)
+            XCTAssertNotEqual(left, last, "\(input) did not turn back")
+            XCTAssertEqual(left.start.section, 0)
+
+            gate.release()
+            try await wait("the second section's Dark build") { session.book.isCurrent(1) }
+            try await observe(for: 0.5) { await settle(canvas) }
+            XCTAssertEqual(session.visibleRange, left, "the held turn was taken after the turn back by \(input)")
+            assertTextAgreesWithCanvas(canvas, "after the turn back by \(input)")
+        }
+    }
+
+    /// VoiceOver's move by heading shows the heading it finds at once, so once the page has
+    /// changed to Dark it stops at a section still built for Light, as at one not built yet,
+    /// and reaches it once it is rebuilt.
+    func testAMoveByHeadingStopsAtASectionNotYetRebuiltAndReachesItInTheNewAppearance() async throws {
+        let held = expectation(description: "the second section's Dark rebuild is held")
+        let gate = DarkBuildGate(holding: "OPS/two.xhtml", held: held)
+        defer { gate.release() }
+        let data = try SessionCoverageBook.epub([
+            .init("one", "<h1>The first chapter</h1>" + SessionCoverageBook.filler(60)),
+            .init("two", "<h1>The second chapter</h1><hr/>" + SessionCoverageBook.filler(4)),
+            .init("three", "<h1>The third chapter</h1>" + SessionCoverageBook.filler(4)),
+        ])
+        let session = try NativeSession(publication: try EPUBPublication.open(data: data), action: nil, rich: gate) { _ in }
+        let window = ReaderTestWindow(session: session)
+        defer { session.close(); window.close() }
+        try await wait("the Light reader") { session.isReady && session.book.isComplete }
+
+        window.pageControls.colorScheme = .dark
+        await waitFor([held])
+        try await wait("the first section in Dark") { session.canvas?.configuration.isDark == true }
+        let canvas = try await laidOutCanvas(session, dark: true)
+        var seen = [await look(canvas, "the first page in Dark")]
+        XCTAssertFalse(try moveToTheNextHeading(on: canvas), "the move by heading reached a section still built for Light")
+        seen.append(await look(canvas, "the move by heading the second section's Dark build holds"))
+        XCTAssertEqual(session.visibleRange?.start.section, 0)
+
+        gate.release()
+        try await wait("the second section's Dark build") { session.book.isCurrent(1) }
+        XCTAssertTrue(try moveToTheNextHeading(on: canvas), "the move by heading did not reach the rebuilt section")
+        seen.append(await look(canvas, "the second chapter's heading"))
+        XCTAssertEqual(session.visibleRange?.start.section, 1)
+        XCTAssertEqual(shownAppearances(canvas), [true], "the second section is not shown in Dark")
+        assertChangesOnce(seen, to: true)
+    }
+
     func testASessionClosedWhileATurnWaitsForItsSectionsDarkBuildDoesNothingMore() async throws {
         let held = expectation(description: "the second section's Dark rebuild is held")
         let gate = DarkBuildGate(holding: "OPS/two.xhtml", held: held)
@@ -461,6 +532,79 @@ import UIKit
         (canvas.presentedNote as? ReaderNoteViewController)?.dismiss(animated: false)
         #endif
         canvas.presentedNote = nil
+    }
+
+    #if os(macOS)
+    private enum ReaderInput: String, CaseIterable { case key, click, wheel, voiceOver }
+    #else
+    private enum ReaderInput: String, CaseIterable { case key, swipe, voiceOver }
+    #endif
+
+    /// A turn back a page, made as the reader makes it with `input`.
+    private func turnBack(by input: ReaderInput, on canvas: ReaderCanvasView) throws {
+        #if os(macOS)
+        let window = try XCTUnwrap(canvas.window)
+        switch input {
+        case .key:
+            canvas.keyDown(with: try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [.function, .numericPad], timestamp: 0, windowNumber: window.windowNumber,
+                context: nil, characters: "\u{F702}", charactersIgnoringModifiers: "\u{F702}", isARepeat: false, keyCode: 123)))
+        case .click:
+            let edge = canvas.convert(CGPoint(x: canvas.bounds.minX + 5, y: canvas.bounds.midY), to: nil)
+            func click(_ type: NSEvent.EventType) throws -> NSEvent {
+                try XCTUnwrap(NSEvent.mouseEvent(with: type, location: edge, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                                 context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1))
+            }
+            canvas.mouseDown(with: try click(.leftMouseDown))
+            canvas.mouseUp(with: try click(.leftMouseUp))
+        case .wheel:
+            // One notch of a mouse wheel turned up.
+            let event = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wheel1: 1, wheel2: 0, wheel3: 0))
+            event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: 1)
+            canvas.scrollWheel(with: try XCTUnwrap(NSEvent(cgEvent: event)))
+        case .voiceOver:
+            let column = try XCTUnwrap(canvas.textViews.first)
+            let action = try XCTUnwrap(column.accessibilityCustomActions()?.first { $0.name == "Previous Page" })
+            XCTAssertTrue(try XCTUnwrap(action.handler)())
+        }
+        #else
+        switch input {
+        case .key:
+            canvas.pageTurnKeyCommand(UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [],
+                                                   action: #selector(ReaderCanvasView.pageTurnKeyCommand(_:))))
+        case .swipe:
+            let swipe = try XCTUnwrap(canvas.gestureRecognizers?.compactMap { $0 as? UISwipeGestureRecognizer }.first { $0.direction == .right })
+            canvas.perform(NSSelectorFromString("swiped:"), with: swipe)
+        case .voiceOver:
+            XCTAssertTrue(canvas.accessibilityScroll(.previous))
+        }
+        #endif
+    }
+
+    /// VoiceOver's move to the next heading from the page's first line, as its Headings rotor
+    /// makes it. True when it went to one.
+    private func moveToTheNextHeading(on canvas: ReaderCanvasView) throws -> Bool {
+        let column = try XCTUnwrap(canvas.textViews.first)
+        #if os(macOS)
+        let rotor = try XCTUnwrap(column.accessibilityCustomRotors().first { $0.type == .heading })
+        let parameters = NSAccessibilityCustomRotor.SearchParameters()
+        let cursor = NSAccessibilityCustomRotor.ItemResult(targetElement: column)
+        cursor.targetRange = try XCTUnwrap(column.pageAccessibilityLines.first).range
+        parameters.currentItem = cursor
+        parameters.searchDirection = .next
+        guard let found = try XCTUnwrap(rotor.itemSearchDelegate).rotor(rotor, resultFor: parameters) else { return false }
+        if let token = found.itemLoadingToken {
+            return try XCTUnwrap(rotor.itemLoadingDelegate).accessibilityElement(withToken: token) != nil
+        }
+        return true
+        #else
+        let rotor = try XCTUnwrap(column.accessibilityCustomRotors?.first { $0.systemRotorType == .heading })
+        let predicate = UIAccessibilityCustomRotorSearchPredicate()
+        predicate.searchDirection = .next
+        let line = try XCTUnwrap((column.accessibilityElements as? [UIAccessibilityElement])?.first)
+        predicate.currentItem = UIAccessibilityCustomRotorItemResult(targetElement: line, targetRange: nil)
+        return rotor.itemSearchBlock(predicate) != nil
+        #endif
     }
 
     /// The canvas's appearance, once the text it shows is checked against it.
