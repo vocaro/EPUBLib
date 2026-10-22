@@ -80,6 +80,8 @@ struct PublicationFolder {
             let name = withUnsafeBytes(of: entry.pointee.d_name) { Array($0.prefix(Int(entry.pointee.d_namlen))) }
             if name == [0x2E] || name == [0x2E, 0x2E] { continue }
             listed.append((name, Int32(entry.pointee.d_type)))
+            // A folder of more entries than the limit is refused before it is listed whole.
+            guard listed.count <= limits.entryCount - paths.count else { throw EPUBPublicationError.limitExceeded("entry count") }
         }
         var entries: [(String, Kind)] = []
         for (bytes, type) in listed.sorted(by: { $0.name.lexicographicallyPrecedes($1.name) }) {
