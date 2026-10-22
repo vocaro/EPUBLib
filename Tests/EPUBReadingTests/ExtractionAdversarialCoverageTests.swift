@@ -138,8 +138,9 @@ final class ExtractionAdversarialCoverageTests: XCTestCase {
     // `<:html …>` opens the body, and the title is the body's text, as other undisplayed text is.
     func testHTMLAndBodyNamedWithALeadingColonAreNoRootOrBody() throws {
         let documents = [
+            // The title, built in the body, is hidden there as every title is (#287).
             ("<:html xmlns='http://www.w3.org/1999/xhtml'><head><title>T</title></head><body><p>a</p></body></:html>",
-             "<:html xmlns='http://www.w3.org/1999/xhtml'>\nT\na"),
+             "<:html xmlns='http://www.w3.org/1999/xhtml'>\na"),
             ("<html xmlns='http://www.w3.org/1999/xhtml'><head><title>T</title></head><:body><p>a</p></:body></html>",
              "<:body>\na"),
         ]

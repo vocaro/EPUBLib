@@ -1,6 +1,6 @@
 import Foundation
 
-/// HTML's presentational attributes (HTML §15.3–15.4: `align`, `width`, `bgcolor`, `<font>`…)
+/// HTML's presentational attributes (HTML §15.3–15.5: `align`, `width`, `bgcolor`, `<font>`…)
 /// as author-level declarations of zero specificity that precede every author rule. Each
 /// attribute value is parsed as the value of one property only, so it can never inject other
 /// declarations.
@@ -54,15 +54,22 @@ enum PresentationalHints {
            ["top", "middle", "bottom", "baseline"].contains(valign) {
             add(&result, "vertical-align", valign)
         }
-        if ["img", "table", "td", "th", "col", "colgroup", "hr", "iframe", "embed", "object", "video", "canvas", "pre"].contains(name),
-           let width = attribute("width").flatMap(dimension) {
+        // The elements whose `width` and `height` map to the dimension properties (HTML §15.3.8,
+        // §15.4.3, §15.5.13). A table's width and a cell's width and height ignore zero, so
+        // `<td width="0">` is `auto`; `pre` has none, as its width was a count of characters.
+        if ["img", "table", "td", "th", "col", "colgroup", "hr", "iframe", "embed", "object", "video", "canvas", "marquee"].contains(name),
+           let width = element.attribute("width").flatMap({ dimension($0, ignoringZero: ["table", "td", "th"].contains(name)) }) {
             add(&result, "width", width)
         }
-        if ["img", "table", "td", "th", "tr", "iframe", "embed", "object", "video", "canvas"].contains(name),
-           let height = attribute("height").flatMap(dimension) {
+        if ["img", "table", "td", "th", "tr", "thead", "tbody", "tfoot", "iframe", "embed", "object", "video", "canvas", "marquee"].contains(name),
+           let height = element.attribute("height").flatMap({ dimension($0, ignoringZero: name == "td" || name == "th") }) {
             add(&result, "height", height)
         }
-        if ["body", "table", "thead", "tbody", "tfoot", "tr", "td", "th"].contains(name), let color = attribute("bgcolor").flatMap(legacyColor) {
+        if ["embed", "img", "object", "marquee"].contains(name) {
+            if let space = element.attribute("hspace").flatMap({ dimension($0) }) { add(&result, "margin-left", space); add(&result, "margin-right", space) }
+            if let space = element.attribute("vspace").flatMap({ dimension($0) }) { add(&result, "margin-top", space); add(&result, "margin-bottom", space) }
+        }
+        if ["body", "table", "thead", "tbody", "tfoot", "tr", "td", "th", "marquee"].contains(name), let color = attribute("bgcolor").flatMap(legacyColor) {
             add(&result, "background-color", color)
         }
         if name == "body", let color = attribute("text").flatMap(legacyColor) { add(&result, "color", color) }
@@ -85,13 +92,13 @@ enum PresentationalHints {
                 let width = Int(border.prefix { $0.isNumber }) ?? 1
                 if width > 0 { add(&result, "border", "\(min(width, 64))px outset") }
             }
-            if let spacing = attribute("cellspacing").flatMap(dimension), !spacing.hasSuffix("%") { add(&result, "border-spacing", spacing) }
+            if let spacing = attribute("cellspacing").flatMap({ dimension($0) }), !spacing.hasSuffix("%") { add(&result, "border-spacing", spacing) }
         case "td", "th":
             if let table = enclosingTable(element, facts: facts, document: document) {
                 if let border = table.attribute("border"), (Int(border.prefix { $0.isNumber }) ?? 1) > 0 {
                     add(&result, "border", "1px inset")
                 }
-                if let padding = table.attribute("cellpadding").flatMap(dimension), !padding.hasSuffix("%") {
+                if let padding = table.attribute("cellpadding").flatMap({ dimension($0) }), !padding.hasSuffix("%") {
                     add(&result, "padding", padding)
                 }
             }
@@ -99,8 +106,15 @@ enum PresentationalHints {
             if let border = attribute("border").flatMap({ Int($0.prefix { $0.isNumber }) }), border > 0 {
                 add(&result, "border", "\(min(border, 64))px solid")
             }
-            if let space = attribute("hspace").flatMap(dimension) { add(&result, "margin-left", space); add(&result, "margin-right", space) }
-            if let space = attribute("vspace").flatMap(dimension) { add(&result, "margin-top", space); add(&result, "margin-bottom", space) }
+        case "br":
+            // HTML §15.3.4: `br[clear=left i]`, `[clear=right i]`, `[clear=all i]` and
+            // `[clear=both i]`. A selector matches the whole value, so nothing is trimmed.
+            switch element.attribute("clear")?.lowercased() {
+            case "left"?: add(&result, "clear", "left")
+            case "right"?: add(&result, "clear", "right")
+            case "all"?, "both"?: add(&result, "clear", "both")
+            default: break
+            }
         default:
             break
         }
@@ -116,13 +130,21 @@ enum PresentationalHints {
         result += declarations
     }
 
-    /// HTML's rules for parsing dimension values: digits with an optional fraction and `%`.
-    static func dimension(_ value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespaces)
-        let number = trimmed.prefix { $0.isASCII && ($0.isNumber || $0 == ".") }
-        guard let amount = Double(number), amount.isFinite, amount >= 0 else { return nil }
-        let rest = trimmed.dropFirst(number.count)
-        return rest.hasPrefix("%") ? "\(amount)%" : "\(amount)px"
+    /// HTML's rules for parsing dimension values: after ASCII white space, at least one digit,
+    /// then a `.` and any digits after it, then `%` for a percentage. What follows is ignored,
+    /// and a value that does not start with a digit is none. `ignoringZero` is HTML's rules for
+    /// parsing nonzero dimension values, which take `0`, `0.0` and `0%` for none too.
+    static func dimension(_ value: String, ignoringZero: Bool = false) -> String? {
+        let isDigit = { (byte: UInt8) in (0x30...0x39).contains(byte) }
+        let start = value.utf8.drop { $0 == 0x20 || $0 == 0x09 || $0 == 0x0A || $0 == 0x0C || $0 == 0x0D }
+        var rest = start.drop(while: isDigit)
+        guard rest.startIndex > start.startIndex else { return nil }
+        if rest.first == UInt8(ascii: ".") { rest = rest.dropFirst().drop(while: isDigit) }
+        // The digits read as one decimal number, so that it is the nearest `Double` to them.
+        let number = String(Substring(start[..<rest.startIndex]))
+        guard let amount = Double(number.hasSuffix(".") ? String(number.dropLast()) : number), amount.isFinite,
+              !(ignoringZero && amount == 0) else { return nil }
+        return rest.first == UInt8(ascii: "%") ? "\(amount)%" : "\(amount)px"
     }
 
     /// A legacy color attribute: a CSS color, or bare hex digits as old HTML wrote them.
