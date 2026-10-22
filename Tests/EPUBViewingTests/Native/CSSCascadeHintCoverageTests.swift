@@ -62,11 +62,13 @@ final class CSSCascadeHintCoverageTests: XCTestCase {
     }
 
     /// HTML's rules for parsing dimension values: leading digits with an optional fraction, then
-    /// `%` for a percentage; anything else after the number is ignored, and no number is no hint.
+    /// `%` for a percentage; anything else after the number is ignored, and a value that does not
+    /// start with a digit after its white space is no hint (`.5` and `+5` too, as in Blink).
     func testDimensionAttributesParseNumbersPercentagesAndJunk() throws {
         let widths: [(String, ComputedStyle.Length)] = [
             ("12.5", .points(12.5)), ("50%", .percent(50)), (" 40px ", .points(40)), ("junk", .auto), ("-5", .auto), ("1e3", .points(1)), ("", .auto),
-            ("99999999", .points(StyleLimits.extent.upperBound)), (".5", .points(0.5)), ("0", .points(0)), ("30.5%", .percent(30.5)), ("%", .auto),
+            ("99999999", .points(StyleLimits.extent.upperBound)), (".5", .auto), ("0", .points(0)), ("30.5%", .percent(30.5)), ("%", .auto),
+            ("1.2.3", .points(1.2)), ("7.", .points(7)), ("5.%", .percent(5)), ("4..5", .points(4)), ("+5", .auto), ("\n\t 6%", .percent(6)),
         ]
         let images = widths.enumerated().map { "<img id=\"w\($0.offset)\" src=\"x.png\" alt=\"\" width=\"\($0.element.0)\"/>" }.joined()
         let result = try styled("""
@@ -93,12 +95,56 @@ final class CSSCascadeHintCoverageTests: XCTestCase {
     /// HTML §15.3.8: "The table element's width attribute maps to the dimension property
     /// (ignoring zero) 'width'", and likewise the width and height of `td` and `th`.
     func testZeroWidthAndHeightOnTablesAndCellsAreIgnored() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/121")
         let result = try styled(#"<table id="table" width="0"><tr><td id="cell" width="0" height="0">x</td><th id="head" width="0%">y</th></tr></table>"#)
         XCTAssertEqual(result.style("table").width, .auto, "<table width=\"0\">")
         XCTAssertEqual(result.style("cell").width, .auto, "<td width=\"0\">")
         XCTAssertEqual(result.style("cell").height, .auto, "<td height=\"0\">")
         XCTAssertEqual(result.style("head").width, .auto, "<th width=\"0%\">")
+    }
+
+    /// Zero is any spelling of none (HTML's rules for parsing nonzero dimension values), and only
+    /// the table's width and the cells' sizes ignore it: the table's height, a column's width, a
+    /// row's height and a rule's width map zero as they map any other dimension (HTML §15.3.8,
+    /// §15.3.3).
+    func testOnlyATablesWidthAndItsCellsSizesIgnoreZero() throws {
+        let result = try styled("""
+            <table id="table" width="0.0" height="0"><colgroup><col id="col" width="0"/></colgroup><tr id="row" height="0">
+            <td id="decimal" width="00.000" height="0%">a</td><td id="small" width="0.5" height="0.25%">b</td><th id="spaced" width=" 0px">c</th></tr></table>
+            <table id="percent" width="0%"><tr><td>d</td></tr></table><hr id="rule" width="0"/>
+            """)
+        XCTAssertEqual(result.style("table").width, .auto, "<table width=\"0.0\">")
+        XCTAssertEqual(result.style("percent").width, .auto, "<table width=\"0%\">")
+        XCTAssertEqual([result.style("decimal").width, result.style("decimal").height], [.auto, .auto])
+        XCTAssertEqual(result.style("spaced").width, .auto, "<th width=\" 0px\">")
+        XCTAssertEqual([result.style("small").width, result.style("small").height], [.points(0.5), .percent(0.25)], "more than zero is a size")
+        XCTAssertEqual(result.style("table").height, .points(0), "a table's height keeps zero")
+        XCTAssertEqual(result.style("col").width, .points(0), "a column's width keeps zero")
+        XCTAssertEqual(result.style("row").height, .points(0), "a row's height keeps zero")
+        XCTAssertEqual(result.style("rule").width, .points(0), "a rule's width keeps zero")
+    }
+
+    /// HTML §15 maps `width` and `height` on these elements and on no others: a row group's height
+    /// (§15.3.8) and a marquee's size (§15.5.13) as well, and not a `pre`'s width, which HTML 3.2
+    /// gave in characters. `hspace` and `vspace` are margins on `embed`, `img`, `object` (§15.4.3)
+    /// and `marquee`.
+    func testDimensionAttributesMapOnTheElementsHTMLNames() throws {
+        let result = try styled("""
+            <table><thead id="thead" height="30"><tr><td>a</td></tr></thead><tbody id="tbody" height="40%"><tr><td>b</td></tr></tbody>
+            <tfoot id="tfoot" height="0"><tr><td>c</td></tr></tfoot></table><pre id="pre" width="80">d</pre>
+            <p><marquee id="marquee" width="200" height="50%" hspace="10" vspace="5%">e</marquee>
+            <embed id="embed" src="x.png" hspace="3" vspace="4"/><object id="object" hspace="6%" vspace="7"></object>
+            <img id="img" src="x.png" alt="" hspace="8" vspace="9"/><span id="span" hspace="10" vspace="10">f</span></p>
+            """)
+        XCTAssertEqual(result.style("thead").height, .points(30))
+        XCTAssertEqual(result.style("tbody").height, .percent(40))
+        XCTAssertEqual(result.style("tfoot").height, .points(0))
+        XCTAssertEqual(result.style("pre").width, .auto, "<pre width=\"80\"> is not 80 points wide")
+        XCTAssertEqual([result.style("marquee").width, result.style("marquee").height], [.points(200), .percent(50)])
+        XCTAssertEqual(result.style("marquee").margin, .init(top: .percent(5), right: .points(10), bottom: .percent(5), left: .points(10)))
+        XCTAssertEqual(result.style("embed").margin, .init(top: .points(4), right: .points(3), bottom: .points(4), left: .points(3)))
+        XCTAssertEqual(result.style("object").margin, .init(top: .points(7), right: .percent(6), bottom: .points(7), left: .percent(6)))
+        XCTAssertEqual(result.style("img").margin, .init(top: .points(9), right: .points(8), bottom: .points(9), left: .points(8)))
+        XCTAssertEqual(result.style("span").margin, .init(.points(0)), "hspace and vspace mean nothing on a span")
     }
 
     func testTableBorderCellpaddingAndCellspacing() throws {
@@ -233,13 +279,26 @@ final class CSSCascadeHintCoverageTests: XCTestCase {
     /// HTML §15.3.3: `br[clear=left i] { clear: left; }`, `br[clear=right i] { clear: right; }`,
     /// `br[clear=all i], br[clear=both i] { clear: both; }`.
     func testBrClearAttributeClearsFloats() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/121")
         let result = try styled(#"<p>a<br id="left" clear="left"/>b<br id="right" clear="RIGHT"/>c<br id="all" clear="all"/>d<br id="both" clear="both"/>e<br id="plain"/></p>"#)
         XCTAssertEqual(result.style("plain").clear, ComputedStyle.Clear.none)
         XCTAssertEqual(result.style("left").clear, .left, "<br clear=\"left\">")
         XCTAssertEqual(result.style("right").clear, .right, "<br clear=\"RIGHT\">")
         XCTAssertEqual(result.style("all").clear, .both, "<br clear=\"all\">")
         XCTAssertEqual(result.style("both").clear, .both, "<br clear=\"both\">")
+    }
+
+    /// The four values are matched whole and in any case, as `[clear=all i]` matches; any other
+    /// value, or the attribute on another element, maps nothing, and an author rule beats the hint.
+    func testBrClearMatchesItsFourValuesWholeAndYieldsToAuthorRules() throws {
+        let result = try styled("""
+            <p>a<br id="all" clear="ALL"/>b<br id="both" clear="Both"/>c<br id="spaced" clear=" left"/>d<br id="none" clear="none"/>
+            e<br id="start" clear="inline-start"/>f<br id="empty" clear=""/>g<br id="bare" clear="leftish"/>h<br id="author" class="a" clear="all"/>
+            i<span id="span" clear="both">j</span></p><p id="p" clear="all">k</p>
+            """, css: ".a { clear: right }")
+        XCTAssertEqual(result.style("all").clear, .both)
+        XCTAssertEqual(result.style("both").clear, .both)
+        for id in ["spaced", "none", "start", "empty", "bare", "span", "p"] { XCTAssertEqual(result.style(id).clear, ComputedStyle.Clear.none, id) }
+        XCTAssertEqual(result.style("author").clear, .right, "an author rule of any specificity follows the hints")
     }
 
     /// SVG 1.1 §5.1.2: an `svg` element's `width` and `height` are `<length>`s with CSS units (SVG 2
@@ -415,6 +474,45 @@ final class CSSCascadeHintCoverageTests: XCTestCase {
         for id in ["thead", "tbody", "tfoot", "tr", "td", "th"] { XCTAssertEqual(result.style(id).verticalAlign, .middle, id) }
         XCTAssertEqual(result.style("top").verticalAlign, .top, "A cell takes its row's valign")
         XCTAssertEqual(result.style("own").verticalAlign, .bottom)
+    }
+
+    /// HTML §15.3.8: `thead, tbody, tfoot, table > tr { vertical-align: middle }`,
+    /// `tr, td, th { vertical-align: inherit }` and `thead, tbody, tfoot, tr { border-color: inherit }`.
+    /// A row group's alignment, from its `valign` or a rule, reaches its rows and their cells
+    /// (#142); a row directly in a table is middle whatever the table says; a row group's and a
+    /// row's border color are their parent's, and a cell's is its own.
+    func testRowGroupsPassVerticalAlignmentToRowsAndCellsAndBorderColorToRows() throws {
+        let result = try styled("""
+            <table id="table" class="top"><tr id="direct"><td id="direct-cell">a</td></tr></table>
+            <table><tbody id="hinted" valign="bottom"><tr id="hinted-row"><td id="hinted-cell">b</td><th id="hinted-head" valign="top">c</th></tr></tbody>
+            <tbody class="low"><tr id="styled-row"><td id="styled-cell">d</td></tr><tr id="own" valign="middle"><td id="own-cell">e</td></tr></tbody>
+            <tfoot id="tfoot"><tr id="foot-row"><td id="foot-cell">f</td></tr></tfoot></table>
+            <table id="ruled" class="ruled"><tbody id="ruled-body"><tr id="ruled-row"><td id="ruled-cell">g</td></tr></tbody></table>
+            """, css: ".top { vertical-align: top } .low { vertical-align: bottom } .ruled { border: 1px solid blue }")
+        let expected: [(String, ComputedStyle.VerticalAlign)] = [
+            ("table", .top), ("direct", .middle), ("direct-cell", .middle),
+            ("hinted", .bottom), ("hinted-row", .bottom), ("hinted-cell", .bottom), ("hinted-head", .top),
+            ("styled-row", .bottom), ("styled-cell", .bottom), ("own", .middle), ("own-cell", .middle),
+            ("tfoot", .middle), ("foot-row", .middle), ("foot-cell", .middle),
+        ]
+        for (id, align) in expected { XCTAssertEqual(result.style(id).verticalAlign, align, id) }
+        XCTAssertEqual(result.style("ruled").border.top.color, blue)
+        XCTAssertEqual(result.style("ruled-body").border.top.color, blue, "a row group's border color is its table's")
+        XCTAssertEqual(result.style("ruled-row").border.left.color, blue, "a row's is its group's")
+        XCTAssertFalse(result.style("ruled-row").border.top.isVisible, "the color alone: no width or style")
+        XCTAssertNil(result.style("ruled-cell").border.top.color, "a cell's border color is its own")
+    }
+
+    /// HTML §15.5.13: `marquee { display: inline-block; text-align: initial }` (#607), and its
+    /// `bgcolor` is a background.
+    func testMarqueeIsAnInlineBlockWithItsOwnAlignment() throws {
+        let result = try styled("""
+            <div style="text-align: center"><p id="p">Before <marquee id="marquee" bgcolor="yellow">moving</marquee> after</p></div>
+            """)
+        XCTAssertEqual(result.style("marquee").display, .inlineBlock)
+        XCTAssertEqual(result.style("marquee").textAlign, .start, "not its parent's centre")
+        XCTAssertEqual(result.style("p").textAlign, .center)
+        XCTAssertEqual(result.style("marquee").backgroundColor, CSSCascadeSupport.color(1, 1, 0))
     }
 
     func testMetadataInertAndForeignElements() throws {
