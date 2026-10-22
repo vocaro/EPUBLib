@@ -204,12 +204,17 @@ final class ContentDocument: @unchecked Sendable {
         guard data.count <= limits.bytes, data.count <= Int(Int32.max) else { throw ContentDocumentError.limitExceeded("bytes") }
         let safety = XMLSafety.assess(data)
         guard safety != .attributeLimitExceeded else { throw ContentDocumentError.limitExceeded("attributesPerElement") }
-        guard safety == .safe else { throw ContentDocumentError.unsafeMarkup(path) }
+        // XML reads a DOCTYPE's quoted identifier on to its closing quote. Content that is unsafe
+        // only for that, as where the quote has been lost, never reaches the XML parser: it is
+        // read as HTML, which ends the DOCTYPE at its first `>`, as that parser reads it (#293).
+        let readsAsHTML = safety == .unsafe && asContent && XMLSafety.assess(data, doctypesAsHTML: true) == .safe
+        guard safety == .safe || readsAsHTML else { throw ContentDocumentError.unsafeMarkup(path) }
         let source = HTMLEntities.numericReferences(in: data)
         guard source.count <= limits.bytes, source.count <= Int(Int32.max) else { throw ContentDocumentError.limitExceeded("bytes") }
-        let rewrittenSafety = source == data ? safety : XMLSafety.assess(source)
+        let rewrittenSafety = source == data ? XMLSafety.Assessment.safe : XMLSafety.assess(source, doctypesAsHTML: readsAsHTML)
         guard rewrittenSafety != .attributeLimitExceeded else { throw ContentDocumentError.limitExceeded("attributesPerElement") }
         guard rewrittenSafety == .safe else { throw ContentDocumentError.unsafeMarkup(path) }
+        if readsAsHTML { return try parseHTML(data, rewritten: source, path: path, limits: limits) }
         if let document = try parseXML(source, path: path, limits: limits) {
             // Foliate's loadDocument retries a namespace-free content root as HTML. WebKit
             // also rejects named references without an XHTML 1.x public DOCTYPE. OPF and
@@ -282,6 +287,7 @@ final class ContentDocument: @unchecked Sendable {
         }
         guard let doc else { throw ContentDocumentError.malformed(path) }
         defer { xmlFreeDoc(doc) }
+        HTMLRecoveredRoot.merge(doc)
         retainHTMLTrailingContent(doc)
         guard let document = try convert(doc, path: path, limits: limits, recovered: true, html: true,
                                          signPlaceholder: source.placeholder, ampPlaceholder: source.ampPlaceholder) else {
@@ -328,12 +334,15 @@ final class ContentDocument: @unchecked Sendable {
     /// references are rewritten in what was decoded, not in its own bytes. libxml2 would discard
     /// the text after a `<` that opens no markup and end the document at a NUL. What it is
     /// given stays within the byte limit decoded, after CDATA recovery, and
-    /// again with those signs and NULs replaced.
+    /// again with those signs and NULs replaced. Each DOCTYPE ends at its first `>` where the
+    /// screen read it so too (`HTMLRecoveryText`, #293).
     static func htmlSource(_ data: Data, rewritten: Data, path: String, limits: ContentLimits) throws -> (data: Data, placeholder: Unicode.Scalar?, ampPlaceholder: String?) {
         let limit = min(limits.bytes, Int(Int32.max))
-        let text = try HTMLSourceEncoding.utf8(data, path: path, limit: limit).map { HTMLEntities.numericReferences(in: $0) } ?? rewritten
+        let doctypesAsHTML = XMLSafety.assess(data, doctypesAsHTML: true) == .safe
+        let text = try HTMLSourceEncoding.utf8(data, path: path, limit: limit, doctypesAsHTML: doctypesAsHTML)
+            .map { HTMLEntities.numericReferences(in: $0) } ?? rewritten
         guard let ampersands = HTMLLiteralAmpersands.prepared(text, limit: limit) else { throw ContentDocumentError.limitExceeded("bytes") }
-        let recoveredText = try HTMLRecoveryText.prepared(ampersands.data, path: path, limit: limit)
+        let recoveredText = try HTMLRecoveryText.prepared(ampersands.data, path: path, limit: limit, doctypesAsHTML: doctypesAsHTML)
         guard let signs = HTMLStraySigns.replaced(in: recoveredText, limit: limit),
               let source = HTMLNullCharacters.replaced(in: signs.data, limit: limit) else {
             throw ContentDocumentError.limitExceeded("bytes")
