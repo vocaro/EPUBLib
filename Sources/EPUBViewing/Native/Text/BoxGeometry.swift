@@ -337,6 +337,13 @@ enum ReaderBoxLayout {
                                 ?? min(available, max(1, attempts.maximumWidth(of: box.id, from: index, in: ranges, text: text)))
                             if let minimum = style.minWidth.resolve(reference: containing.width, viewport: viewport) { width = max(width, minimum) }
                             if let maximum = style.maxWidth.resolve(reference: containing.width, viewport: viewport) { width = min(width, maximum) }
+                            // A float narrower than its longest word is as wide as the word, as far
+                            // as its containing block allows. CSS lets the word overflow the float
+                            // (CSS Text 3, 5.2); the reader draws nothing outside its column, and
+                            // the float broke the word inside it instead (#152).
+                            if style.float != .none, width < available {
+                                width = max(width, attempts.wordWidth(of: box.id, from: index, in: ranges, text: text))
+                            }
                             width = min(available, max(1, width))
                         }
                         if style.float == .right { x = containing.maxX - edgeRight - width }
@@ -757,12 +764,12 @@ enum ReaderBoxLayout {
     /// is tried as a box once more, since the rest may fit. Finding the box's end, measuring
     /// the max-content of the rest and laying the rest out again for every paragraph cost the
     /// square of the box's length: minutes for a play whose scenes are each one inline block
-    /// (#573). The end is found once, and the max-content of the rest is the widest of its
-    /// paragraphs, each measured once. Laid out at the same width, the rest's paragraphs stand
-    /// as they stood in the last attempt, only higher, so that attempt's layout gives the next
-    /// one's height but for rounding and the spacing a document's first paragraph drops. An
-    /// attempt it puts more than a quarter of a page past the page is not made. One that might
-    /// fit is made, so a box is set where it was before: the margin is for the estimate alone.
+    /// (#573). The end is found once, and the max-content of the rest, and its longest word, are
+    /// the widest of its paragraphs', each measured once. Laid out at the same width, the rest's
+    /// paragraphs stand as they stood in the last attempt, only higher, so that attempt's layout
+    /// gives the next one's height but for rounding and the spacing a document's first paragraph
+    /// drops. An attempt it puts more than a quarter of a page past the page is not made. One that
+    /// might fit is made, so a box is set where it was before: the margin is for the estimate alone.
     struct BoxAttempts {
         private struct Layout {
             let width: CGFloat
@@ -775,8 +782,9 @@ enum ReaderBoxLayout {
         /// The paragraphs (indexes into the pass's paragraph ranges) of the box first tried there.
         private var runs: [UUID: Range<Int>] = [:]
         /// From the paragraph `start` of a run on, the widest max-content of each paragraph and
-        /// the paragraphs after it.
+        /// the paragraphs after it, and the longest word of each and of those after it.
         private var widths: [UUID: (start: Int, widest: [CGFloat])] = [:]
+        private var words: [UUID: (start: Int, widest: [CGFloat])] = [:]
         private var layouts: [UUID: Layout] = [:]
 
         /// One past the last of the paragraphs `ranges` of the box `id` that starts at `index`.
@@ -787,6 +795,7 @@ enum ReaderBoxLayout {
                   (text.attribute(.readerFlowBox, at: ranges[end].location, effectiveRange: nil) as? ReaderFlowBoxParagraph)?.constraints.first?.id == id { end += 1 }
             runs[id] = index..<end
             widths[id] = nil
+            words[id] = nil
             layouts[id] = nil
             return end
         }
@@ -795,12 +804,25 @@ enum ReaderBoxLayout {
         /// Earlier paragraphs of a box that stays in flow change, its later ones do not.
         mutating func maximumWidth(of id: UUID, from index: Int, in ranges: [NSRange], text: NSAttributedString) -> CGFloat {
             let end = end(of: id, at: index, in: ranges, text: text)
-            if let known = widths[id], known.start <= index, index - known.start < known.widest.count {
+            return Self.widest(of: ranges[index..<end], from: index, text: text, known: &widths[id]) { TableMeasure.maximumWidth($0) }
+        }
+
+        /// `TableMeasure.widestWord` of the same: the longest word of the rest of the box.
+        mutating func wordWidth(of id: UUID, from index: Int, in ranges: [NSRange], text: NSAttributedString) -> CGFloat {
+            let end = end(of: id, at: index, in: ranges, text: text)
+            return Self.widest(of: ranges[index..<end], from: index, text: text, known: &words[id]) { TableMeasure.widestWord($0) }
+        }
+
+        /// The widest `measure` of `paragraphs`, the box's from its paragraph `index` on, from
+        /// what is `known` of the box from an earlier paragraph on, which is kept for the next.
+        private static func widest(of paragraphs: ArraySlice<NSRange>, from index: Int, text: NSAttributedString,
+                                   known: inout (start: Int, widest: [CGFloat])?, measure: (NSAttributedString) -> CGFloat) -> CGFloat {
+            if let known, known.start <= index, index - known.start < known.widest.count {
                 return known.widest[index - known.start]
             }
-            var widest = ranges[index..<end].map { TableMeasure.maximumWidth(text.attributedSubstring(from: $0)) }
+            var widest = paragraphs.map { measure(text.attributedSubstring(from: $0)) }
             for paragraph in widest.indices.reversed().dropFirst() { widest[paragraph] = max(widest[paragraph], widest[paragraph + 1]) }
-            widths[id] = (index, widest)
+            known = (index, widest)
             return widest[0]
         }
 

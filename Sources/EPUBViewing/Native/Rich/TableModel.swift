@@ -336,11 +336,23 @@ enum TableMeasure {
     static func minimumWidth(_ text: NSAttributedString) -> CGFloat {
         guard text.length > 0 else { return 0 }
         var widest: CGFloat = 0
+        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, range, _ in
+            guard let attachment = value as? NSTextAttachment else { return }
+            widest = max(widest, minimumWidth(of: attachment, attributes: text.attributes(at: range.location, effectiveRange: nil)))
+        }
+        return ceil(max(widest, widestWord(text, indented: true)))
+    }
+
+    /// The widest unit of `text` between line-break opportunities, its attachments left out: a
+    /// float's longest word (`ReaderBoxLayout`). `indented` adds each paragraph's head or
+    /// first-line indent, whichever is larger, as a cell's min-content does.
+    static func widestWord(_ text: NSAttributedString, indented: Bool = false) -> CGFloat {
+        guard text.length > 0 else { return 0 }
+        var widest: CGFloat = 0
         let measured = NSMutableAttributedString(attributedString: text)
         let full = NSRange(location: 0, length: text.length)
         text.enumerateAttribute(.attachment, in: full) { value, range, _ in
-            guard let attachment = value as? NSTextAttachment else { return }
-            widest = max(widest, minimumWidth(of: attachment, attributes: text.attributes(at: range.location, effectiveRange: nil)))
+            guard value is NSTextAttachment else { return }
             measured.replaceCharacters(in: range, with: String(repeating: " ", count: range.length))
         }
         let string = measured.string as NSString
@@ -348,7 +360,7 @@ enum TableMeasure {
             guard range.length > 0 else { return }
             let paragraph = measured.attributedSubstring(from: range)
             let style = paragraph.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
-            let indent = max(style?.headIndent ?? 0, style?.firstLineHeadIndent ?? 0)
+            let indent = indented ? max(style?.headIndent ?? 0, style?.firstLineHeadIndent ?? 0) : 0
             let typesetter = CTTypesetterCreateWithAttributedString(paragraph as CFAttributedString)
             let source = paragraph.string as CFString
             let tokenizer = CFStringTokenizerCreate(nil, source, CFRange(location: 0, length: range.length),

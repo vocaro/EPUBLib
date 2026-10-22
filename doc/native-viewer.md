@@ -2160,9 +2160,14 @@ as they did.
 
 The native CSS subset wraps prose beside left/right floated figures, text and archive images,
 then restores the full column below the box. Auto-width text floats use their content width,
-including narrow drop caps. Horizontal margins and padding reserve space around the native
-glyph column. `clear: left`, `right` and `both` on a block start it below the earlier floats
-of the requested side, with all it holds, a float it opens with included; inside it nothing
+including narrow drop caps. A float whose `width` or `max-width` is narrower than its longest
+word is as wide as that word, as far as its containing block allows: CSS lets the word overflow
+the float (CSS Text 3 5.2), and the reader, which draws nothing outside its column, broke it
+between characters instead. A verse number in a float sized in pixels stays whole at a larger
+reader font. Only words count: an image with no size of its own still shrinks to the float
+([#152](https://github.com/vocaro/EPUBLib/issues/152)). Horizontal margins and padding reserve
+space around the native glyph column. `clear: left`, `right` and `both` on a block start it
+below the earlier floats of the requested side, with all it holds, a float it opens with included; inside it nothing
 clears again, so its later lines wrap beside its own floats. An empty block that clears moves
 what follows it. On a float, `clear` moves that float alone below the earlier floats of the
 side (CSS 2.2 9.5.2), and on a `br` it moves the line after the break, as browsers do
@@ -2176,8 +2181,14 @@ are resolved at the column's size, as for its prose. A line beside a float is sh
 float's side (CSS 2.2 9.5): no text is set between a left float and the line's start, or
 between a right float and the line's end, so the prose after an indented block or a positioned
 container is not set in its margin, on the far side of a float it holds
-([#150](https://github.com/vocaro/EPUBLib/issues/150)). In a positioned container narrower than
-the column, or moved along it, the paragraphs and floats of the blocks inside it are set in the
+([#150](https://github.com/vocaro/EPUBLib/issues/150)). A line is set beside a float only where
+the room there holds the line's first word, or in a paragraph that hyphenates (`hyphens: auto`,
+the reader's default) the word's first part and its hyphen, and is 48 points wide at least.
+Otherwise the line goes down past the float, as CSS 2.2 9.5 shifts a line box too narrow for any
+of its content, where TextKit broke the word between any two characters
+([#152](https://github.com/vocaro/EPUBLib/issues/152)). WebKit sets hyphenated parts in such a
+room too. The 48-point floor is the reader's own: a browser uses any room its content fits.
+In a positioned container narrower than the column, or moved along it, the paragraphs and floats of the blocks inside it are set in the
 container's content box, without the margins of the blocks between.
 
 A sized `inline-block` is set on its block's line. It starts where the text or the box before
@@ -2186,9 +2197,9 @@ of the block's next line when the one it would be on is full. A box that opens i
 the block's `text-indent`, and a block that sets its lines from the right fills them from the
 right. A run of such boxes is therefore a row that wraps as words do: the rows of asterisks
 that mark an omission, an initial in a box of fixed width before the rest of its word. The
-text after the run goes on from its last box, on the same line where that line has 48 points
-left, and the block that follows starts below the run's last row. A box's own horizontal
-margins, borders and padding stand between it and its neighbours. Each box is still a
+text after the run goes on from its last box, on the same line where what is left of that line
+holds its first word, as beside a float, and the block that follows starts below the run's last
+row. A box's own horizontal margins, borders and padding stand between it and its neighbours. Each box is still a
 paragraph of its own in the text, so characters, offsets and CFIs are what they were.
 
 Three things about a row differ from a browser. Its boxes are aligned by their tops, not

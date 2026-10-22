@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreText
 #if os(iOS)
 import UIKit
 #elseif os(macOS)
@@ -20,7 +21,7 @@ final class ReaderTextContainer: NSTextContainer {
     var boxColumn: CGRect?
     var proposalCorrection: ((Int) -> CGFloat)?
     var boxScope: UUID?
-    var paragraphText: NSAttributedString? { didSet { indentClampCache = nil } }
+    var paragraphText: NSAttributedString? { didSet { indentClampCache = nil; measuredOpening = nil } }
     private var indentClampCache: (width: CGFloat, needed: Bool)?
     /// The space an aligned flex or grid box keeps above the text's first line
     /// (`.readerAlignmentLead`). TextKit drops the spacing before a document's first paragraph,
@@ -166,6 +167,66 @@ final class ReaderTextContainer: NSTextContainer {
             insets.right = min(insets.right, available - insets.left)
         }
         return insets
+    }
+
+    /// The width of the first piece a line starting at `index` can hold (`openingWord(in:at:)`).
+    private func openingWordWidth(at index: Int) -> CGFloat {
+        guard let text = layoutText, index >= 0, index < text.length else { return 0 }
+        if let known = measuredOpening, known.index == index, known.text === text { return known.width }
+        let width = Self.openingWord(in: text, at: index).map { piece in
+            let line = CTLineCreateWithAttributedString(piece as CFAttributedString)
+            return ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(line)))
+        } ?? 0
+        measuredOpening = (index, text, width)
+        return width
+    }
+    /// The piece `openingWordWidth` last measured, by the text and character it starts at.
+    private var measuredOpening: (index: Int, text: NSAttributedString, width: CGFloat)?
+
+    /// The first piece of content a line of `text` starting at `index` can hold, as it is set:
+    /// its word, up to the first line-break opportunity after it (UAX #14, as CoreText finds
+    /// them). In a paragraph that hyphenates (`hyphens: auto`, the reader's default) a word may
+    /// end a line at a hyphenation point, so the piece is the word's first part and the hyphen
+    /// set after it (CSS Text 3, 5.4). Nil where any character may end a line (`white-space:
+    /// pre`, which the reader wraps by character) and at an attachment, which TextKit sizes to
+    /// its line.
+    static func openingWord(in text: NSAttributedString, at index: Int) -> NSAttributedString? {
+        let style = text.attribute(.paragraphStyle, at: index, effectiveRange: nil) as? NSParagraphStyle
+        guard style?.lineBreakMode != .byCharWrapping else { return nil }
+        let string = text.string as NSString
+        let paragraph = string.paragraphRange(for: NSRange(location: index, length: 0))
+        // A word is far shorter than this; the bound keeps a long paragraph from being read.
+        let span = string.substring(with: NSRange(location: index, length: min(paragraph.upperBound - index, 256))) as CFString
+        let tokenizer = CFStringTokenizerCreate(nil, span, CFRange(location: 0, length: CFStringGetLength(span)), kCFStringTokenizerUnitLineBreak, nil)
+        guard CFStringTokenizerAdvanceToNextToken(tokenizer).rawValue != 0 else { return nil }
+        let token = CFStringTokenizerGetCurrentTokenRange(tokenizer)
+        var word = NSRange(location: index + token.location, length: token.length)
+        var attached = false
+        text.enumerateAttribute(.attachment, in: word) { value, _, stop in
+            if value != nil { attached = true; stop.pointee = true }
+        }
+        guard !attached, word.length > 0 else { return nil }
+        guard (style?.hyphenationFactor ?? 0) > 0 else { return text.attributedSubstring(from: word) }
+        let language = text.attribute(InlineStyling.languageKey, at: index, effectiveRange: nil) as? String
+        let locale = (language.map { Locale(identifier: $0) } ?? .current) as NSLocale as CFLocale
+        guard CFStringIsHyphenationAvailableForLocale(locale) else { return text.attributedSubstring(from: word) }
+        // The points are found in the word without the white space that ends it, past which
+        // there are none. The first is the last found going back from the word's end.
+        var length = word.length
+        while length > 0, let scalar = UnicodeScalar(string.character(at: word.location + length - 1)),
+              CharacterSet.whitespacesAndNewlines.contains(scalar) { length -= 1 }
+        let characters = string.substring(with: NSRange(location: word.location, length: length)) as CFString
+        var first = length
+        while first > 1 {
+            let point = CFStringGetHyphenationLocationBeforeIndex(characters, first, CFRange(location: 0, length: length), 0, locale, nil)
+            guard point != kCFNotFound, point > 0, point < first else { break }
+            first = point
+        }
+        guard first < length else { return text.attributedSubstring(from: word) }
+        word.length = first
+        let piece = NSMutableAttributedString(attributedString: text.attributedSubstring(from: word))
+        piece.append(NSAttributedString(string: "-", attributes: text.attributes(at: word.upperBound - 1, effectiveRange: nil)))
+        return piece
     }
 
     /// How many times running TextKit may ask for a line at one character (#288). It asks a
@@ -323,7 +384,11 @@ final class ReaderTextContainer: NSTextContainer {
                     return pieces
                 }
             }
-            let readable = min(size.width / 3, 48)
+            // A piece is used when it is readable and holds the line's first word, or the first
+            // part of it where the paragraph hyphenates. A line box too narrow beside a float for
+            // any of its content is shifted down (CSS 2.2 9.5); in a piece narrower than that
+            // TextKit broke the word between any two characters (#152).
+            let readable = max(min(size.width / 3, 48), openingWordWidth(at: index))
             intervals = intervals.filter { $0.1 - $0.0 >= readable }
             if let interval = writingDirection == .rightToLeft ? intervals.last : intervals.first {
                 if intervals.count > 1 {
