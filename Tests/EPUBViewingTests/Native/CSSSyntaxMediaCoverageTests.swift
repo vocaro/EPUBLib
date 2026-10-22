@@ -50,10 +50,9 @@ final class CSSSyntaxMediaCoverageTests: XCTestCase {
     }
 
     func testNegatingAnUnknownFeatureStillMatchesNothing() {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/114")
         // Media Queries 4 §3.2: "An unknown <mf-name> or <mf-value> … results in the value
         // 'unknown'. A <media-query> whose value is 'unknown' must be replaced with not all", and
-        // "the negation of unknown is unknown". web-platform-tests pins `not all and (bogus)`.
+        // "the negation of unknown is unknown". web-platform-tests pins `not all and (bogus)` (#114).
         XCTAssertEqual(mask("(bogus-feature)"), none)
         XCTAssertEqual(mask("all and (bogus-feature)"), none)
         XCTAssertEqual(mask("(bogus-feature) or (color)"), .all, "true or unknown is true")
@@ -62,6 +61,108 @@ final class CSSSyntaxMediaCoverageTests: XCTestCase {
         XCTAssertEqual(mask("not (bogus-feature)"), none)
         XCTAssertEqual(mask("not (bogus-feature: 1)"), none)
         XCTAssertEqual(mask("not (min-orientation: portrait)"), none)
+    }
+
+    func testUnknownPassesThroughNotAndOrTheMediaTypeAndTheList() {
+        // web-platform-tests css/mediaqueries/test_media_queries.html, "three-valued logic", with
+        // its (width) true and (height) false here (color) and (monochrome), and negation-001
+        // and -002.html: Kleene's and, or and not (§3.1), and an unknown query is `not all`.
+        for query in ["((unknown) or (color))", "not ((unknown) and (monochrome))", "(color) or (not ((unknown) and (color)))",
+                      "(color) or (not ((unknown) or (color)))", "(color) or (not ((unknown) and (monochrome)))",
+                      "(color) and (not ((unknown) and (monochrome)))", "(color) or (not ((unknown) or (monochrome)))",
+                      "not (unknown(color) and (monochrome))", "not print and (unknown)", "not unknown-type and (unknown)",
+                      "(unknown), (color)", "screen and (unknown), screen", "not all and (unknown), not print"] {
+            XCTAssertEqual(mask(query), .all, query)
+        }
+        for query in ["(unknown)", "not (unknown)", "((unknown) and (color))", "not ((unknown) and (color))", "((unknown) and (monochrome))",
+                      "not ((unknown) or (color))", "((unknown) or (monochrome))", "not ((unknown) or (monochrome))",
+                      "(color) and (not ((unknown) and (color)))", "(color) and (not ((unknown) or (color)))",
+                      "(color) and (not ((unknown) or (monochrome)))", "unknown(color)", "not unknown(color)",
+                      "not (unknown(color) or (monochrome))", "only all and (unknown)",
+                      "not screen and (unknown)", "not all and (unknown) and (color)", "not (unknown), print"] {
+            XCTAssertEqual(mask(query), none, query)
+        }
+    }
+
+    func testWhatIsNotAConditionInParenthesesIsUnknownButAGrammarErrorOutsideIsNotAll() {
+        // `<general-enclosed>` (§2.2): parentheses around anything that is neither a condition nor
+        // a feature, or a function, are unknown, so `or` can still be true beside them. The same
+        // words outside parentheses are not a query at all (§3.2), whatever `or` joins them to.
+        for query in ["(not (monochrome) and (color))", "(not (monochrome) or (color))", "((color) and not (monochrome))",
+                      "((color) or not (monochrome))", "((color) and (width) or (height))", "()", "( )", "(color) and ()", "not ()",
+                      "not ((color) and not (monochrome))", "not (1px < 2px)", "not (600px = 600px)", "not (width width)"] {
+            XCTAssertEqual(mask(query), none, query)
+        }
+        for query in ["(color) or ((color) and not (monochrome))", "(color) or ()", "(color) or (width width)", "(color) or f(x)",
+                      "(color) or (1px < 2px)"] {
+            XCTAssertEqual(mask(query), .all, query)
+        }
+        // `<any-value>` holds no bad string or URL and no stray closing bracket.
+        for query in ["(color) or (\"bad\nstring)", "(color) or (url(a b))", "(color) or ([)])", "(color) or [color]",
+                      "(color) or {color}", "(color) or not (monochrome)", "(color) or color"] {
+            XCTAssertEqual(mask(query), none, query)
+        }
+        // `layer` is never a media type (§2.1; web-platform-tests mq-invalid-media-type-layer-001).
+        for query in ["layer", "not layer", "only layer", "not layer and (color)", "layer, print"] {
+            XCTAssertEqual(mask(query), none, query)
+        }
+        XCTAssertEqual(mask("layer, screen"), .all)
+    }
+
+    func testAValueItsFeatureDoesNotTakeIsUnknownAndOneItTakesIsKnown() {
+        // A feature is known when it or its negation matches, and unknown when neither does
+        // (web-platform-tests test_media_queries.html, expression_should_be_known/_unknown, and
+        // prefers-color-scheme, prefers-contrast, scripting and display-mode.html).
+        func known(_ feature: String) -> Bool { mask("(\(feature)), not all and (\(feature))") == .all }
+        for feature in ["width: 0", "width: -0", "width: 0.0", "width: 0em", "width: -1px", "min-width: -1px", "max-height: -0cm",
+                        "width > 0", "width < -100000em", "0px < width < 100000px", "100000px > width >= 0px", "width = 0.001mm",
+                        "aspect-ratio: 1", "aspect-ratio: 0.5", "aspect-ratio: 1  / \t\n1", "max-aspect-ratio: 1/0",
+                        "device-aspect-ratio: 0/0", "aspect-ratio: 0/1", "aspect-ratio: 1.0/1.0", "color: -1", "min-monochrome: 327",
+                        "max-color-index: 0", "resolution: 0dpi", "resolution: 1.5x", "resolution\t: 120dpcm", "max-resolution: infinite",
+                        "resolution < infinite", "grid: 1", "grid: -0", "scan: interlace", "overflow-block: paged", "update: slow",
+                        "pointer: none", "prefers-contrast: custom", "scripting: initial-only", "display-mode: picture-in-picture",
+                        "inverted-colors: inverted", "forced-colors: active", "color-gamut: rec2020", "dynamic-range: high",
+                        "prefers-reduced-data: reduce", "-webkit-device-pixel-ratio: 2", "-webkit-max-device-pixel-ratio: 1.5",
+                        "min--moz-device-pixel-ratio: 1.5", "max-device-pixel-ratio: 3", "prefers-color-scheme", "orientation"] {
+            XCTAssertTrue(known(feature), feature)
+        }
+        for feature in ["bogus", "bogus: 1", "--foo: bar", "min-width", "max-orientation", "min-orientation: portrait", "min-grid: 0",
+                        "max-grid: 1", "grid: 2", "grid: -1", "grid: 0.0", "min-scan: interlace", "scan: 1", "color: 1.0", "color: 1/1",
+                        "min-monochrome: 1.5", "aspect-ratio: -1/1", "aspect-ratio: 1/-1", "aspect-ratio: invalid",
+                        "aspect-ratio: 1 / invalid", "aspect-ratio: 1 invalid", "aspect-ratio: 1px", "resolution: -3dpi",
+                        "resolution: 2", "min-resolution: 1px", "resolution: none", "width: 100", "min-width: 2dppx",
+                        "width: 10%", "width: 1px 2px", "width > = 0px", "width < = 0px", "0px = width = 100px",
+                        "0px < width > 100px", "0px > width < 100px", "min-width > 0px", "1px < 2px", "width < height",
+                        "orientation > portrait", "overflow-block = scroll", "overflow-block < scroll", "overflow-block: optional-paged",
+                        "update: some-random-invalid-thing", "prefers-color-scheme: no-preference", "prefers-color-scheme: none",
+                        "prefers-color-scheme: dark light", "prefers-color-scheme: light/dark", "prefers-contrast: high",
+                        "prefers-contrast: none", "scripting: 0", "scripting: invalid", "display-mode: none", "display-mode: 10px",
+                        "hover: bogus", "-webkit-min-bogus: 0", "-webkit-min-device-pixel-ratio", "orientation:", "width:",
+                        "color-gamut: 1"] {
+            XCTAssertFalse(known(feature), feature)
+        }
+        XCTAssertEqual(mask("(max-resolution: infinite)"), .all)
+        XCTAssertEqual(mask("(resolution: infinite)"), none)
+        XCTAssertEqual(mask("(max-aspect-ratio: 1/0)"), .all, "A degenerate ratio is compared by its quotient")
+        XCTAssertEqual(mask("(-webkit-max-device-pixel-ratio: 1.5)"), none)
+        XCTAssertEqual(mask("(max--moz-device-pixel-ratio: 2)"), .all)
+    }
+
+    func testAStyleRuleUnderAnUnknownNegationAppliesNowhere() throws {
+        let sheet = CSSSyntaxSupport.sheet("""
+            @media not (bogus-feature) { a { clear: both } }
+            @media not all and (bogus-feature) { b { clear: both } }
+            @media not (min-orientation: portrait) { i { clear: both } }
+            @media not print and (bogus-feature) { u { clear: both } }
+            @media (color) or ((color) and not (monochrome)) { s { clear: both } }
+            """)
+        XCTAssertEqual(CSSSyntaxSupport.subjects(sheet), ["u", "s"])
+        let section = StyleTestSupport.xhtml(body: #"<p id="a">a</p><p id="b">b</p>"#, head: """
+            <style media="not (bogus-feature: 1)">#a { text-indent: 3px }</style>
+            <style media="not (bogus-feature: 1), screen">#b { text-indent: 3px }</style>
+            """)
+        let styled = try CSSSyntaxSupport.styled(section: section)
+        XCTAssertEqual(["a", "b"].map { styled.style($0).textIndent }, [.points(0), .points(3)])
     }
 
     func testRangeSyntaxAgainstTheNominalViewport() {
