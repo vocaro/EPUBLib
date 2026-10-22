@@ -810,6 +810,25 @@ import UIKit
         return broken
     }
 
+    /// Each line of `lines` that ends inside a word where the platform's English hyphenation
+    /// dictionary has no hyphenation point, with the start of the line after it.
+    private static func breaksOffHyphenationPoints(_ lines: [(range: NSRange, frame: CGRect)], in section: SectionText) -> [String] {
+        let text = section.string.string as NSString
+        let locale = Locale(identifier: "en") as NSLocale as CFLocale
+        let separators = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
+        var off: [String] = []
+        for (line, next) in zip(lines, lines.dropFirst()) where !brokenWords([line, next], in: section).isEmpty {
+            let start = text.rangeOfCharacter(from: separators, options: .backwards, range: NSRange(location: 0, length: line.range.upperBound))
+            let end = text.rangeOfCharacter(from: separators, range: NSRange(location: next.range.location, length: text.length - next.range.location))
+            let word = start.location == NSNotFound ? 0 : start.upperBound
+            let characters = text.substring(with: NSRange(location: word, length: (end.location == NSNotFound ? text.length : end.location) - word)) as CFString
+            let point = CFStringGetHyphenationLocationBeforeIndex(characters, line.range.upperBound - word + 1,
+                                                                  CFRange(location: 0, length: CFStringGetLength(characters)), 0, locale, nil)
+            if point != line.range.upperBound - word { off += brokenWords([line, next], in: section) }
+        }
+        return off
+    }
+
     /// With `hyphens: auto`, the reader's default, a hyphenation point is a place a line may end
     /// (CSS Text 3, 5.4), so a word's first part and its hyphen are content that fits the slot,
     /// and the slot holds them, as WebKit sets them there. Every line that ends inside a word
@@ -824,18 +843,7 @@ import UIKit
         XCTAssertEqual(first.frame.minY, 0, accuracy: 0.5, "the paragraph starts beside the float")
         XCTAssertGreaterThanOrEqual(first.frame.minX, region.frame.maxX - 0.5)
         XCTAssertFalse(Self.brokenWords(lines, in: section).isEmpty, "the slot holds parts of words")
-        let text = section.string.string as NSString
-        let locale = Locale(identifier: "en") as NSLocale as CFLocale
-        let separators = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
-        for (line, next) in zip(lines, lines.dropFirst()) where !Self.brokenWords([line, next], in: section).isEmpty {
-            let start = text.rangeOfCharacter(from: separators, options: .backwards, range: NSRange(location: 0, length: line.range.upperBound))
-            let end = text.rangeOfCharacter(from: separators, range: NSRange(location: next.range.location, length: text.length - next.range.location))
-            let word = NSRange(location: start.location == NSNotFound ? 0 : start.upperBound, length: 0)
-            let characters = text.substring(with: NSRange(location: word.location, length: (end.location == NSNotFound ? text.length : end.location) - word.location)) as CFString
-            let point = CFStringGetHyphenationLocationBeforeIndex(characters, line.range.upperBound - word.location + 1,
-                                                                  CFRange(location: 0, length: CFStringGetLength(characters)), 0, locale, nil)
-            XCTAssertEqual(point, line.range.upperBound - word.location, "a hyphenation point of \(characters): \(text.substring(with: line.range))")
-        }
+        XCTAssertEqual(Self.breaksOffHyphenationPoints(lines, in: section), [])
         XCTAssertEqual(view.visibleText, section.string.string)
         let number = "12345678901234567890"
         let (other, otherView) = try layout("<figure>Alpha box.</figure><p>\(number) \(H.prose)</p>", css: "figure { float:left; width:300px; height:120px }")
@@ -864,6 +872,51 @@ import UIKit
             let (paginator, pages) = H.pages(section, size: size, "\(fontSize)")
             let page = H.pageView(paginator, page: try XCTUnwrap(pages.first))
             XCTAssertEqual(H.lines(in: page, intersecting: H.range("12345", in: section)).count, 1, "the page sets it as the section does: \(fontSize)")
+        }
+    }
+
+    /// `text-indent` inherits into the float, whose first line starts that far in, as WebKit
+    /// starts it. The float holds the indent and the number after it on one line.
+    func testAFloatNarrowerThanItsIndentedFirstWordHoldsTheIndentAndTheWord() throws {
+        for fontSize: CGFloat in [16, 25] {
+            let (section, view) = try layout("<p><span class='n'>12345</span>Verse text follows the number. \(H.prose)</p>",
+                                             css: "p { text-indent:1.5em } .n { float:left; width:20px }", fontSize: fontSize)
+            let region = try XCTUnwrap(H.region("12345", in: section, view: view), "\(fontSize)")
+            let number = H.frame("12345", in: section, view: view)
+            XCTAssertEqual(H.lines(in: view, intersecting: H.range("12345", in: section)).count, 1, "\(fontSize)")
+            XCTAssertEqual(number.minX, region.frame.minX + 1.5 * fontSize, accuracy: 1, "after the indent: \(fontSize)")
+            XCTAssertLessThanOrEqual(number.maxX, region.frame.maxX + 0.5, "\(fontSize)")
+            XCTAssertLessThan(region.frame.width, 1.5 * fontSize + number.width + 2, "the indent and the word, no more: \(fontSize)")
+            XCTAssertFalse(H.overlaps([number], H.ink("Verse text follows the number.", in: section, view: view)), "\(fontSize)")
+        }
+    }
+
+    /// Where the float's text hyphenates (`hyphens: auto`, the reader's default) a line may end
+    /// at a hyphenation point, so the float keeps its width and sets its words in parts, each
+    /// break at a hyphenation point, as WebKit sets them. Where it does not, it is as wide as its
+    /// longest word.
+    func testAFloatWhoseWordsHyphenateKeepsItsWidthAndOneWhoseWordsDoNotWidensToThem() throws {
+        let words = "Extraordinarily considerable vocabulary."
+        for hyphens in ["auto", "manual"] {
+            let (section, view) = try layout("<aside>\(words)</aside><p>\(H.prose)</p>",
+                                             css: "aside { float:right; width:60px; hyphens:\(hyphens) }")
+            let region = try XCTUnwrap(H.region(words, in: section, view: view), hyphens)
+            let content = try XCTUnwrap(region.contentFrame, hyphens)
+            let lines = H.lines(in: view, intersecting: H.range(words, in: section))
+            if hyphens == "auto" {
+                XCTAssertEqual(content.width, 60, accuracy: 0.5, "the float keeps its width")
+                XCTAssertFalse(Self.brokenWords(lines, in: section).isEmpty, "its words are set in parts")
+                XCTAssertEqual(Self.breaksOffHyphenationPoints(lines, in: section), [])
+            } else {
+                let longest = H.frame("Extraordinarily", in: section, view: view).width
+                XCTAssertGreaterThanOrEqual(content.width, longest - 0.5, "as wide as its longest word")
+                XCTAssertLessThan(content.width, longest + 2)
+                XCTAssertEqual(Self.brokenWords(lines, in: section), [])
+            }
+            XCTAssertEqual(content.maxX, 360, accuracy: 0.5, hyphens)
+            let ink = H.ink(words, in: section, view: view)
+            XCTAssertTrue(ink.allSatisfy { $0.minX >= content.minX - 0.5 && $0.maxX <= content.maxX + 0.5 }, "\(hyphens): \(ink)")
+            XCTAssertEqual(view.visibleText, section.string.string, hyphens)
         }
     }
 

@@ -2160,18 +2160,22 @@ as they did.
 
 The native CSS subset wraps prose beside left/right floated figures, text and archive images,
 then restores the full column below the box. Auto-width text floats use their content width,
-including narrow drop caps. A float whose `width` or `max-width` is narrower than its longest
-word is as wide as that word, as far as its containing block allows: CSS lets the word overflow
+including narrow drop caps. A float whose `width` or `max-width` is narrower than a word it
+holds is as wide as that word, as far as its containing block allows: CSS lets the word overflow
 the float (CSS Text 3 5.2), and the reader, which draws nothing outside its column, broke it
-between characters instead. A verse number in a float sized in pixels stays whole at a larger
-reader font. Only words count: an image with no size of its own still shrinks to the float
+between characters instead. The first word of a paragraph counts with the indent its first
+line keeps (`text-indent`). Where the float's text hyphenates (`hyphens: auto`, the reader's
+default) a line may end at a hyphenation point, so a word counts by its widest part and the
+hyphen set after it, and a float wide enough for those keeps its width and hyphenates, as WebKit
+sets it. A verse number in a float sized in pixels stays whole at a larger reader font. Only
+words count: an image with no size of its own still shrinks to the float
 ([#152](https://github.com/vocaro/EPUBLib/issues/152)). Horizontal margins and padding reserve
 space around the native glyph column. `clear: left`, `right` and `both` on a block start it
-below the earlier floats of the requested side, with all it holds, a float it opens with included; inside it nothing
-clears again, so its later lines wrap beside its own floats. An empty block that clears moves
-what follows it. On a float, `clear` moves that float alone below the earlier floats of the
-side (CSS 2.2 9.5.2), and on a `br` it moves the line after the break, as browsers do
-([#151](https://github.com/vocaro/EPUBLib/issues/151)).
+below the earlier floats of the requested side, with all it holds, a float it opens with
+included; inside it nothing clears again, so its later lines wrap beside its own floats. An
+empty block that clears moves what follows it. On a float, `clear` moves that float alone below
+the earlier floats of the side (CSS 2.2 9.5.2), and on a `br` it moves the line after the
+break, as browsers do ([#151](https://github.com/vocaro/EPUBLib/issues/151)).
 
 A float, and a sized `inline-block`, is placed and sized in its containing block: the content
 box of the block it is in, between the content edges where that block's own lines are set
@@ -2182,14 +2186,15 @@ float's side (CSS 2.2 9.5): no text is set between a left float and the line's s
 between a right float and the line's end, so the prose after an indented block or a positioned
 container is not set in its margin, on the far side of a float it holds
 ([#150](https://github.com/vocaro/EPUBLib/issues/150)). A line is set beside a float only where
-the room there holds the line's first word, or in a paragraph that hyphenates (`hyphens: auto`,
-the reader's default) the word's first part and its hyphen, and is 48 points wide at least.
-Otherwise the line goes down past the float, as CSS 2.2 9.5 shifts a line box too narrow for any
-of its content, where TextKit broke the word between any two characters
-([#152](https://github.com/vocaro/EPUBLib/issues/152)). WebKit sets hyphenated parts in such a
-room too. The 48-point floor is the reader's own: a browser uses any room its content fits.
-In a positioned container narrower than the column, or moved along it, the paragraphs and floats of the blocks inside it are set in the
-container's content box, without the margins of the blocks between.
+the room there holds the line's first word, or in a paragraph that hyphenates the word's first
+part and its hyphen, and is 48 points wide at least, or a third of the column where the column
+is narrower than 144 points. Otherwise the line goes down past the float, as CSS 2.2 9.5 shifts
+a line box too narrow for any of its content, where TextKit broke the word between any two
+characters ([#152](https://github.com/vocaro/EPUBLib/issues/152)). WebKit sets hyphenated parts
+in such a room too. The 48-point floor is the reader's own: a browser uses any room its content
+fits. In a positioned container narrower than the column, or moved along it, the paragraphs
+and floats of the blocks inside it are set in the container's content box, without the margins
+of the blocks between.
 
 A sized `inline-block` is set on its block's line. It starts where the text or the box before
 it ends, a space after it where the source has white space between the two, and at the start
@@ -2199,8 +2204,9 @@ right. A run of such boxes is therefore a row that wraps as words do: the rows o
 that mark an omission, an initial in a box of fixed width before the rest of its word. The
 text after the run goes on from its last box, on the same line where what is left of that line
 holds its first word, as beside a float, and the block that follows starts below the run's last
-row. A box's own horizontal margins, borders and padding stand between it and its neighbours. Each box is still a
-paragraph of its own in the text, so characters, offsets and CFIs are what they were.
+row. A box's own horizontal margins, borders and padding stand between it and its neighbours.
+Each box is still a paragraph of its own in the text, so characters, offsets and CFIs are what
+they were.
 
 Three things about a row differ from a browser. Its boxes are aligned by their tops, not
 their baselines, and prose beside a box taller than a line wraps beside it as beside a float.

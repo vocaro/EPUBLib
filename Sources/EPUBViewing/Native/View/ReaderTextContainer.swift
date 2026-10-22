@@ -206,24 +206,10 @@ final class ReaderTextContainer: NSTextContainer {
             if value != nil { attached = true; stop.pointee = true }
         }
         guard !attached, word.length > 0 else { return nil }
-        guard (style?.hyphenationFactor ?? 0) > 0 else { return text.attributedSubstring(from: word) }
-        let language = text.attribute(InlineStyling.languageKey, at: index, effectiveRange: nil) as? String
-        let locale = (language.map { Locale(identifier: $0) } ?? .current) as NSLocale as CFLocale
-        guard CFStringIsHyphenationAvailableForLocale(locale) else { return text.attributedSubstring(from: word) }
-        // The points are found in the word without the white space that ends it, past which
-        // there are none. The first is the last found going back from the word's end.
-        var length = word.length
-        while length > 0, let scalar = UnicodeScalar(string.character(at: word.location + length - 1)),
-              CharacterSet.whitespacesAndNewlines.contains(scalar) { length -= 1 }
-        let characters = string.substring(with: NSRange(location: word.location, length: length)) as CFString
-        var first = length
-        while first > 1 {
-            let point = CFStringGetHyphenationLocationBeforeIndex(characters, first, CFRange(location: 0, length: length), 0, locale, nil)
-            guard point != kCFNotFound, point > 0, point < first else { break }
-            first = point
+        guard (style?.hyphenationFactor ?? 0) > 0, let point = TableMeasure.hyphenationPoints(in: text, word: word).first else {
+            return text.attributedSubstring(from: word)
         }
-        guard first < length else { return text.attributedSubstring(from: word) }
-        word.length = first
+        word.length = point - word.location
         let piece = NSMutableAttributedString(attributedString: text.attributedSubstring(from: word))
         piece.append(NSAttributedString(string: "-", attributes: text.attributes(at: word.upperBound - 1, effectiveRange: nil)))
         return piece
