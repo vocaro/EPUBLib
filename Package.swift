@@ -31,6 +31,7 @@ let package = Package(
                 path: "Examples/VoiceOverVerification/Shared"),
         .testTarget(name: "EPUBReadingTests", dependencies: ["EPUBCore", "EPUBReading", "EPUBText", "EPUBTestSupport"]),
         .testTarget(name: "EPUBWritingTests", dependencies: ["EPUBCore", "EPUBWriting", "EPUBReading", "EPUBText", "ZIPFoundation"]),
-        .testTarget(name: "EPUBViewingTests", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing", "EPUBViewingTestSupport", "EPUBTestSupport"]),
+        .testTarget(name: "EPUBViewingTests", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing", "EPUBViewingTestSupport", "EPUBTestSupport",
+                                                            .product(name: "StaticSVG", package: "StaticSVG")]),
     ]
 )
