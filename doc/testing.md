@@ -1414,7 +1414,7 @@ the gaps." and "Words after the gaps." stand round the first table, "Words befor
 tally." and "Words after the tally." round the second, and sixty numbered lines follow.
 It has no heading and no link either, and none of its words is one VoiceOver uses for a
 table, a picture or a group, or for a place with nothing in it. A sixteenth, **Words hidden
-in the flow** (`OPS/veiled.xhtml`), the book's last, holds words that `visibility: hidden`
+in the flow** (`OPS/veiled.xhtml`), holds words that `visibility: hidden`
 hides in the flow, which keep their room on the page and are read by nobody
 ([Hidden text](native-viewer.md#hidden-text)): "Shown words before" and "shown words after."
 round "concealed words in the line" in one paragraph; a hidden paragraph, "Concealed
@@ -1425,7 +1425,20 @@ after the hidden ones." stand round them, and sixty numbered lines follow. It ha
 and no link, no word of it is one VoiceOver uses, and no shown word holds a hidden one, so
 "concealed", "Concealed" or "collapsed" in a transcript is a hidden word read. Open it with
 `--href OPS/veiled.xhtml` on a simulator and `"launch=-SampleHref OPS/veiled.xhtml"` in a
-hosted session. A second bundled book, opened with
+hosted session. **Math readings** (`OPS/math.xhtml`) follows it, and the book's last section,
+**Words kept from listeners** (`OPS/kept.xhtml`), holds shown words the book keeps from
+assistive technology with `aria-hidden="true"`
+([Text kept from assistive technology](native-viewer.md#text-kept-from-assistive-technology)):
+a paragraph of its own, "* Unheard stars *", after "Words before the kept ones."; "unheard
+words in the line" between "Shown words before" and "shown words after."; the heading
+"Harbour notes" with "unheard ornament" in it; a link of kept words alone, "unheard jump",
+between "Shown words around" and "the kept jump."; and a picture that `visibility: hidden`
+hides ([Hidden text](native-viewer.md#hidden-text)), described as "Unheard veiled square",
+between "Shown words beside" and "the hidden square.". "Words after the kept ones." and sixty
+numbered lines follow. Every kept or hidden word begins "unheard" or "Unheard" and no shown
+word does, so either in a transcript is a kept word read, and no word of it is one VoiceOver
+uses for a heading, a link or a picture. Open it with `--href OPS/kept.xhtml` on a simulator
+and `"launch=-SampleHref OPS/kept.xhtml"` in a hosted session. A second bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
 twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
@@ -1437,8 +1450,9 @@ after the numbered paragraph, the two parked ones (level 1), each opening its se
 section, and "Second part opens" (level 3) and "Third part opens" (level 4) inside the
 section of parts below a jump; the sections of entries and of jumps inside a grid, between
 "What each line offers" and "Tables of data", have none, and neither has the section of
-jumps at a grid's edges nor the last three, of squares and of gaps inside grids and of words
-hidden in the flow. The second book's are "Chapter one", "Chapter two"
+jumps at a grid's edges nor the three of squares and of gaps inside grids and of words
+hidden in the flow. "Math readings" (level 1) opens the section after them, and "Harbour
+notes" (level 2) stands in the book's last. The second book's are "Chapter one", "Chapter two"
 and "Chapter three", screens apart.
 Do not import private books for this check. The fixture keeps to the shared rules for
 [speech fixtures and reference views](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#speech-fixtures-and-reference-views),

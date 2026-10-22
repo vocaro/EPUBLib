@@ -171,6 +171,7 @@ final class SectionWriter {
                              keepWithNext: false, firstParagraph: 0, language: language)]
         var context = InlineContext()
         context.language = language
+        context.isUnspoken = ContentSemantics.isAriaHidden(element)
         let root = Entry(node: element, children: children, style: style, context: context)
         if let box { open(box, root) }
         else {
@@ -198,6 +199,7 @@ final class SectionWriter {
                              keepWithNext: false, firstParagraph: 0, language: language)]
         var context = InlineContext()
         context.language = language
+        context.isUnspoken = ContentSemantics.isAriaHidden(element)
         let root = Entry(node: element, children: element.children, style: style, context: context)
         state.generated.apply(style, owner: element.parent?.order ?? element.order)
         beginGenerated(root)
@@ -346,6 +348,7 @@ final class SectionWriter {
         }
         var context = parent.context
         if let language = node.language { context.language.declare(language) }
+        if ContentSemantics.hasAriaHidden(node) { context.isUnspoken = true }
         // The element is rendered: its counters change where it opens, in scope for it, its
         // descendants and its following siblings.
         state.generated.apply(style, owner: parent.node.order)
@@ -1030,6 +1033,8 @@ final class SectionWriter {
         guard let text = ListMarker.text(style.listStyleType, value: value) else { return }
         var markerContext = InlineContext()
         markerContext.language = context.language
+        // The marker is the item's own, kept from assistive technology with it.
+        markerContext.isUnspoken = context.isUnspoken
         let attributes = styling.attributes(style, markerContext)
         let outside = style.listStylePosition == .outside && flattenDepth == 0 && !isNote
         let suffix = ListMarker.hasSuffix(style.listStyleType)
@@ -1684,7 +1689,7 @@ final class SectionWriter {
     /// Inserts rich content as a unit: one non-exact span on the element. Block-level content gets
     /// its own paragraphs (one per paragraph of the result) and the element's box.
     private func insert(_ result: NSAttributedString, for node: ContentNode, style: ComputedStyle, context: InlineContext) {
-        let result = Self.trimmingParagraphBreaks(result)
+        let result = Self.marking(Self.trimmingParagraphBreaks(result), hidden: style.isHidden, unspoken: context.isUnspoken)
         guard result.length > 0 else { skip(node, registered: true); return }
         let block = (style.display.isBlockLevel || style.requiresFlowBox) && flattenDepth == 0
         let utf16 = Array(result.string.utf16)
@@ -1753,6 +1758,31 @@ final class SectionWriter {
         lastWasCollapsedSpace = false
         lastScalar = 0xFFFC
         if block { exitBlock() }
+    }
+
+    /// Rich content as what is read of it: `hidden`, which `visibility: hidden` hides, marks
+    /// every character `.readerHidden`, as hidden text is, so that it keeps its room and is
+    /// read by nobody, the words shown where an image or a formula cannot be drawn included
+    /// (#549). A table is not marked as a whole: each of its cells can set `visibility: visible`
+    /// again, and what its cells hold is marked as they are written. `unspoken`, under
+    /// `aria-hidden="true"`, marks those shown words `.readerUnspoken`, as it marks text; an
+    /// attachment itself knows whether the book keeps it from assistive technology.
+    private static func marking(_ string: NSAttributedString, hidden: Bool, unspoken: Bool) -> NSAttributedString {
+        guard hidden || unspoken, string.length > 0 else { return string }
+        let whole = NSRange(location: 0, length: string.length)
+        var holdsTable = false, holdsText = false
+        string.enumerateAttribute(.attachment, in: whole) { value, _, stop in
+            if value == nil { holdsText = true } else if value is TableRowAttachment { holdsTable = true; stop.pointee = true }
+        }
+        guard !holdsTable, hidden || holdsText else { return string }
+        let marked = NSMutableAttributedString(attributedString: string)
+        if hidden { marked.addAttribute(.readerHidden, value: true, range: whole) }
+        else {
+            string.enumerateAttribute(.attachment, in: whole) { value, run, _ in
+                if value == nil { marked.addAttribute(.readerUnspoken, value: true, range: run) }
+            }
+        }
+        return marked
     }
 
     /// Rich content must not begin or end with a paragraph break; one that does is trimmed.
