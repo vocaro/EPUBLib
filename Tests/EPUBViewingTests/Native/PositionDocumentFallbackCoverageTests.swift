@@ -635,20 +635,43 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
         let comment = Data("<!DOCTYPE html><html><body><style><!-- </style>\u{0}[ <!ENTITY e \"x\"> --></style><p>a<br></p></body></html>".utf8)
         XCTAssertTrue(XMLSafety.hasSafeDeclarations(comment))
         XCTAssertTrue(XMLSafety.hasSafeDeclarations(try ContentDocument.htmlSource(comment, rewritten: comment, path: "fallback.xhtml", limits: ContentLimits()).data))
-        // The tree is that of the same document without the NUL, where `<!>` stands in its place
-        // and where the NUL is left out: beside a space, after a DOCTYPE in lowercase (which the
-        // screen and the XML parser read no subset after), after a letter, and with no DOCTYPE.
-        for (label, markup) in [("in a paragraph", "<!DOCTYPE html><html><body><p>\u{0}[1]<br></p></body></html>"),
-                                ("after a DOCTYPE in a comment", "<!-- <!DOCTYPE --><html><body><p>\u{0}[1]<br></p></body></html>"),
-                                ("between paragraphs", "<!DOCTYPE html><html><body><p>a</p>\u{0}\u{0}[b]<p>c<br></p></body></html>"),
-                                ("in a title", "<!DOCTYPE html><html><head><title>\u{0}[T]</title></head><body><p>a<br></p></body></html>"),
-                                ("before a space", "<!DOCTYPE html>\u{0} \(subset)"), ("after a space", "<!DOCTYPE html> \u{0}\(subset)"),
+        // Where the NUL is left out, the tree is that of the same document without it: beside a
+        // space, after a DOCTYPE in lowercase (which the screen and the XML parser read no subset
+        // after), after a letter, and with no DOCTYPE.
+        for (label, markup) in [("before a space", "<!DOCTYPE html>\u{0} \(subset)"), ("after a space", "<!DOCTYPE html> \u{0}\(subset)"),
                                 ("after a DOCTYPE in lowercase", "<!doctype html>\u{0}\(subset)"),
                                 ("after a letter", "<!DOCTYPE html><html><body><p>a\u{0}[1]<br></p></body></html>"),
                                 ("without a DOCTYPE", page("<p>a<br></p>\u{0}[1]<p>\u{0}[2]</p>"))] {
             let twin = markup.replacingOccurrences(of: "\u{0}", with: "")
             XCTAssertTrue(XMLSafety.hasSafeDeclarations(Data(twin.utf8)), label)
             XCTAssertEqual(model(try parse(markup)), model(try parse(twin)), label)
+        }
+    }
+
+    /// Where `<!>` stands in place of a NUL, libxml2 2.9.13 reads nothing: the tree is that of
+    /// the same document without the NUL, in each context the scan reads as text. That includes
+    /// the elements an HTML tokenizer reads as RCDATA or raw text, where a later libxml2 would
+    /// show `<!>` as it is written (#593).
+    func testTheEmptyCommentBetweenADoctypeAndABracketReadsAsNothing() throws {
+        let open = "<!DOCTYPE html><html>", close = "<p>a<br></p></body></html>"
+        var documents = [
+            ("in a paragraph", "\(open)<body><p>\u{0}[1]<br></p></body></html>"), ("between paragraphs", "\(open)<body><p>a</p>\u{0}\u{0}[b]\(close)"),
+            ("after an end tag", "\(open)<body><p>a<b>x</b>\u{0}[b]<br></p></body></html>"), ("after a stray end tag", "\(open)<body><p>a</i>\u{0}[b]<br></p></body></html>"),
+            ("after an empty element", "\(open)<body><p>a<br/>\u{0}[b]<br></p></body></html>"), ("after an unquoted value", "\(open)<body><p class=c>\u{0}[b]<br></p></body></html>"),
+            ("after a comment", "\(open)<body><p>a<!-- c -->\u{0}[b]<br></p></body></html>"), ("after a PI", "\(open)<body><p>a<?pi x?>\u{0}[b]<br></p></body></html>"),
+            ("in html", "\(open)\u{0}[b]<body>\(close)"), ("in head", "\(open)<head>\u{0}[b]</head><body>\(close)"), ("after the document", "\(open)<body>\(close)\u{0}[b]"),
+            ("in a title", "\(open)<head><title>\u{0}[T]</title></head><body>\(close)"),
+            ("in a table row", "\(open)<body><table><tr><td>a</td>\u{0}[b]<td>c</td></tr></table>\(close)"), ("in a list", "\(open)<body><ul><li>a</li>\u{0}[b]</ul>\(close)"),
+            ("in a select", "\(open)<body><select><option>a</option>\u{0}[b]</select>\(close)"), ("in SVG", "\(open)<body><svg><text>a</text>\u{0}[b]</svg>\(close)"),
+            ("in MathML", "\(open)<body><math><mi>a</mi>\u{0}[b]</math>\(close)"), ("in a quoted DOCTYPE literal", "<!DOCTYPE html SYSTEM \"a>\u{0}[b\"><html><body>\(close)"),
+            ("after a DOCTYPE in a comment", "<!-- <!DOCTYPE --><html><body><p>\u{0}[1]<br></p></body></html>"),
+        ]
+        documents += ["textarea", "xmp", "iframe", "noscript", "noembed", "noframes", "plaintext"].map { ("in \($0)", "\(open)<body><\($0)>\u{0}[x]</\($0)>\(close)") }
+        for (label, markup) in documents {
+            let data = Data(markup.utf8)
+            let given = try ContentDocument.htmlSource(data, rewritten: data, path: "fallback.xhtml", limits: ContentLimits()).data
+            XCTAssertNotNil(given.range(of: Data("<!>".utf8)), "\(label): no `<!>` was written")
+            XCTAssertEqual(model(try parse(data)), model(try parse(markup.replacingOccurrences(of: "\u{0}", with: ""))), label)
         }
     }
 

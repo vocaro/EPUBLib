@@ -62,15 +62,19 @@ continues to describe the authored spine resource.
    U+0000 does not end the section: it is left out of text and is U+FFFD in tags, comments
    and the raw text of `script` and `style`, as HTML reads it. Text NULs between a `>` and a
    `[` would join them into the internal subset the screen refuses after a DOCTYPE, so once a
-   file holds `<!DOCTYPE` the first of them is given to the parser as `<!>`. HTML reads that as
-   an empty comment, so the text is the same. Any `>` after the file's first `<!DOCTYPE` counts:
-   the screen ends a DOCTYPE past a quoted `>` and also reads one inside a style sheet, so
-   recovery cannot tell which `>` the screen takes for a DOCTYPE's end. `<!>` holds no quote and
-   no `-->`, `?>` or `]]>`, so it ends nothing the screen may be reading there (`<!---->` would
-   end a comment the screen reads in a style sheet). A lowercase `<!doctype` does not trigger
-   it: the screen and libxml2's XML parser read an internal subset only after `<!DOCTYPE` in
-   capitals, and the screen passes `<!doctype html>[` written as it is
-   ([#246](https://github.com/vocaro/EPUBLib/issues/246)).
+   file holds `<!DOCTYPE` the first of them is given to the parser as `<!>`. What keeps the
+   text the same is libxml2 2.9.13, which reads `<!>` as nothing wherever recovery writes it,
+   `title` and `textarea` included; HTML reads it as an empty comment in text. A libxml2 with
+   an HTML tokenizer (2.14 and later) reads `title`, `textarea`, `xmp`, `iframe`, `noembed`,
+   `noframes`, `noscript` and `plaintext` as RCDATA or raw text, and would show `<!>` there as
+   written ([#593](https://github.com/vocaro/EPUBLib/issues/593)). Any `>` after the file's
+   first `<!DOCTYPE` counts: the screen ends a DOCTYPE past a quoted `>` and also reads one
+   inside a style sheet, so recovery cannot tell which `>` the screen takes for a DOCTYPE's
+   end. `<!>` holds no quote and no `-->`, `?>` or `]]>`, so it ends nothing the screen may be
+   reading there (`<!---->` would end a comment the screen reads in a style sheet). A
+   lowercase `<!doctype` does not trigger it: the screen and libxml2's XML parser read an
+   internal subset only after `<!DOCTYPE` in capitals, and the screen passes
+   `<!doctype html>[` written as it is ([#246](https://github.com/vocaro/EPUBLib/issues/246)).
    A section whose file is cut off inside markup stays withheld, with its disclosure: the
    screen refuses markup left open at the end of the input before either parser runs.
    `XMLSafety` refuses entity declarations first. No DTD or network access, depth and node limits.

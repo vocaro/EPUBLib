@@ -20,11 +20,13 @@ import Foundation
 /// After a DOCTYPE, a `>` and a `[` that only NULs stand between are kept apart. The screen
 /// refuses a `[` directly after a DOCTYPE's `>`, where libxml2's XML parser reads an internal
 /// subset, and leaving the NULs out would give the parser what the screen refuses. The first
-/// NUL is `<!>`, an empty comment to HTML that libxml2 passes over, so the text is what HTML
-/// reads. It holds no quote and no `-->`, `?>` or `]]>`, so it ends nothing the screen may be
-/// reading there; an empty comment `<!---->` would end a comment the screen reads in a style
-/// sheet. The screen ends a DOCTYPE past a quoted `>`, and reads one in the raw text of a style
-/// sheet, so here any `>` after the first `<!DOCTYPE` may end one.
+/// NUL is `<!>`, which libxml2 2.9.13 reads as nothing wherever this scan reads text, so the
+/// text is what it is without the NUL. (An HTML tokenizer reads `title`, `textarea` and the
+/// like as RCDATA or raw text, and would show it there.) It holds no quote and no `-->`, `?>`
+/// or `]]>`, so it ends nothing the screen may be reading there; an empty comment `<!---->`
+/// would end a comment the screen reads in a style sheet. The screen ends a DOCTYPE past a
+/// quoted `>`, and reads one in the raw text of a style sheet, so here any `>` after the first
+/// `<!DOCTYPE` may end one.
 ///
 /// The scan follows what libxml2 does with the bytes it is given here, not what HTML would:
 /// raw text ends at an end tag of its own name and at no other. Where the two part (libxml2
