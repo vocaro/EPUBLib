@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import StaticSVG
 import ImageIO
 #if os(iOS)
 import UIKit
@@ -30,7 +31,7 @@ final class ReaderImageSource: @unchecked Sendable {
     /// Bitmaps over this many pixels are refused as unreadable rather than decoded.
     static let maximumPixelCount = 64 * 1024 * 1024
     /// SVG is rasterized at most this many pixels on its long side.
-    static let maximumSVGDimension = 4096
+    static let maximumSVGDimension = SVGRenderer.maximumDimension
 
     private init(key: String, path: String, data: Data, format: Format, pixelSize: CGSize, svgRenderer: SVGRenderer? = nil) {
         self.key = key; self.path = path; self.data = data; self.format = format; self.pixelSize = pixelSize

@@ -110,6 +110,21 @@ extension PublicationTests {
         XCTAssertEqual(book.metadata.identifiers, ["another-book", "test-book"])
         XCTAssertEqual(try book.data(at: "OPS/font.otf").prefix(20), Data(Insecure.SHA1.hash(data: Data("test-book".utf8))))
     }
+
+    /// `unique-identifier` is an IDREF and an identifier's `id` an ID, each read without the XML
+    /// white space round it, so the identifier it names keys the obfuscation.
+    func testTheUniqueIdentifierNamesItsIdentifierWhateverWhiteSpaceSurroundsEither() throws {
+        let xml = """
+        <encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><EncryptedData xmlns="http://www.w3.org/2001/04/xmlenc#"><EncryptionMethod Algorithm="http://www.idpf.org/2008/embedding"/><CipherData><CipherReference URI="OPS/font.otf"/></CipherData></EncryptedData></encryption>
+        """
+        let data = try Fixture.packageVariant(opf: {
+            $0.replacingOccurrences(of: "unique-identifier=\"uid\"", with: "unique-identifier=\" uid\n\"")
+                .replacingOccurrences(of: "<dc:identifier id=\"uid\">test-book</dc:identifier>",
+                                      with: "<dc:identifier id=\"isbn\">another-book</dc:identifier><dc:identifier id=\"&#9;uid \">test-book</dc:identifier>")
+        }, adding: ["META-INF/encryption.xml": Data(xml.utf8), "OPS/font.otf": Data(count: 1050)])
+        let book = try EPUBPublication.open(data: data)
+        XCTAssertEqual(try book.data(at: "OPS/font.otf").prefix(20), Data(Insecure.SHA1.hash(data: Data("test-book".utf8))))
+    }
 }
 
 extension PublicationTests {

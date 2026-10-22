@@ -307,16 +307,22 @@ final class SpecConformancePackageTests: XCTestCase {
     }
 
     /// RS 5.5.1: when an itemref carries more than one override of the same property, only the
-    /// first is used (W3C test fxl-spine-overrides_duplicate).
+    /// first is used (W3C test fxl-spine-overrides_duplicate), in the order the attribute writes
+    /// them, whatever other properties stand among them and whichever way the global value goes.
     func testTheFirstOfSeveralLayoutOverridesWins() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/79")
         var book = Book()
         book.metadata += "<meta property=\"rendition:layout\">pre-paginated</meta>"
         book.add("page", body: "<p>A fixed page.</p>")
         book.add("flow", itemref: "properties=\"rendition:layout-reflowable rendition:layout-pre-paginated\"", body: "<p>Reflowable text.</p>")
         XCTAssertEqual(try EPUBPublication.open(data: book.archive()).spine.map(\.layout), [.prePaginated, .reflowable])
+        book.sections[1].itemref = "properties=\"page-spread-left\n  rendition:layout-reflowable\trendition:spread-none rendition:layout-pre-paginated \""
+        XCTAssertEqual(try EPUBPublication.open(data: book.archive()).spine.map(\.layout), [.prePaginated, .reflowable])
+        book.sections[1].itemref = "properties=\"rendition:layout-reflowable rendition:layout-pre-paginated rendition:layout-reflowable\""
+        XCTAssertEqual(try EPUBPublication.open(data: book.archive()).spine.map(\.layout), [.prePaginated, .reflowable])
         book.metadata = book.metadata.replacingOccurrences(of: "pre-paginated", with: "reflowable")
         book.sections[1].itemref = "properties=\"rendition:layout-pre-paginated rendition:layout-reflowable\""
+        XCTAssertEqual(try EPUBPublication.open(data: book.archive()).spine.map(\.layout), [.reflowable, .prePaginated])
+        book.sections[1].itemref = "properties=\"rendition:spread-both rendition:layout-pre-paginated page-spread-right rendition:layout-reflowable\""
         XCTAssertEqual(try EPUBPublication.open(data: book.archive()).spine.map(\.layout), [.reflowable, .prePaginated])
     }
 

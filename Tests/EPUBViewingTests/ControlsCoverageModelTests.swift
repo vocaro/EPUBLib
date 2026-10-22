@@ -379,8 +379,8 @@ import UIKit
         XCTAssertEqual(model.pendingCommands, 0)
     }
 
-    /// "The current contents entry receives a checkmark when its encoded section href and, for
-    /// fragments, its current title match … duplicate chapter titles can be ambiguous."
+    /// "The current contents entry receives a checkmark when it names the section being read and,
+    /// for fragments, its current title matches … duplicate chapter titles can be ambiguous."
     func testTheCurrentContentsEntryNeedsItsSectionAndForFragmentsAnUnambiguousTitle() throws {
         let publication = try EPUBPublication.open(data: SessionCoverageBook.epub([
             .init("one", "<p id=\"a\">A</p><p id=\"b\">B</p><p id=\"c\">C</p>"), .init("two", "<p id=\"x\">X</p>"),
@@ -412,6 +412,91 @@ import UIKit
         XCTAssertFalse(model.isCurrent(item("Part", "OPS/one.xhtml#a")))
         session.readerState?.modify { $0.location?.href = nil }
         XCTAssertFalse(model.isCurrent(item("Chapter", "OPS/one.xhtml")))
+    }
+
+    /// "An entry names the section that `navigate(href:)` shows for it": by its decoded path,
+    /// composed or decomposed, escaped or not, as the location's is (#206).
+    func testTheCurrentContentsEntryIsFoundByItsDecodedPathWhateverItsSpelling() throws {
+        let publication = try EPUBPublication.open(data: SessionCoverageBook.epub([
+            .init("caf\u{E9}", "<p id=\"s1\">A</p><p id=\"s2\">B</p><p id=\"s3\">C</p>"), .init("two", "<p id=\"x\">X</p>"),
+        ], toc: "<li><a href=\"cafe%CC%81.xhtml\">Caf\u{E9}</a><ol><li><a href=\"cafe%CC%81.xhtml#s1\">Opening</a></li>"
+            + "<li><a href=\"caf%C3%A9.xhtml#s2\">Part</a></li><li><a href=\"cafe%CC%81.xhtml#s3\">Part</a></li></ol></li>"
+            + "<li><a href=\"two.xhtml\">Two</a><ol><li><a href=\"two.xhtml#x\">Part</a></li></ol></li>"))
+        let section = try XCTUnwrap(publication.spine.first?.resource.href)
+        XCTAssertEqual(section, "OPS/caf%C3%A9.xhtml", "the reader's location names the manifest's composed spelling")
+        let cafe = publication.tableOfContents[0], two = publication.tableOfContents[1]
+        let opening = cafe.children[0], composedPart = cafe.children[1], decomposedPart = cafe.children[2]
+        XCTAssertEqual(cafe.href, "OPS/cafe%CC%81.xhtml", "the entry keeps its own, decomposed")
+        XCTAssertEqual(opening.href, "OPS/cafe%CC%81.xhtml#s1")
+        let session = Session(), model = try controls(session, publication: publication)
+        func item(_ title: String, _ href: String) -> EPUBNavigationItem { EPUBNavigationItem(title: title, href: href) }
+
+        session.readerState?.modify { $0.location = EPUBLocation(publicationID: publication.id, href: section, title: "Opening") }
+        XCTAssertTrue(model.isCurrent(cafe), "a decomposed entry names the composed section")
+        XCTAssertTrue(model.isCurrent(opening), "and so does one with a fragment")
+        XCTAssertFalse(model.isCurrent(composedPart))
+        XCTAssertFalse(model.isCurrent(two))
+        // Spellings a host writes: unescaped, escaped in lower case, composed or decomposed.
+        for href in ["OPS/caf\u{E9}.xhtml", "OPS/cafe\u{301}.xhtml", "OPS/caf%c3%a9.xhtml", "OPS/%63af%C3%A9.xhtml"] {
+            XCTAssertTrue(model.isCurrent(item("Caf\u{E9}", href)), href)
+        }
+        XCTAssertTrue(model.isCurrent(item("Opening", "OPS/cafe\u{301}.xhtml#s1")))
+        XCTAssertFalse(model.isCurrent(item("Caf\u{E9}", "OPS/cafe.xhtml")), "an unaccented name is another file")
+
+        session.readerState?.modify { $0.location?.title = "Part" }
+        XCTAssertFalse(model.isCurrent(composedPart), "two entries of this section share the title, in two spellings")
+        XCTAssertFalse(model.isCurrent(decomposedPart))
+        XCTAssertFalse(model.isCurrent(two.children[0]), "another section")
+
+        // Another engine's location, unescaped and with a fragment, names the same section.
+        session.readerState?.modify { $0.location = EPUBLocation(publicationID: publication.id, href: "OPS/caf\u{E9}.xhtml#s1", title: "Opening") }
+        XCTAssertTrue(model.isCurrent(cafe))
+        XCTAssertTrue(model.isCurrent(opening))
+        session.readerState?.modify { $0.location?.href = "OPS/cafe%CC%81.xhtml" }
+        XCTAssertTrue(model.isCurrent(item("Caf\u{E9}", section)))
+
+        session.readerState?.modify { $0.location = EPUBLocation(publicationID: publication.id, href: "OPS/two.xhtml", title: "Part") }
+        XCTAssertTrue(model.isCurrent(two.children[0]), "the title is unambiguous within this section")
+        XCTAssertFalse(model.isCurrent(cafe))
+    }
+
+    /// An entry that names a spine item's designated fallback is current while that item is read,
+    /// where `navigate(href:)` shows it.
+    func testAContentsEntryNamingAFallbackIsCurrentInItsSpineItem() throws {
+        var book = Fixture.SpecBook()
+        book.add("before", body: "<p>Before</p>")
+        book.add(href: "source.json", id: "source", mediaType: "application/json", Data("{}".utf8), item: "fallback='static'")
+        book.resource("text/static.xhtml", id: "static", mediaType: "application/xhtml+xml",
+                      Data(Fixture.SpecBook.xhtml(body: "<p id='target'>Target</p>").utf8))
+        book.navigation = "<nav epub:type='toc'><ol><li><a href='before.xhtml'>Before</a></li>"
+            + "<li><a href='text/static.xhtml'>Fallback</a><ol><li><a href='text/static.xhtml#target'>Target</a></li></ol></li></ol></nav>"
+        let publication = try EPUBPublication.open(data: book.archive())
+        let session = Session(), model = try controls(session, publication: publication)
+        session.readerState?.modify { $0.location = EPUBLocation(publicationID: publication.id, href: "EPUB/source.json", title: "Target") }
+        XCTAssertEqual(publication.tableOfContents.map(model.isCurrent), [false, true])
+        XCTAssertEqual(publication.tableOfContents[1].children.map(model.isCurrent), [true])
+    }
+
+    /// The bundled reader, sent an entry its manifest spells otherwise, shows its section, and
+    /// the controls mark that entry current, not the one before it.
+    func testTheBundledReaderMarksCurrentAnEntryItsManifestSpellsOtherwise() async throws {
+        let reader = try SessionCoverageReader(SessionCoverageBook.epub([
+            .init("one", "<p>One</p>"), .init("caf\u{E9}", "<p id=\"s1\">Opening</p>"),
+        ], toc: "<li><a href=\"one.xhtml\">One</a></li><li><a href=\"cafe%CC%81.xhtml\">Caf\u{E9}</a>"
+            + "<ol><li><a href=\"cafe%CC%81.xhtml#s1\">Opening</a></li></ol></li>"))
+        addTeardownBlock { @MainActor in reader.close() }
+        try await reader.settle()
+        let model = EPUBReaderControls(publication: reader.publication, session: reader.session)
+        let contents = reader.publication.tableOfContents, opening = try XCTUnwrap(contents.last?.children.first)
+        XCTAssertEqual(contents.map(model.isCurrent), [true, false])
+
+        model.send(.navigate(href: try XCTUnwrap(opening.href)))
+        await model.waitForCommands()
+        XCTAssertNil(model.commandError)
+        try await reader.wait("the entry's section") { reader.section == 1 && model.status?.location?.title == "Opening" }
+        XCTAssertEqual(model.status?.location?.href, "OPS/caf%C3%A9.xhtml")
+        XCTAssertEqual(contents.map(model.isCurrent), [false, true])
+        XCTAssertTrue(model.isCurrent(opening))
     }
 
     /// The model over the bundled reader: its refusals reach `commandError`, its queue keeps

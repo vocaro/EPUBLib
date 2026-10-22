@@ -39,7 +39,9 @@ struct ReaderPage: Equatable {
     var layoutSpacing: CGFloat = 0
     /// The source line lengths of the page's own layout, which can break differently from the
     /// released section layout. Nil for a page committed without a measurement: the one page
-    /// of a section with no lines, or a page whose clip can show no fitted glyph.
+    /// of a section with no lines, a page whose clip can show no fitted glyph, or one whose
+    /// first character cluster no layout shows. Every other page's own layout shows a line of
+    /// its characters (#576).
     var measuredLineLengths: [Int]? = nil
     /// A page whose first line cannot fit its clip, or whose positioned content cannot, retains
     /// its source as native in-flow text, just as an oversized box does during section preflight.
@@ -47,6 +49,12 @@ struct ReaderPage: Equatable {
     /// The height that fallback fits each run to, as a share of its clip: below 1 when the
     /// line those runs make together was still taller than the clip.
     var fallbackScale: CGFloat = 1
+}
+
+extension NSAttributedString.Key {
+    /// The height the typography fallback fits a page's runs to (`ReaderPaginator.text(for:)`),
+    /// on a formula, which takes its size from the viewport rather than from its run's font.
+    static let readerFallbackHeight = NSAttributedString.Key("org.epublib.fallbackHeight")
 }
 
 struct ReaderTableFragment: Equatable {
@@ -270,6 +278,9 @@ struct ReaderTableFragment: Equatable {
                         slice.addAttribute(.attachment, value: TableRowAttachment(table: row.table, row: row.row,
                             fragment: fitted, layout: layout), range: run)
                     }
+                } else if attributes[.attachment] is MathAttachment {
+                    // A formula takes its size from the viewport, not from its run's font.
+                    slice.addAttribute(.readerFallbackHeight, value: NSNumber(value: Double(height)), range: run)
                 } else if let image = attributes[.attachment] as? ReaderImageAttachment {
                     let drawn = image.sizing.size(lineWidth: size.width, viewport: size, heightLimit: size.height)
                     if drawn.height > height {
@@ -298,6 +309,13 @@ struct ReaderTableFragment: Equatable {
                     style.lineSpacing = min(max(0, style.lineSpacing), max(0, height - natural))
                     style.paragraphSpacingBefore = min(max(0, style.paragraphSpacingBefore), height / 2)
                     style.paragraphSpacing = min(max(0, style.paragraphSpacing), height / 2)
+                    // A tab with neither a stop after it nor an interval is set on no line
+                    // (`InlineStyling.tabInterval`). The section's layout can still have set one
+                    // that the page's own layout, starting a line later, cannot.
+                    if !(style.defaultTabInterval >= 1) {
+                        let font = slice.attribute(.font, at: run.location, effectiveRange: nil) as? PlatformFont
+                        style.defaultTabInterval = font.map { InlineStyling.tabInterval($0) } ?? InlineStyling.tabInterval(height)
+                    }
                     slice.addAttribute(.paragraphStyle, value: style, range: run)
                 }
             }
@@ -431,43 +449,119 @@ struct ReaderTableFragment: Equatable {
             lines[end].range.location = page.range.upperBound
             lines[end].startsParagraph = false
         }
+        assertCommittable(page, first: first, at: firstIndex, advancing: end > firstIndex)
         pages.append(page)
         nextLine = end
         if !layOutLines(through: end) { finish() }
         return true
     }
 
+    /// What every committed page keeps, checked in debug builds (#576). It starts where the
+    /// last page ended: after characters the section's layout set on no line (text TextKit
+    /// could not place, #288), or on the row whose continuation it holds. It advances. And its
+    /// own layout shows a line of its characters, unless its clip can show no glyph or no
+    /// layout shows its first character cluster (`shortened`).
+    private func assertCommittable(_ page: ReaderPage, first: Line, at index: Int, advancing: Bool) {
+        let previous = pages.last?.range.upperBound ?? 0
+        let continuesRow = first.tableFragment != nil && pages.last.map { NSLocationInRange(page.range.location, $0.range) } == true
+        assert(page.range.location == previous || continuesRow
+               || page.range.location > previous && (index == 0 || lines[index - 1].range.upperBound <= previous),
+               "The page at \(page.range.location) starts where the page before it ends, at \(previous)")
+        assert(page.range.length > 0 && (page.range.upperBound > previous || advancing),
+               "The page at \(page.range.location) advances")
+        assert(fallbackHeight(for: page) == nil
+               || page.measuredLineLengths.map { !$0.isEmpty && $0.reduce(0, +) <= page.range.length } == true
+               || shown(start(of: page, length: characters.rangeOfComposedCharacterSequence(at: page.range.location).length)) == nil,
+               "The page \(page.range)'s own layout shows a line of its characters, or no layout shows its first")
+    }
+
     /// A displayed page, including its existing lookahead, without preceding section text.
-    /// Overflow carries to the next page. A positioned line outside the clip, or a first line
-    /// too tall to fit, uses native in-flow text with bounded typography for this slice.
+    /// Overflow carries to the next page. A positioned line outside the clip, a first line too
+    /// tall to fit, or a slice whose own layout sets none of its characters on a line uses
+    /// native in-flow text with bounded typography for this slice. When that does not show the
+    /// first line either, the page keeps as much of that line as it can show and the rest
+    /// carries forward. So no page is committed whose own layout shows no line of its
+    /// characters, unless its clip can show no glyph at all or no layout can show its first
+    /// character (#576).
     private func measuredDisplayPage(_ page: ReaderPage) -> ReaderPage {
-        switch layOutAsShown(page) {
-        case .fits(let measured): return measured
-        case .empty: return page
-        case .overflows: break
-        }
+        let shown = layOutAsShown(page)
+        if case .fits(let measured) = shown { return measured }
         // An impossibly small viewport still advances one original source line. Do not
         // change its font or partition while claiming that a fitted glyph is visible.
-        guard let clipHeight = fallbackHeight(for: page) else { return page }
+        guard fallbackHeight(for: page) != nil else { return page }
+        if let fitted = fallback(for: page) { return fitted }
+        var line = page.range.length
+        if case .overflows(let first?) = shown { line = min(line, first.end) }
+        return shortened(page, line: line)
+    }
+
+    /// The page as native in-flow text with bounded typography (`ReaderPage.usesFlowFallback`),
+    /// or nil when no height it tries shows the page's first line within the clip.
+    private func fallback(for page: ReaderPage) -> ReaderPage? {
+        guard let clipHeight = fallbackHeight(for: page) else { return nil }
         var fallback = page
         fallback.usesFlowFallback = true
+        fallback.fallbackScale = 1
         for _ in 0...Self.fallbackRefits {
             let shown = layOutAsShown(fallback)
             if case .fits(let measured) = shown { return measured }
-            guard case .overflows(let line?) = shown else { return page }
+            guard case .overflows(let line?) = shown else { return nil }
             // Each run fits the target on its own, but the line they make together is still
             // taller than the clip: a small run's line height applied to a large run's font,
             // text on one line with a row or an image. Lower the target by the line's
-            // overshoot, or in proportion if that is lower, and lay the slice out again. A
-            // fit that fails preserves the original page.
+            // overshoot, or in proportion if that is lower, and lay the slice out again.
             let clip = size.height - page.topSpacing
             let target = clipHeight * fallback.fallbackScale
             let next = min(target * clip / max(line.bottom - min(line.top, 0), clip + 1),
                            target - max(line.bottom - clip, -line.top, 0) - 1)
-            guard next >= Self.minimumFallbackLineHeight, next < target else { return page }
+            guard next >= Self.minimumFallbackLineHeight, next < target else { return nil }
             fallback.fallbackScale = next / clipHeight
         }
-        return page
+        return nil
+    }
+
+    /// The page laid out alone as it is shown, as planned or else as the fallback; nil when
+    /// neither shows its first line within the clip.
+    private func shown(_ page: ReaderPage) -> ReaderPage? {
+        if case .fits(let measured) = layOutAsShown(page) { return measured }
+        return fallback(for: page)
+    }
+
+    /// The first `length` characters of `page`, laid out without context.
+    private func start(of page: ReaderPage, length: Int) -> ReaderPage {
+        var part = page
+        part.range.length = length
+        part.layoutEnd = page.range.location + length
+        part.tableFragments = page.tableFragments.filter { NSLocationInRange($0.offset, part.range) }
+        return part
+    }
+
+    /// The page cut to the longest start of its first line (which ends `line` characters into
+    /// the page) that shows laid out alone; the rest of the line carries to the next page, as
+    /// a line below the clip does. Only a page whose first line shows neither as planned nor as
+    /// the fallback comes here, and no content the reader makes is known to, since the
+    /// fallback fits every run, row, image, formula and tab. A first character cluster that no
+    /// layout shows, which only content made outside the reader is known to have, is committed
+    /// as planned with the white space after it on its line, so that pagination advances.
+    private func shortened(_ page: ReaderPage, line: Int) -> ReaderPage {
+        // A page never divides a character cluster.
+        var ends: [Int] = []
+        var end = page.range.location
+        let lineEnd = page.range.location + max(1, min(line, page.range.length))
+        while end < lineEnd {
+            end = min(NSMaxRange(characters.rangeOfComposedCharacterSequence(at: end)), page.range.upperBound)
+            ends.append(end - page.range.location)
+        }
+        var low = 0, high = ends.count - 1
+        var longest: ReaderPage?
+        while low <= high {
+            let middle = (low + high) / 2
+            if let shown = shown(start(of: page, length: ends[middle])) { longest = shown; low = middle + 1 } else { high = middle - 1 }
+        }
+        if let longest { return longest }
+        end = page.range.location + ends[0]
+        while end < lineEnd, UnicodeScalar(characters.character(at: end)).map(CharacterSet.whitespacesAndNewlines.contains) == true { end += 1 }
+        return start(of: page, length: end - page.range.location)
     }
 
     /// How a page's slice lays out as it is shown.
@@ -475,9 +569,10 @@ struct ReaderTableFragment: Equatable {
         /// The lines that fit the clip, as the page to commit.
         case fits(ReaderPage)
         /// A line outside the clip that cannot carry to the next page: the first line, whose
-        /// top and bottom are given, or a positioned line above the column.
-        case overflows(firstLine: (top: CGFloat, bottom: CGFloat)?)
-        /// No line of the page's characters.
+        /// top, bottom and end in the slice are given, or a positioned line above the column.
+        case overflows(firstLine: (top: CGFloat, bottom: CGFloat, end: Int)?)
+        /// No line of the page's characters: the page's own layout set none of them on a line,
+        /// as where its container refuses TextKit the first line (`ReaderTextContainer.askLimit`).
         case empty
     }
 
@@ -501,7 +596,7 @@ struct ReaderTableFragment: Equatable {
             || page.height > size.height - page.topSpacing + 0.5
         if positionsLines { manager.ensureLayout(for: storage.documentRange) }
         var visibleEnd = 0
-        var overflow: (top: CGFloat, bottom: CGFloat)??
+        var overflow: (top: CGFloat, bottom: CGFloat, end: Int)??
         var visibleBottom: CGFloat = 0
         var lineLengths: [Int] = []
         var lineBottoms: [CGFloat] = []
@@ -519,7 +614,7 @@ struct ReaderTableFragment: Equatable {
                 // them would lose its continuation pages.
                 if (positionsLines && top < -0.5) || (visibleEnd == 0 && bottom > size.height - page.topSpacing + 0.5) {
                     // The fallback's later lines carry forward like any page's.
-                    if visibleEnd == 0 || !page.usesFlowFallback { overflow = .some(visibleEnd == 0 ? (top, bottom) : nil) }
+                    if visibleEnd == 0 || !page.usesFlowFallback { overflow = .some(visibleEnd == 0 ? (top, bottom, range.upperBound) : nil) }
                     return false
                 }
                 if visibleEnd > 0, bottom > size.height - page.topSpacing + 0.5 { return false }
