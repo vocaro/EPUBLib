@@ -135,7 +135,11 @@ direct `.searchHighlight(text:)` calls also preserve position. Completion never 
 Clear reports `.idle`; `.locate`
 also clears search. A newer direct search/clear suppresses an older completion and navigation;
 newer page navigation prevents a pending search from moving the reader back. Task cancellation
-ends pending search feedback and close suppresses all subsequent callbacks. Hosts switching on
+ends pending search feedback: a search still reading the book or building its results reports
+`.idle` with no results, and `send` throws `CancellationError`. One that arrives once the
+results are published, from their event, the completion's or an observer of the state that
+publishes them, comes too late, and the search completes. Close suppresses all subsequent
+callbacks. Hosts switching on
 `EPUBReaderEvent` must add the new `.searchChanged` case.
 
 The field shows pending/queued, no matches or an error. Its queued line counts searches only:
