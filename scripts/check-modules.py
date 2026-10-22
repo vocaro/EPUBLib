@@ -15,7 +15,7 @@ expected = {
     'EPUBReading': {'EPUBCore', 'ZIPFoundation'},
     'EPUBText': {'EPUBCore', 'EPUBReading'},
     'EPUBWriting': {'EPUBCore', 'ZIPFoundation'},
-    'EPUBViewing': {'EPUBCore', 'EPUBReading', 'MathMLLayout', 'CResvg'},
+    'EPUBViewing': {'EPUBCore', 'EPUBReading', 'MathMLLayout', 'StaticSVG'},
 }
 
 products = {product['name']: product['targets'] for product in manifest['products']}

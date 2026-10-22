@@ -673,8 +673,13 @@ final class ReaderTextView: UITextView {
                 var label: String? = spokenText(in: range)
                 // The break after an attachment that ends its paragraph is a run of its own
                 // with nothing to say, and so is decoration between two of them: no element,
-                // or VoiceOver stops on silence.
-                if attachment == nil, label?.allSatisfy(\.isWhitespace) != false { continue }
+                // or VoiceOver stops on silence. So are words the book keeps from assistive
+                // technology, but those that are all a link holds: the link stays, without a
+                // name, as a link that is a picture kept so alone does.
+                if attachment == nil, label?.allSatisfy(\.isWhitespace) != false {
+                    guard url != nil, storage.holdsUnspokenWordsAlone(inLinkAt: range.location) else { continue }
+                    label = nil
+                }
                 var traits: UIAccessibilityTraits = url == nil ? .staticText : .link
                 // A hidden label is words the page does not show, not a picture.
                 let isSpoken = attachment is SpokenLabelAttachment
@@ -739,13 +744,16 @@ final class ReaderTextView: UITextView {
     }
 
     /// The attachment an element is made for at `range`, or nil. Decoration that is passed
-    /// over, or an image or a rule the book keeps from assistive technology, is part of the
-    /// text it stands in, with nothing to say; one that was listed keeps its element while
-    /// the cursor is on it.
+    /// over, or an image, a rule or a formula the book keeps from assistive technology, is
+    /// part of the text it stands in, with nothing to say; one that was listed keeps its
+    /// element while the cursor is on it. What `visibility: hidden` hides (`.readerHidden`) is
+    /// never listed, as hidden text is not: nobody reads it, on a page of nothing else too.
     private func listedAttachment(_ attributes: [NSAttributedString.Key: Any], at range: NSRange,
                                   passingOverDecoration: Bool) -> NSTextAttachment? {
         let attachment = attributes[.attachment] as? NSTextAttachment
-        if passingOverDecoration, let attachment, attachment is ReaderImageAttachment || attachment is ReaderRuleAttachment,
+        if attachment != nil, attributes[.readerHidden] != nil { return nil }
+        if passingOverDecoration, let attachment,
+           attachment is ReaderImageAttachment || attachment is ReaderRuleAttachment || attachment is MathAttachment,
            isPassedOver(attachment, at: range),
            (accessibilityCursor?.image ?? accessibilityCursor?.rule) !== attachment || accessibilityCursor?.range != range { return nil }
         return attachment

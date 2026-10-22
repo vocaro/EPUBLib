@@ -13,8 +13,9 @@ import ZIPFoundation
 /// for, so opening takes as long as that size says however few bytes the archive has. A book is
 /// untrusted input, so `check` walks the directory first, as ZIPFoundation's iterator will and
 /// with the values it will use, and throws where that would trap. Entries whose extraction
-/// would overrun their bounds are then classified by ZIPFoundation itself, before any entry
-/// is read: directory data is never extracted, so its declared sizes need no extraction bound.
+/// would overrun their bounds are then classified as ZIPFoundation classifies them, by their
+/// records (`EntryName`), before any entry is read: directory data is never extracted, so its
+/// declared sizes need no extraction bound.
 /// A deflated entry's sizes cost nothing when they are wrong: it is read as far as its stream
 /// goes, and no further than the archive does. A record ZIPFoundation merely stops at (one cut
 /// short, or with another signature) is left to it, and the entries it leaves unread from there
@@ -31,25 +32,34 @@ enum ArchiveBounds {
         var deflatedData: [Int: Range<Int>] = [:]
         /// The entries the directory lists that ZIPFoundation's iteration does not reach.
         var lostEntries: EPUBLostEntries?
+        /// By its place in the directory, the offset of each entry's directory record: one for
+        /// every entry ZIPFoundation's iteration reaches, from the same record.
+        var records: [Int] = []
         /// The places of entries whose data would overrun their bounds if they were read.
         fileprivate var oversized: [UInt64] = []
+
+        /// The name of the entry at `index` in ZIPFoundation's iteration, read from its record in
+        /// `data`, the bytes walked (`EntryName`).
+        func name(at index: Int, in data: Data) throws -> EntryName {
+            // The walk reaches every record the iteration does, as `lostEntries` relies on too.
+            guard records.indices.contains(index) else {
+                throw EPUBPublicationError.invalidArchive("Entry \(index) is not in the directory read")
+            }
+            return data.withUnsafeBytes { EntryName(record: records[index], in: $0) }
+        }
     }
 
     /// `data` is what ZIPFoundation reads: the bytes its `Archive` was made from. No more than
     /// `names` of the lost entries' names are kept.
-    static func check(_ data: Data, archive: Archive, names: Int) throws -> Directory {
+    static func check(_ data: Data, names: Int) throws -> Directory {
         let directory = try data.withUnsafeBytes { try walk($0, names: names) }
-        var pending = directory.oversized.makeIterator()
-        guard var next = pending.next() else { return directory }
-        // The structural scan above makes this iterator safe. Use the library's own type,
-        // rather than a second interpretation of the name and platform-specific attributes.
+        // An entry is a folder as the library's own type tells, read from its record but for a
+        // closing "/", which is found by byte (`EntryName`): the reading `open` skips folders by.
         // Checking all suspect entries here keeps genuine files refused before any extraction.
-        for (index, entry) in archive.enumerated() where UInt64(index) == next {
-            guard entry.type == .directory else {
+        for index in directory.oversized {
+            guard try directory.name(at: Int(index), in: data).type == .directory else {
                 throw EPUBPublicationError.invalidArchive("Entry data past the end of the archive")
             }
-            guard let following = pending.next() else { return directory }
-            next = following
         }
         return directory
     }
@@ -141,6 +151,7 @@ enum ArchiveBounds {
                 directory.deflatedData[Int(index)] = dataStart..<(dataStart + Int(min(compressed, UInt64(count - dataStart))))
             }
 
+            directory.records.append(record)
             position = UInt64(record + length)
             index += 1
         }
