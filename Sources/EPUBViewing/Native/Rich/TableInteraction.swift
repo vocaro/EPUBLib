@@ -213,7 +213,8 @@ struct ReaderTableAction {
                     let cell: TableCellTextView
                     if let existing = cells[key] { cell = existing }
                     else {
-                        cell = TableCellTextView(text: item.text, width: item.width, characters: item.characters)
+                        cell = TableCellTextView(text: item.text, width: item.width, characters: item.characters,
+                                                 layout: (item.cellLayout, item.lines))
                         cell.canvas = owner.canvas
                         cell.onSelection = { [weak self, weak cell] selected in
                             guard let self, !self.updating, let owner = self.owner, let cell,
@@ -341,27 +342,65 @@ struct ReaderTableAction {
     func highlights(_ highlights: [ReaderHighlight]) {
         guard let owner, let canvas = owner.canvas, let storage = owner.contentStorage.textStorage else { return }
         for (key, cell) in cells {
-            var runs: [(NSRange, PlatformColor)] = []
+            var runs: [(NSRange, PlatformColor)] = [], nested: [(TableNestedHighlight, PlatformColor)] = []
             guard let position = canvas.position(at: key.location, in: owner),
                   let row = storage.attribute(.attachment, at: key.location, effectiveRange: nil) as? TableRowAttachment else { continue }
             for highlight in highlights where highlight.range.start.section <= position.section && highlight.range.end.section >= position.section {
                 let start = highlight.range.start, end = highlight.range.end
                 var lower = 0, upper = cell.cellText.length
+                var first: ReaderTablePosition?, last: ReaderTablePosition?
                 if let endpoint = start.tableCell, start.section == position.section {
                     if row.table.sourceOrder < endpoint.table || (row.table.sourceOrder == endpoint.table && key.cell < endpoint.cell) { continue }
-                    if row.table.sourceOrder == endpoint.table && key.cell == endpoint.cell { lower = endpoint.offset }
+                    if row.table.sourceOrder == endpoint.table && key.cell == endpoint.cell { lower = endpoint.offset; first = endpoint }
                 } else if position < start { continue }
                 if let endpoint = end.tableCell, end.section == position.section {
                     if row.table.sourceOrder > endpoint.table || (row.table.sourceOrder == endpoint.table && key.cell > endpoint.cell) { continue }
-                    if row.table.sourceOrder == endpoint.table && key.cell == endpoint.cell { upper = endpoint.offset }
+                    if row.table.sourceOrder == endpoint.table && key.cell == endpoint.cell { upper = endpoint.offset; last = endpoint }
                 } else if position >= end { continue }
-                if upper > lower {
-                    runs.append((NSRange(location: lower, length: upper - lower),
-                                 ReaderPalette.highlight(highlight.kind, dark: canvas.configuration.isDark)))
+                let color = ReaderPalette.highlight(highlight.kind, dark: canvas.configuration.isDark)
+                var run = NSRange(location: lower, length: max(0, upper - lower))
+                // An end in a table nested in the cell: the nested table's rows paint their part.
+                if first?.nested != nil || last?.nested != nil {
+                    let parts = row.table.cells[key.cell].highlightParts(lower: lower, upper: upper, start: first, end: last)
+                    run = parts.run
+                    nested += parts.nested.map { ($0, color) }
                 }
+                if run.length > 0 { runs.append((run, color)) }
             }
-            cell.setCellHighlights(runs)
+            cell.setCellHighlights(runs, nested: nested)
         }
+    }
+}
+
+/// A highlight's part in a table nested in a cell, which that table's rows paint
+/// (`TableRowAttachment.drawHighlight`): from `start` to `end`, places in the table (nil for its
+/// first cell's start and its last cell's end), on the rows the cell's characters `rows` hold.
+struct TableNestedHighlight {
+    var rows: NSRange
+    var start: ReaderTablePosition?
+    var end: ReaderTablePosition?
+}
+
+extension TableModel.Cell {
+    /// A highlight from `lower` to `upper` in the cell's characters, whose ends `start` and
+    /// `end`, places in the cell, may be in a table nested in it (`ReaderTablePosition.nested`):
+    /// the run of the cell's own characters it takes in, short of such a table's rows, and its
+    /// part in each such table. `lower` and `upper` are then where that table is in the cell,
+    /// and the whole table is one unit of the cell's characters.
+    func highlightParts(lower: Int, upper: Int, start: ReaderTablePosition?, end: ReaderTablePosition?)
+        -> (run: NSRange, nested: [TableNestedHighlight]) {
+        var lower = lower, upper = upper, nested: [TableNestedHighlight] = []
+        if let inside = start?.nested, let table = nestedTable(inside.table) {
+            let last = end?.nested.flatMap { $0.table == inside.table ? $0 : nil }
+            nested.append(TableNestedHighlight(rows: table.rows, start: inside, end: last))
+            lower = max(lower, table.rows.upperBound)
+            if last != nil { upper = min(upper, table.rows.location) }
+        }
+        if let inside = end?.nested, inside.table != start?.nested?.table, let table = nestedTable(inside.table) {
+            nested.append(TableNestedHighlight(rows: table.rows, start: nil, end: inside))
+            upper = min(upper, table.rows.location)
+        }
+        return (NSRange(location: lower, length: max(0, upper - lower)), nested)
     }
 }
 

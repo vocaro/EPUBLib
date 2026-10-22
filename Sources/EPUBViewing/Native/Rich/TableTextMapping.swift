@@ -51,6 +51,52 @@ extension TableModel.Cell {
     var textMap: ReaderDetachedTextMap? {
         content.length > 0 ? content.attribute(.readerDetachedMap, at: 0, effectiveRange: nil) as? ReaderDetachedTextMap : nil
     }
+
+    /// The table nested in the cell whose source order is `table`, and the cell's characters
+    /// from its first row to its last: where a place in it (`ReaderTablePosition.nested`) is
+    /// among the cell's. The cell's map finds the table's unit with its source-ordered binary
+    /// search, so no row of the cell is scanned. nil where the cell renders no such table.
+    func nestedTable(_ table: Int) -> (model: TableModel, rows: NSRange)? {
+        guard let unit = textMap?.map.unit(of: table), unit.location < content.length,
+              let model = content.attribute(.readerTableModel, at: unit.location, effectiveRange: nil) as? TableModel,
+              model.sourceOrder == table else { return nil }
+        var first: Int?, last: Int?
+        content.enumerateAttribute(.attachment, in: unit) { value, range, stop in
+            guard (value as? TableRowAttachment)?.table === model else { return }
+            first = range.location
+            stop.pointee = true
+        }
+        content.enumerateAttribute(.attachment, in: unit, options: .reverse) { value, range, stop in
+            guard (value as? TableRowAttachment)?.table === model else { return }
+            last = range.upperBound
+            stop.pointee = true
+        }
+        guard let first, let last else { return nil }
+        return (model, NSRange(location: first, length: last - first))
+    }
+
+    /// The innermost cell holding the place `endpoint` names in this cell, and the place in
+    /// it: the cell of the table nested here that `endpoint.nested` names, at any depth, or
+    /// this cell for a place in its own text or in a nested table it does not render.
+    func innermost(_ endpoint: ReaderTablePosition) -> (cell: TableModel.Cell, endpoint: ReaderTablePosition) {
+        guard let nested = endpoint.nested, let table = nestedTable(nested.table)?.model,
+              table.cells.indices.contains(nested.cell) else { return (self, endpoint) }
+        return table.cells[nested.cell].innermost(nested)
+    }
+}
+
+extension TextMap {
+    /// The characters of the element whose document order is `node`, where it renders as a unit
+    /// (a table in a cell), found with the same source-ordered binary search as a position.
+    func unit(of node: Int) -> NSRange? {
+        var low = 0, high = spans.count
+        while low < high {
+            let middle = (low + high) / 2
+            if spans[middle].node <= node { low = middle + 1 } else { high = middle }
+        }
+        guard low > 0, spans[low - 1].node == node, spans[low - 1].isUnit else { return nil }
+        return NSRange(location: spans[low - 1].location, length: spans[low - 1].length)
+    }
 }
 
 extension TableRowAttachment {
@@ -87,10 +133,12 @@ extension SectionText {
         return table.cells[endpoint.cell]
     }
 
+    /// A place in a table nested in a cell is in the map of the innermost cell holding it.
     func domPosition(_ position: ReaderTextPosition, isEnd: Bool = false) -> DOMPosition? {
-        if let endpoint = position.tableCell, let cell = tableCell(position), let mapping = cell.textMap {
-            return isEnd ? mapping.map.endPosition(at: endpoint.offset, in: document)
-                : mapping.map.position(at: endpoint.offset, in: document)
+        if let endpoint = position.tableCell, let found = tableCell(position)?.innermost(endpoint),
+           let mapping = found.cell.textMap {
+            return isEnd ? mapping.map.endPosition(at: found.endpoint.offset, in: document)
+                : mapping.map.position(at: found.endpoint.offset, in: document)
         }
         return isEnd ? map.endPosition(at: position.offset, in: document) : map.position(at: position.offset, in: document)
     }
@@ -163,21 +211,13 @@ extension SectionText {
             guard let value = endpoint.tableCell else { return nil }
             return rows.first { $0.row.table.sourceOrder == value.table }?.row.table
         }
-        func cellText(_ cell: TableModel.Cell, lower: Int, upper: Int) -> String {
-            let lower = max(0, min(lower, cell.content.length)), upper = max(lower, min(upper, cell.content.length))
-            guard let mapping = cell.textMap else {
-                return cell.content.readerCopyPlainText(in: NSRange(location: lower, length: upper - lower))
-            }
-            return mapping.map.mappedText(in: lower..<upper, from: cell.content)
-        }
         if let first = range.start.tableCell, let last = range.end.tableCell,
            first.table == last.table, let model = table(for: range.start) {
             // Use the table's visual reading order, including a spanning cell only once.
             let lower = min(first.cell, last.cell), upper = max(first.cell, last.cell)
             guard model.cells.indices.contains(lower), model.cells.indices.contains(upper) else { return nil }
             return (lower...upper).map { index in
-                cellText(model.cells[index], lower: index == first.cell ? first.offset : 0,
-                    upper: index == last.cell ? last.offset : model.cells[index].content.length)
+                Self.passage(of: model.cells[index], from: index == first.cell ? first : nil, to: index == last.cell ? last : nil)
             }.joined(separator: "\t")
         }
         // Mixed body/cell endpoints keep the body's mapped passage and replace only the
@@ -187,19 +227,45 @@ extension SectionText {
         // with nothing more, as `mappedText` reads the same range without cell endpoints.
         var lower = range.start.offset, upper = range.end.offset, prefix = "", suffix = ""
         if let endpoint = range.start.tableCell, let model = table(for: range.start), model.cells.indices.contains(endpoint.cell) {
-            prefix = (endpoint.cell..<model.cells.count).map { index in
-                cellText(model.cells[index], lower: index == endpoint.cell ? endpoint.offset : 0,
-                         upper: model.cells[index].content.length)
-            }.joined(separator: "\t")
+            prefix = Self.passage(in: model, from: endpoint, to: nil)
             lower = (rows.filter { $0.row.table === model }.map(\.offset).max() ?? lower) + 1
         }
         if let endpoint = range.end.tableCell, let model = table(for: range.end), model.cells.indices.contains(endpoint.cell) {
-            suffix = (0...endpoint.cell).map { index in
-                cellText(model.cells[index], lower: 0,
-                         upper: index == endpoint.cell ? endpoint.offset : model.cells[index].content.length)
-            }.joined(separator: "\t")
+            suffix = Self.passage(in: model, from: nil, to: endpoint)
             upper = rows.first { $0.row.table === model }?.offset ?? upper
         }
         return prefix + mappedText(in: lower..<max(lower, upper)) + suffix
+    }
+
+    /// The cells of `table` from `start` to `end`, places in it (nil for its first cell's start
+    /// and its last cell's end), tab-separated in reading order as a row reads.
+    private static func passage(in table: TableModel, from start: ReaderTablePosition?, to end: ReaderTablePosition?) -> String {
+        let lower = start?.cell ?? 0, upper = end?.cell ?? table.cells.count - 1
+        guard table.cells.indices.contains(lower), table.cells.indices.contains(upper), lower <= upper else { return "" }
+        return (lower...upper).map { index in
+            passage(of: table.cells[index], from: index == lower ? start : nil, to: index == upper ? end : nil)
+        }.joined(separator: "\t")
+    }
+
+    /// A cell's characters from `start` to `end`, places in it (nil for its text's start and
+    /// end). Where a place is in a table nested in the cell, the passage reads that table's
+    /// cells from or up to it, at any depth, and the cell's own text from after the table's
+    /// rows or up to them, with its separator from what is beside the table.
+    private static func passage(of cell: TableModel.Cell, from start: ReaderTablePosition?, to end: ReaderTablePosition?) -> String {
+        var lower = start?.offset ?? 0, upper = end?.offset ?? cell.content.length, prefix = "", suffix = ""
+        if let inside = start?.nested, let nested = cell.nestedTable(inside.table) {
+            if let last = end?.nested, last.table == inside.table { return passage(in: nested.model, from: inside, to: last) }
+            prefix = passage(in: nested.model, from: inside, to: nil)
+            lower = nested.rows.upperBound
+        }
+        if let inside = end?.nested, let nested = cell.nestedTable(inside.table) {
+            suffix = passage(in: nested.model, from: nil, to: inside)
+            upper = nested.rows.location
+        }
+        lower = max(0, min(lower, cell.content.length)); upper = max(lower, min(upper, cell.content.length))
+        guard let mapping = cell.textMap else {
+            return prefix + cell.content.readerCopyPlainText(in: NSRange(location: lower, length: upper - lower)) + suffix
+        }
+        return prefix + mapping.map.mappedText(in: lower..<upper, from: cell.content) + suffix
     }
 }
