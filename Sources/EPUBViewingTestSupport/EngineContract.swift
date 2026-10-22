@@ -3,8 +3,10 @@ import EPUBReading
 import EPUBViewing
 import Foundation
 
-/// Reusable, toolkit-independent checks. Link this product to an adapter's test target.
-/// Use a two-section publication and mount the supplied session in a real visible test window.
+/// Toolkit-independent checks of an engine against the reader's contract, for this package's own
+/// tests. The target is internal: the package ships no product for it.
+/// Use a two-section publication and a phrase with two or more search results in it, and mount
+/// the supplied session in a real visible test window.
 @MainActor public enum EPUBEngineContract {
     public struct Failure: LocalizedError, CustomStringConvertible {
         public let description: String
@@ -62,7 +64,8 @@ import Foundation
             }
         }
         /// An engine advertising `.searchResults` lists `text`'s occurrences before it reports the
-        /// search complete, steps and selects as `EPUBSearchResults.steppedIndex` says, mirrors the
+        /// search complete, steps and selects as `EPUBSearchResults.steppedIndex` says, wrapping
+        /// at both ends, refuses a result it did not list even at a listed index, mirrors the
         /// results in `readerState` when it has one, and withdraws them when the search is cleared,
         /// after which a kept result is refused and no step moves the reader.
         func verifySearchResults(unlisted: EPUBSearchResult) async throws {
@@ -92,7 +95,7 @@ import Foundation
                 if case .searchResultsChanged(.some) = $0 { return true }; return false
             }
             try require(firstPublished.map { $0 < completion } ?? false, "Results must be published before search completion")
-            try require(!listed.isEmpty, "The supplied text must have at least one search result")
+            try require(listed.count >= 2, "Provide a phrase with two or more search results, so steps and wraps can move the current match")
             try require(listed.query == text, "Results name another query")
             try require(listed.results.map(\.index) == Array(listed.results.indices), "Result indices must match their order")
             try require(listed.results.allSatisfy { $0.location.publicationID == publication.id }, "Result belongs to another publication")
@@ -109,9 +112,19 @@ import Foundation
             expected = selected.steppedIndex(forward: false)
             try await session.send(.previousSearchResult)
             try await wait("previous search result") { current() == expected }
+            // That step went back from the first result to the last; this one goes on to the first.
+            selected.currentIndex = expected
+            expected = selected.steppedIndex(forward: true)
+            try await session.send(.nextSearchResult)
+            try await wait("first search result after the last") { current() == expected }
             var stale = listed.results[0]
             stale.index = listed.count
             try await refused(.showSearchResult(stale), "Accepted a search result that is not listed")
+            // As a result of a replaced search can be, `unlisted` is at an index in range. An engine
+            // may list one just like it, whose results name no section: then one that does is unlisted.
+            var replaced = unlisted
+            if listed.results.contains(replaced) { replaced.location.href = firstHref }
+            try await refused(.showSearchResult(replaced), "Accepted an unlisted search result with a listed index")
             if let state = session.readerState {
                 try require(state.status.searchResults == published(since: start).last.flatMap { $0 },
                             "Reader state does not mirror the published search results")
