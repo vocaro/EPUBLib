@@ -651,6 +651,51 @@ import UIKit
         }
     }
 
+    #if os(macOS)
+    /// At the end of the book AppKit cannot move the view by as much as a toolbar hidden over
+    /// the reader gives back: the view is as far down as it goes, so it moves by less, and an
+    /// earlier line comes into the visible area at its top. The reader reports that line as the
+    /// visible start, and puts the insertion point VoiceOver enters at on it, with boxes to
+    /// resolve for the new height and without. The move is made in the reader's own layout, and
+    /// the visible range was left one line late (#162).
+    func testAToolbarHiddenOverTheEndOfTheBookReportsTheLineThatComesIntoView() async throws {
+        let plain = (0..<2).map { section in
+            CanvasText.body((0..<40).map {
+                "Section \(section) paragraph \($0) of ordinary reading text that wraps across the column more than once for the test.\n"
+            }.joined())
+        }
+        let books: [(name: String, texts: [NSAttributedString])] = [
+            ("without boxes", plain), ("with boxes", try sections().map(\.string))]
+        for (name, texts) in books {
+            let source = FakeCanvasSource(texts)
+            source.book = CanvasText.book(texts)
+            let host = CanvasHost(source, size: CGSize(width: 600, height: 700), configuration: .init(flow: .scrolled), underBars: true)
+            defer { host.close() }
+            let canvas = host.canvas
+            canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+            host.layOut()
+            try await host.settle()
+            try await host.setBar(shown: true)
+            try await host.settle()
+            let last = texts.count - 1
+            canvas.show(ReaderTextPosition(section: last, offset: texts[last].length - 200), selecting: nil)
+            host.layOut()
+            try await host.settle(600)
+            XCTAssertTrue(canvas.isScrolledToEnd, "\(name): the view is as far down as it goes")
+            let before = try XCTUnwrap(canvas.visibleRange?.start)
+            try await host.setBar(shown: false)
+            try await host.settle(600)
+            let view = try XCTUnwrap(canvas.scrollTextView), book = try XCTUnwrap(canvas.scrollBook)
+            let onScreen = try XCTUnwrap(canvas.scrollVisibleCharacters()).location
+            XCTAssertLessThan(book.position(at: onScreen), before, "\(name): an earlier line comes into view at the top")
+            XCTAssertEqual(canvas.visibleRange?.start, book.position(at: onScreen), "\(name): reported as the visible start")
+            XCTAssertEqual(host.recorder.shown.last?.range.start, book.position(at: onScreen), "\(name): and told to the host")
+            XCTAssertEqual(view.accessibilitySelectedTextRange(), NSRange(location: onScreen, length: 0),
+                           "\(name): VoiceOver would enter at the line")
+        }
+    }
+    #endif
+
     /// A title page that holds hidden labels alone is a line of no height above the section
     /// after it, and inside the visible area whenever that section is at the top. It is not
     /// the place the reader reports, where TextKit places the lines and where the reader does
