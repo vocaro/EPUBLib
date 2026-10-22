@@ -64,14 +64,15 @@ final class CSSSyntaxImportCoverageTests: XCTestCase {
                    "OPS/css/b.css", "OPS/css/c.css", "OPS/css/d.css", "root.css", "OPS/css/e.css"])
         // Nothing may name a path outside the archive, whatever its spelling: `..` stops at the
         // container root and a leading `/` names it (EPUB Reading Systems 3.3 §4.1.1).
-        let climbing = ["../../../etc/passwd": "etc/passwd", "..%2F..%2F..%2Fetc%2Fpasswd": "etc/passwd", "%2e%2e/%2e%2e/%2e%2e/x.css": "x.css",
+        let climbing = ["../../../etc/passwd": "etc/passwd", "%2e%2e/%2E%2E/%2e%2e/etc/passwd": "etc/passwd", "%2e%2e/%2e%2e/%2e%2e/x.css": "x.css",
                         "a/../../../../x.css": "x.css", "/etc/passwd": "etc/passwd", "/../../x.css": "x.css"]
         for (target, path) in climbing {
             XCTAssertEqual(imports("@import \"\(target)\";"), [path], target)
         }
-        // What does not decode to a path an entry can have names nothing.
+        // What does not decode to a path an entry can have names nothing, an escaped slash among
+        // it (https://github.com/vocaro/EPUBLib/issues/660).
         let hostile = ["%", "%zz", "%00", "a%00.css", "#", "?", "#frag", "?query", "sub\\\\z.css", "..\\\\..\\\\x.css", " ", "%C3", "/", "../../..",
-                       "//example.invalid/x.css"]
+                       "//example.invalid/x.css", "..%2F..%2F..%2Fetc%2Fpasswd", "sub%2Fy.css"]
         for target in hostile {
             let sheet = sheet("@import \"\(target)\"; p { clear: both }")
             XCTAssertEqual(sheet.imports, [], target)

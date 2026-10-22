@@ -2,6 +2,7 @@ import EPUBCore
 import EPUBReading
 import EPUBTestSupport
 import Foundation
+import StaticSVG
 import XCTest
 @testable import EPUBViewing
 

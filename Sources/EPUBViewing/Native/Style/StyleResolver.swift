@@ -280,11 +280,19 @@ struct CSSRuleIndex: Sendable {
     private var beforeBuckets = Buckets()
     private var afterBuckets = Buckets()
 
-    private struct AttributeValueKey: Hashable { let name: String; let value: Substring }
+    /// The value by its code units, as the matcher compares it (`CodeUnitString`).
+    private struct AttributeValueKey: Hashable {
+        let name: String; let value: Substring
+        static func == (lhs: Self, rhs: Self) -> Bool { lhs.name == rhs.name && CodeUnits.equal(lhs.value, rhs.value) }
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(name)
+            CodeUnits.hash(value, into: &hasher)
+        }
+    }
 
     private struct Buckets {
         var byID: [EPUBElementID: [Int32]] = [:]
-        var byClass: [String: [Int32]] = [:]
+        var byClass: [CodeUnitString: [Int32]] = [:]
         var byType: [String: [Int32]] = [:]
         var byAttribute: [String: [Int32]] = [:]
         var byAttributeValue: [AttributeValueKey: [Int32]] = [:]
@@ -302,7 +310,7 @@ struct CSSRuleIndex: Sendable {
             case .attribute(let name):
                 byAttribute[name, default: []].append(index); attributeNames.insert(name)
             case .attributeValue(let name, let value):
-                byAttributeValue[AttributeValueKey(name: name, value: Substring(value)), default: []].append(index)
+                byAttributeValue[AttributeValueKey(name: name, value: Substring(value.string)), default: []].append(index)
                 attributeNames.insert(name)
             case .universal: universal.append(index)
             }
@@ -422,8 +430,8 @@ struct ElementFacts: Sendable {
     /// The same among siblings of the same expanded name.
     var typePositions: [Int32]
     var typeCounts: [Int32]
-    /// Distinct class names.
-    var classes: [[String]]
+    /// Distinct class names, told apart by their code units.
+    var classes: [[CodeUnitString]]
     /// Lowercased local names.
     var bucketNames: [String]
     /// The ids, classes and types of each element's ancestors.
@@ -443,13 +451,13 @@ struct ElementFacts: Sendable {
         struct TypeKey: Hashable { let namespace: String, name: String }
         for node in document.nodes where node.isElement {
             bucketNames[node.order] = node.name.lowercased()
-            var seen = Set<String>()
-            classes[node.order] = node.classNames.filter { seen.insert($0).inserted }
+            var seen = Set<CodeUnitString>()
+            classes[node.order] = node.classNames.map { CodeUnitString($0) }.filter { seen.insert($0).inserted }
             // Preorder: the parent's filter is complete before its children are reached.
             var childFilter = ancestorFilters[node.order]
             childFilter.insert(.init(kind: .type, value: bucketNames[node.order]))
             if let id = node.id { childFilter.insert(.init(kind: .id, value: id)) }
-            for name in classes[node.order] { childFilter.insert(.init(kind: .className, value: name)) }
+            for name in classes[node.order] { childFilter.insert(.init(kind: .className, value: name.string)) }
             var position: Int32 = 0
             var previous: Int32 = -1
             var typeTotals: [TypeKey: Int32] = [:]
@@ -733,10 +741,10 @@ struct SelectorMatcher {
         case .any: break
         case .none: guard node.namespace.isEmpty else { return false }
         case .uri(let uri):
-            guard node.namespace == uri || (node.namespace.isEmpty && uri == ContentNamespace.xhtml) else { return false }
+            guard uri.matches(node.namespace) || (node.namespace.isEmpty && uri.matches(ContentNamespace.xhtml)) else { return false }
         }
         if let name = compound.name {
-            guard node.isHTML ? node.name == compound.lowercasedName : node.name == name else { return false }
+            guard (node.isHTML ? compound.lowercasedName ?? name : name).matches(node.name) else { return false }
         }
         for simple in compound.simple {
             switch simple {
@@ -753,21 +761,29 @@ struct SelectorMatcher {
         let html = node.isHTML
         for attribute in node.attributes {
             // HTML attribute names match case-insensitively; XHTML's are almost always lowercase already.
-            let nameMatches = attribute.name == selector.name || attribute.name == selector.lowercasedName
-                || (html && attribute.name.utf8.count == selector.name.utf8.count && attribute.name.lowercased() == selector.lowercasedName)
+            let nameMatches = selector.name.matches(attribute.name) || selector.lowercasedName.matches(attribute.name)
+                || (html && attribute.name.utf8.count == selector.name.string.utf8.count
+                    && selector.lowercasedName.matches(attribute.name.lowercased()))
             var found: Bool
             switch selector.namespace {
             case nil, .none?: found = nameMatches && attribute.namespace.isEmpty
-            case .any?: found = nameMatches
+            case .any?: found = nameMatches || Self.prefixedName(attribute, is: selector)
             case .uri(let uri)?:
-                found = nameMatches && attribute.namespace == uri
-                if !found, document.recoveredAsHTML, attribute.namespace.isEmpty, let prefixed = selector.prefixedName {
-                    found = attribute.name == prefixed
-                }
+                found = (nameMatches && uri.matches(attribute.namespace))
+                    || (uri.matches(attribute.prefixNamespace) && Self.prefixedName(attribute, is: selector))
             }
             if found, matches(selector, value: attribute.value) { return true }
         }
         return false
+    }
+
+    /// In a section read as HTML, whether a name such as `epub:type` is the attribute a selector
+    /// names, read as XML would read it: its local name after the prefix, in the namespace the
+    /// prefix stands for (`ContentAttribute.prefixNamespace`), which the caller compares. So
+    /// `[ops|type]` reaches it by namespace whatever prefix either wrote (Selectors 4 §6.7).
+    private static func prefixedName(_ attribute: ContentAttribute, is selector: CSSAttributeSelector) -> Bool {
+        guard !attribute.prefixNamespace.isEmpty, let colon = attribute.name.utf8.firstIndex(of: UInt8(ascii: ":")) else { return false }
+        return selector.lowercasedName.matches(attribute.name[attribute.name.utf8.index(after: colon)...])
     }
 
     /// Calls `body` with each token of a whitespace-separated list (CSS whitespace is ASCII).
@@ -786,23 +802,25 @@ struct SelectorMatcher {
 
     private static func includes(_ value: String, _ token: String) -> Bool {
         var found = false
-        forEachToken(value) { if !found, $0 == token { found = true } }
+        forEachToken(value) { if !found, CodeUnits.equal($0, token) { found = true } }
         return found
     }
 
+    /// Code unit for code unit, as browsers compare values, with the ASCII letters alone folded
+    /// under the `i` flag (Selectors 4 §6.3).
     private func matches(_ selector: CSSAttributeSelector, value: String) -> Bool {
-        let value = selector.caseInsensitive ? value.lowercased() : value
-        let expected = selector.value
+        let value = selector.caseInsensitive ? CodeUnits.asciiLowercased(value) : value
+        let expected = selector.value.string
         switch selector.operation {
         case .exists: return true
-        case .equals: return value == expected
+        case .equals: return CodeUnits.equal(value, expected)
         case .includes:
             return !expected.isEmpty && !expected.utf8.contains { $0 == 0x20 || ($0 >= 0x09 && $0 <= 0x0D) }
                 && Self.includes(value, expected)
-        case .dashMatch: return value == expected || value.hasPrefix(expected + "-")
-        case .prefix: return !expected.isEmpty && value.hasPrefix(expected)
-        case .suffix: return !expected.isEmpty && value.hasSuffix(expected)
-        case .substring: return !expected.isEmpty && value.contains(expected)
+        case .dashMatch: return CodeUnits.equal(value, expected) || CodeUnits.hasPrefix(value, expected + "-")
+        case .prefix: return !expected.isEmpty && CodeUnits.hasPrefix(value, expected)
+        case .suffix: return !expected.isEmpty && CodeUnits.hasSuffix(value, expected)
+        case .substring: return !expected.isEmpty && CodeUnits.contains(value, expected)
         }
     }
 
@@ -871,8 +889,9 @@ struct SelectorMatcher {
         case .empty: return node.children.allSatisfy { $0.isText && $0.text.isEmpty }
         case .link: return node.isHTML && (node.name == "a" || node.name == "area") && node.attribute("href") != nil
         case .lang(let ranges):
-            guard let language = inherited(element, { $0.language })?.lowercased(), !language.isEmpty else { return false }
-            return ranges.contains { $0 == "*" || language == $0 || language.hasPrefix($0 + "-") }
+            // Case-insensitive in the ASCII range alone (Selectors 4 §7.2), by code units.
+            guard let language = inherited(element, { $0.language }).map(CodeUnits.asciiLowercased), !language.isEmpty else { return false }
+            return ranges.contains { $0 == "*" || $0.matches(language) || CodeUnits.hasPrefix(language, $0.string + "-") }
         case .dir(let direction):
             let value = inherited(element) { $0.isHTML ? $0.attribute("dir")?.lowercased() : nil }
             return (value == "rtl" ? .rtl : .ltr) == direction

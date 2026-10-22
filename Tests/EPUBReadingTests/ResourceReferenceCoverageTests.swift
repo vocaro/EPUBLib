@@ -41,7 +41,6 @@ final class ResourceReferenceCoverageTests: XCTestCase {
         let cases = [
             "/media/photo.jpg": "media/photo.jpg",
             "/OPS/text/ch2.xhtml#s1": "OPS/text/ch2.xhtml#s1",
-            "%2Fmedia/photo.jpg": "media/photo.jpg",
             "/a/../../b.css": "b.css",
             "../../../cover.jpg": "cover.jpg",
             "../../../../../../media/photo.jpg": "media/photo.jpg",
@@ -129,6 +128,81 @@ final class ResourceReferenceCoverageTests: XCTestCase {
         for (href, expected) in cases {
             XCTAssertEqual(try ResourceReference.resolve(href, relativeTo: base), expected, href.debugDescription)
         }
+    }
+
+    func testAQueryIsReadAsInAReferenceURLComponentsCanParse() throws {
+        // URLComponents refuses a relative reference whose first segment holds a colon (RFC 3986
+        // §4.2), and a query there was once kept as part of the path, "OPS/text/y%3Fq"
+        // (https://github.com/vocaro/EPUBLib/issues/215). Each is read as the reference beside it,
+        // which URLComponents parses and which has the same path, query and fragment: a query is
+        // dropped when read and refused when written (https://github.com/vocaro/EPUBLib/issues/171).
+        let cases: [(href: String, parsed: String, read: String, written: String?)] = [
+            ("1:x/../y?q", "x/../y?q", "OPS/text/y", nil),
+            ("1:x/../y#f", "x/../y#f", "OPS/text/y#f", "OPS/text/y#f"),
+            ("1:x/../y?q#f", "x/../y?q#f", "OPS/text/y#f", nil),
+            ("1:x/../y", "x/../y", "OPS/text/y", "OPS/text/y"),
+            ("1:x/../y?", "x/../y?", "OPS/text/y", nil),
+            ("1:x/../y?q#f?g", "x/../y?q#f?g", "OPS/text/y#f?g", nil),
+            ("1:x/../y#f?g", "x/../y#f?g", "OPS/text/y#f?g", "OPS/text/y#f?g"),
+            ("1:x/../y?a%3Fb", "x/../y?a%3Fb", "OPS/text/y", nil),
+            // The colon stays in the name, which a reference about to be written may not hold.
+            ("1:x?q", "1%3Ax?q", "OPS/text/1%3Ax", nil),
+            ("1:x#f", "1%3Ax#f", "OPS/text/1%3Ax#f", nil),
+        ]
+        for (href, parsed, read, written) in cases {
+            XCTAssertNil(URLComponents(string: href), "\(href) is a reference URLComponents cannot parse")
+            XCTAssertNotNil(URLComponents(string: parsed), parsed)
+            for reference in [href, parsed] {
+                XCTAssertEqual(try ResourceReference.resolve(reference, relativeTo: base), read, reference.debugDescription)
+                if let written {
+                    XCTAssertEqual(try ResourceReference.resolve(reference, relativeTo: base, strict: true), written, reference.debugDescription)
+                } else {
+                    XCTAssertThrowsError(try ResourceReference.resolve(reference, relativeTo: base, strict: true), reference.debugDescription) {
+                        XCTAssertEqual($0 as? EPUBPublicationError, .unsafePath(reference), reference.debugDescription)
+                    }
+                }
+            }
+        }
+    }
+
+    func testAnEscapedSlashIsACharacterOfItsSegmentAndNamesNoEntry() throws {
+        // URL parsing splits a path at each "/" written as one and keeps "%2F" inside its segment,
+        // and EPUB Reading Systems 3.3 §4.1.1 has a reference parsed so against the container root
+        // URL. Each of these names a file whose name holds a "/", which an OCF file name cannot,
+        // so none names an entry (https://github.com/vocaro/EPUBLib/issues/660).
+        let root = try XCTUnwrap(URL(string: "https://reader.invalid/"))
+        let hrefs = ["a%2Fb.xhtml", "a%2fb.xhtml", "%2Fmedia/photo.jpg", "..%2Fone.xhtml", "a%2F..%2Fone.xhtml", "%2e%2e%2Fone.xhtml", "x/%2F/one.xhtml",
+                     "%2F", "a/b%2F", "%2F%2Fexample.invalid/a.xhtml", "a%2Fb.xhtml#s1", "a%2Fb.xhtml?q", " a%2Fb.xhtml ", "\(base)%2F"]
+        for href in hrefs {
+            // As Foundation's URL parsing reads it, from EPUB/nav.xhtml: the escape is in the path.
+            let url = try XCTUnwrap(URL(string: href.trimmingCharacters(in: .whitespaces), relativeTo: URL(string: "EPUB/nav.xhtml", relativeTo: root)), href)
+            XCTAssertTrue(url.absoluteURL.path(percentEncoded: true).lowercased().contains("%2f"), href)
+            for strict in [false, true] {
+                XCTAssertThrowsError(try ResourceReference.resolve(href, relativeTo: "EPUB/nav.xhtml", strict: strict), href.debugDescription) {
+                    XCTAssertEqual($0 as? EPUBPublicationError, .unsafePath(href), href.debugDescription)
+                }
+            }
+        }
+        // Beside it, what URL parsing reads as before: a dot segment written as escapes is the
+        // segment it spells, an escaped "?" or "#" is a character of the name as an escaped "/"
+        // is, and a fragment or a query is no path, and holds a slash however it is written.
+        let cases = [
+            "a/%2E%2E/one.xhtml": "EPUB/one.xhtml",
+            "%2e%2E/one.xhtml": "one.xhtml",
+            "a/%2E/b.xhtml": "EPUB/a/b.xhtml",
+            "q%3Fa.xhtml": "EPUB/q%3Fa.xhtml",
+            "n%231.xhtml": "EPUB/n%231.xhtml",
+            "one.xhtml#a%2Fb": "EPUB/one.xhtml#a/b",
+            "one.xhtml?a%2Fb": "EPUB/one.xhtml",
+        ]
+        for (href, expected) in cases {
+            XCTAssertEqual(try ResourceReference.resolve(href, relativeTo: "EPUB/nav.xhtml"), expected, href.debugDescription)
+        }
+        // A rootfile path is resolved so as well, and names the entry written with the escape.
+        let isEntry: (String) -> Bool = { ["OPS/book.opf", "OPS%2Fbook.opf"].contains($0) }
+        XCTAssertEqual(ResourceReference.rootfilePath("OPS%2Fbook.opf", isEntry: isEntry), "OPS%2Fbook.opf")
+        XCTAssertNil(ResourceReference.rootfilePath("OPS%2Fbook.opf", isEntry: { $0 == "OPS/book.opf" }))
+        XCTAssertNil(ResourceReference.rootfilePath("x%2F..%2FOPS/book.opf", isEntry: { $0 == "OPS/book.opf" }))
     }
 
     func testWhiteSpaceRoundAReferenceIsReadPastAsURLParsingReadsIt() throws {
@@ -492,7 +566,7 @@ final class ResourceReferenceCoverageTests: XCTestCase {
             let resolved = [
                 // Dot segments, written out and escaped, before a name that begins with the mark.
                 "../\(m)x": "OPS/\(e)x", "../../\(m)x": "\(e)x", "a/../\(m)x": "OPS/text/\(e)x", "./\(m)x": "OPS/text/\(e)x",
-                "a/./\(m)x": "OPS/text/a/\(e)x", "..%2F\(m)x": "OPS/\(e)x", "..%2f\(e)x": "OPS/\(e)x", "%2E%2E/\(e)x": "OPS/\(e)x",
+                "a/./\(m)x": "OPS/text/a/\(e)x", "%2e./\(m)x": "OPS/\(e)x", ".%2E/\(e)x": "OPS/\(e)x", "%2E%2E/\(e)x": "OPS/\(e)x",
                 // Two names, and an empty segment dropped as between any two slashes.
                 "a/\(m)x": "OPS/text/a/\(e)x", "a/\(e)x": "OPS/text/a/\(e)x", "a//\(m)x": "OPS/text/a/\(e)x",
                 // Dots and the mark are a name.
@@ -511,7 +585,7 @@ final class ResourceReferenceCoverageTests: XCTestCase {
             // (https://github.com/vocaro/EPUBLib/issues/84); a colon outside a scheme is a
             // character of the name and a query is dropped
             // (https://github.com/vocaro/EPUBLib/issues/171). One about to be written is refused.
-            let forgiven = ["../../../\(m)x": "\(e)x", "..%2F..%2F..%2F\(m)x": "\(e)x", "/\(m)x": "\(e)x", "%2F\(m)x": "\(e)x",
+            let forgiven = ["../../../\(m)x": "\(e)x", "%2E%2E/%2e%2e/%2E%2E/\(m)x": "\(e)x", "/\(m)x": "\(e)x",
                             "./a:\(m)b": "OPS/text/a%3A\(e)b", "a/b%3A\(m)c": "OPS/text/a/b%3A\(e)c", "ch2.xhtml?\(m)q": "OPS/text/ch2.xhtml"]
             for (href, expected) in forgiven {
                 let result = resolve(href)
@@ -520,8 +594,9 @@ final class ResourceReferenceCoverageTests: XCTestCase {
                 }
                 if let result = resolve(href, strict: true) { wrong.append("\(href.debugDescription) to be written resolved to \(result)") }
             }
-            // Refused either way: a backslash, written out or escaped, and a scheme.
-            for href in ["a\\\(m)b", "a%5C\(m)b", "c:\(m)/x"] {
+            // Refused either way: a backslash, written out or escaped, an escaped slash, which is a
+            // character of its segment (https://github.com/vocaro/EPUBLib/issues/660), and a scheme.
+            for href in ["a\\\(m)b", "a%5C\(m)b", "..%2F\(m)x", "..%2f\(e)x", "%2F\(m)x", "..%2F..%2F..%2F\(m)x", "c:\(m)/x"] {
                 if let result = resolve(href) ?? resolve(href, strict: true) { wrong.append("\(href.debugDescription) resolved to \(result)") }
             }
             // A folder of the base whose name begins with the mark is one of its segments.
@@ -693,7 +768,7 @@ final class ResourceReferenceCoverageTests: XCTestCase {
                 "\(name).xhtml": "OPS/text/\(e).xhtml", "\(e).xhtml": "OPS/text/\(e).xhtml", "./\(name)/\(name).xhtml": "OPS/text/\(e)/\(e).xhtml",
                 "../\(name)/../\(name).css": "OPS/\(e).css", "../../\(name)": e, "\(name)/./\(name)/../x": "OPS/text/\(e)/x",
                 "\(name)//\(name)": "OPS/text/\(e)/\(e)", "\(name).xhtml#\(name)": "OPS/text/\(e).xhtml#\(e)", "#\(name)": "OPS/text/ch1.xhtml#\(e)",
-                "\(name)%2F\(name)": "OPS/text/\(e)/\(e)", "\(name)/%2E%2E/x": "OPS/text/x",
+                "\(name)/%2E%2E/x": "OPS/text/x",
             ]
             for (href, expected) in cases {
                 XCTAssertEqual(try ResourceReference.resolve(href, relativeTo: base), expected, href.debugDescription)
@@ -711,8 +786,8 @@ final class ResourceReferenceCoverageTests: XCTestCase {
                     XCTAssertEqual($0 as? EPUBPublicationError, .unsafePath(href), href.debugDescription)
                 }
             }
-            // A backslash and an authority are refused either way.
-            for href in ["\(name)\\\(name)", "//\(name)/x"] {
+            // A backslash, an escaped slash and an authority are refused either way.
+            for href in ["\(name)\\\(name)", "\(name)%2F\(name)", "//\(name)/x"] {
                 for strict in [false, true] {
                     XCTAssertThrowsError(try ResourceReference.resolve(href, relativeTo: base, strict: strict), href.debugDescription) {
                         XCTAssertEqual($0 as? EPUBPublicationError, .unsafePath(href), href.debugDescription)
@@ -721,10 +796,11 @@ final class ResourceReferenceCoverageTests: XCTestCase {
             }
             // A rootfile path, by its URL reading and as written.
             let entry = "\(name)/\(name).opf"
-            for fullPath in [entry, "\(e)/\(e).opf", "./\(name)/x/../\(name).opf", "\(name)%2F\(name).opf"] {
+            for fullPath in [entry, "\(e)/\(e).opf", "./\(name)/x/../\(name).opf"] {
                 XCTAssertEqual(scalars(ResourceReference.rootfilePath(fullPath, isEntry: { $0.unicodeScalars.elementsEqual(entry.unicodeScalars) })),
                                scalars(entry), fullPath.debugDescription)
             }
+            XCTAssertNil(ResourceReference.rootfilePath("\(name)%2F\(name).opf", isEntry: { $0.unicodeScalars.elementsEqual(entry.unicodeScalars) }), name)
             let written = "\(name) 100%/\(name)#1.opf"
             XCTAssertEqual(scalars(ResourceReference.rootfilePath(written, isEntry: { $0.unicodeScalars.elementsEqual(written.unicodeScalars) })), scalars(written))
             for fullPath in ["../\(name).opf", "/\(name).opf", "\(name)/", "\(name)//\(name).opf", "\(name)\\\(name).opf", "\(name)/.."] {

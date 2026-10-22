@@ -1,6 +1,63 @@
 import EPUBCore
 import Foundation
 
+/// A name or value that a selector holds, compared and hashed code unit for code unit, as
+/// browsers compare class names, attribute names and values, element names, namespace URIs and
+/// language ranges. `String` compares and hashes by canonical equivalence, under which
+/// `caf\u{E9}` and `cafe\u{301}` are equal, so a selector holding one would match the other and
+/// be indexed, interned or memoized as a selector holding the other. An id is an
+/// `EPUBElementID`, which compares the same way.
+struct CodeUnitString: Hashable, Sendable, ExpressibleByStringLiteral, CustomStringConvertible {
+    let string: String
+    init(_ string: String) { self.string = string }
+    init(stringLiteral string: String) { self.string = string }
+    var description: String { string }
+
+    static func == (lhs: Self, rhs: Self) -> Bool { CodeUnits.equal(lhs.string, rhs.string) }
+    func hash(into hasher: inout Hasher) { CodeUnits.hash(string, into: &hasher) }
+
+    /// Whether `other` has these code units.
+    func matches(_ other: some StringProtocol) -> Bool { CodeUnits.equal(string, other) }
+}
+
+/// Comparisons of strings by their UTF-8 code units. For a valid string these give the answers
+/// that the DOM's UTF-16 code units give: a UTF-8 sequence found in another begins and ends on
+/// the boundaries of whole scalars, so a prefix, suffix or substring may end before a combining
+/// mark, as it may in a browser, where `Character` would not let it.
+enum CodeUnits {
+    static func equal(_ a: some StringProtocol, _ b: some StringProtocol) -> Bool {
+        a.utf8.count == b.utf8.count && a.utf8.elementsEqual(b.utf8)
+    }
+
+    static func hasPrefix(_ value: some StringProtocol, _ prefix: some StringProtocol) -> Bool {
+        value.utf8.starts(with: prefix.utf8)
+    }
+
+    static func hasSuffix(_ value: some StringProtocol, _ suffix: some StringProtocol) -> Bool {
+        value.utf8.count >= suffix.utf8.count && value.utf8.reversed().starts(with: suffix.utf8.reversed())
+    }
+
+    static func contains(_ value: some StringProtocol, _ part: some StringProtocol) -> Bool {
+        value.utf8.firstRange(of: part.utf8) != nil
+    }
+
+    /// A to Z made lowercase and every other code unit kept, which leaves UTF-8 valid: the ASCII
+    /// case-insensitivity of the `i` flag and of `:lang()`, under which `É` is not `é` and the
+    /// Kelvin sign is not `k`.
+    static func asciiLowercased(_ value: String) -> String {
+        guard value.utf8.contains(where: isUppercaseASCII) else { return value }
+        return String(decoding: value.utf8.map { isUppercaseASCII($0) ? $0 | 0x20 : $0 }, as: UTF8.self)
+    }
+
+    static func hash(_ value: some StringProtocol, into hasher: inout Hasher) {
+        if value.utf8.withContiguousStorageIfAvailable({ hasher.combine(bytes: UnsafeRawBufferPointer($0)) }) == nil {
+            Array(value.utf8).withUnsafeBytes { hasher.combine(bytes: $0) }
+        }
+    }
+
+    private static func isUppercaseASCII(_ byte: UInt8) -> Bool { byte >= 0x41 && byte <= 0x5A }
+}
+
 /// The namespaces a stylesheet declares with `@namespace`.
 struct CSSNamespaces: Sendable {
     var prefixes: [String: String] = [:]
@@ -12,7 +69,7 @@ enum CSSNamespaceConstraint: Hashable, Sendable {
     case any
     /// No namespace (`|name`).
     case none
-    case uri(String)
+    case uri(CodeUnitString)
 }
 
 enum CSSCombinator: Hashable, Sendable { case descendant, child, nextSibling, subsequentSibling }
@@ -29,14 +86,13 @@ enum CSSPseudoElement: Hashable, Sendable {
 
 struct CSSAttributeSelector: Hashable, Sendable {
     enum Operation: Hashable, Sendable { case exists, equals, includes, dashMatch, prefix, suffix, substring }
-    let name: String
-    let lowercasedName: String
+    let name: CodeUnitString
+    let lowercasedName: CodeUnitString
     /// nil: an attribute in no namespace, the default for unprefixed attribute selectors.
     let namespace: CSSNamespaceConstraint?
-    /// `prefix:name`, lowercased, which documents recovered as HTML keep as a plain attribute name.
-    let prefixedName: String?
     let operation: Operation
-    let value: String
+    /// With the `i` flag, its ASCII letters lowercase.
+    let value: CodeUnitString
     let caseInsensitive: Bool
 }
 
@@ -49,7 +105,8 @@ indirect enum CSSPseudoClass: Hashable, Sendable {
     /// `:is()` and `:where()` (which differ only in specificity).
     case matchesAny([CSSComplexSelector])
     case root, empty, link
-    case lang([String])
+    /// Ranges with their ASCII letters lowercase.
+    case lang([CodeUnitString])
     case dir(ComputedStyle.Direction)
     /// Dynamic or unsupported states (`:hover`, `:visited`, `:has()`…).
     case never
@@ -59,7 +116,8 @@ indirect enum CSSPseudoClass: Hashable, Sendable {
 enum CSSSimpleSelector: Hashable, Sendable {
     /// Matches the id with the same code units, as `getElementById` compares them.
     case id(EPUBElementID)
-    case className(String)
+    /// Matches a class with the same code units, as browsers compare them.
+    case className(CodeUnitString)
     case attribute(CSSAttributeSelector)
     case pseudo(CSSPseudoClass)
 }
@@ -67,8 +125,8 @@ enum CSSSimpleSelector: Hashable, Sendable {
 struct CSSCompoundSelector: Hashable, Sendable {
     var namespace: CSSNamespaceConstraint = .any
     /// nil: universal.
-    var name: String?
-    var lowercasedName: String?
+    var name: CodeUnitString?
+    var lowercasedName: CodeUnitString?
     var simple: [CSSSimpleSelector] = []
 }
 
@@ -127,12 +185,12 @@ struct CSSComplexSelector: Hashable, Sendable {
         let subject = compounds[0]
         for case .id(let id) in subject.simple { return .id(id) }
         for case .className(let name) in subject.simple { return .className(name) }
-        for case .attribute(let attribute) in subject.simple where !attribute.caseInsensitive && !attribute.value.isEmpty
+        for case .attribute(let attribute) in subject.simple where !attribute.caseInsensitive && !attribute.value.string.isEmpty
             && (attribute.operation == .equals || attribute.operation == .includes) {
-            return .attributeValue(CSSBucketKey.attributeName(attribute.lowercasedName), attribute.value)
+            return .attributeValue(CSSBucketKey.attributeName(attribute.lowercasedName.string), attribute.value)
         }
-        if let name = subject.lowercasedName { return .type(name) }
-        for case .attribute(let attribute) in subject.simple { return .attribute(CSSBucketKey.attributeName(attribute.lowercasedName)) }
+        if let name = subject.lowercasedName { return .type(name.string) }
+        for case .attribute(let attribute) in subject.simple { return .attribute(CSSBucketKey.attributeName(attribute.lowercasedName.string)) }
         return .universal
     }
 
@@ -145,11 +203,11 @@ struct CSSComplexSelector: Hashable, Sendable {
             for simple in compound.simple {
                 switch simple {
                 case .id(let id): names.append(.init(kind: .id, value: id.string))
-                case .className(let name): names.append(.init(kind: .className, value: name))
+                case .className(let name): names.append(.init(kind: .className, value: name.string))
                 default: break
                 }
             }
-            if let name = compound.lowercasedName { names.append(.init(kind: .type, value: name)) }
+            if let name = compound.lowercasedName { names.append(.init(kind: .type, value: name.string)) }
         }
         return Array(names.prefix(8))
     }
@@ -238,15 +296,18 @@ struct CSSSiblingSearchIndex {
 }
 
 enum CSSBucketKey: Hashable {
-    case id(EPUBElementID), className(String), type(String), attribute(String)
+    /// A type or an attribute name is lowercased (`attributeName`), so its bucket holds the rules
+    /// of names that only the matcher tells apart.
+    case id(EPUBElementID), className(CodeUnitString), type(String), attribute(String)
     /// An attribute's whole value (`=`) or one of its whitespace-separated tokens (`~=`).
-    case attributeValue(String, String)
+    case attributeValue(String, CodeUnitString)
     case universal
 
     /// The name that an attribute selector's rules are bucketed under and that an element's
     /// attribute looks them up by: lowercased, from after its last colon. A document read as
     /// HTML keeps `epub:type` as one name in no namespace, which `[epub\:type]` addresses and
-    /// `[epub|type]` reaches by its prefix; in XHTML it is `type` in the OPS namespace. Each of
+    /// `[epub|type]` reaches by the namespace its prefix stands for; in XHTML it is `type` in the
+    /// OPS namespace. Each of
     /// them, and `[type]`, is bucketed as `type`, and the matcher tells them apart.
     static func attributeName(_ name: String) -> String {
         guard name.utf8.contains(where: { ($0 >= 0x41 && $0 <= 0x5A) || $0 == 0x3A || $0 >= 0x80 }) else { return name }
@@ -262,8 +323,8 @@ struct AncestorFilter: Sendable {
     struct Name: Hashable {
         enum Kind: UInt8 { case id, className, type }
         let kind: Kind
-        /// Hashed as a `String`, so canonically equivalent ids share bits: the filter is coarser
-        /// than an id selector's match, and never rejects what it matches.
+        /// Hashed as a `String`, so canonically equivalent ids, classes and types share bits: the
+        /// filter is coarser than a selector's match, and never rejects what it matches.
         let value: String
         /// Two bit positions out of 256.
         var bits: (UInt8, UInt8) {
@@ -386,11 +447,11 @@ struct CSSSelectorParser {
     }
 
     private func namespaceConstraint(prefix: String?) throws(Failure) -> CSSNamespaceConstraint {
-        guard let prefix else { return namespaces.defaultNamespace.map { .uri($0) } ?? .any }
+        guard let prefix else { return namespaces.defaultNamespace.map { .uri(CodeUnitString($0)) } ?? .any }
         if prefix == "*" { return .any }
         if prefix.isEmpty { return .none }
         guard let uri = namespaces.prefixes[prefix] else { throw .invalid }
-        return .uri(uri)
+        return .uri(CodeUnitString(uri))
     }
 
     /// A namespace prefix and local name (`ns|name`, `*|name`, `|name`, `name`, or `*`).
@@ -429,7 +490,7 @@ struct CSSSelectorParser {
         if let (prefix, name) = qualifiedName(components, &index, allowUniversal: true) {
             compound.namespace = try namespaceConstraint(prefix: prefix)
             if name != "*" {
-                compound.name = name; compound.lowercasedName = name.lowercased()
+                compound.name = CodeUnitString(name); compound.lowercasedName = CodeUnitString(name.lowercased())
                 specificity.c += 1
             }
             hasType = true
@@ -445,7 +506,7 @@ struct CSSSelectorParser {
                 compound.simple.append(.id(EPUBElementID(value))); specificity.a += 1; index += 1
             case .token(.delim(".")):
                 guard index + 1 < components.count, case .token(.ident(let name)) = components[index + 1], pseudoElement == nil else { throw .invalid }
-                compound.simple.append(.className(name)); specificity.b += 1; index += 2
+                compound.simple.append(.className(CodeUnitString(name))); specificity.b += 1; index += 2
             case .block(.openSquare, let contents):
                 guard pseudoElement == nil else { throw .invalid }
                 compound.simple.append(.attribute(try parseAttribute(contents))); specificity.b += 1; index += 1
@@ -565,11 +626,11 @@ struct CSSSelectorParser {
             guard let (a, b) = Self.parseAnB(arguments.significant) else { throw .invalid }
             return (name == "nth-of-type" ? .nthOfType(a: a, b: b) : .nthLastOfType(a: a, b: b), classSpecificity)
         case "lang":
-            var ranges: [String] = []
+            var ranges: [CodeUnitString] = []
             for part in arguments.commaSeparated {
                 guard part.count == 1 else { throw .invalid }
                 switch part[0] {
-                case .token(.ident(let value)), .token(.string(let value)): ranges.append(value.lowercased())
+                case .token(.ident(let value)), .token(.string(let value)): ranges.append(CodeUnitString(CodeUnits.asciiLowercased(value)))
                 default: throw .invalid
                 }
             }
@@ -599,12 +660,11 @@ struct CSSSelectorParser {
         case "": namespace = CSSNamespaceConstraint.none
         case let prefix?:
             guard let uri = namespaces.prefixes[prefix] else { throw .invalid }
-            namespace = .uri(uri)
+            namespace = .uri(CodeUnitString(uri))
         }
-        let prefixedName = prefix.flatMap { $0.isEmpty || $0 == "*" ? nil : "\($0):\(name)".lowercased() }
         guard index < components.count else {
-            return CSSAttributeSelector(name: name, lowercasedName: name.lowercased(), namespace: namespace,
-                                        prefixedName: prefixedName, operation: .exists, value: "", caseInsensitive: false)
+            return CSSAttributeSelector(name: CodeUnitString(name), lowercasedName: CodeUnitString(name.lowercased()), namespace: namespace,
+                                        operation: .exists, value: "", caseInsensitive: false)
         }
         let operation: CSSAttributeSelector.Operation
         if components[index].isDelim("=") { operation = .equals; index += 1 }
@@ -637,9 +697,10 @@ struct CSSSelectorParser {
             index += 1
         }
         guard index == components.count else { throw .invalid }
-        return CSSAttributeSelector(name: name, lowercasedName: name.lowercased(), namespace: namespace,
-                                    prefixedName: prefixedName, operation: operation,
-                                    value: caseInsensitive ? value.lowercased() : value, caseInsensitive: caseInsensitive)
+        return CSSAttributeSelector(name: CodeUnitString(name), lowercasedName: CodeUnitString(name.lowercased()), namespace: namespace,
+                                    operation: operation,
+                                    value: CodeUnitString(caseInsensitive ? CodeUnits.asciiLowercased(value) : value),
+                                    caseInsensitive: caseInsensitive)
     }
 
     /// The An+B microsyntax (CSS Syntax §6) over whitespace-free components.
