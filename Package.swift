@@ -14,7 +14,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.20"),
         .package(url: "https://github.com/vocaro/MathMLLayout.git", exact: "0.3.1"),
-        .package(path: "../../../../StaticSVG"),
+        .package(url: "https://github.com/vocaro/StaticSVG.git", exact: "0.1.0"),
     ],
     targets: [
         .executableTarget(name: "SearchFocusProbe", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing", "EPUBTestSupport"], path: "Examples/SearchFocusProbe"),
