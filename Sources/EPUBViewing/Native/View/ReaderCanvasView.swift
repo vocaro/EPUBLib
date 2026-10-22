@@ -155,6 +155,8 @@ import AppKit
     /// again while nothing has moved from it (`placeStillEntered`). A page turn, another show
     /// and a change of flow leave none.
     private var enteredPlace: ReaderTextPosition?
+    /// Lays the canvas out when its safe area changes and its size does not (`platformSetUp`).
+    var safeAreaObservation: NSKeyValueObservation?
     /// Posts what the canvas tells an assistive client itself: the layout change after a spread
     /// is installed, and after the reader moves the scroll view the insertion point's second
     /// notice and the layout change (`placeScrollInsertionPoint`). A test puts its own closure
@@ -545,6 +547,17 @@ import AppKit
         return PaginatorKey(section: shownPage.section, width: size.width, height: size.height)
     }
 
+    /// The text what is on screen is laid out from, as the data source gave it: a section's, or
+    /// continuous scroll's whole book (`section` nil). nil while nothing is shown.
+    var shownText: (section: Int?, text: NSAttributedString)? {
+        if let scrollTextView {
+            guard let text = scrollTextView.flowSourceText, text.length > 0 else { return nil }
+            return (scrollTextView.placement.section, text)
+        }
+        guard let key = shownPaginatorKey, let paginator = paginators[key] else { return nil }
+        return (key.section, paginator.sourceText)
+    }
+
     /// Keeps the cache to a few paginators and their held layouts to `heldLayoutBudget`,
     /// dropping the least recently used.
     private func trimPaginators() {
@@ -693,7 +706,7 @@ import AppKit
         var next = section + step
         while next >= 0, next < dataSource.sectionCount, !dataSource.isLinear(section: next) { next += step }
         guard next >= 0, next < dataSource.sectionCount else { return .atBoundary }
-        guard let text = dataSource.text(forSection: next) else {
+        guard let text = dataSource.text(forSection: next), dataSource.canShow(section: next) else {
             delegate?.canvas(self, needsSection: next, forward: forward)
             return .pending(section: next)
         }
@@ -741,7 +754,11 @@ import AppKit
     /// line below such a box moves with it, and until it is laid out again its place is an
     /// estimate, so the kept position is then rested again as after a resize: a bar shown or
     /// hidden over the reader changes the visible height and not the canvas's size (#338).
-    /// `rest` is false where the caller rests the position itself. True when it was rested.
+    /// Where there is no box, the Mac reads what is on screen again: AppKit moves the view for
+    /// the bar's new inset inside the canvas's layout, a move of the reader's own, and where the
+    /// view is as far down as it goes, by less than the inset changed, which brings an earlier
+    /// line in at the top (#162). `rest` is false where the caller rests the position itself.
+    /// True when it was rested.
     @discardableResult func updateScrollViewport(rest: Bool = true) -> Bool {
         guard let textView = scrollTextView, let geometry = scrollGeometry else { return false }
         let viewport = CGSize(width: geometry.width, height: max(0, scrollVisibleContainerRect.height))
@@ -749,7 +766,12 @@ import AppKit
         // The visible start is read from the layout the new height is about to replace.
         let retainedStart = rest && anchorFollowsScroll && textView.layoutFollowsViewport ? scrollVisibleRange()?.start : nil
         textView.readerContainer.viewportSize = viewport
-        guard textView.refreshFlowBoxLayout() else { return false }
+        guard textView.refreshFlowBoxLayout() else {
+            #if os(macOS)
+            if rest { updateVisibleRange(force: false) }
+            #endif
+            return false
+        }
         scrollPlace = nil
         guard rest else { return false }
         if let retainedStart { anchor = retainedStart }
@@ -1539,24 +1561,31 @@ import AppKit
     /// position it begins after and before one it ends at or before, so the heading a position
     /// is inside is neither. A section that page turns step over is passed over unless the
     /// search starts in it or it is the one on screen, and a section not built yet ends the
-    /// search. From no position the search takes in every heading it can reach from the section
-    /// on screen, and begins before the first of them, or after the last: the whole book once
-    /// it is built, and until then the sections built so far around the reader.
+    /// search, as does one a page turn would wait to have built again (`canShow`), whose build
+    /// is then asked for (`wantsSection`): the move that finds a heading shows it at once. From
+    /// no position the search takes in every
+    /// heading it can reach from the section on screen, and begins before the first of them, or
+    /// after the last: the whole book once it is built, and until then the sections built so far
+    /// around the reader.
     func bookHeading(from position: ReaderTextPosition?, forward: Bool) -> ReaderBookHeading? {
         guard let dataSource, dataSource.sectionCount > 0 else { return nil }
         let shown = visibleRange?.start.section
         func searched(_ section: Int) -> Bool { section == position?.section || section == shown || dataSource.isLinear(section: section) }
+        func built(_ section: Int) -> Bool { dataSource.text(forSection: section) != nil && dataSource.canShow(section: section) }
         var section: Int
         if let position { section = position.section } else {
             // Back from the section on screen, against the search, through the sections built.
             section = min(max(0, shown ?? 0), dataSource.sectionCount - 1)
             let back = forward ? -1 : 1
             while section + back >= 0, section + back < dataSource.sectionCount,
-                  !searched(section + back) || dataSource.text(forSection: section + back) != nil { section += back }
+                  !searched(section + back) || built(section + back) { section += back }
         }
         while section >= 0, section < dataSource.sectionCount {
             if searched(section) {
-                guard let headings = headings(inSection: section) else { return nil }
+                guard built(section), let headings = headings(inSection: section) else {
+                    if dataSource.text(forSection: section) != nil { delegate?.canvas(self, wantsSection: section) }
+                    return nil
+                }
                 let found: (heading: ReaderHeading, range: NSRange)?
                 if let position {
                     found = forward ? headings.first { section > position.section || $0.range.location > position.offset }
