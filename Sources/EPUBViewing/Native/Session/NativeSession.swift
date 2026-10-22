@@ -396,8 +396,10 @@ import SwiftUI
         refreshHighlights()
         searchGeneration += 1
         let ticket = searchGeneration
+        // A cancellation ends a pending search. One that arrives with the results, from an
+        // observer or a callback, comes too late: the search completes beside its list.
         defer {
-            if Task.isCancelled, !closed, ticket == searchGeneration { emit(.searchChanged(.idle)) }
+            if Task.isCancelled, searchResults == nil, !closed, ticket == searchGeneration { emit(.searchChanged(.idle)) }
         }
         var found: [Int: [TextSearch.Match]] = [:]
         for index in publication.spine.indices {

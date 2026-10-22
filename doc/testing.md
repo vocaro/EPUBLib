@@ -1189,11 +1189,13 @@ Read so on macOS 27.0, the code is what made a departed table of data say "empty
 
 ## Adapter contract tests
 
-The internal **EPUBViewingTestSupport** target exercises adapter contracts with
-`EPUBEngineContract.verify`. It uses no XCTest or renderer types, so adapters can call it from
-XCTest, Swift Testing or another async test runner. Provide a validated two-section publication,
-two distinct encoded resource hrefs, a phrase present in the first section, and a `mount` closure
-that places the session in a visible test window and returns a cleanup closure retaining that window.
+The **EPUBViewingTestSupport** target exercises engine contracts with `EPUBEngineContract.verify`.
+It is internal: `Package.swift` ships no product for it, so only this package's tests link it
+([#748](https://github.com/vocaro/EPUBLib/issues/748)). It uses no XCTest or renderer types, so a
+test can call it from XCTest, Swift Testing or another async test runner. Provide a validated
+two-section publication, two distinct encoded resource hrefs, a phrase present in the first section
+with two or more search results in the publication, and a `mount` closure that places the session in
+a visible test window and returns a cleanup closure retaining that window.
 `NativeSessionTests.testReusableEngineContract` is a complete call-site example.
 
 The verifier checks:
@@ -1205,11 +1207,15 @@ The verifier checks:
 - Locations carry the publication identity and a valid engine-tagged bookmark when supported.
 - Foreign publication, engine and bookmark format identities are rejected.
 - An engine with `.searchResults` lists the phrase's results before reporting completion, with
-  indices in order and the publication's identity; steps, wraps and selects as
+  indices in order and the publication's identity; steps, wraps back from the first result to
+  the last and on from the last to the first, and selects as
   `EPUBSearchResults.steppedIndex(forward:)` says; mirrors the list in `readerState` when it has
-  one; refuses an unlisted result; and withdraws the list on clear, after which a kept result is
-  refused and no step has any effect. An engine without it refuses the three result commands
-  with `.unsupported(.searchResults)` and publishes no results.
+  one; refuses an unlisted result, whether its index is out of range or names a listed one; and
+  withdraws the list on clear, after which a kept result is refused and no step has any effect.
+  The engine must list two or more results for the phrase, or the verifier fails before it
+  steps: with one, every step would show that result, and no step or wrap could move the
+  current match. An engine without `.searchResults` refuses the three result commands with
+  `.unsupported(.searchResults)` and publishes no results.
 - Close is idempotent; closed commands fail and later callbacks are suppressed.
 
 A minimal SwiftUI test engine runs the same checks with no renderer at all, as an engine with no
