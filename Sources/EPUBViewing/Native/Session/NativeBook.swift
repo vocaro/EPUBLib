@@ -53,6 +53,10 @@ import AppKit
     func isOmitted(_ index: Int) -> Bool { hasLinear && !publication.spine[index].isLinear }
     func section(_ index: Int) -> SectionText? { sections.indices.contains(index) ? sections[index] : nil }
     func isCurrent(_ index: Int) -> Bool { builtTypography[index] == typography }
+    /// The typography of a section's newest build; nil while it has none.
+    func typography(ofSection index: Int) -> NativeTypography? {
+        builtTypography.indices.contains(index) ? builtTypography[index] : nil
+    }
     var isComplete: Bool { builtTypography.allSatisfy { $0 == typography } }
     /// The completion callback has finished its synchronous notification for this typography.
     /// Test harnesses waiting for the mounted reader need that notification as well as its data.

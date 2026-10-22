@@ -195,10 +195,63 @@ final class TableCoverageTextMappingTests: XCTestCase {
         XCTAssertEqual(found.end.tableCell, ReaderTablePosition(table: table.sourceOrder, cell: outer, offset: 1,
             nested: ReaderTablePosition(table: inner.sourceOrder, cell: cell, offset: 9)), "the inner table is one character of its cell")
         XCTAssertEqual(inner.sourceOrder, section.document.element(id: "n1")?.parent?.parent?.order)
-        XCTAssertEqual(section.tablePassage(found), "inner one\tinner two")
+        XCTAssertEqual(section.tablePassage(found), "inner one", "the inner cell's words, not the inner table's (#718)")
         let back = try XCTUnwrap(section.domPosition(found.start))
-        XCTAssertTrue(back.node.isHTML("table"))
-        XCTAssertFalse(back.node === section.document.element(id: "table"))
+        XCTAssertTrue(back.node.parent === section.document.element(id: "n1"), "the inner cell's text, not the inner table")
+        XCTAssertEqual(back.offset, 0)
+    }
+
+    /// A match in a table nested in a cell, at any depth, is read where it is: its passage and
+    /// its search context are the inner cell's words, and the DOM range it maps back to is the
+    /// match's own, so a CFI made from it is the match's CFI and restores to it. Each read the
+    /// outer cell's characters, where the nested table is one unit: the passage was the nested
+    /// table's text, the context the outer cell's around it, and the range the nested table
+    /// element (#718). The shapes are #715's: #544's two, two tables deep, and the narrow cells
+    /// of #569 and #377, the first of them in no nested table.
+    @MainActor func testAMatchInANestedTableIsReadAndMappedBackInItsOwnCell() throws {
+        let words = ["Opening"] + (0..<60).map { "body\($0) words" } + ["Needle"]
+        let tallRow = "<tr><td>" + words.map { "<p>\($0)</p>" }.joined() + "</td><td>y</td></tr>"
+        let manyRows = words.map { "<tr><td>\($0)</td><td>y</td></tr>" }.joined()
+        func nested(_ rows: String) -> String { "<table><tr><td><table>\(rows)</table></td><td>x</td></tr></table>" }
+        let cases: [(label: String, body: String, font: CGFloat, quote: String, before: String, after: String, depth: Int)] = [
+            ("a single tall inner row", nested(tallRow), 16, "y30 wo", "bod", "rds", 1),
+            ("many inner rows", nested(manyRows), 16, "y30 wo", "bod", "rds", 1),
+            ("a tall row two tables deep", "<table><tr><td>\(nested(tallRow))</td><td>w</td></tr></table>", 16, "y30 wo", "bod", "rds", 2),
+            ("many rows two tables deep", "<table><tr><td>\(nested(manyRows))</td><td>w</td></tr></table>", 16, "y30 wo", "bod", "rds", 2),
+            ("a list in a padded cell", TableNarrowCellTests.listInPaddedCell, 16, "the again", "a wraps ", " and.", 0),
+            ("#377's nested cell", TableNarrowCellTests.nestedListInPaddedCell, 9, "the again", "a wraps ", " and.", 1),
+        ]
+        /// How many tables deep a place is nested in its cell.
+        func depth(_ cell: ReaderTablePosition?) -> Int { cell?.nested.map { depth($0) + 1 } ?? 0 }
+        for (label, body, font, quote, before, after, nesting) in cases {
+            let publication = try TableCoverage.publication(body)
+            let section = TableCoverage.section(of: publication, typography: .init(fontSize: font))
+            let spine = try SpineCFIs(publication: publication)
+            let matches = TextSearch.matches(of: TextSearch.normalizeQuote(quote), in: section.document, locale: nil)
+            XCTAssertEqual(matches.count, 1, "\(label): \(quote)")
+            let match = try XCTUnwrap(matches.first, label)
+            let range = SearchResultBuilder.renderedRange(of: match, in: section)
+            XCTAssertEqual(depth(range.start.tableCell), nesting, "\(label): the match is in the innermost table's cell")
+            XCTAssertEqual(depth(range.end.tableCell), nesting, "\(label): and so is its end")
+            XCTAssertEqual(section.tablePassage(range), quote, "\(label): the passage is the match's words")
+            let context = SearchResultBuilder.context(of: range, in: section)
+            // A cell's context before a list item's words also reads the item's generated
+            // marker, which is no part of this (#735).
+            XCTAssertTrue(context.before.hasSuffix(before), "\(label): the context before is the inner cell's, not \(context.before)")
+            XCTAssertEqual(context.after, after, "\(label): and so is the context after")
+            let dom = try XCTUnwrap(section.domRange(range), label)
+            XCTAssertTrue(dom.start.node === match.start.node, "\(label): the range starts in the match's text node")
+            XCTAssertEqual(dom.start.offset, match.start.offset, label)
+            XCTAssertTrue(dom.end.node === match.end.node, "\(label): and ends in it")
+            XCTAssertEqual(dom.end.offset, match.end.offset, label)
+            let cfi = spine.cfi(spineIndex: 0, start: dom.start, end: dom.end, in: section.document)
+            XCTAssertEqual(cfi, spine.cfi(spineIndex: 0, start: match.start, end: match.end, in: section.document),
+                           "\(label): a CFI made from the rendered match is the match's own")
+            let target = try XCTUnwrap(spine.resolve(cfi), label)
+            let resolved = try XCTUnwrap(EPUBCFI.resolve(localPath: target.localPath, in: section.document), label)
+            let restored = ReaderTextRange(start: section.renderedPosition(resolved.start), end: section.renderedPosition(resolved.end, isEnd: true))
+            XCTAssertEqual(restored, range, "\(label): the CFI restores to the match")
+        }
     }
 
     /// A caption is part of its table's unit: a match in one is not a cell position, and it

@@ -43,10 +43,14 @@ typealias TableNativeTextView = UITextView
     var copyTextToPasteboard: (String) -> Void = { UIPasteboard.general.string = $0 }
     #endif
 
-    init(text: NSAttributedString, width: CGFloat, characters: NSRange) {
+    /// `layout` is the layout that draws the cell and the lines of it the surface shows, which
+    /// paint a highlight in a table nested in the cell (`setCellHighlights`).
+    init(text: NSAttributedString, width: CGFloat, characters: NSRange,
+         layout: (cell: TableCellLayout, lines: Range<Int>)? = nil) {
         cellText = text; shownCharacters = characters
         cellStorage = NSTextStorage(attributedString: text)
         cellManager = TableInteractionLayoutManager()
+        cellManager.cellLayout = layout
         let container = ReaderTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
         container.lineFragmentPadding = 0
         cellStorage.addLayoutManager(cellManager)
@@ -127,9 +131,15 @@ typealias TableNativeTextView = UITextView
         #endif
     }
 
-    func setCellHighlights(_ runs: [(NSRange, PlatformColor)]) {
+    /// `runs` are characters of the cell's own text; `nested` are parts of highlights in tables
+    /// nested in the cell, which the cell's layout paints over its nested rows.
+    func setCellHighlights(_ runs: [(NSRange, PlatformColor)], nested: [(TableNestedHighlight, PlatformColor)] = []) {
+        let repaints = !nested.isEmpty || !cellManager.nestedHighlights.isEmpty
         highlights = runs.map { ($0.0, $0.1) }
+        cellManager.nestedHighlights = nested.map { ($0.0, $0.1) }
         updateInteractionInk()
+        // No attribute of this text holds them: the nested rows are drawn again.
+        if repaints { cellManager.invalidateDisplay(forCharacterRange: NSRange(location: 0, length: cellStorage.length)) }
     }
 
     /// The selection as the cell paints it itself, where UIKit paints none. UIKit draws a text

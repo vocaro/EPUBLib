@@ -119,7 +119,8 @@ enum PageTurnResult: Equatable, Sendable {
     case turned
     /// Already at the book's first or last page.
     case atBoundary
-    /// The adjacent section is not built yet; the canvas asked its delegate for it.
+    /// The adjacent section is not built yet, or not to be shown as it is built
+    /// (`ReaderCanvasDataSource.canShow`); the canvas asked its delegate for it.
     case pending(section: Int)
 }
 
@@ -147,10 +148,14 @@ enum ReaderPageEntry: Equatable, Sendable {
     func isLinear(section index: Int) -> Bool
     /// The whole book for continuous scroll, once every section is built.
     var bookText: ReaderBookText? { get }
+    /// Whether a page turn may show a section's text as it is: false for one that must be built
+    /// again first, which the canvas then asks for (`needsSection`), keeping the page it shows.
+    func canShow(section index: Int) -> Bool
 }
 
 extension ReaderCanvasDataSource {
     func selectionText(in range: ReaderTextRange) -> String? { nil }
+    func canShow(section index: Int) -> Bool { true }
 }
 
 @MainActor protocol ReaderCanvasDelegate: AnyObject {
@@ -165,6 +170,14 @@ extension ReaderCanvasDataSource {
     /// A page turn or scroll needs a section that is not built. When it is, the session shows
     /// its start (`forward`) or end.
     func canvas(_ canvas: any ReaderCanvas, needsSection index: Int, forward: Bool)
+    /// A search that shows what it finds, as VoiceOver's move by heading, stopped at a section
+    /// that must be built again before it is shown (`ReaderCanvasDataSource.canShow`): build it
+    /// now, showing nothing, so that the next search finds what it holds.
+    func canvas(_ canvas: any ReaderCanvas, wantsSection index: Int)
+}
+
+extension ReaderCanvasDelegate {
+    func canvas(_ canvas: any ReaderCanvas, wantsSection index: Int) {}
 }
 
 /// The TextKit 2 surface: continuous scroll in a real scroll view, or columns paginated from the
@@ -196,6 +209,7 @@ extension ReaderCanvasDataSource {
     func clearSelection()
     /// Replaces every drawn highlight.
     func setHighlights(_ highlights: [ReaderHighlight])
-    /// Shows a note in place (a popover), anchored at `rect` in canvas coordinates.
-    func presentNote(_ text: NSAttributedString, from rect: CGRect)
+    /// Shows a note in place (a popover), anchored at `rect` in canvas coordinates, in the
+    /// appearance its text was built for (`dark`), which a rebuild can reach before the page.
+    func presentNote(_ text: NSAttributedString, dark: Bool, from rect: CGRect)
 }
