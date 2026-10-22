@@ -251,6 +251,9 @@ extension CSSPropertyParser {
             if index < c.count, case .token(.number(let number, true, _)) = c[index] {
                 value = Int(min(max(number, Double(counterRange.lowerBound)), Double(counterRange.upperBound)))
                 index += 1
+            } else if index < c.count, let number = calcInteger(c[index]) {
+                value = min(max(number, counterRange.lowerBound), counterRange.upperBound)
+                index += 1
             }
             changes.append(ComputedStyle.CounterChange(name: name, value: value))
         }
