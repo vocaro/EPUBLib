@@ -24,6 +24,8 @@ struct NativeTypography: Equatable, Hashable, Sendable {
     /// Base size in points, clamped to 12–96. CSS `1em` at the root is this size.
     var fontSize: CGFloat
     var isDark: Bool
+    /// The host's font, spacing, alignment and hyphenation (`ReaderTextSettings`).
+    var text = ReaderTextSettings()
     init(fontSize: CGFloat = 17, isDark: Bool = false) {
         self.fontSize = min(max(fontSize, Self.minimumFontSize), Self.maximumFontSize)
         self.isDark = isDark

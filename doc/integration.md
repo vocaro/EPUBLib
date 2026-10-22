@@ -378,6 +378,57 @@ not rebuild text, repaginate, clear selection or highlights, or emit a relocatio
 current wheel gesture/cooldown and pending edge press are reset. Host commands and
 accessibility use the same page/viewport operation regardless of direct-input configuration.
 
+## Setting book text
+
+`EPUBReaderStyle.typography` sets the font, line and paragraph spacing, letter and word
+spacing, page margins, alignment and hyphenation of book text. Send it with `.style`, or
+change it through `controls.changeStyle`. A value left nil keeps the book's styles and the
+reader's own defaults, and the reader keeps its place across every change, as it does for a
+text size. `EPUBReaderStyle.Typography` is `Codable`, for a host that keeps a reader's choices.
+
+<!-- snippet:typography -->
+```swift
+/// Registers a font the app bundles, once at launch, so that the reader finds it by its family
+/// name. Listing it under `UIAppFonts` (iOS) or `ATSApplicationFontsPath` (macOS) in the app's
+/// Info.plist does the same.
+func registerBundledFont(at url: URL) {
+    CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+}
+
+/// Sets book text in that font with WCAG 2.2's text spacing (SC 1.4.12), ragged and unhyphenated,
+/// over the book's own styles. Preformatted text, code, tables and MathML keep the book's.
+@MainActor
+func readWithLegibleText(_ controls: EPUBReaderControls, family: String) {
+    controls.changeStyle { style in
+        style.typography = EPUBReaderStyle.Typography(
+            fontFamily: .named(family), lineHeight: 1.5, paragraphSpacing: 2, letterSpacing: 0.12,
+            wordSpacing: 0.16, pageMargins: 0.5, alignment: .start, hyphenation: false,
+            overridesBookStyles: true)
+    }
+}
+```
+<!-- /snippet -->
+
+- **Font.** `.serif` is the reader's own, New York; `.sansSerif`, `.rounded` and `.monospace`
+  are the system font's designs; `.named` takes an installed family or one the app registers,
+  such as a bundled Atkinson Hyperlegible or OpenDyslexic, by its family name. A character the
+  font has no glyph for is drawn in the font the text would otherwise have, then in the
+  system's fallback fonts, and a family that is not available leaves the book's font. The
+  package bundles no font yet ([#692](https://github.com/vocaro/EPUBLib/issues/692)).
+- **Spacing** is in ems of the text's font size: a line height of 1.5, paragraph spacing of 2,
+  letter spacing of 0.12 and word spacing of 0.16 are WCAG's text spacing.
+- **Margins** are a multiple of the reader's own side margins, 0 for none. They are the
+  reader's, and apply whatever the book declares.
+- **The book's styles.** With `overridesBookStyles` off, the default, the values set stand in
+  for the reader's defaults, and the book's own declarations win where it makes them. With it
+  on they apply to the book's text whatever it declares, as a reader's "publisher defaults"
+  switch turned off does. Either way preformatted text, code, tables, MathML, SVG and boxes the
+  book sizes or places keep the book's styles.
+
+The rules and their limits are under "Reading adjustments" in the
+[native viewer's decisions](native-viewer.md#decisions). The supplied controls have no setting
+for these yet; a settings sheet is [#692](https://github.com/vocaro/EPUBLib/issues/692).
+
 ## Privacy manifest
 
 A host declares nothing for EPUBLib in its privacy manifest. Apple has an app give a reason for

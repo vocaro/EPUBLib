@@ -111,6 +111,8 @@ struct ReaderCanvasConfiguration: Equatable, Sendable {
     /// A host-reserved vertical division (a fold or hinge), in the canvas's coordinates. In
     /// paginated flow the spread puts its gutter on it; text never crosses it.
     var division: CGRect?
+    /// The outer margins as a multiple of the reader's own (`ReaderCanvasGeometry`), 0–4.
+    var pageMargins: CGFloat = 1
     var selectionActionTitle: String?
     var selectionActionImage = "text.quote"
 }
