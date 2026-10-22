@@ -119,7 +119,8 @@ enum PageTurnResult: Equatable, Sendable {
     case turned
     /// Already at the book's first or last page.
     case atBoundary
-    /// The adjacent section is not built yet; the canvas asked its delegate for it.
+    /// The adjacent section is not built yet, or not to be shown as it is built
+    /// (`ReaderCanvasDataSource.canShow`); the canvas asked its delegate for it.
     case pending(section: Int)
 }
 
@@ -147,10 +148,14 @@ enum ReaderPageEntry: Equatable, Sendable {
     func isLinear(section index: Int) -> Bool
     /// The whole book for continuous scroll, once every section is built.
     var bookText: ReaderBookText? { get }
+    /// Whether a page turn may show a section's text as it is: false for one that must be built
+    /// again first, which the canvas then asks for (`needsSection`), keeping the page it shows.
+    func canShow(section index: Int) -> Bool
 }
 
 extension ReaderCanvasDataSource {
     func selectionText(in range: ReaderTextRange) -> String? { nil }
+    func canShow(section index: Int) -> Bool { true }
 }
 
 @MainActor protocol ReaderCanvasDelegate: AnyObject {

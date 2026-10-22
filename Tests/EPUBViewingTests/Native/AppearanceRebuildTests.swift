@@ -171,36 +171,170 @@ import UIKit
         }
     }
 
-    /// Once the page on screen is in Dark, a page turn can reach a section whose Dark rebuild
-    /// has not arrived: that page is drawn on the canvas of the appearance its text has.
-    func testAPageTurnToASectionNotYetRebuiltForDarkDrawsItInItsOwnAppearance() async throws {
+    /// The first page reaches no other section, so it changes to Dark once its own section is
+    /// built. A turn can then outrun the rebuild of the next section: that section waits for
+    /// its Dark build, with the page kept, and the canvas never goes back to Light.
+    func testATurnPastTheRebuildWaitsForTheNextSectionInsteadOfShowingItInLight() async throws {
         let held = expectation(description: "the second section's Dark rebuild is held")
         let gate = DarkBuildGate(holding: "OPS/two.xhtml", held: held)
         defer { gate.release() }
-        let data = try SessionCoverageBook.epub([
-            .init("one", "<p>The first section, one page long.</p>"),
-            .init("two", "<p>The second section.</p><hr/><p>Its last words.</p>"),
-        ])
-        let session = try NativeSession(publication: try EPUBPublication.open(data: data), action: nil, rich: gate) { _ in }
+        let session = try NativeSession(publication: try EPUBPublication.open(data: Self.threeSections()), action: nil, rich: gate) { _ in }
         let window = ReaderTestWindow(session: session)
         defer { session.close(); window.close() }
         try await wait("the Light reader") { session.isReady && session.book.isComplete }
 
         window.pageControls.colorScheme = .dark
         await waitFor([held])
-        try await wait("the first section in Dark") { session.book.isCurrent(0) && session.canvas?.configuration.isDark == true }
+        try await wait("the first section in Dark") { session.canvas?.configuration.isDark == true }
         let canvas = try await laidOutCanvas(session, dark: true)
-        XCTAssertEqual(shownAppearances(canvas), [true], "the first section is not shown in Dark")
+        var seen = [await look(canvas, "the first page in Dark")]
+        try await turnToTheEnd(of: 0, session) { seen.append(await look(canvas, "a page of the first section")) }
+        let last = session.visibleRange
         try await session.send(.nextPage)
-        await settle(canvas)
-        XCTAssertEqual(session.visibleRange?.start.section, 1)
-        XCTAssertFalse(session.book.isCurrent(1), "the second section was rebuilt before the hook released it")
-        assertTextAgreesWithCanvas(canvas, "on the section still built for Light")
+        seen.append(await look(canvas, "the turn the second section's Dark build holds"))
+        XCTAssertEqual(session.visibleRange, last, "the page was left while the next section's Dark build is held")
 
         gate.release()
-        try await wait("the second section in Dark") { session.book.isComplete && canvas.configuration.isDark }
-        await settle(canvas)
+        try await wait("the second section") { session.visibleRange?.start.section == 1 }
+        seen.append(await look(canvas, "the second section"))
         XCTAssertEqual(shownAppearances(canvas), [true], "the second section is not shown in Dark")
+        assertChangesOnce(seen, to: true)
+    }
+
+    /// A jump to a section the rebuild has not reached, from the contents or by a search result,
+    /// waits for that section's Dark build with the page kept, and shows it in Dark.
+    func testAJumpPastTheRebuildWaitsForItsSectionAndShowsItInTheNewAppearance() async throws {
+        for jump in [EPUBReaderCommand.navigate(href: "OPS/three.xhtml"), .nextSearchResult] {
+            let held = expectation(description: "the third section's Dark rebuild is held, \(jump)")
+            let gate = DarkBuildGate(holding: "OPS/three.xhtml", held: held)
+            defer { gate.release() }
+            let session = try NativeSession(publication: try EPUBPublication.open(data: Self.threeSections()), action: nil, rich: gate) { _ in }
+            let window = ReaderTestWindow(session: session)
+            defer { session.close(); window.close() }
+            try await wait("the Light reader") { session.isReady && session.book.isComplete }
+            try await session.send(.searchHighlight(text: "farthest"))
+            XCTAssertEqual(session.searchResultRanges.map(\.start.section), [2])
+
+            window.pageControls.colorScheme = .dark
+            await waitFor([held])
+            try await wait("the first section in Dark") { session.canvas?.configuration.isDark == true }
+            let canvas = try await laidOutCanvas(session, dark: true)
+            var seen = [await look(canvas, "the first page in Dark, \(jump)")]
+            let moving = Task { try await session.send(jump) }
+            seen.append(await look(canvas, "the jump the third section's Dark build holds, \(jump)"))
+            XCTAssertEqual(session.visibleRange?.start.section, 0, "the page was left before its target was built, \(jump)")
+
+            gate.release()
+            try await moving.value
+            seen.append(await look(canvas, "the third section, \(jump)"))
+            XCTAssertEqual(session.visibleRange?.start.section, 2)
+            XCTAssertEqual(shownAppearances(canvas), [true], "the third section is not shown in Dark, \(jump)")
+            assertChangesOnce(seen, to: true)
+        }
+    }
+
+    /// In continuous scroll the sections on each side of the page are in reach. While the next
+    /// one's Dark rebuild is held the whole book stays on screen in Light, also across into that
+    /// section, and it changes to Dark once, when that section is built.
+    func testContinuousScrollAcrossASectionDuringTheRebuildChangesAppearanceOnce() async throws {
+        let held = expectation(description: "the second section's Dark rebuild is held")
+        let gate = DarkBuildGate(holding: "OPS/two.xhtml", held: held)
+        defer { gate.release() }
+        let data = try SessionCoverageBook.epub([
+            .init("one", SessionCoverageBook.filler(12)),
+            .init("two", "<p>The second section begins.</p><hr/>" + SessionCoverageBook.filler(12)),
+            .init("three", SessionCoverageBook.filler(4)),
+        ])
+        let session = try NativeSession(publication: try EPUBPublication.open(data: data), action: nil, rich: gate) { _ in }
+        let window = ReaderTestWindow(session: session)
+        defer { session.close(); window.close() }
+        try await wait("the Light reader") { session.isReady && session.book.isComplete }
+        try await session.send(.style(.init(flow: .scrolled)))
+        try await wait("the whole book in continuous scroll") { session.canvas?.scrollBook != nil }
+
+        window.pageControls.colorScheme = .dark
+        await waitFor([held])
+        let canvas = try await laidOutCanvas(session, dark: true)
+        var seen = [await look(canvas, "the first page while the next section's Dark build is held")]
+        XCTAssertFalse(canvas.configuration.isDark, "the page changed before the section after it was built")
+        for _ in 0..<40 where session.visibleRange?.start.section == 0 {
+            try await session.send(.nextPage)
+            seen.append(await look(canvas, "a scroll step during the rebuild"))
+        }
+        XCTAssertEqual(session.visibleRange?.start.section, 1, "the steps did not cross into the second section")
+
+        gate.release()
+        try await wait("the reader in Dark") { canvas.configuration.isDark }
+        seen.append(await look(canvas, "the second section in Dark"))
+        XCTAssertEqual(shownAppearances(canvas), [true], "the second section is not shown in Dark")
+        assertChangesOnce(seen, to: true)
+    }
+
+    /// Light, Dark and Light again before the Dark build of the page's section arrives: the
+    /// reader never leaves Light, the late Dark build is dropped, and the reader reads on.
+    func testALightDarkLightChangeFasterThanTheRebuildKeepsTheReaderLight() async throws {
+        for flow in [EPUBReadingFlow.paginated, .scrolled] {
+            let held = expectation(description: "the shown section's Dark rebuild is held, \(flow)")
+            let gate = DarkBuildGate(holding: "OPS/one.xhtml", held: held)
+            defer { gate.release() }
+            let session = try NativeSession(publication: try EPUBPublication.open(data: Self.book()), action: nil, rich: gate) { _ in }
+            let window = ReaderTestWindow(session: session)
+            defer { session.close(); window.close() }
+            try await wait("the Light reader") { session.isReady && session.book.isComplete }
+            try await session.send(.style(.init(flow: flow)))
+            try await wait("the whole book in continuous scroll") { flow == .paginated || session.canvas?.scrollBook != nil }
+            let canvas = try await laidOutCanvas(session, dark: false)
+            var seen = [await look(canvas, "the Light page, \(flow)")]
+
+            window.pageControls.colorScheme = .dark
+            await waitFor([held])
+            _ = try await laidOutCanvas(session, dark: true)
+            seen.append(await look(canvas, "Dark asked for, \(flow)"))
+            window.pageControls.colorScheme = .light
+            _ = try await laidOutCanvas(session, dark: false)
+            seen.append(await look(canvas, "Light asked for again, \(flow)"))
+
+            gate.release()
+            try await wait("the held build to finish") { gate.passes > 0 }
+            try await observe(for: 0.5) { seen.append(await look(canvas, "after the late Dark build, \(flow)")) }
+            try await session.send(.nextPage)
+            seen.append(await look(canvas, "the next page, \(flow)"))
+            XCTAssertEqual(Set(seen), [false], "the canvas left Light, \(flow)")
+            XCTAssertEqual(shownAppearances(canvas), [false], "the page is not shown in Light, \(flow)")
+            XCTAssertEqual(session.book.typography, NativeTypography(isDark: false))
+        }
+    }
+
+    func testASessionClosedWhileATurnWaitsForItsSectionsDarkBuildDoesNothingMore() async throws {
+        let held = expectation(description: "the second section's Dark rebuild is held")
+        let gate = DarkBuildGate(holding: "OPS/two.xhtml", held: held)
+        defer { gate.release() }
+        var events: [EPUBReaderEvent] = []
+        let session = try NativeSession(publication: try EPUBPublication.open(data: Self.threeSections()), action: nil, rich: gate) {
+            events.append($0)
+        }
+        let window = ReaderTestWindow(session: session)
+        defer { session.close(); window.close() }
+        try await wait("the Light reader") { session.isReady && session.book.isComplete }
+
+        window.pageControls.colorScheme = .dark
+        await waitFor([held])
+        try await wait("the first section in Dark") { session.canvas?.configuration.isDark == true }
+        let canvas = try await laidOutCanvas(session, dark: true)
+        try await turnToTheEnd(of: 0, session) {}
+        try await session.send(.nextPage)
+        await settle(canvas)
+        XCTAssertEqual(session.visibleRange?.start.section, 0, "the turn did not wait for the second section's Dark build")
+        let emitted = events.count
+
+        session.close()
+        gate.release()
+        try await wait("the held build to finish") { gate.passes > 0 }
+        try await observe(for: 0.5) { await settle(canvas) }
+        XCTAssertEqual(events.count, emitted, "a closed session emitted \(events.dropFirst(emitted))")
+        XCTAssertNil(session.canvas)
+        XCTAssertEqual(session.readerState?.status.lifecycle, .closed)
+        XCTAssertEqual(shownAppearances(canvas), [], "a closed session's page is shown")
     }
 
     // MARK: - Support
@@ -211,6 +345,28 @@ import UIKit
             .init("one", SessionCoverageBook.filler(40) + "<hr/>" + SessionCoverageBook.filler(40)),
             .init("two", SessionCoverageBook.filler(10)),
         ])
+    }
+
+    /// A first section of several pages, then two short ones, each with a rule where the hook
+    /// can hold it; the third holds the word a search finds.
+    private static func threeSections() throws -> Data {
+        try SessionCoverageBook.epub([
+            .init("one", SessionCoverageBook.filler(60)),
+            .init("two", "<p>The second section begins.</p><hr/>" + SessionCoverageBook.filler(4)),
+            .init("three", "<p>The farthest section begins.</p><hr/>" + SessionCoverageBook.filler(4)),
+        ])
+    }
+
+    /// Turns until the page shows the end of `section`, calling `each` after every turn.
+    private func turnToTheEnd(of section: Int, _ session: NativeSession, each: () async -> Void,
+                              file: StaticString = #filePath, line: UInt = #line) async throws {
+        for _ in 0..<200 {
+            guard let range = session.visibleRange, range.start.section == section else { break }
+            if range.end.offset >= session.book.section(section)?.string.length ?? 0 { return }
+            try await session.send(.nextPage)
+            await each()
+        }
+        XCTFail("The turns did not reach the end of section \(section)", file: file, line: line)
     }
 
     private func wait(_ label: String, timeout: TimeInterval = 20, until condition: () -> Bool) async throws {
@@ -305,6 +461,20 @@ import UIKit
         (canvas.presentedNote as? ReaderNoteViewController)?.dismiss(animated: false)
         #endif
         canvas.presentedNote = nil
+    }
+
+    /// The canvas's appearance, once the text it shows is checked against it.
+    private func look(_ canvas: ReaderCanvasView, _ moment: String, file: StaticString = #filePath, line: UInt = #line) async -> Bool {
+        await settle(canvas)
+        assertTextAgreesWithCanvas(canvas, moment, file: file, line: line)
+        return drawsDark(canvas)
+    }
+
+    /// The appearances a canvas was seen in, in order, change once at most, and only to `dark`.
+    private func assertChangesOnce(_ seen: [Bool], to dark: Bool, file: StaticString = #filePath, line: UInt = #line) {
+        let changes = zip(seen, seen.dropFirst()).filter { $0.0 != $0.1 }
+        XCTAssertTrue(changes.count <= 1 && changes.allSatisfy { $0.1 == dark },
+                      "the canvas went \(seen.map { $0 ? "Dark" : "Light" })", file: file, line: line)
     }
 
     private func assertTextAgreesWithCanvas(_ canvas: ReaderCanvasView, _ moment: String,

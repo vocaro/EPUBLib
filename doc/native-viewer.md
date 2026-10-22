@@ -1618,13 +1618,21 @@ continues to describe the authored spine resource.
   does when the view appears, possibly after the first build is in. The first page therefore
   waits for text built for the host's appearance, on an empty canvas of that appearance; a
   host that turns back before that build arrives opens on the build it turned back to.
-  After a live change the canvas keeps the old appearance, with the old text, until it shows
-  text built for the new: the section on screen once it is rebuilt, which it is first, or
-  another that a page turn or a link shows. A page turn to a section not yet rebuilt shows it
-  in the old appearance until its rebuild arrives, so while a book is rebuilt the canvas can
-  change appearance with each page it turns to. A note is shown in the appearance its text was
-  built for, the new one, whatever the page behind it shows. `effectiveAppearance` reports the
-  new appearance at once.
+  After a live change the canvas changes appearance once and never back. It keeps the old
+  appearance, with the old text, until the sections on screen and those one page turn reaches
+  are built for the new: the section before a section's first page and after its last, and in
+  continuous scroll the section on each side. The page and the canvas then change together.
+  The section on screen is rebuilt first and the rest nearest first, so the change waits for
+  at most the builds beside it; a page turned to meanwhile is shown as built, in the old
+  appearance, and one that is already built for the new brings the change with it. Once the
+  canvas has changed, a page turn, a contents entry, a link or a search result that reaches a
+  section still built for the old appearance builds it for the new first, with the page on
+  screen kept (`ReaderCanvasDataSource.canShow`); that section's text still serves headings,
+  selection and progress meanwhile. A move VoiceOver makes to a heading in another section is
+  shown at once, as its rotor needs: a section still built for the old appearance takes the
+  canvas back to it, to change again once it and those beside it are rebuilt. A note is shown
+  in the appearance its text was built for, the new one, whatever the page behind it shows.
+  `effectiveAppearance` reports the new appearance at once.
 - **Release.** A typography change keeps each built section on screen until its rebuild
   arrives. A rebuilt SVG shares the font database its replaced build still holds, so a
   relayout needs no more of the font budget than the book already has. The text view drops

@@ -545,6 +545,17 @@ import AppKit
         return PaginatorKey(section: shownPage.section, width: size.width, height: size.height)
     }
 
+    /// The text what is on screen is laid out from, as the data source gave it: a section's, or
+    /// continuous scroll's whole book (`section` nil). nil while nothing is shown.
+    var shownText: (section: Int?, text: NSAttributedString)? {
+        if let scrollTextView {
+            guard let text = scrollTextView.flowSourceText, text.length > 0 else { return nil }
+            return (scrollTextView.placement.section, text)
+        }
+        guard let key = shownPaginatorKey, let paginator = paginators[key] else { return nil }
+        return (key.section, paginator.sourceText)
+    }
+
     /// Keeps the cache to a few paginators and their held layouts to `heldLayoutBudget`,
     /// dropping the least recently used.
     private func trimPaginators() {
@@ -693,7 +704,7 @@ import AppKit
         var next = section + step
         while next >= 0, next < dataSource.sectionCount, !dataSource.isLinear(section: next) { next += step }
         guard next >= 0, next < dataSource.sectionCount else { return .atBoundary }
-        guard let text = dataSource.text(forSection: next) else {
+        guard let text = dataSource.text(forSection: next), dataSource.canShow(section: next) else {
             delegate?.canvas(self, needsSection: next, forward: forward)
             return .pending(section: next)
         }
