@@ -1,0 +1,60 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Download the book again, or get another copy." : {
+      "comment" : "What to do with a book that is damaged, incomplete or malformed."
+    },
+    "If it is an EPUB book, download it again or get another copy." : {
+      "comment" : "What to do with a file that is not an EPUB book or is damaged, in case it is a book cut short."
+    },
+    "Open it in the app it came from, or get a copy without DRM." : {
+      "comment" : "What to do with a book protected by DRM: read it where it was bought or borrowed, or find a copy that is not protected."
+    },
+    "Part of this book is missing." : {
+      "comment" : "A file that the book needs, such as a chapter, is not in the book."
+    },
+    "The reader cannot carry out this request." : {
+      "comment" : "The reader was asked for something that does not apply to this book, such as going to a part it does not have."
+    },
+    "The reader cannot show this book." : {
+      "comment" : "The reader failed while opening or showing the book."
+    },
+    "The reader is not ready." : {
+      "comment" : "The reader was asked for something before it had finished opening the book."
+    },
+    "This book cannot be opened because it contains errors." : {
+      "comment" : "A book whose files that describe its parts and their order are malformed was refused."
+    },
+    "This book cannot be opened because it refers to files outside the book." : {
+      "comment" : "A book that names a file outside itself as one of its parts, such as a page on a website, was refused."
+    },
+    "This book is closed." : {
+      "comment" : "The reader was asked for something after its book was closed."
+    },
+    "This book is damaged and cannot be opened." : {
+      "comment" : "An EPUB book whose archive is damaged, for example by a bad download or a failing disk, was refused."
+    },
+    "This book is protected by DRM and cannot be opened. The file is not damaged." : {
+      "comment" : "A book encrypted by DRM, which the reader cannot read, was refused. Its file is intact."
+    },
+    "This book is too large to open." : {
+      "comment" : "A book larger than the reader's size limits allow, as a whole or in one of its parts, was refused."
+    },
+    "This file is not an EPUB book, or it is damaged." : {
+      "comment" : "A file that is no ZIP archive was refused: another kind of file, or an EPUB book cut short, as by a download that did not finish."
+    },
+    "This file is not an EPUB book." : {
+      "comment" : "A file that reads as a ZIP archive but is not marked as an EPUB book, such as another kind of document, was refused."
+    },
+    "This reader does not support this action." : {
+      "comment" : "The reader was asked for something it cannot do, such as searching or going to a bookmark."
+    },
+    "This saved position belongs to a different book or reader." : {
+      "comment" : "A bookmark or saved reading position from another book, or from another reader app, was refused."
+    },
+    "Try again in a moment." : {
+      "comment" : "What to do when the reader was asked for something before it had finished opening the book."
+    }
+  },
+  "version" : "1.0"
+}

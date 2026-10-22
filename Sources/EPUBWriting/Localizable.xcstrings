@@ -1,0 +1,12 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "This book cannot be saved as an EPUB because it has errors." : {
+      "comment" : "A book could not be written as an EPUB file because something it needs is missing or does not match, such as its title or a chapter its contents list."
+    },
+    "This book is too large to save as an EPUB." : {
+      "comment" : "A book could not be written as an EPUB file because it is larger than the limits allow."
+    }
+  },
+  "version" : "1.0"
+}

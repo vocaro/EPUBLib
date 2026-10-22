@@ -97,7 +97,13 @@ final class BookReader {
     private var generation = UUID()
     var sessionID: UUID { generation }
 
-    func reportImportError(_ error: Error) { self.error = error.localizedDescription }
+    func reportImportError(_ error: Error) { self.error = Self.message(for: error) }
+
+    /// What to tell the reader: what went wrong and, where the error says, what to do about it.
+    nonisolated static func message(for error: Error) -> String {
+        let error = error as NSError
+        return [error.localizedDescription, error.localizedRecoverySuggestion].compactMap { $0 }.joined(separator: " ")
+    }
 
     func open(url: URL) {
         close()
@@ -118,7 +124,7 @@ final class BookReader {
                 // Closing or opening another book intentionally cancels the previous import.
             } catch {
                 guard let self, generation == token else { return }
-                self.error = String(describing: error)
+                self.error = Self.message(for: error)
             }
             if let self, generation == token { loading = false; opening = nil }
         }
@@ -141,7 +147,7 @@ final class BookReader {
                 case .relocated(let value): location = value
                 case .disclosure(let value): disclosure = value
                 case .notice(let value): notice = value
-                case .failed(let value): error = String(describing: value); ready = false
+                case .failed(let value): error = Self.message(for: value); ready = false
                 case .selectionChanged(let value): selection = value?.text
                 case .searchChanged, .searchResultsChanged: break
                 }
@@ -204,6 +210,46 @@ its own current document/navigation identity so old work cannot affect a newly o
 That code owns security-scoped access until import finishes and cancels expansion when another
 book opens. `EPUBPublication.open` also accepts an optional `onProgress` callback with cumulative
 expanded bytes; it runs synchronously on the importing thread and must return promptly.
+
+## When something fails
+
+Every error the library throws or emits is a `LocalizedError` with a plain message that a host
+shows as it is ([#698](https://github.com/vocaro/EPUBLib/issues/698)): `EPUBPublicationError`
+when a book cannot be opened, `EPUBReaderError` from a session, its `.failed` event or a failed
+search, `EPUBTextExtractionError` and `EPUBWritingError`. Show `localizedDescription`, and under it
+`recoverySuggestion` where there is one (`localizedRecoverySuggestion` as `NSError` has it).
+SwiftUI's `alert(isPresented:error:actions:message:)` takes its title from `errorDescription` and
+gives the error to its message, which can show the suggestion; AppKit's `NSAlert(error:)` shows
+both; the complete reader above joins them in one line. `String(describing:)` still gives the case
+and its detail, for a log rather than a person.
+
+| A book is refused as | Message | Suggestion |
+| --- | --- | --- |
+| `unsupportedEncryption`, DRM | This book is protected by DRM and cannot be opened. The file is not damaged. | Open it in the app it came from, or get a copy without DRM. |
+| `invalidArchive`, a ZIP archive with no EPUB `mimetype` | This file is not an EPUB book. | |
+| `invalidArchive`, bytes with no ZIP end record | This file is not an EPUB book, or it is damaged. | If it is an EPUB book, download it again or get another copy. |
+| `invalidArchive`, any other damage | This book is damaged and cannot be opened. | Download the book again, or get another copy. |
+| `limitExceeded` | This book is too large to open. | |
+| `missingResource` | Part of this book is missing. | Download the book again, or get another copy. |
+| `invalidXML` | This book cannot be opened because it contains errors. | Download the book again, or get another copy. |
+| `unsafePath` | This book cannot be opened because it refers to files outside the book. | |
+
+Bytes with no end record may be another kind of file or an EPUB book cut short, as by a download
+that did not finish, and the message says both. A file that `open(at:)` cannot read at all, one
+that is absent or that the app may not read, gives Foundation's own error, whose message is plain
+already. `CancellationError` is the host's own cancellation, not a failure to show.
+
+A session's errors say that the reader does not support an action, that a saved position belongs
+to another book or reader, that it cannot carry out a request (`invalidCommand`), that it is not
+ready (try again in a moment), that the book is closed, or that it cannot show the book
+(`engineFailure`). The reader's controls show `message` beside a refused command or search: the
+same text, except that for `invalidCommand` and `engineFailure` it is the engine's own detail.
+
+The messages are in English, in the string catalog of the module that throws them
+(`Localizable.xcstrings` in `EPUBCore`, `EPUBText` and `EPUBWriting`), each with a comment for its
+translator, and each is looked up in that module's resource bundle, which an app built with the
+package carries as it carries ZIPFoundation's. A translation added to a catalog reaches every host
+([#684](https://github.com/vocaro/EPUBLib/issues/684)).
 
 ## Resource paths
 

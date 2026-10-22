@@ -24,7 +24,13 @@ final class BookReader {
     private var generation = UUID()
     var sessionID: UUID { generation }
 
-    func reportImportError(_ error: Error) { self.error = error.localizedDescription }
+    func reportImportError(_ error: Error) { self.error = Self.message(for: error) }
+
+    /// What to tell the reader: what went wrong and, where the error says, what to do about it.
+    nonisolated static func message(for error: Error) -> String {
+        let error = error as NSError
+        return [error.localizedDescription, error.localizedRecoverySuggestion].compactMap { $0 }.joined(separator: " ")
+    }
 
     func open(url: URL) {
         close()
@@ -45,7 +51,7 @@ final class BookReader {
                 // Closing or opening another book intentionally cancels the previous import.
             } catch {
                 guard let self, generation == token else { return }
-                self.error = String(describing: error)
+                self.error = Self.message(for: error)
             }
             if let self, generation == token { loading = false; opening = nil }
         }
@@ -68,7 +74,7 @@ final class BookReader {
                 case .relocated(let value): location = value
                 case .disclosure(let value): disclosure = value
                 case .notice(let value): notice = value
-                case .failed(let value): error = String(describing: value); ready = false
+                case .failed(let value): error = Self.message(for: value); ready = false
                 case .selectionChanged(let value): selection = value?.text
                 case .searchChanged, .searchResultsChanged: break
                 }
