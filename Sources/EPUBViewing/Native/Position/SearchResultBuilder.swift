@@ -95,15 +95,16 @@ enum SearchResultBuilder {
 
     /// The rendered text on each side of a range: the reader's own characters with attachments
     /// as their text equivalents, never generated list markers. An occurrence inside a table
-    /// cell reads that cell.
+    /// cell reads that cell, and one in a table nested in a cell the innermost cell holding it.
     /// `characters` is the section's rendered string, passed in when reading many ranges.
     static func context(of range: ReaderTextRange, in text: SectionText,
                         characters: NSString? = nil) -> (before: String, after: String) {
         let characters = characters ?? text.string.string as NSString
         func read(_ position: ReaderTextPosition, before: Bool) -> String {
-            if let endpoint = position.tableCell, let cell = text.tableCell(position) {
-                let window = window(at: endpoint.offset, before: before, in: cell.content.string as NSString)
-                return trimmed(cell.content.readerPlainText(in: window.range), before: before, isCut: window.isCut)
+            if let endpoint = position.tableCell, let found = text.tableCell(position)?.innermost(endpoint) {
+                let content = found.cell.content
+                let window = window(at: found.endpoint.offset, before: before, in: content.string as NSString)
+                return trimmed(content.readerPlainText(in: window.range), before: before, isCut: window.isCut)
             }
             let window = window(at: position.offset, before: before, in: characters)
             return trimmed(text.mappedText(in: window.range.location..<NSMaxRange(window.range)), before: before, isCut: window.isCut)

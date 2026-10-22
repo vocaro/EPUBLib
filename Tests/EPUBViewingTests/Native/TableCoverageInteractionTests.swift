@@ -711,6 +711,55 @@ import UIKit
         XCTAssertTrue(cells.allSatisfy { highlighted($0).isEmpty })
     }
 
+    /// A highlight's part in a table nested in a cell takes in only the nested rows that draw
+    /// the cells it runs through: one row for a match in a cell of one row, both rows for a cell
+    /// spanning two, and from the first row for a highlight from the outer cell's own text. So
+    /// a match in every row of a long nested table is painted over each row once. Each part took
+    /// in all the nested table's rows, and a surface painted every row for every match: matches
+    /// times rows, about a second a draw for 1,000 of each (#718).
+    func testAHighlightInANestedTableTakesInOnlyTheRowsItRunsThrough() throws {
+        let rows = (0..<300).map { "<tr><td>Row \($0) needle words</td><td>y</td></tr>" }.joined()
+            + "<tr><td rowspan='2'>Tall needle cell</td><td>z</td></tr><tr><td>w</td></tr>"
+        let section = try TableCoverage.section("<table><tr><td>Lead words<table>\(rows)</table></td><td>x</td></tr></table>")
+        let table = try XCTUnwrap(TableCoverage.tables(in: section.string).first)
+        let outer = try XCTUnwrap(table.cells.firstIndex { !TableCoverage.tables(in: $0.content).isEmpty })
+        let cell = table.cells[outer]
+        let nested = try XCTUnwrap(TableCoverage.tables(in: cell.content).first)
+        /// The rows of the nested table among `characters` of the outer cell, by their attachments.
+        func nestedRows(in characters: NSRange) -> [Int] {
+            var found: [Int] = []
+            cell.content.enumerateAttribute(.attachment, in: characters) { value, _, _ in
+                if let row = value as? TableRowAttachment, row.table === nested { found.append(row.row) }
+            }
+            return found
+        }
+        let matches = TextSearch.matches(of: "needle", in: section.document, locale: nil)
+        XCTAssertEqual(matches.count, 301)
+        var painted = 0
+        for match in matches {
+            let range = SearchResultBuilder.renderedRange(of: match, in: section)
+            let start = try XCTUnwrap(range.start.tableCell), end = try XCTUnwrap(range.end.tableCell)
+            let inner = try XCTUnwrap(start.nested, "the match is in the nested table")
+            let parts = cell.highlightParts(lower: start.offset, upper: end.offset, start: start, end: end)
+            XCTAssertEqual(parts.run.length, 0, "none of the outer cell's own text")
+            XCTAssertEqual(parts.nested.count, 1)
+            let drawn = nestedRows(in: try XCTUnwrap(parts.nested.first).rows)
+            let held = nested.cells[inner.cell]
+            XCTAssertEqual(drawn, Array(held.row..<(held.row + held.rowSpan)), "the rows that draw the match's cell")
+            painted += drawn.count
+        }
+        XCTAssertEqual(painted, 302, "each row once, the spanning cell's two")
+        // From the outer cell's own words into the nested table's third row.
+        let lead = ReaderTablePosition(table: table.sourceOrder, cell: outer, offset: 0)
+        let into = SearchResultBuilder.renderedRange(of: matches[2], in: section).end
+        let last = try XCTUnwrap(into.tableCell)
+        let parts = cell.highlightParts(lower: 0, upper: last.offset, start: lead, end: last)
+        XCTAssertEqual(cell.content.attributedSubstring(from: parts.run).string.trimmingCharacters(in: .whitespacesAndNewlines), "Lead words",
+                       "the outer cell's words up to the nested table")
+        XCTAssertEqual(nestedRows(in: parts.run), [], "and none of its rows")
+        XCTAssertEqual(parts.nested.map { nestedRows(in: $0.rows) }, [[0, 1, 2]], "the nested rows from the first to the end's")
+    }
+
     func testContinuousScrollMountsSurfacesForTheVisibleRowsOfALongTableOnly() async throws {
         let rows = (0..<300).map { "<tr><td>Row \($0)</td><td>Value \($0)</td></tr>" }.joined()
         let section = try TableCoverage.section("<table border='1'>\(rows)</table>")
