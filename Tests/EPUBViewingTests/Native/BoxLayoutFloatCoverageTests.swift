@@ -717,31 +717,44 @@ import UIKit
     /// float the rows overhung the item by 72 points. Without one the first row, past the
     /// marker's tab, was 22 points narrower left to right and 58 right to left, where the other
     /// was 8 points narrower too (#376). So are a rule and an image of `width: 100%` that open
-    /// an item. Past the marker's tab TextKit sizes each from a stop measured from the first
-    /// line's start, where it draws it at the head indent; a TextKit that sized it where it
-    /// draws it would make these too wide by the reader's correction, where a row's reservation
-    /// would hide it.
+    /// an item. Past the marker's tab TextKit sizes each at the stop measured from the first
+    /// line's start, plus the first-line indent, where it draws it at the stop measured from the
+    /// item's edge; a TextKit that sized it where it draws it would make these too wide by the
+    /// reader's correction, where a row's reservation would hide it.
+    ///
+    /// The correction is for the marker's tab alone. A tab the item's own words hold, on its
+    /// first line or a later one, is not the marker's: an image past it, taken onto the next line,
+    /// overhung the item by the first-line indent, out of the column right to left. And where
+    /// `text-indent` sets the marker's stop past the head indent (CSS 2.2 16.1), the image that
+    /// opens the item starts at that stop and still ends at the item's edge.
     func testATableInAListItemIsAsWideAsTheItemsContentBoxWithAndWithoutAFloat() throws {
         let column = CGSize(width: 720, height: 980)
         let float = "<div style='float:left; width:60px; height:40px'>F.</div>"
         let prose = "<p>Ordinary prose wraps beside the box and returns to the full column below it. "
             + "Ordinary prose wraps beside the box and returns to the full column below it.</p>"
         let table = "<table><tr><td>One</td><td>Two</td></tr><tr><td>Three</td><td>Four</td></tr></table>"
-        for (direction, list, box) in [("rtl", "<ul dir='rtl' style='padding-left:40px'>", CGFloat(40)...688),
-                                       ("ltr", "<ul style='padding-right:40px'>", 32...680)] {
+        let image = "<img src='picture.png' alt='Pic'/>"
+        let words = Array(repeating: "Words that wrap onto a second line of the item.", count: 3).joined(separator: " ")
+        for (direction, side) in [("rtl", "left"), ("ltr", "right")] {
+            let box: ClosedRange<CGFloat> = direction == "rtl" ? 40...688 : 32...680
+            let indented: ClosedRange<CGFloat> = direction == "rtl" ? box.lowerBound...(box.upperBound - 30) : (box.lowerBound + 30)...box.upperBound
+            let expected: [(String, ClosedRange<CGFloat>)] = [("row 0", box), ("row 1", box), ("the rule", box), ("the image", box),
+                ("the image past a tab after the item's words", box), ("the image past a tab on the item's second line", box),
+                ("the image opening an item of `text-indent: 30px`", indented)]
             for before in [float, ""] {
                 let label = "\(direction), \(before.isEmpty ? "no float" : "a float")"
-                let section = try H.build("\(before)\(prose)\(list)<li>\(table)</li><li><hr/></li><li><img src='picture.png' alt='Pic'/></li>"
-                                          + "<li>Item.</li></ul><p>After.</p>", css: "hr { margin:8px 0; border-width:1px 0 0 } img { width:100% }",
+                let section = try H.build("\(before)\(prose)<ul dir='\(direction)' style='padding-\(side):40px'><li>\(table)</li><li><hr/></li><li>\(image)</li>"
+                                          + "<li style='white-space:pre-wrap'>Item words.\t\(image)</li><li style='white-space:pre-wrap'>\(words)\t\(image)</li>"
+                                          + "<li>Item.</li></ul><ul dir='\(direction)' style='padding-\(side):40px; text-indent:30px'><li>\(image)</li></ul><p>After.</p>",
+                                          css: "hr { margin:8px 0; border-width:1px 0 0 } img { width:100% }",
                                           files: ["picture.png": RichFixture.image(width: 600, height: 400)])
                 let view = H.view(section.string, size: column)
                 if !before.isEmpty { XCTAssertNotNil(H.region("F.", in: section, view: view), "\(label): the float is planned") }
                 let frames = attachmentFrames(ReaderAttachment.self, in: section, view: view)
-                XCTAssertEqual(frames.count, 4, "\(label): two rows, the rule and the image")
-                for (index, frame) in frames.enumerated() {
-                    let name = index < 2 ? "row \(index)" : index == 2 ? "the rule" : "the image"
-                    XCTAssertEqual(frame.minX, box.lowerBound, accuracy: 0.5, "\(label): \(name)'s left edge")
-                    XCTAssertEqual(frame.maxX, box.upperBound, accuracy: 0.5, "\(label): \(name)'s right edge")
+                XCTAssertEqual(frames.count, expected.count, "\(label): two rows, the rule and four images")
+                for ((name, range), frame) in zip(expected, frames) {
+                    XCTAssertEqual(frame.minX, range.lowerBound, accuracy: 0.5, "\(label): \(name)'s left edge")
+                    XCTAssertEqual(frame.maxX, range.upperBound, accuracy: 0.5, "\(label): \(name)'s right edge")
                 }
             }
         }

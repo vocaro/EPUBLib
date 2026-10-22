@@ -360,21 +360,33 @@ final class ReaderTextContainer: NSTextContainer {
     var setsLineIndents: Bool { deliversIndents && !isSimpleRectangularTextContainer }
 
     /// The indents of the paragraph an attachment at `index` is in, in a column `width` wide:
-    /// what the attachment's line keeps clear at each side (`lineInsets`); how much further from
-    /// that line's start the attachment stands at least; and whether it stands past a list item's
-    /// marker. Such a marker hangs in the indent before the head indent, its paragraph's one tab
-    /// stop, which the tab after it reaches (`SectionWriter`). An attachment that opens its
-    /// paragraph, or stands past its marker, is on the paragraph's first line; any other is
-    /// taken to be on a later one, as it is unless it follows text on the first. Nil where the
-    /// text is not known.
+    /// what the attachment's line keeps clear at each side (`lineInsets`); how far from that
+    /// line's start the attachment stands at least, at the stop of a list item's marker it stands
+    /// past (`markerStop`); and whether it does. Such an attachment, or one that opens its
+    /// paragraph, is on the paragraph's first line; any other is taken to be on a later one, as
+    /// it is unless it follows text on the first. Nil where the text is not known.
     func attachmentIndents(at index: Int?, width: CGFloat) -> (left: CGFloat, right: CGFloat, hang: CGFloat, pastMarker: Bool)? {
         guard let index, let text = layoutText, let style = paragraphStyle(at: index) else { return nil }
-        let pastMarker = index > 0 && (text.string as NSString).character(at: index - 1) == 0x09
-            && style.firstLineHeadIndent < style.headIndent && style.tabStops.count == 1
-            && abs(style.tabStops[0].location - style.headIndent) < Self.edgeSlack
-        let line = lineInsets(at: index, writingDirection: style.baseWritingDirection, width: width, firstLine: pastMarker)
-        let own = lineInsets(at: index, writingDirection: style.baseWritingDirection, width: width)
-        return (line.left, line.right, max(0, own.left + own.right - line.left - line.right), pastMarker)
+        let stop = Self.markerStop(before: index, in: text.string as NSString, style: style)
+        let line = lineInsets(at: index, writingDirection: style.baseWritingDirection, width: width, firstLine: stop != nil)
+        return (line.left, line.right, stop.map { max(0, $0 - max(0, style.firstLineHeadIndent)) } ?? 0, stop != nil)
+    }
+
+    /// The stop of the list item's marker whose tab is just before `index`, from the paragraph's
+    /// leading edge; nil where there is no such marker. An outside marker hangs before the head
+    /// indent, and the tab after it is its paragraph's first, to the paragraph's one stop: the
+    /// head indent, or the `text-indent` past it (`SectionWriter.markerStop`). A tab later in
+    /// such a paragraph, or in any other, is not a marker's.
+    static func markerStop(before index: Int, in string: NSString, style: NSParagraphStyle) -> CGFloat? {
+        guard index > 0, index <= string.length, string.character(at: index - 1) == 0x09,
+              style.firstLineHeadIndent < style.headIndent, style.tabStops.count == 1,
+              style.tabStops[0].location >= style.headIndent - edgeSlack else { return nil }
+        var cursor = index - 2
+        while cursor >= 0, !ReaderAlignmentLayout.isParagraphBreak(string.character(at: cursor)) {
+            if string.character(at: cursor) == 0x09 { return nil }
+            cursor -= 1
+        }
+        return style.tabStops[0].location
     }
 
     /// The size an attachment may use: the proposed line width, and the viewport height (or a

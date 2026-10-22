@@ -2362,7 +2362,12 @@ line, between its paragraph's indents: a table's rows are as wide as the content
 block or list item they are in, and so are a rule and an image of `width: 100%` where the
 block is indented by less than 15% of the line
 ([#376](https://github.com/vocaro/EPUBLib/issues/376); further in, they are not:
-[#769](https://github.com/vocaro/EPUBLib/issues/769)). TextKit breaks a justified paragraph's
+[#769](https://github.com/vocaro/EPUBLib/issues/769)). Past a tab, TextKit 2
+[sizes an attachment at a stop it measures from the line's start](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#textkit-2-sizes-an-attachment-past-a-tab-from-the-lines-start)
+and draws it at one it measures from the paragraph's edge. Past a list item's marker the two
+are the same stop, and the reader sizes the attachment where it is drawn; past any other tab an
+attachment can be a few points narrower than the room left on its line
+([#788](https://github.com/vocaro/EPUBLib/issues/788)). TextKit breaks a justified paragraph's
 lines a little differently where the container places them; their edges are the same.
 The plan measures its paragraphs one at a time, and measures each as the text lays it out:
 with the container, those above the text's first box included, since where TextKit applies the
