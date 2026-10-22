@@ -68,6 +68,7 @@ enum SectionBuilder {
                 && (node.isHTML || node.namespace == ContentNamespace.svg) ? 1 : 0)
         }
         let output = SectionWriter(state: state, mode: .section).renderSection()
+        state.reportNotesShownNowhereElse()
         let title = document.head?.elementChildren.first { $0.isHTML("title") }?.textContent
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
         return SectionText(spineIndex: request.spineIndex, href: item.resource.href, document: document,
@@ -113,6 +114,11 @@ final class SectionBuildState {
     /// The notes captured that show something. A note that is empty or white space opens no
     /// popover: a reference to it finds no note and navigates to it.
     var shownNotes: [EPUBElementID: NSAttributedString] { notes.filter { !$0.value.string.allSatisfy(\.isWhitespace) } }
+    /// What each note's rendering added to the report, by the note element's order
+    /// (`reportNotesShownNowhereElse`).
+    private var noteReports: [Int: SectionReport] = [:]
+    /// The notes a writer showed where they stand, in the flow or in a table's cell, by order.
+    private var notesShownInPlace = Set<Int>()
     /// The body's computed style: notes are styled like body text.
     var bodyStyle: ComputedStyle
     /// The publication's first language: a hint for typesetting text whose document declares
@@ -200,11 +206,12 @@ final class SectionBuildState {
     /// `insideHiddenFootnote` makes: a table part.
     func isHiddenFootnote(_ element: ContentNode) -> Bool { noteKind(element) == .footnote }
 
-    /// Legacy named anchors follow the section's fragment registration: an id takes precedence,
-    /// an anchor with an id uses that id, and the first eligible name in document order wins.
+    /// Legacy named anchors, as HTML 7.4.6.4 finds an indicated element: when no element has the
+    /// fragment as its id, the first `a` in document order whose `name` it is, whatever id that
+    /// `a` has of its own.
     private lazy var namedAnchors: [EPUBElementID: ContentNode] = {
         var names: [EPUBElementID: ContentNode] = [:]
-        for node in document.nodes where node.isHTML("a") && node.id == nil {
+        for node in document.nodes where node.isHTML("a") {
             if let name = node.attribute("name"), !name.isEmpty, document.element(id: name) == nil, names[name] == nil {
                 names[name] = node
             }
@@ -219,19 +226,26 @@ final class SectionBuildState {
         return document.element(id: name) ?? namedAnchors[name]
     }
 
-    /// The name a note may be captured under that an element carries: its id, or an eligible
-    /// legacy name. An empty id names nothing.
-    private func noteName(of node: ContentNode) -> String? {
-        if let id = node.id { return id.isEmpty ? nil : id }
-        guard let name = node.attribute("name"), namedAnchors[name] === node else { return nil }
+    /// The legacy name a fragment finds an element by (`namedAnchors`), beside any id it has.
+    func legacyName(of node: ContentNode) -> String? {
+        guard node.isHTML("a"), let name = node.attribute("name"), namedAnchors[name] === node else { return nil }
         return name
+    }
+
+    /// The names a note may be captured under that an element carries: its id and an eligible
+    /// legacy name. An empty id names nothing.
+    private func noteNames(of node: ContentNode) -> [String] {
+        var names: [String] = []
+        if let id = node.id, !id.isEmpty { names.append(id) }
+        if let name = legacyName(of: node) { names.append(name) }
+        return names
     }
 
     /// Whether an element or one of its leading descendants carries a name.
     private func leadsWithName(_ element: ContentNode) -> Bool {
         var node: ContentNode? = element
         while let current = node {
-            if noteName(of: current) != nil { return true }
+            if !noteNames(of: current).isEmpty { return true }
             node = current.children.first(where: \.isElement)
         }
         return false
@@ -302,14 +316,16 @@ final class SectionBuildState {
             var leading: ContentNode? = note
             while let node = leading, enclosing[node.order] == note.order,
                   node === note || hidden[note.order] || !isOneOfSeveralItems(node) {
-                if let id = noteName(of: node), taken.insert(EPUBElementID(id)).inserted { ids[note.order, default: []].append(id) }
+                for id in noteNames(of: node) where taken.insert(EPUBElementID(id)).inserted { ids[note.order, default: []].append(id) }
                 leading = node.children.first(where: \.isElement)
             }
         }
         // Then every other id inside a footnote hidden from the flow, for the nearest note
         // around it.
         for node in document.nodes where node.isElement && hidden[node.order] {
-            if let id = noteName(of: node), taken.insert(EPUBElementID(id)).inserted { ids[enclosing[node.order], default: []].append(id) }
+            for id in noteNames(of: node) where taken.insert(EPUBElementID(id)).inserted {
+                ids[enclosing[node.order], default: []].append(id)
+            }
         }
         return ids
     }()
@@ -378,6 +394,10 @@ final class SectionBuildState {
     /// A note's rendering leaves the counters and quotes of generated content as they were
     /// (`generated`), since the section's walk reaches its content again, unless
     /// `keepsCounters`: a footnote hidden from the flow counts where it stands, as it would shown.
+    ///
+    /// It leaves the section's report as it was too. What it found is reported when the build
+    /// ends, and only for a note that no writer showed where it stands
+    /// (`reportNotesShownNowhereElse`).
     func captureNote(_ element: ContentNode, keepsCounters: Bool = false) {
         guard noteBudget > 0, nesting < Self.maximumNesting else { return }
         guard let ids = noteIDs[element.order], notes[ids[0]] == nil else { return }
@@ -404,7 +424,21 @@ final class SectionBuildState {
             else { content = Self.cut(whole, to: &wholeNoteBudget); counted = generated }
         }
         generated = keepsCounters ? counted : counters
+        noteReports[element.order] = report.report.subtracting(reported)
+        report.report = reported
         for id in ids { notes[id] = content }
+    }
+
+    /// A writer shows a note where it stands, and reports what it holds there.
+    func showsNoteInPlace(_ element: ContentNode) { notesShownInPlace.insert(element.order) }
+
+    /// Reports what the renderings of the notes that no writer showed where they stand found
+    /// in them: a footnote hidden from the flow, a note in hidden content or in a unit whose
+    /// content no writer shows. The section reported every other note's content where it showed
+    /// it, so that a note's content is counted once.
+    func reportNotesShownNowhereElse() {
+        for (order, found) in noteReports where !notesShownInPlace.contains(order) { report.report.formUnion(found) }
+        noteReports = [:]
     }
 
     /// A note's content, cut to what is left of a budget and taken from it.

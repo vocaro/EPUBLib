@@ -214,14 +214,15 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
 
     // HTML Standard, "in body" insertion mode: a second <html> or <body> start tag only adds
     // attributes to the first, a <head> start tag is ignored, and <title> is inserted where it
-    // stands. Two documents in one file are one body; the first title names the section.
+    // stands. Two documents in one file are one body; the first title names the section, and
+    // the second, in the body, is hidden there as every title is (#287).
     func testASecondDocumentInTheFileIsReadIntoTheSameBody() throws {
         let section = try recovered("<html><head><title>A</title></head><body><p>One</p></body></html>\n"
             + "<?xml version='1.0'?><!DOCTYPE html><html lang='en'><head><title>B</title></head><body class='x'><h1 id='h'>Two</h1></body></html>")
         XCTAssertEqual(section.title, "A")
-        XCTAssertEqual(section.text, "One\nB\nTwo")
-        XCTAssertEqual(section.headings, [EPUBTextHeading(mark: EPUBTextMark(offset: 6, separator: 1), text: "Two")])
-        XCTAssertEqual(section.anchors, ["h": EPUBTextMark(offset: 6, separator: 1)])
+        XCTAssertEqual(section.text, "One\nTwo")
+        XCTAssertEqual(section.headings, [EPUBTextHeading(mark: EPUBTextMark(offset: 4, separator: 1), text: "Two")])
+        XCTAssertEqual(section.anchors, ["h": EPUBTextMark(offset: 4, separator: 1)])
     }
 
     func testBodyEndTagsInCommentsScriptsCDATAAndAttributeValuesAreNotEndTags() throws {
@@ -404,20 +405,27 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
         XCTAssertEqual(chapter.text, "Chapter 1\nIt was a dark night.")
         XCTAssertEqual(chapter.anchors, ["ch1": EPUBTextMark(offset: 0, separator: 0), "h": EPUBTextMark(offset: 0, separator: 0)])
         XCTAssertEqual(chapter.headings, [EPUBTextHeading(mark: EPUBTextMark(offset: 0, separator: 0), text: "Chapter 1")])
-        // The prefix was declared on the root that closed, so `epub:type` names no type here.
-        XCTAssertEqual(chapter.semanticTypes, [])
+        // The prefix was declared on the root that closed, and HTML has one root: after the
+        // DOCTYPE, libxml2 builds the rest in a second one beside it, which is given the first
+        // one's prefixes (#287).
+        XCTAssertEqual(chapter.semanticTypes, ["bodymatter"])
     }
 
-    // The same with the closing quote of the DOCTYPE's last identifier dropped as well. libxml2
-    // reads that literal on to the root's first quote and passes over the rest of the root's
-    // start tag, which the scan reads on to the "/>" of the first empty element. An end tag
-    // written there closed the head before its title, or the root before the last paragraph.
+    // The same with the closing quote of the DOCTYPE's last identifier dropped as well. The
+    // DOCTYPE ends at its first ">" (#293), and the root's start tag runs on, as HTML reads its
+    // `lang` value, to the next double quote: the meta's, where the tag ends at the "/>" after
+    // it, or the image's, and then the head, the title and the first paragraph are in that value
+    // and only "z" is shown. libxml2 used to read the DOCTYPE's identifier on to the root's first
+    // quote and pass over the rest of the root's tag, so that the head was read in each case. An
+    // end tag written after the tag, as #292's first repair wrote one, closed the head before
+    // its title, or the root before the last paragraph.
     func testAChapterThatHasLostTwoClosingQuotesKeepsItsTitleAndItsLastParagraph() throws {
         let start = "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd>\n<html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"en>\n"
-        for head in ["<head><meta charset=\"utf-8\"/><title>T</title></head>", "<head><meta charset='utf-8'/><title>T</title></head>", "<head><title>T</title></head>"] {
+        for (head, title, text) in [("<head><meta charset=\"utf-8\"/><title>T</title></head>", "T", "x\nA\nz"),
+                                    ("<head><meta charset='utf-8'/><title>T</title></head>", nil, "z"), ("<head><title>T</title></head>", nil, "z")] {
             let section = try recovered("\(start)\(head)\n<body><p>x</p><img src=\"a.png\" alt=\"A\"/><p>z</p></body>\n</html>")
-            XCTAssertEqual(section.title, "T", head)
-            XCTAssertEqual(section.text, "x\nA\nz", head)
+            XCTAssertEqual(section.title, title, head)
+            XCTAssertEqual(section.text, text, head)
         }
     }
 
@@ -524,6 +532,173 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
         }
     }
 
+    // MARK: The root, its prefixes and the title (#287)
+
+    // HTML Standard, "in body" and "in head" insertion modes, a start tag whose tag name is
+    // "html": each attribute that the root lacks is added to it, so the prefixes an `html` start
+    // tag declares are the root's wherever the tag stands. A root tag that closes at once (a
+    // closing quote lost, the tag running to a later "/>") after a DOCTYPE, a comment or a
+    // processing instruction leaves libxml2 to build the rest in a second root beside it, and
+    // a root tag out of place it drops, attributes and all.
+    func testThePrefixesEveryHTMLStartTagDeclaresAreTheRoots() throws {
+        let closed = "<html xmlns='http://www.w3.org/1999/xhtml' xmlns:epub='http://www.idpf.org/2007/ops' lang='en><head><meta charset='utf-8'/>"
+            + "<title>T</title></head><body id='b' epub:type='bodymatter'><section epub:type='chapter'><p>x</p></section></body></html>"
+        for prolog in ["", "<!DOCTYPE html>\n", "<!-- c -->", "<?xml version='1.0'?>\n", "<?pi x?></p>"] {
+            let section = try recovered(prolog + closed)
+            XCTAssertEqual(section.title, "T", prolog)
+            XCTAssertEqual(section.text, "x", prolog)
+            XCTAssertEqual(section.anchors, ["b": EPUBTextMark(offset: 0, separator: 0)], prolog)
+            XCTAssertEqual(section.semanticTypes, ["bodymatter", "chapter"], prolog)
+        }
+        // After a script or style before the root whose content begins with `</html>`, which
+        // HTML reads to its end tag: libxml2 has implied the root, and drops the real one.
+        let chapter = "<html xmlns='http://www.w3.org/1999/xhtml' xmlns:epub='http://www.idpf.org/2007/ops'><head><title>T</title></head>"
+            + "<body><section epub:type='chapter'><p>x</b></p></section></body></html>"
+        for before in ["<script></html>var a;</script>", "<style></html>p{}</style>", "<!DOCTYPE html><script></html>var a;</script>"] {
+            let section = try recovered(before + chapter)
+            XCTAssertEqual(section.title, "T", before)
+            XCTAssertEqual(section.text, "x", before)
+            XCTAssertEqual(section.semanticTypes, ["chapter"], before)
+        }
+        // A later tag adds a prefix the root lacks and replaces none it has.
+        let later = try recovered("<html xmlns:epub='http://www.idpf.org/2007/ops'><head><title>T</title></head><body><p epub:type='a'>x</b></p>"
+            + "<html xmlns:epub='urn:other' xmlns:e='http://www.idpf.org/2007/ops'><p epub:type='b' e:type='c'>y</p></body></html>")
+        XCTAssertEqual(later.text, "x\ny")
+        XCTAssertEqual(later.semanticTypes, ["a", "b", "c"])
+        // An `html` element in SVG is SVG's, and one in a comment, a script or an attribute value is no tag.
+        let elsewhere = try recovered(page("<svg xmlns='http://www.w3.org/2000/svg'><html xmlns:e='http://www.idpf.org/2007/ops'/></svg>"
+            + "<!-- <html xmlns:f='http://www.idpf.org/2007/ops'> --><script>'<html xmlns:g=\"http://www.idpf.org/2007/ops\">'</script>"
+            + "<img alt=\"<html xmlns:h='http://www.idpf.org/2007/ops'>\"/><p e:type='e' f:type='f' g:type='g' h:type='h'>x</b></p>"))
+        XCTAssertEqual(elsewhere.semanticTypes, [])
+    }
+
+    // HTML Standard, tree construction: an element of HTML content is in the HTML namespace,
+    // and `xmlns` is an attribute like any other there; `svg` and `math` are SVG's and
+    // MathML's by name. A root whose `xmlns` value had lost its closing quote was left outside
+    // XHTML, and the section was refused (#293); a paragraph in another default namespace lost
+    // its line breaks.
+    func testAnXmlnsAttributePutsNoElementOfHTMLContentInAnotherNamespace() throws {
+        for root in ["<html xmlns=\"http://www.w3.org/1999/xhtml xml:lang=\"en\">", "<html xmlns=\"http://www.w3.org/1999/xhtml>", "<html xmlns='urn:x'>"] {
+            let section = try recovered("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\(root)<head><meta charset=\"utf-8\"/><title>T</title></head>"
+                + "<body><h1 id='h'>H</h1><p>x</b></p><p>y</p></body></html>")
+            XCTAssertEqual(section.title, "T", root)
+            XCTAssertEqual(section.text, "H\nx\ny", root)
+            XCTAssertEqual(section.anchors, ["h": EPUBTextMark(offset: 0, separator: 0)], root)
+            XCTAssertEqual(section.headings, [EPUBTextHeading(mark: EPUBTextMark(offset: 0, separator: 0), text: "H")], root)
+        }
+        let section = try recovered(page("<div xmlns='urn:x'><h2 id='h'>H</h2><p>a</b></p><p>b</p></div>"))
+        XCTAssertEqual(section.text, "H\na\nb")
+        XCTAssertEqual(section.headings, [EPUBTextHeading(mark: EPUBTextMark(offset: 0, separator: 0), text: "H")])
+        // SVG and MathML keep their own, and an XHTML element in them is HTML again.
+        let foreign = try recovered(page("<p>x</b></p><svg xmlns='http://www.w3.org/2000/svg'><title>ST</title> <foreignObject><div xmlns='http://www.w3.org/1999/xhtml'><p>a</p><p>b</p></div></foreignObject></svg>"
+            + "<math xmlns='http://www.w3.org/1998/Math/MathML'><mi>m</mi></math>"))
+        XCTAssertEqual(foreign.text, "x\nST\na\nb\n" + #"math("m")"#)
+        // The strict path reads `xmlns` as XML does: a root in another namespace is no XHTML.
+        XCTAssertThrowsError(try book("<html xmlns='urn:x'><head><title>T</title></head><body><p>x</p></body></html>").textSection(at: 0, recoversMalformedMarkup: true)) {
+            XCTAssertEqual($0 as? EPUBTextExtractionError, .malformedContent(path))
+        }
+    }
+
+    // HTML Standard, "in body", a start tag whose tag name is "title": it is processed with the
+    // "in head" rules and built where it stands, in the body. The Rendering section hides every
+    // title (`display: none`), and `document.title` is the first in tree order. libxml2 builds
+    // the head of `<html><body/><head>…` after the body, and its title was read as body text.
+    func testATitleOutsideTheHeadIsNeverBodyText() throws {
+        let late = try recovered("<html><body/><head><title>F</title>")
+        XCTAssertEqual(late.title, "F")
+        XCTAssertEqual(late.text, "")
+        let both = try recovered(page("<div>x</b><title id='t'>U</title> y</div><p>z</p>"))
+        XCTAssertEqual(both.title, "T")
+        XCTAssertEqual(both.text, "x y\nz")
+        XCTAssertEqual(both.anchors, [:])
+        let only = try recovered(page("<div>x</b><title>U</title> y</div><title>V</title>", head: ""))
+        XCTAssertEqual(only.title, "U")
+        XCTAssertEqual(only.text, "x y")
+        // A title in a template is in no document, and SVG's title is not HTML's.
+        let other = try recovered(page("<template><title>No</title></template><p>x</b></p><svg><title>ST</title> <text>L</text></svg>", head: ""))
+        XCTAssertNil(other.title)
+        XCTAssertEqual(other.text, "x\nST L")
+        // The strict path hides a title in a head after the body as well, which the reader does.
+        let strict = try book("<html xmlns='http://www.w3.org/1999/xhtml'><head/><body><p>x</p></body><head><title>F</title></head></html>").textSection(at: 0)
+        XCTAssertEqual(strict.title, "F")
+        XCTAssertEqual(strict.text, "x")
+    }
+
+    // A head script with no end tag whose content begins with `</html>`, where a later script's
+    // end tag stands: HTML Standard, script data state, the script runs to that `</script>`,
+    // and what it holds, the first paragraph among it, is not shown (#287).
+    func testAHeadScriptWithNoEndTagRunsToALaterScriptsEndTag() throws {
+        let section = try recovered(page("<p>One</b></p><script>var b;</script><p>Two</p>", head: "<title>T</title><script></html>var a;"))
+        XCTAssertEqual(section.title, "T")
+        XCTAssertEqual(section.text, "Two")
+    }
+
+    // MARK: A DOCTYPE where HTML ends it (#293)
+
+    // HTML Standard, DOCTYPE public and system identifier (double- and single-quoted) states:
+    // ">" is an abrupt-doctype-public-identifier or abrupt-doctype-system-identifier error, and
+    // the DOCTYPE ends there. libxml2 read an identifier that had lost its closing quote on
+    // through the root's start tag, with its prefixes, and the declaration check refused it as
+    // a DOCTYPE that never ends.
+    func testADoctypeWhoseIdentifierHasLostItsClosingQuoteEndsAtItsFirstGreaterThanSign() throws {
+        let chapter = "\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\" lang=\"en\"><head><title>T</title></head>"
+            + "<body id=\"b\"><section epub:type=\"chapter\"><p>x</p></section></body></html>"
+        for doctype in ["<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd>",
+                        "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN>", "<!DOCTYPE html SYSTEM \"about:legacy-compat>",
+                        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html SYSTEM 'about:legacy-compat>", "<!doctype html public 'x' 'y>",
+                        "<!DOCTYPE\thtml\tPUBLIC\t'x>", "<!DOCTYPE html PUBLIC\"x>", "<!DOCTYPE html SYSTEM \"public system>"] {
+            let section = try recovered(doctype + chapter)
+            XCTAssertEqual(section.title, "T", doctype)
+            XCTAssertEqual(section.text, "x", doctype)
+            XCTAssertEqual(section.semanticTypes, ["chapter"], doctype)
+            XCTAssertEqual(section.anchors, ["b": EPUBTextMark(offset: 0, separator: 0)], doctype)
+        }
+        // The rest of an identifier that holds a ">" is text, before the root as in the body:
+        // HTML builds the body for it, and adds the root tag's attributes to the root it built.
+        let early = try recovered("<!DOCTYPE html SYSTEM \"a>b\">" + chapter.replacingOccurrences(of: "<p>x</p>", with: "<p>x</b></p>"))
+        XCTAssertEqual(early.title, "T")
+        XCTAssertEqual(early.text, "b\">\nx")
+        XCTAssertEqual(early.semanticTypes, ["chapter"])
+    }
+
+    // The declaration check reads a DOCTYPE as far as libxml2 reads it: to its first ">" where
+    // no `PUBLIC` or `SYSTEM` precedes that ">", and through its quoted identifiers where one
+    // does, which the scan renames only where it reads a DOCTYPE. No internal subset or
+    // declaration keyword reaches the parser either way, before the first ">" or after it.
+    func testADoctypeReadToItsFirstGreaterThanSignStillLetsNoDeclarationThrough() throws {
+        let chapter = "\n<html xmlns='http://www.w3.org/1999/xhtml'><head><title>T</title></head><body><p>x</b></p></body></html>"
+        for doctype in ["<!DOCTYPE html [<!ENTITY e 'v'>]>", "<!DOCTYPE html []>", "<!DOCTYPE html [ ]>", "<!DOCTYPE html PUBLIC \"x\" \"y\" []>",
+                        "<!DOCTYPE html SYSTEM \"a[b>", "<!DOCTYPE html \"[\">", "<!doctype html [>",
+                        "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"x.dtd> [<!ENTITY a \"b\">]>",
+                        "<!DOCTYPE html SYSTEM \"x> <!ATTLIST p a CDATA #IMPLIED>", "<!DOCTYPE html SYSTEM \"x> <!ELEMENT p ANY> \">",
+                        "<!DOCTYPE html SYSTEM \"x> <!NOTATION n SYSTEM 'n'>"] {
+            XCTAssertThrowsError(try book(doctype + chapter).textSection(at: 0, recoversMalformedMarkup: true), doctype) {
+                XCTAssertEqual($0 as? EPUBTextExtractionError, .malformedContent(path), doctype)
+            }
+        }
+        // Where the scan reads no DOCTYPE, as in an attribute value, its keyword is not renamed
+        // and the DOCTYPE is checked through its quoted identifier: the bracket in it refuses
+        // the section, as it does when the input ends inside a DOCTYPE.
+        for xml in [page("<p title='<!DOCTYPE html SYSTEM \"a>[\">'>x</b></p>"), "<html><body><p>x</b></p><!DOCTYPE html PUBLIC \"y"] {
+            XCTAssertThrowsError(try book(xml).textSection(at: 0, recoversMalformedMarkup: true), xml) {
+                XCTAssertEqual($0 as? EPUBTextExtractionError, .malformedContent(path), xml)
+            }
+        }
+        // In text the same DOCTYPE ends at its first ">", and the bracket after it is text.
+        XCTAssertEqual(try recovered(page("<p>x</b><!DOCTYPE html SYSTEM \"a>[\"> y</p>")).text, "x[\"> y")
+    }
+
+    // A head start tag that has lost a closing quote runs to the "/>" of an empty element after
+    // it: libxml2 closes the head at once and builds the title in the root, and HTML ignores the
+    // "/" and builds it in the head (#293; read since #292).
+    func testAHeadTagThatHasLostAClosingQuoteKeepsItsTitle() throws {
+        for head in ["<meta charset=\"utf-8\"/><title>T</title>", "<meta charset=\"utf-8\"/><link rel=\"stylesheet\" href=\"s.css\"/><title>T</title>"] {
+            let section = try recovered("<html xmlns=\"http://www.w3.org/1999/xhtml\"><head profile=\"http://x>\(head)</head><body><p>One</p></body></html>")
+            XCTAssertEqual(section.title, "T", head)
+            XCTAssertEqual(section.text, "One", head)
+        }
+    }
+
     // MARK: Script and style raw text where HTML reads it (#255)
 
     // HTML Standard, tag name state: a tag name runs to white space, "/" or ">", so `<script"q>`
@@ -547,9 +722,14 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
     // HTML reads a processing instruction, `<!x …>` and a DOCTYPE as a comment to the first ">",
     // so a `<script>` or `<style>` in one is no start tag. The scan used to take it for one and
     // copy the rest as raw text, so libxml2 met the stray "<" and the CDATA section as written.
+    // The DOCTYPE ends at the `>` of that tag, inside its quoted identifier, and the `">` after
+    // it is text (#293); libxml2 used to read the identifier to its closing quote.
     func testAScriptOrStyleInsideWhatHTMLReadsAsACommentOpensNoRawText() throws {
-        for open in ["<?x <script>", "<!x <script>", "<!DOCTYPE html SYSTEM \"<script>\">", "<!DOCTYPE html SYSTEM \"a <style>\">", "<? <style>"] {
+        for open in ["<?x <script>", "<!x <script>", "<? <style>"] {
             XCTAssertEqual(try recovered(page("<p>x</b>\(open) One < two <![CDATA[c]]></p><p>z</p>")).text, "x One < two c\nz", open)
+        }
+        for open in ["<!DOCTYPE html SYSTEM \"<script>\">", "<!DOCTYPE html SYSTEM \"a <style>\">"] {
+            XCTAssertEqual(try recovered(page("<p>x</b>\(open) One < two <![CDATA[c]]></p><p>z</p>")).text, "x\"> One < two c\nz", open)
         }
     }
 

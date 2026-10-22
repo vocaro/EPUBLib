@@ -9,19 +9,23 @@ package enum XMLSafety {
 
     package static func hasSafeDeclarations(_ data: Data) -> Bool { assess(data) == .safe }
 
-    package static func assess(_ data: Data) -> Assessment {
+    /// With `doctypesAsHTML`, the bytes are screened for libxml2's HTML parser alone, given each
+    /// DOCTYPE as `HTMLDoctypes` writes it: a `<!DOCTYPE`, in any case, ends at its first `>`,
+    /// as the HTML Standard ends it, quoted identifier or not (#293). XML reads on to the close of
+    /// a quoted identifier, and one that has lost its closing quote can run to the end of the file.
+    package static func assess(_ data: Data, doctypesAsHTML: Bool = false) -> Assessment {
         guard let sources = scanBytes(data) else { return .unsafe }
         for source in sources {
-            let result = assessUTF8(source)
+            let result = assessUTF8(source, doctypesAsHTML: doctypesAsHTML)
             if result != .safe { return result }
         }
         return .safe
     }
 
-    package static func assessUTF8(_ data: Data) -> Assessment {
+    package static func assessUTF8(_ data: Data, doctypesAsHTML: Bool = false) -> Assessment {
         let bytes = Array(data)
         guard hasBoundedAttributes(bytes) else { return .attributeLimitExceeded }
-        var scanner = DeclarationScanner(bytes: bytes)
+        var scanner = DeclarationScanner(bytes: bytes, doctypesAsHTML: doctypesAsHTML)
         return scanner.scan() ? .safe : .unsafe
     }
 
@@ -82,6 +86,7 @@ package enum XMLSafety {
 /// and taking it for markup would only hide what follows from the scan.
 private struct DeclarationScanner {
     let bytes: [UInt8]
+    var doctypesAsHTML = false
     var index = 0
 
     mutating func scan() -> Bool {
@@ -102,6 +107,18 @@ private struct DeclarationScanner {
                 guard skip(until: "?>") else { return false }
             } else if consume("<!ENTITY") {
                 return false
+            } else if doctypesAsHTML, HTMLDoctypes.opens(bytes, at: index) {
+                // To its first `>`; a bracket before it outside quotes, as XML reads them, is
+                // refused, and so is one directly after it.
+                guard let end = HTMLDoctypes.end(bytes, from: index) else { return false }
+                var quote: UInt8?
+                for byte in bytes[index..<end] {
+                    if let delimiter = quote { if byte == delimiter { quote = nil } }
+                    else if byte == 0x22 || byte == 0x27 { quote = byte }
+                    else if byte == 0x5B { return false } // [
+                }
+                index = end
+                if index < bytes.count, bytes[index] == 0x5B { return false }
             } else if consume("<!DOCTYPE") {
                 guard endTag(rejectSubset: true) else { return false }
                 // libxml2 reads a `[` directly after the closing `>` as the internal subset too.

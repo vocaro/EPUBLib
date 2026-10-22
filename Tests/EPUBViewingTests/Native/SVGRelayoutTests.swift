@@ -3,6 +3,7 @@ import CryptoKit
 import EPUBCore
 import EPUBReading
 import EPUBTestSupport
+import StaticSVG
 import SwiftUI
 import XCTest
 @testable import EPUBViewing

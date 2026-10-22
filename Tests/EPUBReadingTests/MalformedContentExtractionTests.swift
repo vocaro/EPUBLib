@@ -197,14 +197,21 @@ final class MalformedContentExtractionTests: XCTestCase {
             "<html><body><div lang=x\"><p>t</p></div><!ATTLIST p hidden CDATA 'x'></body></html>",
             "<!doctype html [ ]><html><body><div lang=x\"><p>t</p></div></body></html>",
             "<html><body><div lang=x\"><p>t</p></div><!DOCTYPE html \"x>\" [<!-- <!ELEMENT p ANY> -->]></body></html>",
-            // A quoted '>' does not end the DOCTYPE; its empty internal subset is still refused.
-            "<!DOCTYPE html SYSTEM 'unused>identifier' []><html><body><p>t</b></p></body></html>",
-            "<!DOCTYPE html SYSTEM 'unused>identifier' [ ]><html><body><div lang=x\"><p>t</p></div></body></html>",
-            "<!DOCTYPE html SYSTEM 'unterminated><html><body><p>t</b></p></body></html>",
+            // A subset before a DOCTYPE's first ">", and a declaration after it, are still refused.
+            "<!DOCTYPE html SYSTEM 'unused[identifier>' ><html><body><p>t</b></p></body></html>",
+            "<!DOCTYPE html SYSTEM 'unused>identifier' [<!ENTITY x 'y'>]><html><body><p>&x;</b></p></body></html>",
             // Even inert-looking examples in comments are refused on the recovery path.
             "<html><body><div lang=x\"><p>t</p><!-- <!ENTITY example 'text'> --></div></body></html>",
         ] {
             assertMalformed(try book(xml), recovering: true)
+        }
+        // HTML Standard, DOCTYPE system identifier (single-quoted) state: a quoted ">" ends the
+        // DOCTYPE, and what follows it is text, for HTML and for libxml2 as recovery writes the
+        // DOCTYPE, not an internal subset (#293). These were refused, as XML reads them.
+        for (xml, text) in [("<!DOCTYPE html SYSTEM 'unused>identifier' []><html><body><p>t</b></p></body></html>", "identifier' []>\nt"),
+                            ("<!DOCTYPE html SYSTEM 'unused>identifier' [ ]><html><body><div lang=x\"><p>t</p></div></body></html>", "identifier' [ ]>\nt"),
+                            ("<!DOCTYPE html SYSTEM 'unterminated><html><body><p>t</b></p></body></html>", "t")] {
+            XCTAssertEqual(try book(xml).textSection(at: 0, recoversMalformedMarkup: true).text, text, xml)
         }
         // Declarations inside CDATA are escaped character data, not markup.
         let quoted = try book(page("<div lang=x\"><p>Example: <![CDATA[<!ENTITY x 'y'>]]></p></div>"))

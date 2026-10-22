@@ -1,6 +1,7 @@
 import EPUBTestSupport
 import EPUBCore
 import Foundation
+import libxml2
 import XCTest
 
 /// `XMLSafety.hasSafeDeclarations`, the screen every XML parser in the package runs behind.
@@ -147,6 +148,81 @@ final class XMLSafetyCoverageTests: XCTestCase {
         }
         XCTAssertGreaterThan(passed, 2_000, "most inputs were refused, so little was checked")
         XCTAssertGreaterThan(declaring, 500, "the generator must write declarations the parser reads")
+    }
+
+    // MARK: A DOCTYPE read as HTML reads it (#293)
+
+    /// With `doctypesAsHTML`, the screen reads a DOCTYPE to its first `>`, as the HTML Standard
+    /// ends one inside a quoted identifier: a DOCTYPE that has lost a closing quote is safe for
+    /// libxml2's HTML parser, given its keywords renamed. XML reads on to the closing quote and
+    /// still calls it unsafe. An internal subset or a declaration on either side of that `>`,
+    /// and a DOCTYPE that never ends, is refused either way.
+    func testADoctypeReadAsHTMLEndsAtItsFirstGreaterThanSign() {
+        let chapter = "\n<html><head><title>T</title></head><body><p>x</p></body></html>"
+        for doctype in ["<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd>",
+                        "<!DOCTYPE html SYSTEM 'about:legacy-compat>", "<!doctype html public \"x>", "<!DOCTYPE html PUBLIC \"a [b]\" 'c>"] {
+            let data = Data((doctype + chapter).utf8)
+            XCTAssertFalse(XMLSafety.hasSafeDeclarations(data), doctype)
+            XCTAssertEqual(XMLSafety.assess(data, doctypesAsHTML: true), .safe, doctype)
+        }
+        for xml in ["<!DOCTYPE html [<!ENTITY e 'v'>]>", "<!DOCTYPE html []>", "<!doctype html [ ]>", "<!DOCTYPE html SYSTEM \"x> [<!ENTITY e 'v'>]>",
+                    "<!DOCTYPE html SYSTEM \"x>[", "<!DOCTYPE html SYSTEM 'x> <!ENTITY % p SYSTEM \"p.dtd\">",
+                    "<!DOCTYPE html>[<!ELEMENT p ANY>]>", "<x/><!DOCTYPE html [ \"y\" >"] {
+            XCTAssertEqual(XMLSafety.assess(Data((xml + chapter).utf8), doctypesAsHTML: true), .unsafe, xml)
+        }
+        XCTAssertEqual(XMLSafety.assess(Data("<html/><!DOCTYPE html PUBLIC \"x".utf8), doctypesAsHTML: true), .unsafe, "the input ends inside it")
+    }
+
+    /// `HTMLDoctypes` on generated DOCTYPEs: with the last letter of each `PUBLIC` and `SYSTEM`
+    /// before its first `>` written as a reference, libxml2's HTML parser (2.9 on this Mac) reads
+    /// no identifier and ends the DOCTYPE at that `>`, where the Standard ends it, so the
+    /// element written after it is in the tree. As written, the identifiers often take it.
+    func testARenamedDoctypeEndsWhereTheHTMLStandardEndsIt() {
+        let parts = ["html", " ", " ", "\t", "\n", "PUBLIC", "public", "Public", "SYSTEM", "system", "PUBLICX", "\"", "\"", "'", "'", "x",
+                     "-//W3C//DTD XHTML 1.1//EN", "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd", "about:legacy-compat", "[", "]", "=", "/", "&", "#"]
+        var state: UInt64 = 0x0293_0293_0293_0293
+        func next(_ bound: Int) -> Int {
+            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            return Int((state >> 33) % UInt64(bound))
+        }
+        let starts = ["<!DOCTYPE html ", "<!DOCTYPE ", "<!doctype html\t", "<!DOCTYPE html", "<!DOCTYPE\nHTML\n"]
+        let keywords = ["PUBLIC", "SYSTEM", "public", "System"], quotes = ["\"", "'"]
+        var taken = 0
+        for _ in 0..<4_000 {
+            // Half of them a keyword and a quote where libxml2 looks for them, after the name.
+            let keyword = next(2) == 0 ? keywords[next(keywords.count)] + [" ", "", "\t"][next(3)] + quotes[next(quotes.count)] : ""
+            let doctype = starts[next(starts.count)] + keyword + (0...next(6)).map { _ in parts[next(parts.count)] }.joined()
+            let after = "><i>m</i> \" ' <b>n</b>"
+            let bytes = Array((doctype + after).utf8)
+            var renamed: [UInt8] = []
+            let letters = Set(HTMLDoctypes.keywordLetters(bytes, in: 0..<doctype.utf8.count + 1))
+            for (index, byte) in bytes.enumerated() {
+                renamed.append(contentsOf: letters.contains(index) ? HTMLDoctypes.reference(byte) : [byte])
+            }
+            XCTAssertTrue(Self.libxml2Builds("i", from: renamed), doctype.debugDescription)
+            if !Self.libxml2Builds("i", from: bytes) { taken += 1 }
+        }
+        XCTAssertGreaterThan(taken, 200, "the generator must write DOCTYPEs whose identifiers libxml2 reads past their first \">\"")
+    }
+
+    /// Whether libxml2's HTML parser, with recovery's options, builds an element named `name`.
+    private static func libxml2Builds(_ name: String, from bytes: [UInt8]) -> Bool {
+        let options = Int32(HTML_PARSE_NONET.rawValue | HTML_PARSE_NOERROR.rawValue | HTML_PARSE_NOWARNING.rawValue
+            | HTML_PARSE_RECOVER.rawValue | HTML_PARSE_NODEFDTD.rawValue)
+        guard let document = bytes.withUnsafeBufferPointer({ buffer in
+            buffer.baseAddress!.withMemoryRebound(to: CChar.self, capacity: buffer.count) {
+                htmlReadMemory($0, Int32(buffer.count), nil, "UTF-8", options)
+            }
+        }) else { return false }
+        defer { xmlFreeDoc(document) }
+        var pending = [xmlDocGetRootElement(document)]
+        while let node = pending.popLast() {
+            guard let node else { continue }
+            if node.pointee.type == XML_ELEMENT_NODE, String(cString: node.pointee.name) == name { return true }
+            pending.append(node.pointee.next)
+            pending.append(node.pointee.children)
+        }
+        return false
     }
 
     func testWideEncodingsAreDecodedBeforeScreening() throws {

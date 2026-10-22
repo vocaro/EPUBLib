@@ -720,6 +720,51 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
         XCTAssertTrue(text.notes.isEmpty)
     }
 
+    /// EPUB 3.3 6.1.3.1: `epub:type` "MUST NOT be used on the head element or metadata content",
+    /// and 6.2.3 allows it in SVG only on renderable elements. RS 10: a reading system "MUST
+    /// ignore the terms" on any other element. Such an element is no note however it is typed,
+    /// nor by a DPUB-ARIA role, which ARIA in HTML allows on none of the HTML ones; a link to it
+    /// or into it is an ordinary link. What the head holds is in the head, valid there or not.
+    func testElementsThatMayNotCarryStructuralSemanticsAreNoNotes() throws {
+        let document = try ContentDocument.parse(Data("""
+            <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">\
+            <head epub:type="footnote" id="hd"><title epub:type="footnote" id="t">Title</title><meta epub:type="footnote" id="m" name="a" content="b"/>\
+            <style epub:type="footnote" id="hs">p {}</style><script role="doc-footnote" id="hr">var y;</script>\
+            <aside epub:type="footnote" id="ha">Misplaced in the head.</aside></head><body>\
+            <p><a href="#t">title</a> <a href="#ns">noscript</a> <a href="#tb">template</a> <a href="#sd">desc</a> <a href="#st">drawn</a></p>\
+            <noscript epub:type="footnote" id="ns">Shown without scripting.</noscript><template epub:type="footnote" id="tp"><b id="tb">t</b></template>\
+            <script epub:type="footnote" id="sc">var x;</script><style role="doc-endnote" id="bs">p {}</style>\
+            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><desc epub:type="footnote" id="sd">A description.</desc>\
+            <title epub:type="footnote" id="svt">An SVG title.</title><defs epub:type="footnote" id="df"><text>Defined.</text></defs>\
+            <text epub:type="footnote" id="st" y="5">Drawn.</text></svg></body></html>
+            """.utf8), path: "OPS/one.xhtml")
+        let text = H.build(document: document)
+        XCTAssertEqual(text.notes.mapValues(\.string), ["st": "Drawn."], "a renderable SVG element may be a note")
+        XCTAssertEqual(S.paragraphs(text), ["title noscript template desc drawn", "Shown without scripting."])
+        XCTAssertEqual(S.link("title", in: text), .internal(href: "OPS/one.xhtml#t"))
+        XCTAssertEqual(S.link("noscript", in: text), .internal(href: "OPS/one.xhtml#ns"))
+        XCTAssertEqual(S.link("template", in: text), .internal(href: "OPS/one.xhtml#tb"))
+        XCTAssertEqual(S.link("desc", in: text), .internal(href: "OPS/one.xhtml#sd"))
+        XCTAssertEqual(S.link("drawn", in: text), .note(href: "OPS/one.xhtml#st"))
+    }
+
+    /// A note's content is counted in the section's report once (#258). The section counts it
+    /// where it shows it, in the flow or in a table's cell; the note's own rendering adds to the
+    /// report only what the section shows nowhere else: a footnote hidden from the flow, a note
+    /// in hidden content.
+    func testWhatANoteHoldsIsReportedOnce() throws {
+        let text = try H.build("""
+            <p>Text</p><aside epub:type="endnote" id="e"><input type="text"/><img src="https://example.com/e.png" alt=""/></aside>\
+            <aside epub:type="footnote" id="f"><p>Foot <select><option>o</option></select></p></aside>\
+            <div hidden=""><aside epub:type="endnote" id="h"><textarea>t</textarea></aside></div>\
+            <table><tr><td><aside epub:type="endnote" id="c">Cell <button>b</button></aside></td><td>x</td></tr></table>\
+            <div epub:type="endnote" id="w"><aside epub:type="endnote" id="w1"><p><input type="checkbox"/>Wrapped.</p></aside></div>
+            """, rich: BuilderRecordingRich(rendersTables: true))
+        XCTAssertEqual(text.report.unsupportedElements, ["input": 2, "select": 1, "textarea": 1, "button": 1])
+        XCTAssertEqual(text.report.remoteResourcesRefused, 1)
+        XCTAssertEqual(text.notes["w"]?.string, "Wrapped.", "a note with nothing of its own shows the one nested in it")
+    }
+
     // MARK: Anchors
 
     func testAnchorsOnEmptyInlineAndBlockElements() throws {
@@ -819,12 +864,26 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
     }
 
     func testAnAnchorsNameIsAFragmentTargetWhenItAlsoHasAnotherId() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/133")
         // HTML 7.4.6.4 (find a potential indicated element): an element whose ID is the fragment, else an
         // `a` element whose `name` is. `<a id="page12" name="p12">` therefore answers to both.
         let text = try H.build("<p>before</p><p><a id='page12' name='p12'>both</a></p>")
         XCTAssertEqual(text.anchors["page12"], H.location(of: "both", in: text))
         XCTAssertEqual(text.anchors["p12"], H.location(of: "both", in: text))
+    }
+
+    /// The same name names an anchor inside a unit, which it points at as an id there does, and
+    /// a note, which is captured under the name as under the id beside it.
+    func testAnAnchorsNameNamesAUnitOrANoteAsItsIdDoes() throws {
+        let text = try H.build("""
+            <p>Text<a epub:type="noteref" href="#fy">1</a> and <a href="#fx">2</a></p>\
+            <table id="t"><tr><td><a name="cell"/>one</td><td><a id="c2" name="cell2">two</a></td></tr></table>\
+            <aside epub:type="footnote"><p><a id="fx" name="fy"></a>The note.</p></aside>
+            """, rich: BuilderRecordingRich(rendersTables: true))
+        let table = try XCTUnwrap(text.map.spans.first { $0.node == text.document.element(id: "t")!.order })
+        for name in ["cell", "c2", "cell2"] { XCTAssertEqual(text.anchors[name], table.location, name) }
+        XCTAssertEqual(text.notes.mapValues(\.string), ["fx": "The note.", "fy": "The note."])
+        XCTAssertEqual(S.link("1", in: text), .note(href: "OPS/one.xhtml#fy"))
+        XCTAssertEqual(S.link("2", in: text), .note(href: "OPS/one.xhtml#fx"))
     }
 
     func testAnchorsInsideUnitsPointAtTheUnit() throws {

@@ -33,6 +33,9 @@
 /// Where the map cannot tell the Standard's context (a `select` or a `frameset`, markup inside an
 /// SVG or MathML integration point, an end tag in SVG or MathML content that closes no element
 /// of it), it stops, and renames nothing from there.
+///
+/// On the way it notes the namespace prefixes that each `html` start tag declares, which the
+/// Standard gives the root wherever the tag stands (`rootPrefixes`).
 struct HTMLRawTextMap {
     /// The `<` of each start tag after which the Standard reads script or style raw text. Inside
     /// SVG and MathML, where it reads them as markup, a script or style is read as raw text, as
@@ -40,6 +43,12 @@ struct HTMLRawTextMap {
     private(set) var rawText: Set<Int> = []
     /// Ascending indices of the letters to write as numeric character references.
     private(set) var renamed: [Int] = []
+    /// The `xmlns:` declarations of each `html` start tag outside SVG and MathML, in order. HTML
+    /// gives the root each attribute of every such tag that it lacks (13.2.6.4.7, "in body", a
+    /// start tag whose tag name is "html"); libxml2 keeps only those of the tag it builds the
+    /// root from (#287). A value that holds a character reference is left out: the map does not
+    /// decode one.
+    private(set) var rootPrefixes: [(prefix: String, uri: String)] = []
 
     private struct Foreign {
         var name: [UInt8]
@@ -104,6 +113,11 @@ struct HTMLRawTextMap {
                 if Self.equals(tag.name, "head") { body = true }
                 if !foreign.isEmpty, !Self.closeForeign(&foreign, tag.name) { stop(at: open); break scan }
                 continue
+            }
+            if foreign.isEmpty, Self.equals(tag.name, "html") {
+                for (name, value) in tag.attributes where name.count > 6 && name.starts(with: Self.xmlnsColon) && !value.contains(0x26) {
+                    rootPrefixes.append((String(decoding: name.dropFirst(6), as: UTF8.self), String(decoding: value, as: UTF8.self)))
+                }
             }
             let candidate = Self.libxml2RawText(bytes, at: open)
             if let current = foreign.last {
@@ -226,7 +240,7 @@ struct HTMLRawTextMap {
         "dd", "dfn", "dir", "div", "dl", "dt", "em", "fieldset", "font", "form", "frameset", "h1", "h2", "h3", "h4",
         "h5", "h6", "hr", "i", "iframe", "img", "kbd", "li", "listing", "map", "menu", "ol", "p", "pre", "q", "s",
         "samp", "small", "span", "strike", "strong", "sub", "sup", "table", "tt", "u", "ul", "var", "xmp"]
-    private static let commentOpen = Array("<!--".utf8), doctype = Array("doctype".utf8)
+    private static let commentOpen = Array("<!--".utf8), doctype = Array("doctype".utf8), xmlnsColon = Array("xmlns:".utf8)
     private static let cdataOpen = Array("<![CDATA[".utf8), cdataClose = Array("]]>".utf8)
 
     /// A `<script` or `<style` at `position` that libxml2 reads as such a start tag, its name
