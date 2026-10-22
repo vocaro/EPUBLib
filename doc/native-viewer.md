@@ -3102,7 +3102,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
 | `search` | Draws and lists matches, opens the first rendered match in spine order and makes it the current match; no matches preserve the position. |
 | `nextSearchResult` / `previousSearchResult` | Shows the result after or before the current match, wrapping at the ends; the first or last when none is current. No effect without results. |
 | `showSearchResult(result)` | Shows a listed result and makes it current; a result of a replaced or cleared search throws `invalidCommand`. |
-| `style` | Font size 12–96, System/Light/Dark appearance, flow. System is the default and tracks the host color scheme live; explicit modes stay fixed. Size or resolved appearance rebuilds the text; the position is kept across rebuilds and flow switches. |
+| `style` | Font size 12–96, scaled by the system text size first with `followsDynamicType` (below), System/Light/Dark appearance, flow. System is the default and tracks the host color scheme live; explicit modes stay fixed. Size or resolved appearance rebuilds the text; the position is kept across rebuilds and flow switches. |
 | `setHighlights` | Replaces drawn host highlights. |
 
 `.searchResultsChanged` reports the result list before `.searchChanged(.completed)`, then each
@@ -3154,6 +3154,26 @@ remain unchanged ([#78](https://github.com/vocaro/EPUBLib/issues/78)).
 
 `.disclosure` text summarises the books' `SectionReport`s and is re-emitted when it changes. `.notice` reports
 refused external links, unresolved CFIs and quotes, and highlights that could not be drawn.
+
+`EPUBReaderStyle.followsDynamicType`, off by default, scales the chosen font size by the system
+text size before it is drawn: by the body text style's size at the mounted view's
+`dynamicTypeSize` over its 17 points at Large (`DynamicTypeScale.swift`), so that book text at
+the default size is as large as the system's body text. On iPhone and iPad UIKit's preferred body
+font gives both sizes, which are those Apple's Human Interface Guidelines list: 17 points is
+drawn at 53 at the largest accessibility size and at 14 at the smallest, and 31 or more reaches
+96. `UIFontMetrics`, which scales a custom size along a curve of its own, was not used: on iOS
+27.0 it scaled 17 points to 48 at the largest size and to 15 at the smallest, so book text would
+have been smaller than body text at every accessibility size. What is drawn stays
+within 12–96. The system text size reaches the reader as its view's `dynamicTypeSize`, from the
+window's content size category, so a host's own `.dynamicTypeSize` on the reader applies too. A
+change while a book is open rebuilds the text as a size command does and keeps the place read,
+the canvas's anchor, in both flows. The view's size is remembered while the option is off, so
+turning it on applies the latest at once. `readerState.status.effectiveFontSize` reports the
+size drawn and `dynamicTypeScale` the factor, 1 while the option is off. AppKit has no Dynamic
+Type metrics or content size category: on a Mac the factor comes from the same guideline sizes,
+and a view's `dynamicTypeSize` is Large unless its host sets another. Whether macOS's own text
+size setting reaches a SwiftUI view's `dynamicTypeSize` has not been observed, since that would
+change the Mac's settings ([#675](https://github.com/vocaro/EPUBLib/issues/675)).
 
 ## Security
 

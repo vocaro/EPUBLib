@@ -58,6 +58,12 @@ public struct EPUBReaderStyle: Equatable, Sendable {
     /// System follows the mounted view's color scheme, including live OS theme changes.
     public var appearance: EPUBReaderAppearance
     public var flow: EPUBReadingFlow
+    /// Scales `fontSize` by the system text size: Dynamic Type on iPhone and iPad, in the
+    /// mounted view's `dynamicTypeSize`, including changes while a book is open. `fontSize` is
+    /// then the size at the default text size (Large), and an engine draws it larger or smaller
+    /// as the body text style is, within the sizes it draws. Off by default, so `fontSize` is
+    /// what is drawn. `EPUBReaderStatus.effectiveFontSize` reports the size drawn.
+    public var followsDynamicType = false
     public init(fontSize: Double = 17, appearance: EPUBReaderAppearance = .system, flow: EPUBReadingFlow = .paginated) {
         self.fontSize = fontSize; self.appearance = appearance; self.flow = flow
     }
