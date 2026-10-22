@@ -295,7 +295,6 @@ final class TableCoverageContentTests: XCTestCase {
     /// `tr, td, th { vertical-align: inherit }`, so a row group's alignment (its `valign`, a hint in the same section,
     /// or CSS) reaches its cells through the rows.
     func testVerticalAlignmentOnARowGroupReachesItsCells() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/142")
         let hinted = try TableCoverage.table("""
         <table><tbody valign="top"><tr><td>a<br/>b<br/>c</td><td>d</td></tr></tbody><tbody valign="bottom"><tr><td>e<br/>f</td><td>g</td></tr></tbody></table>
         """)
@@ -303,6 +302,17 @@ final class TableCoverageContentTests: XCTestCase {
         let styled = try TableCoverage.table("<table><tbody><tr><td>a<br/>b<br/>c</td><td>d</td></tr></tbody></table>",
                                              css: "tbody { vertical-align: top; }")
         XCTAssertEqual(styled.cells.map(\.placement), [.top, .top])
+    }
+
+    /// A cell is placed by its computed `vertical-align` alone, which its row's and group's
+    /// `valign` reach only through the cascade: a rule on the cell beats them, and a baseline is
+    /// placed at the top (#142).
+    func testACellsOwnVerticalAlignmentBeatsItsRowAndGroupValign() throws {
+        let table = try TableCoverage.table("""
+        <table><tbody valign="bottom"><tr valign="middle"><td class="b">a<br/>b<br/>c</td><td>d</td></tr>
+        <tr><td class="b">e<br/>f</td><td>g</td><td valign="top">h</td></tr></tbody></table>
+        """, css: ".b { vertical-align: baseline; }")
+        XCTAssertEqual(table.cells.map(\.placement), [.top, .middle, .top, .bottom, .top])
     }
 
     func testCellContentIsPlacedAtTheTopMiddleOrBottomOfItsCell() throws {
@@ -356,6 +366,42 @@ final class TableCoverageContentTests: XCTestCase {
         XCTAssertEqual(plain.borders.widths, TableModel.Insets())
         XCTAssertEqual(plain.spacing, CGSize(width: 2, height: 2), "the user-agent spacing")
         XCTAssertEqual(plain.cells[0].padding, TableModel.Insets(top: 1, right: 1, bottom: 1, left: 1), "the user-agent padding")
+    }
+
+    /// HTML §15.3.8: a table's `width="0"` and a cell's `width="0"` or `"0%"` are no width at all
+    /// ("ignoring zero"), so the columns take their content's width and are not held to its
+    /// narrowest (#121).
+    func testZeroWidthAttributesLeaveATableAndItsCellsTheirContentWidths() throws {
+        for markup in ["<table width=\"0\"><tr><td>alpha beta gamma</td><td>delta</td></tr></table>",
+                       "<table><tr><td width=\"0%\">alpha beta gamma</td><td width=\"0\" height=\"0\">delta</td></tr></table>"] {
+            let table = try TableCoverage.table(markup)
+            XCTAssertEqual(table.width, .auto, markup)
+            XCTAssertEqual(table.cells.map(\.width), [.auto, .auto], markup)
+            XCTAssertEqual(table.cells.map(\.height), [0, 0], markup)
+            let layout = table.layout(available: 600, viewportHeight: 800)
+            XCTAssertEqual(layout.cellText[0].lines.count, 1, "the words share a line: \(markup)")
+        }
+    }
+
+    /// The builder takes a table's sizes from the cascade, where the `width` and `height`
+    /// attributes are hints that an author's `auto` beats; it does not read them again.
+    func testAnAuthorRuleBeatsTheSizeAttributesOfATableItsColumnsRowsAndCells() throws {
+        let table = try TableCoverage.table("""
+        <table width="300"><colgroup width="90"><col width="80"/></colgroup><tr height="40"><td width="120" height="30">a</td><td>b</td></tr></table>
+        """, css: "table, colgroup, col, td { width: auto; } tr, td { height: auto; }")
+        XCTAssertEqual(table.width, .auto)
+        XCTAssertEqual(table.columns, [.auto])
+        XCTAssertEqual(table.cells.map(\.width), [.auto, .auto])
+        XCTAssertEqual(table.cells.map(\.height), [0, 0])
+        XCTAssertEqual(table.rows.map(\.height), [0])
+        let hinted = try TableCoverage.table("""
+        <table width="300"><colgroup width="90"><col width="80"/><col/></colgroup><tr height="40"><td width="120" height="30">a</td><td>b</td></tr></table>
+        """)
+        XCTAssertEqual(hinted.width, .points(300))
+        XCTAssertEqual(hinted.columns, [.points(80), .points(90)], "a column without a width takes its group's")
+        XCTAssertEqual(hinted.cells.map(\.width), [.points(120), .auto])
+        XCTAssertEqual(hinted.cells.map(\.height), [30, 0])
+        XCTAssertEqual(hinted.rows.map(\.height), [40])
     }
 
     /// CSS 2.2 §17.6.2: collapsed borders are centred on the grid lines, half inside each cell,

@@ -106,6 +106,35 @@ final class HTMLCFITests: XCTestCase {
         XCTAssertEqual(document.root.attribute("xml:lang"), "fr")
     }
 
+    /// The XML-shaped route reads an attribute's namespace from the XML tree, and libxml2's HTML
+    /// parser from the book's `xmlns:` declaration in scope. Either names an attribute whose
+    /// prefix stands for the OPS namespace `epub:`, so a book's `ops:type` is `epub:type` and its
+    /// note is read, whichever route read the section (#642).
+    func testEitherHTMLRouteNamesAnOPSAttributeEpubWhateverItsPrefix() throws {
+        for head in ["", "<style>p { }</style>"] {
+            let source = "<html xmlns:ops='http://www.idpf.org/2007/ops'><head><title>Book</title>\(head)</head><body>"
+                + "<aside id='note' ops:type='footnote'><p>Note.</p></aside></body></html>"
+            let document = try ContentDocument.parse(Data(source.utf8), path: "notes.xhtml")
+            XCTAssertTrue(document.recoveredAsHTML, head)
+            XCTAssertEqual(document.canResolveCFIs, head.isEmpty, "The XML-shaped route, or libxml2's HTML parser")
+            let note = try XCTUnwrap(document.element(id: "note"))
+            XCTAssertEqual(note.attributes.map(\.name), ["id", "epub:type"], head)
+            XCTAssertEqual(ContentSemantics.noteKind(note), .footnote, head)
+        }
+        // libxml2's HTML parser alone reads these: a declaration holds on its element and inside
+        // it, and HTML keeps one attribute of a name, so one already written `epub:` keeps it.
+        let document = try ContentDocument.parse(Data("""
+            <html><head><title>Book</title></head><body><section xmlns:o='http://www.idpf.org/2007/ops'>\
+            <aside id='inside' o:type='footnote'>a</aside><aside id='both' epub:type='endnote' o:type='footnote'>b</aside>\
+            </section><aside id='outside' o:type='footnote'>c</aside></body></html>
+            """.utf8), path: "scoped.xhtml")
+        XCTAssertFalse(document.canResolveCFIs)
+        XCTAssertEqual(document.element(id: "inside")?.attributes.map(\.name), ["id", "epub:type"])
+        XCTAssertEqual(document.element(id: "both")?.attributes.map(\.name), ["id", "epub:type", "o:type"])
+        XCTAssertEqual(document.element(id: "outside")?.attributes.map(\.name), ["id", "o:type"], "o is not declared there")
+        XCTAssertNil(ContentSemantics.noteKind(try XCTUnwrap(document.element(id: "outside"))))
+    }
+
     func testUnknownXMLEncodingAndHTMLNumericRemappingCannotIssueCFIs() throws {
         for source in ["<?xml version='1.0' encoding='ISO-8859-1'?><html><head><title>Book</title></head><body><p>caf\u{00C3}\u{00A9}</p></body></html>",
                        "<html><head><title>Book</title></head><body><p>Text &#128;</p></body></html>",

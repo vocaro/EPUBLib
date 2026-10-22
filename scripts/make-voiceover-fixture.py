@@ -379,6 +379,29 @@ files['OPS/package.opf'] = files['OPS/package.opf'].replace('</manifest>',
     '<item id="math" href="math.xhtml" media-type="application/xhtml+xml" properties="mathml"/></manifest>').replace(
     '</spine>', '<itemref idref="math"/></spine>')
 files['OPS/nav.xhtml'] = files['OPS/nav.xhtml'].replace('</ol>', '<li><a href="math.xhtml">Math readings</a></li></ol>')
+# Words kept from listeners, the book's last section: shown words the book keeps from
+# assistive technology with aria-hidden="true", which are drawn, copied and found as any
+# words are and given to no assistive technology (#552), and a picture `visibility: hidden`
+# hides, which keeps its room and is read by nobody (#549). A row of stars between scenes is
+# kept on its element; words in a line, an ornament in a heading and a link's words, round
+# them. Every word kept or hidden begins "unheard" or "Unheard", and no shown word does, so
+# any of them in a transcript was read. Sixty numbered lines follow. No word of it is one
+# VoiceOver uses for a heading, a link or a picture.
+files["OPS/kept.xhtml"] = (
+    '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Words kept '
+    'from listeners</title><style>.veiled { visibility: hidden; } img { width: 32px; height: 32px; }</style></head>'
+    '<body><p>Words before the kept ones.</p><p aria-hidden="true">* Unheard stars *</p>'
+    '<p>Shown words before <span aria-hidden="true">unheard words in the line</span> shown words after.</p>'
+    '<h2>Harbour notes <span aria-hidden="true">unheard ornament</span></h2>'
+    '<p>Shown words around <a href="body.xhtml#link-target" aria-hidden="true">unheard jump</a> the kept jump.</p>'
+    '<p>Shown words beside <img class="veiled" src="square.svg" alt="Unheard veiled square"/> the hidden square.</p>'
+    "<p>Words after the kept ones.</p>"
+    + "".join(f"<p>Line {i:02d} after the kept words.</p>" for i in range(1, 61)) + "</body></html>")
+files["OPS/package.opf"] = files["OPS/package.opf"].replace(
+    "</manifest>", '<item id="kept" href="kept.xhtml" media-type="application/xhtml+xml"/></manifest>').replace(
+    "</spine>", '<itemref idref="kept"/></spine>')
+files["OPS/nav.xhtml"] = files["OPS/nav.xhtml"].replace(
+    "</ol></nav>", '<li><a href="kept.xhtml">Words kept from listeners</a></li></ol></nav>')
 # Declare the embedded content of the fixture's existing picture and entry sections too.
 for name, property in [('pictures.xhtml', 'svg'), ('entries.xhtml', 'mathml')]:
     item = f'href="{name}" media-type="application/xhtml+xml"'
@@ -393,7 +416,7 @@ chapters = {"one": range(1, 41), "two": range(41, 81), "three": range(81, 87)}
 paragraphs = dict(files)
 for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "scenes.xhtml", "offers.xhtml",
              "entries.xhtml", "cells.xhtml", "grids.xhtml", "ledger.xhtml", "tallrow.xhtml", "edges.xhtml", "parts.xhtml",
-             "squares.xhtml", "gaps.xhtml", "veiled.xhtml", "math.xhtml", "square.svg", "titled.svg"]:
+             "squares.xhtml", "gaps.xhtml", "veiled.xhtml", "math.xhtml", "kept.xhtml", "square.svg", "titled.svg"]:
     del paragraphs["OPS/" + name]
 paragraphs["OPS/package.opf"] = (
     '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '

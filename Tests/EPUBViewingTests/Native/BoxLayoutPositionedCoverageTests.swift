@@ -344,6 +344,19 @@ import UIKit
         }
     }
 
+    /// HTML §15.5.13 makes a `marquee` an `inline-block`, so one with no size stays on its
+    /// paragraph's line, and its text does not move (#607). The paragraph's alignment still
+    /// places the line.
+    func testAMarqueeStaysOnItsParagraphsLine() throws {
+        let (section, view) = try layout("<p class='c'>Before <marquee>moving</marquee> after words.</p>", css: ".c { text-align:center }")
+        XCTAssertEqual(section.string.string, "Before moving after words.")
+        XCTAssertEqual(H.lines(in: view).count, 1)
+        let before = H.frame("Before", in: section, view: view), moving = H.frame("moving", in: section, view: view)
+        XCTAssertEqual(moving.minY, before.minY, accuracy: 1)
+        XCTAssertGreaterThan(moving.minX, before.maxX)
+        XCTAssertGreaterThan(before.minX, 50, "centred in the 360-point column")
+    }
+
     func testASizedInlineBlockWiderThanTheRestOfItsLineOrTheColumnTakesItsOwnRow() throws {
         var (section, view) = try layout("<p>Before words fill most of this line <span class='b'>Inline box.</span> after words.</p>",
                                          css: ".b { display:inline-block; width:200px }")

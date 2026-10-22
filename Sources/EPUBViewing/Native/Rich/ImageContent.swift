@@ -172,12 +172,15 @@ final class ReaderImageAttachment: ReaderAttachment {
 
     /// Whether assistive technology passes over the image, where nothing else keeps it (a
     /// link it is all of, `NSAttributedString.passesOver`): decoration, which has no words,
-    /// and an image the book keeps from assistive technology, whatever words it has.
-    var isPassedOverByAssistiveTechnology: Bool { alternative == .decorative || isHiddenFromAssistiveTechnology }
+    /// and an image the book keeps from assistive technology, whatever words it has. An image
+    /// that `visibility: hidden` hides is passed over too, and nothing keeps it: it has no
+    /// link, and selections, copies and search leave its words out with its character
+    /// (`.readerHidden`).
+    var isPassedOverByAssistiveTechnology: Bool { alternative == .decorative || isHiddenFromAssistiveTechnology || isHidden }
 
     /// The words assistive technology is given for the image: `alt`, and none for an image the
-    /// book keeps from it.
-    var spokenAlt: String { isHiddenFromAssistiveTechnology ? "" : alt }
+    /// book keeps from it or that `visibility: hidden` hides.
+    var spokenAlt: String { isHiddenFromAssistiveTechnology || isHidden ? "" : alt }
     override var spokenEquivalent: String { spokenAlt }
 
     #if os(iOS)

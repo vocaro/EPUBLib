@@ -43,6 +43,12 @@ extension NSAttributedString.Key {
     /// keeps its characters and so its room, drawn in a clear colour; what is read of it
     /// leaves them out (`NSAttributedString.readerPlainText(in:)`, `readerBlankingHidden`).
     static let readerHidden = NSAttributedString.Key("org.epublib.hidden")
+    /// `true` on every character of shown text that the book keeps from assistive technology
+    /// with `aria-hidden="true"` on its element or on one round it, generated text included.
+    /// It is drawn, copied and found as any text is, and VoiceOver is not given it
+    /// (`NSAttributedString.readerPlainText(in:spoken:)`, `readerBlankingHidden`). An image, a
+    /// rule or a formula knows for itself that it is kept so.
+    static let readerUnspoken = NSAttributedString.Key("org.epublib.unspoken")
 }
 
 /// What an inline box contributes to its text beyond its own computed style.
@@ -57,6 +63,8 @@ struct InlineContext {
     var baselineOffset: CGFloat = 0
     /// The content's language (`xml:lang`/`lang`, inherited) and the package's as a hint.
     var language = InlineLanguage()
+    /// `aria-hidden="true"` on the element or on one round it: its text is `.readerUnspoken`.
+    var isUnspoken = false
 }
 
 /// Interns attribute dictionaries and paragraph styles for one build, and measures with CoreText
@@ -87,6 +95,7 @@ final class InlineStyling {
         var embolden: Bool
         var language: String?
         var link: String?
+        var unspoken: Bool
     }
 
     static let languageKey = NSAttributedString.Key(kCTLanguageAttributeName as String)
@@ -114,7 +123,8 @@ final class InlineStyling {
                       kern: style.letterSpacing + (wordSpacing ? style.wordSpacing : 0),
                       oblique: fonts.needsSyntheticItalic(for: style),
                       embolden: fonts.needsSyntheticBold(for: style),
-                      language: context.language.typesetting, link: link?.url.absoluteString)
+                      language: context.language.typesetting, link: link?.url.absoluteString,
+                      unspoken: context.isUnspoken && !hidden)
         if let index = indices[key] { return index }
         var attributes: [NSAttributedString.Key: Any] = [.font: font]
         switch key.color {
@@ -141,6 +151,7 @@ final class InlineStyling {
         if key.embolden { attributes[.strokeWidth] = -3.0 }
         if let language = key.language { attributes[Self.languageKey] = language }
         if let link { attributes[.link] = link.url }
+        if key.unspoken { attributes[.readerUnspoken] = true }
         let index = dictionaries.count
         dictionaries.append(attributes as NSDictionary as CFDictionary)
         indices[key] = index

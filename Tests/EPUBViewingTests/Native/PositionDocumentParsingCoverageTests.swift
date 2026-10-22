@@ -182,6 +182,60 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
         }
     }
 
+    /// HTML Standard, DOCTYPE public and system identifier states: ">" ends the DOCTYPE inside a
+    /// quoted identifier (abrupt-doctype-public-identifier, abrupt-doctype-system-identifier).
+    /// XML reads the identifier on to its closing quote, and the screen refused a section whose
+    /// identifier had lost it, so the chapter was not shown (#293). It is read as HTML, root
+    /// and all, and never reaches the XML parser.
+    func testADoctypeWhoseIdentifierHasLostItsClosingQuoteIsReadAsHTML() throws {
+        for doctype in ["<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd>",
+                        "<!DOCTYPE html SYSTEM \"about:legacy-compat>", "<!doctype html public 'x>"] {
+            let document = try parse("\(doctype)\n<html \(Self.xhtml) lang=\"en\">\(Self.head)<body><p id=\"p\">One <b>two</b></p></body></html>")
+            XCTAssertTrue(document.recoveredAsHTML, doctype)
+            XCTAssertFalse(document.canResolveCFIs, doctype)
+            XCTAssertEqual(document.language, "en", doctype)
+            XCTAssertEqual(document.head?.textContent, "T", doctype)
+            XCTAssertEqual(bodyText(document), "One two", doctype)
+            XCTAssertNotNil(document.element(id: "p"), doctype)
+        }
+        // The rest of a quoted identifier after its ">" is text, as it is in HTML.
+        XCTAssertEqual(bodyText(try page("<p>One</b><!DOCTYPE html SYSTEM \"a>b\"> two</p>")), "Oneb\"> two")
+        // An internal subset or a declaration on either side of that ">" is still refused, and so
+        // is a section that ends inside the DOCTYPE.
+        for markup in ["<!DOCTYPE html SYSTEM \"x> [<!ENTITY e 'v'>]>\(Self.head)<body><p>x</p></body>",
+                       "<!DOCTYPE html SYSTEM \"x>[<!ATTLIST p a CDATA #IMPLIED>]>\(Self.head)<body><p>x</p></body>",
+                       "<!DOCTYPE html [ \"x>\(Self.head)<body><p>x</p></body>", "<html \(Self.xhtml)>\(Self.head)<body><p>x</p></body></html><!DOCTYPE html PUBLIC \"x"] {
+            XCTAssertThrowsError(try parse(markup), markup) { XCTAssertEqual($0 as? ContentDocumentError, .unsafeMarkup("parsing.xhtml"), markup) }
+        }
+        // A declaration that XML reads inside a quoted identifier, and HTML after the DOCTYPE's
+        // first ">", leaves that DOCTYPE as libxml2 reads it, so the parser meets no declaration.
+        let hidden = try page("<p>One</b></p>", prolog: "<!DOCTYPE html SYSTEM \"a><!ENTITY e 'v'>\">")
+        XCTAssertTrue(hidden.recoveredAsHTML)
+        XCTAssertEqual(bodyText(hidden), "One")
+    }
+
+    /// HTML builds one root, and gives it each attribute of a later `html` start tag that it
+    /// lacks. libxml2 reads a root tag that has lost the closing quote of its last attribute, and
+    /// so runs to the "/>" of a later empty element, as self-closing, and builds the rest in
+    /// another root, beside it after a DOCTYPE or a comment and inside it otherwise: the section
+    /// showed nothing. The DOCTYPE that has lost a quote as well no longer hid that (#293).
+    func testWhatLibxml2BuildsInASecondRootIsTheRoots() throws {
+        let rest = "<head><meta charset=\"utf-8\"/><title>T</title></head><body id=\"b\"><p id=\"p\">One</p></body></html>"
+        for start in ["<!DOCTYPE html>\n", "<!-- c -->", "", "</p>",
+                      "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd>\n"] {
+            let document = try parse(start + "<html \(Self.xhtml) lang=\"en>\n" + rest)
+            XCTAssertTrue(document.recoveredAsHTML, start)
+            XCTAssertEqual(document.head?.textContent, "T", start)
+            XCTAssertEqual(bodyText(document), "One", start)
+            XCTAssertEqual(document.body?.id, "b", start)
+            XCTAssertNotNil(document.element(id: "p"), start)
+        }
+        let later = try parse("<html id=\"r\" class=\"c\"/><html lang=\"en\" class=\"d\"><head><title>T</title></head><body><p>x</p></body></html>")
+        XCTAssertEqual([later.root.id, later.root.attribute("class"), later.language], ["r", "c", "en"])
+        XCTAssertEqual(later.head?.textContent, "T")
+        XCTAssertEqual(bodyText(later), "x")
+    }
+
     /// HTML Standard, section 14.2: these public identifiers all name the entity DTD, so a
     /// document using any of them with a named reference is well-formed XML to WebKit and kept
     /// its XML tree (and its CFIs) in foliate. The same markup read as HTML grows a `tbody`.
@@ -562,8 +616,9 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
         XCTAssertEqual(paragraph.attributes.map(\.name), ["title", "class", "lang"])
         XCTAssertEqual(paragraph.attributes.map(\.value), ["a > b < c", "x<y", "d<"])
         XCTAssertEqual(markup.nodes.filter { $0.isHTML("p") }[4].attributes.map(\.name), ["x"], "a sign among the attributes names none")
-        // A `>` in a DOCTYPE's quoted identifier does not end it.
-        XCTAssertEqual(bodyModel(try page("<p>x < y</p>", prolog: "<!DOCTYPE html PUBLIC \"a>b < c\" \"d>e\">")), ["<p>", "x < y"])
+        // A `>` in a DOCTYPE's quoted identifier ends it, as it does in HTML (#293), and the sign
+        // after it is text. HTML builds the body for that text, and the title in it.
+        XCTAssertEqual(bodyText(try page("<p>x < y</p>", prolog: "<!DOCTYPE html PUBLIC \"a>b < c\" \"d>e\">")), "b < c\" \"d>e\">Tx < y")
     }
 
     /// Reading a sign as text brings into view the markup after it that libxml2 took for the

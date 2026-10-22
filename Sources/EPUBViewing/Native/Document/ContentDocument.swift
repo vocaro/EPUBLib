@@ -68,11 +68,20 @@ final class ContentNode: @unchecked Sendable {
 }
 
 struct ContentAttribute: Equatable, Sendable {
-    /// Local name.
+    /// Local name. In a section read as HTML, the name as written, lowercased, so that
+    /// `epub:type` is one name there, in no namespace.
     let name: String
     /// Namespace URI, or "" when none.
     let namespace: String
     let value: String
+    /// In a section read as HTML, the namespace that the prefix of a name such as `epub:type`
+    /// stands for, the one an XML parser would have put the attribute in
+    /// (`HTMLAttributePrefixes`); "" for every other attribute.
+    let prefixNamespace: String
+
+    init(name: String, namespace: String, value: String, prefixNamespace: String = "") {
+        self.name = name; self.namespace = namespace; self.value = value; self.prefixNamespace = prefixNamespace
+    }
 }
 
 enum ContentNamespace {
@@ -195,12 +204,17 @@ final class ContentDocument: @unchecked Sendable {
         guard data.count <= limits.bytes, data.count <= Int(Int32.max) else { throw ContentDocumentError.limitExceeded("bytes") }
         let safety = XMLSafety.assess(data)
         guard safety != .attributeLimitExceeded else { throw ContentDocumentError.limitExceeded("attributesPerElement") }
-        guard safety == .safe else { throw ContentDocumentError.unsafeMarkup(path) }
+        // XML reads a DOCTYPE's quoted identifier on to its closing quote. Content that is unsafe
+        // only for that, as where the quote has been lost, never reaches the XML parser: it is
+        // read as HTML, which ends the DOCTYPE at its first `>`, as that parser reads it (#293).
+        let readsAsHTML = safety == .unsafe && asContent && XMLSafety.assess(data, doctypesAsHTML: true) == .safe
+        guard safety == .safe || readsAsHTML else { throw ContentDocumentError.unsafeMarkup(path) }
         let source = HTMLEntities.numericReferences(in: data)
         guard source.count <= limits.bytes, source.count <= Int(Int32.max) else { throw ContentDocumentError.limitExceeded("bytes") }
-        let rewrittenSafety = source == data ? safety : XMLSafety.assess(source)
+        let rewrittenSafety = source == data ? XMLSafety.Assessment.safe : XMLSafety.assess(source, doctypesAsHTML: readsAsHTML)
         guard rewrittenSafety != .attributeLimitExceeded else { throw ContentDocumentError.limitExceeded("attributesPerElement") }
         guard rewrittenSafety == .safe else { throw ContentDocumentError.unsafeMarkup(path) }
+        if readsAsHTML { return try parseHTML(data, rewritten: source, path: path, limits: limits) }
         if let document = try parseXML(source, path: path, limits: limits) {
             // Foliate's loadDocument retries a namespace-free content root as HTML. WebKit
             // also rejects named references without an XHTML 1.x public DOCTYPE. OPF and
@@ -273,6 +287,7 @@ final class ContentDocument: @unchecked Sendable {
         }
         guard let doc else { throw ContentDocumentError.malformed(path) }
         defer { xmlFreeDoc(doc) }
+        HTMLRecoveredRoot.merge(doc)
         retainHTMLTrailingContent(doc)
         guard let document = try convert(doc, path: path, limits: limits, recovered: true, html: true,
                                          signPlaceholder: source.placeholder, ampPlaceholder: source.ampPlaceholder) else {
@@ -319,12 +334,15 @@ final class ContentDocument: @unchecked Sendable {
     /// references are rewritten in what was decoded, not in its own bytes. libxml2 would discard
     /// the text after a `<` that opens no markup and end the document at a NUL. What it is
     /// given stays within the byte limit decoded, after CDATA recovery, and
-    /// again with those signs and NULs replaced.
+    /// again with those signs and NULs replaced. Each DOCTYPE ends at its first `>` where the
+    /// screen read it so too (`HTMLRecoveryText`, #293).
     static func htmlSource(_ data: Data, rewritten: Data, path: String, limits: ContentLimits) throws -> (data: Data, placeholder: Unicode.Scalar?, ampPlaceholder: String?) {
         let limit = min(limits.bytes, Int(Int32.max))
-        let text = try HTMLSourceEncoding.utf8(data, path: path, limit: limit).map { HTMLEntities.numericReferences(in: $0) } ?? rewritten
+        let doctypesAsHTML = XMLSafety.assess(data, doctypesAsHTML: true) == .safe
+        let text = try HTMLSourceEncoding.utf8(data, path: path, limit: limit, doctypesAsHTML: doctypesAsHTML)
+            .map { HTMLEntities.numericReferences(in: $0) } ?? rewritten
         guard let ampersands = HTMLLiteralAmpersands.prepared(text, limit: limit) else { throw ContentDocumentError.limitExceeded("bytes") }
-        let recoveredText = try HTMLRecoveryText.prepared(ampersands.data, path: path, limit: limit)
+        let recoveredText = try HTMLRecoveryText.prepared(ampersands.data, path: path, limit: limit, doctypesAsHTML: doctypesAsHTML)
         guard let signs = HTMLStraySigns.replaced(in: recoveredText, limit: limit),
               let source = HTMLNullCharacters.replaced(in: signs.data, limit: limit) else {
             throw ContentDocumentError.limitExceeded("bytes")
@@ -343,7 +361,8 @@ final class ContentDocument: @unchecked Sendable {
             let signs = signPlaceholder.map { HTMLStraySigns.restored(text, from: $0) } ?? text
             return HTMLLiteralAmpersands.restored(signs, placeholder: ampPlaceholder)
         }
-        func build(_ xml: xmlNodePtr, depth: Int, insideSVG: Bool = false) throws -> ContentNode {
+        /// `prefixes`: in a section read as HTML, the `xmlns:` declarations in scope at the parent.
+        func build(_ xml: xmlNodePtr, depth: Int, insideSVG: Bool = false, prefixes: [String: String] = [:]) throws -> ContentNode {
             guard depth < limits.depth else { throw ContentDocumentError.limitExceeded("depth") }
             let rawName = string(xml.pointee.name)
             let recoveredSVG = html && (insideSVG || rawName.lowercased() == "svg")
@@ -351,6 +370,8 @@ final class ContentDocument: @unchecked Sendable {
             let name = recoveredSVG ? HTMLSVGNames.element(rawName.lowercased())
                 : namespace == ContentNamespace.xhtml || html ? rawName.lowercased() : rawName
             var attributes: [ContentAttribute] = []
+            // libxml2's HTML parser keeps each name whole, prefix and all.
+            var written: [(name: String, value: String)] = []
             var attribute = xml.pointee.properties
             while let current = attribute {
                 var value = ""
@@ -361,12 +382,15 @@ final class ContentDocument: @unchecked Sendable {
                     if let content = text.pointee.content { value += String(cString: content) }
                     part = text.pointee.next
                 }
-                let attributeNamespace = html ? "" : string(current.pointee.ns?.pointee.href)
                 let local = string(current.pointee.name)
-                attributes.append(recoveredSVG ? HTMLSVGNames.attribute(local.lowercased(), value: restored(value))
-                    : ContentAttribute(name: html ? local.lowercased() : local,
-                                       namespace: attributeNamespace, value: restored(value)))
+                if html { written.append((local.lowercased(), restored(value))) }
+                else { attributes.append(ContentAttribute(name: local, namespace: string(current.pointee.ns?.pointee.href), value: restored(value))) }
                 attribute = current.pointee.next
+            }
+            let prefixes = html ? HTMLAttributePrefixes.scope(written, inheriting: prefixes) : prefixes
+            if html {
+                attributes = recoveredSVG ? written.map { HTMLSVGNames.attribute($0.name, value: $0.value) }
+                    : HTMLAttributePrefixes.attributes(written, scope: prefixes)
             }
             let node = ContentNode(element: name, namespace: namespace, attributes: attributes)
             node.order = nodes.count
@@ -388,7 +412,8 @@ final class ContentDocument: @unchecked Sendable {
                 case XML_ELEMENT_NODE:
                     flushText()
                     let element = try build(current, depth: depth + 1,
-                                            insideSVG: recoveredSVG && !HTMLSVGNames.integrationPoints.contains(name))
+                                            insideSVG: recoveredSVG && !HTMLSVGNames.integrationPoints.contains(name),
+                                            prefixes: prefixes)
                     element.parent = node; element.indexInParent = node.children.count
                     node.children.append(element)
                 case XML_TEXT_NODE, XML_CDATA_SECTION_NODE:
@@ -427,10 +452,13 @@ final class ContentDocument: @unchecked Sendable {
             let node: ContentNode
             if source.isText { node = ContentNode(text: source.text + extraText) }
             else {
+                // The prefix kept for an attribute's namespace, which selectors still match it by
+                // (`HTMLAttributePrefixes`).
                 let attributes = source.attributes.map { attribute in
                     let prefix = attribute.namespace == ContentNamespace.xml ? "xml:"
                         : attribute.namespace == ContentNamespace.ops ? "epub:" : ""
-                    return ContentAttribute(name: prefix + attribute.name.lowercased(), namespace: "", value: attribute.value)
+                    return ContentAttribute(name: prefix + attribute.name.lowercased(), namespace: "", value: attribute.value,
+                                            prefixNamespace: prefix.isEmpty ? "" : attribute.namespace)
                 }
                 node = ContentNode(element: source.name.lowercased(), namespace: ContentNamespace.xhtml, attributes: attributes)
             }
