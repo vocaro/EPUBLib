@@ -1721,9 +1721,33 @@ continues to describe the authored spine resource.
     Properties and Values API 1) are not: the rule is ignored, and every custom property takes
     any value and inherits.
 - **Building** is per section and lazy for first paint: the opening section builds first and
-  the session emits `.ready` once it is on screen; the rest build in the background in
-  parallel. Images decode lazily, downsampled to their displayed size, under a shared cache
-  budget.
+  the session emits `.ready` once it is on screen, built for the appearance the reader opens
+  in; the rest build in the background in parallel. Images decode lazily, downsampled to
+  their displayed size, under a shared cache budget.
+- **One appearance on screen.** A page's text and the canvas behind it always have the same
+  appearance ([#243](https://github.com/vocaro/EPUBLib/issues/243)). A section's colours are
+  part of its build, and a session builds for Light until its host reports Dark, which a host
+  does when the view appears, possibly after the first build is in. The first page therefore
+  waits for text built for the host's appearance, on an empty canvas of that appearance; a
+  host that turns back before that build arrives opens on the build it turned back to.
+  After a live change the canvas changes appearance once and never back. It keeps the old
+  appearance, with the old text, until the sections on screen and those one page turn reaches
+  are built for the new: the section before a section's first page and after its last, and in
+  continuous scroll the section on each side. Those build together, the section on screen
+  among them, so the change waits for one build; the page and the canvas then change together.
+  A page turned to meanwhile is shown as built, in the old appearance, and one already built
+  for the new brings the change with it. Once the canvas has changed, a page turn, a contents
+  entry, a link or a search result that reaches a section still built for the old appearance
+  builds it for the new first, with the page on screen kept (`ReaderCanvasDataSource.canShow`);
+  that section's text still serves selection and progress meanwhile. A page turn or search
+  result that waits so is dropped when the page moves before the build arrives, by a key, a
+  click or tap, a swipe, the wheel, VoiceOver or a command. VoiceOver's move by heading shows
+  the heading it finds at once, so it stops at a section still built for the old appearance,
+  as at one not built yet, and asks for that section's build at once, ahead of the background
+  rebuild (`ReaderCanvasDelegate.canvas(_:wantsSection:)`): the next move finds the heading
+  once that one build is in, rather than wait on the main thread. A note is shown in the
+  appearance its text was built for, the new one, whatever the page behind it shows.
+  `effectiveAppearance` reports the new appearance at once.
 - **Release.** A typography change keeps each built section on screen until its rebuild
   arrives. A rebuilt SVG shares the font database its replaced build still holds, so a
   relayout needs no more of the font budget than the book already has. The text view drops
@@ -2961,7 +2985,8 @@ The following are the defaults. Host commands and accessibility actions stay ena
   book, which each element keeps, so that it
   [gives the same answer twice](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#a-custom-heading-rotor-must-give-the-same-answer-twice).
   A section that is not built yet
-  ends the search, and so does the end of the book. A rotor is not an action: VoiceOver says
+  ends the search, as does one still built for an appearance the reader has left (**One
+  appearance on screen** under [Decisions](#decisions)), and so does the end of the book. A rotor is not an action: VoiceOver says
   "Actions available" of a line for the actions the line is offered, with the rotor and
   without it.
   On Mac a text area has no elements for its lines, so the heading's characters carry its
@@ -2982,7 +3007,8 @@ The following are the defaults. Host commands and accessibility actions stay ena
   list when its rotor opens, and neither does the request for a range. After the turn
   VoiceOver reads the page from its top, as after any page turn, with its cursor on the
   heading. The list takes in the sections page turns reach and the one on screen, and a
-  section that is not built yet ends it on that side: in the seconds after a book opens
+  section that is not built yet, or still built for an appearance the reader has left, ends
+  it on that side: in the seconds after a book opens
   it holds the sections built so far around the page. A heading that begins on an earlier
   page and ends on this one is listed once, where it begins.
   The search is written to
@@ -3147,16 +3173,17 @@ cancellation that arrives after they are published withdraws nothing, and the se
 Results are in spine order, then document order
 (see [search results](reader-controls.md#search-results)).
 
-`.ready` is emitted once, when the opening section is on screen in a mounted view, and the first
-`.relocated` reports the opening position (the text start, see Decisions). `.relocated`
-carries the section href, overall progression (by section byte size, as foliate-js computed it),
-the table-of-contents title for the position, the page-list entries it shows (see Decisions)
-and the visible range's CFIs. A nonlinear section counts nothing toward progression unless no
-section is linear (see Decisions). A selection's `.selectionChanged` event and host selection action
-carry the same complete passage: `text` omits nonlinear sections, and `location.rangeBookmarks`
-preserves all included documents. Its `page` names the entry in effect at its start and `pages`
-includes the entries it spans, omitting nonlinear pages. Save the entire `EPUBLocation` and pass
-it to `.setHighlights` to restore all segments in either flow, including after typography changes.
+`.ready` is emitted once, when the opening section is on screen in a mounted view, built for the
+host's appearance (see Decisions), and the first `.relocated` reports the opening position (the text
+start, see Decisions). `.relocated` carries the section href, overall progression (by section byte
+size, as foliate-js computed it), the table-of-contents title for the position, the page-list
+entries it shows (see Decisions) and the visible range's CFIs. A nonlinear section counts nothing
+toward progression unless no section is linear (see Decisions). A selection's `.selectionChanged`
+event and host selection action carry the same complete passage: `text` omits nonlinear sections,
+and `location.rangeBookmarks` preserves all included documents. Its `page` names the entry in effect
+at its start and `pages` includes the entries it spans, omitting nonlinear pages. Save the entire
+`EPUBLocation` and pass it to `.setHighlights` to restore all segments in either flow, including
+after typography changes.
 No partial annotation is drawn while a section is building or if any segment fails to resolve.
 An empty collection, a contradictory first bookmark, a foreign identity/format or malformed CFI
 is incompatible; unordered/duplicate document targets, nonlinear multi-document targets or

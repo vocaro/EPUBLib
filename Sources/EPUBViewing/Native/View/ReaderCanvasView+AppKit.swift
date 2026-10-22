@@ -335,8 +335,13 @@ extension ReaderCanvasView: NSTextViewDelegate {
         Self.headingPosition(of: token).flatMap(heading(at:))
     }
 
-    /// The heading that begins at `position`, when one still does.
+    /// The heading that begins at `position`, when one still does, in a section a page turn
+    /// would show as it is built; for one it would not, its build is asked for (`bookHeading`).
     private func heading(at position: ReaderTextPosition) -> ReaderBookHeading? {
+        if dataSource?.canShow(section: position.section) == false {
+            delegate?.canvas(self, wantsSection: position.section)
+            return nil
+        }
         guard let found = headings(inSection: position.section)?.first(where: { $0.range.location == position.offset }) else { return nil }
         return ReaderBookHeading(heading: found.heading, section: position.section, range: found.range)
     }
@@ -482,14 +487,14 @@ extension ReaderCanvasView: NSTextViewDelegate {
 
     // MARK: Notes
 
-    func presentNote(_ text: NSAttributedString, from rect: CGRect) {
+    func presentNote(_ text: NSAttributedString, dark: Bool, from rect: CGRect) {
         guard window != nil else { return }
         (presentedNote as? NSPopover)?.close()
         let popover = NSPopover()
         popover.behavior = .transient
-        popover.appearance = NSAppearance(named: configuration.isDark ? .darkAqua : .aqua)
+        popover.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         popover.contentViewController = ReaderNoteViewController(
-            text: text, dark: configuration.isDark, width: min(360, max(200, bounds.width - 32)))
+            text: text, dark: dark, width: min(360, max(200, bounds.width - 32)))
         popover.show(relativeTo: rect, of: self, preferredEdge: .maxY)
         presentedNote = popover
     }
