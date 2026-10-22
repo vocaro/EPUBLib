@@ -86,11 +86,7 @@ import SwiftUI
         book = NativeBook(publication: publication, typography: NativeTypography(), rich: rich)
         book.onSectionBuilt = { [weak self] in self?.sectionBuilt($0) }
         book.onBookComplete = { [weak self] in self?.bookCompleted() }
-        let first = initialSection
-        tasks.append(Task { [weak self] in
-            _ = await self?.book.build(first)
-            self?.book.buildRemaining(from: first)
-        })
+        buildBook(from: initialSection)
     }
 
     func makeView() -> AnyView { AnyView(NativeSurface(session: self)) }
@@ -563,12 +559,19 @@ import SwiftUI
         let typography = NativeTypography(fontSize: style.fontSize, isDark: effectiveIsDark)
         if typography != book.typography {
             book.setTypography(typography)
-            let current = visibleRange?.start.section ?? initialSection
-            tasks.append(Task { [weak self] in
-                _ = await self?.book.build(current)
-                self?.book.buildRemaining(from: current)
-            })
+            buildBook(from: visibleRange?.start.section ?? initialSection)
         }
+    }
+
+    /// Builds `section` for the current typography, then the rest. A section already built for
+    /// it, as when a host turns back to the appearance it reported before, stores nothing and
+    /// reports no build, so whether the opening page can be shown is asked again here.
+    private func buildBook(from section: Int) {
+        tasks.append(Task { [weak self] in
+            _ = await self?.book.build(section)
+            self?.becomeReadyIfPossible()
+            self?.book.buildRemaining(from: section)
+        })
     }
 
     private func setHighlights(_ list: [EPUBHighlight]) {
@@ -835,7 +838,8 @@ extension NativeSession: ReaderCanvasDelegate {
                 let text = await self.book.build(target.section)
                 guard self.isReady, self.isCurrent(ticket) else { return }
                 if let fragment = target.fragment, let note = text.notes[fragment] {
-                    self.canvas?.presentNote(note, from: rect)
+                    // The note is built with its section, for an appearance the page may not show yet.
+                    self.canvas?.presentNote(note, dark: self.book.typography.isDark, from: rect)
                 } else {
                     self.showNavigationTarget(text, fragment: target.fragment)
                 }

@@ -512,12 +512,12 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     // MARK: Notes
 
     /// A popover from the nearest view controller; nothing without one.
-    func presentNote(_ text: NSAttributedString, from rect: CGRect) {
+    func presentNote(_ text: NSAttributedString, dark: Bool, from rect: CGRect) {
         var responder: UIResponder? = next
         while let current = responder, !(current is UIViewController) { responder = current.next }
         guard var presenter = responder as? UIViewController, window != nil else { return }
         while let presented = presenter.presentedViewController, !presented.isBeingDismissed { presenter = presented }
-        let controller = ReaderNoteViewController(text: text, dark: configuration.isDark,
+        let controller = ReaderNoteViewController(text: text, dark: dark,
                                                   width: min(360, max(200, bounds.width - 32)))
         controller.modalPresentationStyle = .popover
         if let popover = controller.popoverPresentationController {

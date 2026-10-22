@@ -472,14 +472,14 @@ extension ReaderCanvasView: NSTextViewDelegate {
 
     // MARK: Notes
 
-    func presentNote(_ text: NSAttributedString, from rect: CGRect) {
+    func presentNote(_ text: NSAttributedString, dark: Bool, from rect: CGRect) {
         guard window != nil else { return }
         (presentedNote as? NSPopover)?.close()
         let popover = NSPopover()
         popover.behavior = .transient
-        popover.appearance = NSAppearance(named: configuration.isDark ? .darkAqua : .aqua)
+        popover.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         popover.contentViewController = ReaderNoteViewController(
-            text: text, dark: configuration.isDark, width: min(360, max(200, bounds.width - 32)))
+            text: text, dark: dark, width: min(360, max(200, bounds.width - 32)))
         popover.show(relativeTo: rect, of: self, preferredEdge: .maxY)
         presentedNote = popover
     }

@@ -196,6 +196,7 @@ extension ReaderCanvasDataSource {
     func clearSelection()
     /// Replaces every drawn highlight.
     func setHighlights(_ highlights: [ReaderHighlight])
-    /// Shows a note in place (a popover), anchored at `rect` in canvas coordinates.
-    func presentNote(_ text: NSAttributedString, from rect: CGRect)
+    /// Shows a note in place (a popover), anchored at `rect` in canvas coordinates, in the
+    /// appearance its text was built for (`dark`), which a rebuild can reach before the page.
+    func presentNote(_ text: NSAttributedString, dark: Bool, from rect: CGRect)
 }

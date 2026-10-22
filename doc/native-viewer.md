@@ -1611,13 +1611,15 @@ continues to describe the authored spine resource.
   appearance ([#243](https://github.com/vocaro/EPUBLib/issues/243)). A section's colours are
   part of its build, and a session builds for Light until its host reports Dark, which a host
   does when the view appears, possibly after the first build is in. The first page therefore
-  waits for text built for the host's appearance, on an empty canvas of that appearance.
+  waits for text built for the host's appearance, on an empty canvas of that appearance; a
+  host that turns back before that build arrives opens on the build it turned back to.
   After a live change the canvas keeps the old appearance, with the old text, until it shows
   text built for the new: the section on screen once it is rebuilt, which it is first, or
   another that a page turn or a link shows. A page turn to a section not yet rebuilt shows it
   in the old appearance until its rebuild arrives, so while a book is rebuilt the canvas can
-  change appearance with each page it turns to. `effectiveAppearance` reports the new
-  appearance at once.
+  change appearance with each page it turns to. A note is shown in the appearance its text was
+  built for, the new one, whatever the page behind it shows. `effectiveAppearance` reports the
+  new appearance at once.
 - **Release.** A typography change keeps each built section on screen until its rebuild
   arrives. A rebuilt SVG shares the font database its replaced build still holds, so a
   relayout needs no more of the font budget than the book already has. The text view drops
@@ -2948,16 +2950,16 @@ change of the current match, and nil when a clear, another query, a failure, a c
 (see [search results](reader-controls.md#search-results)).
 
 `.ready` is emitted once, when the opening section is on screen in a mounted view, built for the
-host's appearance (see Decisions), and the first
-`.relocated` reports the opening position (the text start, see Decisions). `.relocated`
-carries the section href, overall progression (by section byte size, as foliate-js computed it),
-the table-of-contents title for the position, the page-list entries it shows (see Decisions)
-and the visible range's CFIs. A nonlinear section counts nothing toward progression unless no
-section is linear (see Decisions). A selection's `.selectionChanged` event and host selection action
-carry the same complete passage: `text` omits nonlinear sections, and `location.rangeBookmarks`
-preserves all included documents. Its `page` names the entry in effect at its start and `pages`
-includes the entries it spans, omitting nonlinear pages. Save the entire `EPUBLocation` and pass
-it to `.setHighlights` to restore all segments in either flow, including after typography changes.
+host's appearance (see Decisions), and the first `.relocated` reports the opening position (the text
+start, see Decisions). `.relocated` carries the section href, overall progression (by section byte
+size, as foliate-js computed it), the table-of-contents title for the position, the page-list
+entries it shows (see Decisions) and the visible range's CFIs. A nonlinear section counts nothing
+toward progression unless no section is linear (see Decisions). A selection's `.selectionChanged`
+event and host selection action carry the same complete passage: `text` omits nonlinear sections,
+and `location.rangeBookmarks` preserves all included documents. Its `page` names the entry in effect
+at its start and `pages` includes the entries it spans, omitting nonlinear pages. Save the entire
+`EPUBLocation` and pass it to `.setHighlights` to restore all segments in either flow, including
+after typography changes.
 No partial annotation is drawn while a section is building or if any segment fails to resolve.
 An empty collection, a contradictory first bookmark, a foreign identity/format or malformed CFI
 is incompatible; unordered/duplicate document targets, nonlinear multi-document targets or

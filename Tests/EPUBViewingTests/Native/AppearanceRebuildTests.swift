@@ -33,6 +33,11 @@ import UIKit
         await waitFor([held])
         let canvas = try await laidOutCanvas(session, dark: true)
         assertTextAgreesWithCanvas(canvas, "while the opening section's Dark build is held")
+        // No page until one is built for Dark: not the Light one, on either canvas.
+        XCTAssertFalse(session.isReady)
+        XCTAssertFalse(events.contains(.ready))
+        XCTAssertEqual(shownAppearances(canvas), [], "a page is shown before its Dark build")
+        XCTAssertTrue(drawsDark(canvas), "the empty canvas is not in the host's appearance")
 
         gate.release()
         try await wait("the Dark reader") { session.isReady && session.book.isComplete && session.book.typography.isDark }
@@ -41,6 +46,97 @@ import UIKit
         XCTAssertTrue(canvas.configuration.isDark)
         XCTAssertEqual(shownAppearances(canvas), [true], "the opening page is not shown in Dark")
         XCTAssertEqual(events.filter { $0 == .ready }.count, 1)
+    }
+
+    /// The opening page waits for the Dark build, and the host turns back to Light before it
+    /// arrives: the Light build it already has is current again, and nothing is built.
+    func testAHostThatTurnsBackToLightBeforeTheDarkBuildArrivesOpensTheReaderInLight() async throws {
+        let held = expectation(description: "the opening section's Dark build is held")
+        let gate = DarkBuildGate(holding: "OPS/one.xhtml", held: held)
+        defer { gate.release() }
+        var events: [EPUBReaderEvent] = []
+        let session = try NativeSession(publication: try EPUBPublication.open(data: Self.book()), action: nil, rich: gate) {
+            events.append($0)
+        }
+        defer { session.close() }
+        try await wait("the Light build") { session.book.isComplete }
+        let window = ReaderTestWindow(session: session, colorScheme: .dark)
+        defer { window.close() }
+        await waitFor([held])
+        _ = try await laidOutCanvas(session, dark: true)
+        XCTAssertFalse(session.isReady)
+
+        window.pageControls.colorScheme = .light
+        try await wait("the reader opened in Light while the Dark build is held") { session.isReady }
+        let canvas = try await laidOutCanvas(session, dark: false)
+        assertTextAgreesWithCanvas(canvas, "the reader opened in Light")
+        XCTAssertEqual(shownAppearances(canvas), [false], "the opening page is not shown in Light")
+
+        // The late Dark build is dropped, and the reader stays as it opened.
+        gate.release()
+        try await wait("the held build to finish") { gate.passes > 0 }
+        try await observe(for: 0.5) { await settle(canvas) }
+        assertTextAgreesWithCanvas(canvas, "after the late Dark build")
+        XCTAssertEqual(shownAppearances(canvas), [false])
+        XCTAssertEqual(session.book.typography, NativeTypography(isDark: false))
+        XCTAssertEqual(events.filter { $0 == .ready }.count, 1)
+    }
+
+    func testASessionClosedWhileItsOpeningPageWaitsForItsDarkBuildDoesNothingMore() async throws {
+        let held = expectation(description: "the opening section's Dark build is held")
+        let gate = DarkBuildGate(holding: "OPS/one.xhtml", held: held)
+        defer { gate.release() }
+        var events: [EPUBReaderEvent] = []
+        let session = try NativeSession(publication: try EPUBPublication.open(data: Self.book()), action: nil, rich: gate) {
+            events.append($0)
+        }
+        defer { session.close() }
+        try await wait("the Light build") { session.book.isComplete }
+        let window = ReaderTestWindow(session: session, colorScheme: .dark)
+        defer { window.close() }
+        await waitFor([held])
+        let canvas = try await laidOutCanvas(session, dark: true)
+        XCTAssertFalse(session.isReady)
+        let emitted = events.count
+
+        session.close()
+        gate.release()
+        try await wait("the held build to finish") { gate.passes > 0 }
+        try await observe(for: 0.5) { await settle(canvas) }
+        XCTAssertEqual(events.count, emitted, "a closed session emitted \(events.dropFirst(emitted))")
+        XCTAssertFalse(session.isReady)
+        XCTAssertNil(session.canvas)
+        XCTAssertEqual(session.readerState?.status.lifecycle, .closed)
+        XCTAssertEqual(shownAppearances(canvas), [], "a closed session's page is shown")
+    }
+
+    /// A note opened while the page's Dark rebuild is held comes from its own section's build,
+    /// for Dark: it is drawn in Dark, though the page behind it is still Light.
+    func testANoteOpenedDuringARebuildIsShownInTheAppearanceItsTextWasBuiltFor() async throws {
+        let held = expectation(description: "the shown section's Dark rebuild is held")
+        let gate = DarkBuildGate(holding: "OPS/one.xhtml", held: held)
+        defer { gate.release() }
+        let data = try SessionCoverageBook.epub([
+            .init("one", SessionCoverageBook.filler(40) + "<hr/>" + SessionCoverageBook.filler(40)),
+            .init("notes", "<p>Notes.</p><aside epub:type='footnote' id='n1'><p>The note's words.</p></aside>"),
+        ])
+        let session = try NativeSession(publication: try EPUBPublication.open(data: data), action: nil, rich: gate) { _ in }
+        let window = ReaderTestWindow(session: session)
+        defer { session.close(); window.close() }
+        try await wait("the Light reader") { session.isReady && session.book.isComplete }
+
+        window.pageControls.colorScheme = .dark
+        await waitFor([held])
+        let canvas = try await laidOutCanvas(session, dark: true)
+        XCTAssertFalse(canvas.configuration.isDark, "the page left Light before its Dark rebuild")
+        defer { closeNote(canvas) }
+        let opened = try XCTUnwrap(session.activateLink(.note(href: "OPS/notes.xhtml#n1"),
+                                                        from: CGRect(x: 100, y: 100, width: 20, height: 20)))
+        await opened.value
+        let note = try XCTUnwrap(presentedNote(canvas))
+        XCTAssertEqual(note.textView.contentStorage.textStorage?.string, "The note's words.")
+        XCTAssertEqual(builtAppearances([note.textView]), [true], "the note's text is not built for Dark")
+        XCTAssertTrue(noteDrawsDark(canvas, note), "a note built for Dark is drawn in Light")
     }
 
     func testALiveChangeToDarkKeepsThePageAndCanvasInOneAppearanceInEitherFlow() async throws {
@@ -150,10 +246,21 @@ import UIKit
         #endif
     }
 
+    /// Runs `body` repeatedly for `duration`: a look at a state nothing more should change.
+    private func observe(for duration: TimeInterval, _ body: () async -> Void) async throws {
+        let end = Date().addingTimeInterval(duration)
+        while Date() < end {
+            await body()
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
     /// The appearances the text on screen was built for, told by its body text's colour.
-    private func shownAppearances(_ canvas: ReaderCanvasView) -> Set<Bool> {
+    private func shownAppearances(_ canvas: ReaderCanvasView) -> Set<Bool> { builtAppearances(canvas.textViews) }
+
+    private func builtAppearances(_ views: [ReaderTextView]) -> Set<Bool> {
         var built: Set<Bool> = []
-        for view in canvas.textViews {
+        for view in views {
             guard let storage = view.contentStorage.textStorage else { continue }
             storage.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
                 guard let color = value as? PlatformColor else { return }
@@ -172,6 +279,34 @@ import UIKit
         #endif
     }
 
+    private func presentedNote(_ canvas: ReaderCanvasView) -> ReaderNoteViewController? {
+        #if os(macOS)
+        (canvas.presentedNote as? NSPopover)?.contentViewController as? ReaderNoteViewController
+        #else
+        canvas.presentedNote as? ReaderNoteViewController
+        #endif
+    }
+
+    /// Whether a note's popover is drawn in Dark: its appearance on the Mac, its view's style
+    /// and background on iPhone and iPad.
+    private func noteDrawsDark(_ canvas: ReaderCanvasView, _ note: ReaderNoteViewController) -> Bool {
+        #if os(macOS)
+        (canvas.presentedNote as? NSPopover)?.appearance?.name == .darkAqua
+        #else
+        note.overrideUserInterfaceStyle == .dark && note.textView.backgroundColor == ReaderPalette.background(dark: true)
+        #endif
+    }
+
+    /// Closes a note before its reader window goes, as `NoteReachabilityTests` does.
+    private func closeNote(_ canvas: ReaderCanvasView) {
+        #if os(macOS)
+        (canvas.presentedNote as? NSPopover)?.close()
+        #else
+        (canvas.presentedNote as? ReaderNoteViewController)?.dismiss(animated: false)
+        #endif
+        canvas.presentedNote = nil
+    }
+
     private func assertTextAgreesWithCanvas(_ canvas: ReaderCanvasView, _ moment: String,
                                             file: StaticString = #filePath, line: UInt = #line) {
         let dark = drawsDark(canvas)
@@ -184,16 +319,24 @@ import UIKit
 }
 
 /// Holds every build for Dark of one document at its rule, until released; builds for Light
-/// pass. One release lets every held build finish.
+/// pass. One release lets every held build finish, and `passes` counts them.
 private final class DarkBuildGate: RichContentFactory, @unchecked Sendable {
     private let condition = NSCondition()
     private let path: String
     private let held: XCTestExpectation
     private var announced = false
     private var released = false
+    private var passed = 0
     private let content = NativeRichContent()
 
     init(holding path: String, held: XCTestExpectation) { self.path = path; self.held = held }
+
+    /// How many held builds have been let through.
+    var passes: Int {
+        condition.lock()
+        defer { condition.unlock() }
+        return passed
+    }
 
     func release() {
         condition.lock()
@@ -207,6 +350,7 @@ private final class DarkBuildGate: RichContentFactory, @unchecked Sendable {
             condition.lock()
             if !announced { announced = true; held.fulfill() }
             while !released { condition.wait() }
+            passed += 1
             condition.unlock()
         }
         return content.horizontalRule(element, style: style, context: context)
