@@ -25,7 +25,8 @@ class ReaderAttachment: NSTextAttachment, ReaderTextualAttachment {
         /// The attachment character's font, when known.
         var font: PlatformFont?
         /// Stable first-line reservation for block attachments. TextKit's preliminary sizing
-        /// callback can report position zero before applying the paragraph's leading indent.
+        /// callback can report position zero before applying the paragraph's leading indent, or
+        /// before setting a list item's marker in front of the attachment.
         var leadingIndent: CGFloat = 0
 
         /// The width the attachment may use. At the start of a line the rest of the line, so a
@@ -42,8 +43,9 @@ class ReaderAttachment: NSTextAttachment, ReaderTextualAttachment {
 
         init(container: NSTextContainer?, fragment: CGRect, position: CGPoint, font: PlatformFont?, paragraphStyle: NSParagraphStyle? = nil,
              characterIndex: Int? = nil) {
+            let reader = container as? ReaderTextContainer
             let size = ReaderTextContainer.available(in: container, lineWidth: fragment.width)
-            let viewportWidth = (container as? ReaderTextContainer)?.viewportSize.width ?? 0
+            let viewportWidth = reader?.viewportSize.width ?? 0
             // A custom text container clips the paragraph tail, but TextKit can still ask
             // attachments to size against an unclipped proposed rectangle. Apply that same
             // trailing edge before subtracting the native leading/glyph position.
@@ -51,17 +53,34 @@ class ReaderAttachment: NSTextAttachment, ReaderTextualAttachment {
             // Native attachment proposals can still span the viewport before TextKit asks
             // lineFragmentRect for the float/positioned/inline box's actual content column.
             // Resolve percentage image sizes against that column on both callback paths.
-            if let column = (container as? ReaderTextContainer)?.attachmentColumn(at: characterIndex) {
+            if let column = reader?.attachmentColumn(at: characterIndex) {
                 width = min(width, max(1, column.width))
             }
-            if let style = paragraphStyle, viewportWidth > 0 {
+            var leadingIndent = max(0, paragraphStyle?.firstLineHeadIndent ?? 0), offset: CGFloat = 0
+            if let indents = reader?.attachmentIndents(at: characterIndex, width: width) {
+                if reader?.setsLineIndents == true {
+                    // The container sets the line within its paragraph's indents, and TextKit,
+                    // shown the paragraph without them, gives the position from the line's start.
+                    // Its style has no indents, by which the attachment had the column (#376).
+                    width = max(1, width - indents.left - indents.right)
+                    leadingIndent = indents.hang
+                } else if viewportWidth > 0 {
+                    // TextKit applies the indents and gives the position from the fragment's left
+                    // edge, past the left one: the start indent left to right, and the end indent
+                    // right to left, where the start indent is at the right. Just past a tab it
+                    // gives that left indent twice, measuring the tab's stop from it (#376).
+                    width = min(width, max(1, viewportWidth - indents.right - fragment.minX))
+                    leadingIndent = indents.left + indents.hang
+                    if indents.afterTab { offset = indents.left }
+                }
+            } else if let style = paragraphStyle, viewportWidth > 0 {
                 let trailing = style.tailIndent <= 0 ? viewportWidth + style.tailIndent : style.tailIndent
                 width = min(width, max(1, trailing - fragment.minX))
             }
-            self.init(width: width, position: max(0, position.x),
+            self.init(width: width, position: max(0, position.x - offset),
                       viewport: CGSize(width: viewportWidth > 0 ? viewportWidth : size.width, height: size.height),
                       font: font)
-            leadingIndent = max(0, paragraphStyle?.firstLineHeadIndent ?? 0)
+            self.leadingIndent = leadingIndent
         }
     }
 

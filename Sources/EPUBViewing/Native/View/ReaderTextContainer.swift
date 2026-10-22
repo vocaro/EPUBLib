@@ -154,9 +154,11 @@ final class ReaderTextContainer: NSTextContainer {
 
     /// What the line starting at `index` keeps clear at each side of a box `width` wide: its
     /// paragraph's first-line or head indent at the leading edge, its tail indent at the other.
-    private func lineInsets(at index: Int, writingDirection: NSWritingDirection, width: CGFloat) -> (left: CGFloat, right: CGFloat) {
+    /// `firstLine` takes the line for the paragraph's first wherever `index` is in it.
+    private func lineInsets(at index: Int, writingDirection: NSWritingDirection, width: CGFloat,
+                            firstLine: Bool = false) -> (left: CGFloat, right: CGFloat) {
         guard let text = layoutText, let style = paragraphStyle(at: index) else { return (0, 0) }
-        let opensParagraph = index == 0 || ReaderAlignmentLayout.isParagraphBreak((text.string as NSString).character(at: index - 1))
+        let opensParagraph = firstLine || index == 0 || ReaderAlignmentLayout.isParagraphBreak((text.string as NSString).character(at: index - 1))
         let leading = max(0, opensParagraph ? style.firstLineHeadIndent : style.headIndent)
         let trailing = max(0, style.tailIndent <= 0 ? -style.tailIndent : width - style.tailIndent)
         var insets = writingDirection == .rightToLeft ? (left: trailing, right: leading) : (left: leading, right: trailing)
@@ -351,6 +353,23 @@ final class ReaderTextContainer: NSTextContainer {
             return region.contentFrame ?? region.frame
         }
         return boxColumn ?? boxPage?.geometry.paragraph(at: sourceIndex)?.column
+    }
+
+    /// Whether this container gives each line its paragraph's indents itself (`lineInsets`), and
+    /// TextKit is shown paragraphs without them (`textContentStorage(_:textParagraphWith:)`).
+    var setsLineIndents: Bool { deliversIndents && !isSimpleRectangularTextContainer }
+
+    /// The indents of the paragraph an attachment at `index` is in, in a column `width` wide:
+    /// what its first line, a block attachment's, keeps clear at each side (`lineInsets`); how
+    /// much further from that line's start the attachment stands at least, as past a list item's
+    /// marker, which hangs in the indent and whose tab reaches the head indent; and whether a
+    /// tab is just before it. Nil where the text is not known.
+    func attachmentIndents(at index: Int?, width: CGFloat) -> (left: CGFloat, right: CGFloat, hang: CGFloat, afterTab: Bool)? {
+        guard let index, let text = layoutText, let style = paragraphStyle(at: index) else { return nil }
+        let line = lineInsets(at: index, writingDirection: style.baseWritingDirection, width: width, firstLine: true)
+        let own = lineInsets(at: index, writingDirection: style.baseWritingDirection, width: width)
+        return (line.left, line.right, max(0, own.left + own.right - line.left - line.right),
+                index > 0 && (text.string as NSString).character(at: index - 1) == 0x09)
     }
 
     /// The size an attachment may use: the proposed line width, and the viewport height (or a

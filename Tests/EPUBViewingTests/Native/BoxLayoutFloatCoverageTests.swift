@@ -645,6 +645,84 @@ import UIKit
         XCTAssertLessThanOrEqual(region.frame.maxX, 320.5)
     }
 
+    /// Where each of the section's attachments of `type` is drawn in `view`, by its offset.
+    private func attachmentFrames<T: NSTextAttachment>(_ type: T.Type, in section: SectionText, view: ReaderTextView,
+                                                       within range: NSRange? = nil) -> [CGRect] {
+        var frames: [CGRect] = []
+        section.string.enumerateAttribute(.attachment, in: range ?? NSRange(location: 0, length: section.string.length)) { value, run, _ in
+            guard value is T else { return }
+            frames.append(view.segmentFrames(for: run).reduce(CGRect.null) { $0.union($1) })
+        }
+        return frames
+    }
+
+    /// CSS 2.2 10.3.3 and 17.4: a table is a block in its containing block, the content box of
+    /// the block it is in, and its rows are drawn across that box, between the block's padding,
+    /// on the right as on the left. So are a rule and an image of `width: 100%`. With a float in
+    /// the section the text container sets every line, and TextKit is shown paragraphs without
+    /// their indents: each was the whole column wide and overhung the block's end edge by the 62
+    /// points of its indents, out of the column, from x = -22 right to left. Without one each
+    /// was narrower right to left, a row and the image 18 points short of the left padding, at
+    /// x = 58 (#376). The reproduction there, in pages too.
+    func testATableInAnIndentedBlockIsAsWideAsTheBlocksContentBoxWithAndWithoutAFloat() throws {
+        let column = CGSize(width: 720, height: 980)
+        let float = "<div style='float:left; width:60px; height:40px'>F.</div>"
+        let prose = "<p>Ordinary prose wraps beside the box and returns to the full column below it. "
+            + "Ordinary prose wraps beside the box and returns to the full column below it.</p>"
+        let table = "<table><tr><td>One</td><td>Two</td></tr><tr><td>Three</td><td>Four</td></tr></table>"
+        for direction in ["rtl", "ltr"] {
+            for before in [float, ""] {
+                let label = "\(direction), \(before.isEmpty ? "no float" : "a float")"
+                let (section, view) = try layout("\(before)\(prose)<div dir='\(direction)' style='padding-left:40px; padding-right:22px'>"
+                                                 + "\(table)<hr/><p><img src='picture.png' alt='Pic'/></p></div><p>After.</p>",
+                                                 css: "hr { margin:8px 0; border-width:1px 0 0 } img { width:100% }", size: column,
+                                                 files: ["picture.png": RichFixture.image(width: 600, height: 400)])
+                if !before.isEmpty { XCTAssertNotNil(H.region("F.", in: section, view: view), "\(label): the float is planned") }
+                let (paginator, pages) = H.pages(section, size: column, label)
+                let page = try XCTUnwrap(pages.first, label)
+                for (layout, frames) in [("section", attachmentFrames(ReaderAttachment.self, in: section, view: view)),
+                                         ("page", attachmentFrames(ReaderAttachment.self, in: section, view: H.pageView(paginator, page: page),
+                                                                   within: page.range))] {
+                    XCTAssertEqual(frames.count, 4, "\(label), \(layout): two rows, the rule and the image")
+                    for (index, frame) in frames.enumerated() {
+                        let name = index < 2 ? "row \(index)" : index == 2 ? "the rule" : "the image"
+                        XCTAssertEqual(frame.minX, 40, accuracy: 0.5, "\(label), \(layout): \(name) starts at the block's left padding")
+                        XCTAssertEqual(frame.maxX, 698, accuracy: 0.5, "\(label), \(layout): \(name) ends at its right padding")
+                    }
+                }
+            }
+        }
+    }
+
+    /// A table that opens a list item is in the item's content box as well, the marker hanging
+    /// in the list's indent beside its first row (CSS Lists 3, 3.1): under the reader's own
+    /// stylesheet, 2 em on the list's start side, and 40 points on its end side here. With a
+    /// float the rows overhung the item by 72 points. Without one the first row, past the
+    /// marker's tab, was 22 points narrower left to right and 58 right to left, where the other
+    /// was 8 points narrower too (#376).
+    func testATableInAListItemIsAsWideAsTheItemsContentBoxWithAndWithoutAFloat() throws {
+        let column = CGSize(width: 720, height: 980)
+        let float = "<div style='float:left; width:60px; height:40px'>F.</div>"
+        let prose = "<p>Ordinary prose wraps beside the box and returns to the full column below it. "
+            + "Ordinary prose wraps beside the box and returns to the full column below it.</p>"
+        let table = "<table><tr><td>One</td><td>Two</td></tr><tr><td>Three</td><td>Four</td></tr></table>"
+        for (direction, list, box) in [("rtl", "<ul dir='rtl' style='padding-left:40px'>", CGFloat(40)...688),
+                                       ("ltr", "<ul style='padding-right:40px'>", 32...680)] {
+            for before in [float, ""] {
+                let label = "\(direction), \(before.isEmpty ? "no float" : "a float")"
+                let section = try H.build("\(before)\(prose)\(list)<li>\(table)</li><li>Item.</li></ul><p>After.</p>", css: "")
+                let view = H.view(section.string, size: column)
+                if !before.isEmpty { XCTAssertNotNil(H.region("F.", in: section, view: view), "\(label): the float is planned") }
+                let frames = attachmentFrames(TableRowAttachment.self, in: section, view: view)
+                XCTAssertEqual(frames.count, 2, "\(label): a line a row")
+                for (row, frame) in frames.enumerated() {
+                    XCTAssertEqual(frame.minX, box.lowerBound, accuracy: 0.5, "\(label): row \(row)'s left edge")
+                    XCTAssertEqual(frame.maxX, box.upperBound, accuracy: 0.5, "\(label): row \(row)'s right edge")
+                }
+            }
+        }
+    }
+
     /// CSS Logical Properties 1, 3.1: `inline-start` and `inline-end` map to left and right by
     /// the containing block's direction.
     func testFloatInlineStartAndInlineEndFollowTheWritingDirection() throws {
