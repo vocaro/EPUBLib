@@ -3,7 +3,8 @@ import EPUBReading
 import EPUBViewing
 import Foundation
 
-/// Reusable, toolkit-independent checks. Link this product to an adapter's test target.
+/// Toolkit-independent checks of an engine against the reader's contract, for this package's own
+/// tests. The target is internal: the package ships no product for it.
 /// Use a two-section publication and a phrase with two or more search results in it, and mount
 /// the supplied session in a real visible test window.
 @MainActor public enum EPUBEngineContract {

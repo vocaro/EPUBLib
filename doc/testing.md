@@ -1213,12 +1213,13 @@ Read so on macOS 27.0, the code is what made a departed table of data say "empty
 
 ## Adapter contract tests
 
-The internal **EPUBViewingTestSupport** target exercises adapter contracts with
-`EPUBEngineContract.verify`. It uses no XCTest or renderer types, so adapters can call it from
-XCTest, Swift Testing or another async test runner. Provide a validated two-section publication,
-two distinct encoded resource hrefs, a phrase present in the first section with two or more
-search results in the publication, and a `mount` closure that places the session in a visible
-test window and returns a cleanup closure retaining that window.
+The **EPUBViewingTestSupport** target exercises engine contracts with `EPUBEngineContract.verify`.
+It is internal: `Package.swift` ships no product for it, so only this package's tests link it
+([#748](https://github.com/vocaro/EPUBLib/issues/748)). It uses no XCTest or renderer types, so a
+test can call it from XCTest, Swift Testing or another async test runner. Provide a validated
+two-section publication, two distinct encoded resource hrefs, a phrase present in the first section
+with two or more search results in the publication, and a `mount` closure that places the session in
+a visible test window and returns a cleanup closure retaining that window.
 `NativeSessionTests.testReusableEngineContract` is a complete call-site example.
 
 The verifier checks:
