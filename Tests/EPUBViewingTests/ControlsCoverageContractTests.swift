@@ -29,6 +29,9 @@ import XCTest
     var capabilities = Self.everything
     var fault = Fault.none
     var publishesState = true
+    /// Whether a result gives only its publication and spine item: no href, quote, title or
+    /// context. Its first is then just like the verifier's own unlisted result.
+    var bareResults = false
     func makeSession(publication: EPUBPublication, selectionAction: EPUBSelectionAction?,
                      onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void) throws -> any EPUBReaderSession {
         ControlsCoverageContractSession(engine: self, book: publication, onEvent: onEvent)
@@ -40,6 +43,7 @@ import XCTest
     let readerState: EPUBReaderState?
     private let book: EPUBPublication
     private let fault: ControlsCoverageContractEngine.Fault
+    private let bareResults: Bool
     private var onEvent: (@MainActor (EPUBReaderEvent) -> Void)?
     private var closed = false, ready = false
     private var results: EPUBSearchResults?
@@ -47,6 +51,7 @@ import XCTest
     init(engine: ControlsCoverageContractEngine, book: EPUBPublication, onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void) {
         capabilities = engine.capabilities
         fault = engine.fault
+        bareResults = engine.bareResults
         self.book = book
         self.onEvent = onEvent
         readerState = engine.publishesState ? EPUBReaderState(status: EPUBReaderStatus(capabilities: engine.capabilities)) : nil
@@ -135,6 +140,11 @@ import XCTest
             EPUBSearchResult(index: index, location: EPUBLocation(publicationID: fault == .resultsOfAnotherPublication ? "another publication" : book.id,
                                                                   href: item.resource.href, quote: text),
                              spineIndex: index, sectionTitle: "Section \(index + 1)", matchedText: text)
+        }
+        if bareResults {
+            listed = listed.map {
+                EPUBSearchResult(index: $0.index, location: EPUBLocation(publicationID: book.id), spineIndex: $0.spineIndex, matchedText: text)
+            }
         }
         if fault == .resultsOutOfOrder { listed.reverse() }
         var list = EPUBSearchResults(query: fault == .resultsOfAnotherQuery ? text + "!" : text, results: listed, currentIndex: opensFirst ? 0 : nil)
@@ -255,6 +265,16 @@ import XCTest
         // An engine may publish no state at all.
         let found = try await verdict(Engine(publishesState: false))
         XCTAssertNil(found, "without published state")
+    }
+
+    /// A result need not name its section. An engine whose first result is just like the
+    /// verifier's own unlisted one passes, and one that checks only an index still does not.
+    func testTheVerifierSendsNoListedResultAsAnUnlistedOne() async throws {
+        let found = try await verdict(Engine(bareResults: true))
+        XCTAssertNil(found, "with results that give only their spine item")
+        let index = try await verdict(Engine(fault: .checksOnlyAResultsIndex, bareResults: true))
+        XCTAssertTrue(index?.contains("Accepted an unlisted search result with a listed index") == true,
+                      "checksOnlyAResultsIndex with bare results: found \(index ?? "a pass")")
     }
 
     /// "Close is idempotent; closed commands fail and later callbacks are suppressed."

@@ -118,8 +118,11 @@ import Foundation
             var stale = listed.results[0]
             stale.index = listed.count
             try await refused(.showSearchResult(stale), "Accepted a search result that is not listed")
-            // As a result of a replaced search can be, `unlisted` is at an index in range.
-            try await refused(.showSearchResult(unlisted), "Accepted an unlisted search result with a listed index")
+            // As a result of a replaced search can be, `unlisted` is at an index in range. An engine
+            // may list one just like it, whose results name no section: then one that does is unlisted.
+            var replaced = unlisted
+            if listed.results.contains(replaced) { replaced.location.href = firstHref }
+            try await refused(.showSearchResult(replaced), "Accepted an unlisted search result with a listed index")
             if let state = session.readerState {
                 try require(state.status.searchResults == published(since: start).last.flatMap { $0 },
                             "Reader state does not mirror the published search results")
