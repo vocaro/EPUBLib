@@ -155,6 +155,8 @@ import AppKit
     /// again while nothing has moved from it (`placeStillEntered`). A page turn, another show
     /// and a change of flow leave none.
     private var enteredPlace: ReaderTextPosition?
+    /// Lays the canvas out when its safe area changes and its size does not (`platformSetUp`).
+    var safeAreaObservation: NSKeyValueObservation?
     /// Posts what the canvas tells an assistive client itself: the layout change after a spread
     /// is installed, and after the reader moves the scroll view the insertion point's second
     /// notice and the layout change (`placeScrollInsertionPoint`). A test puts its own closure

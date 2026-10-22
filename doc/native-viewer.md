@@ -526,7 +526,9 @@ continues to describe the authored spine resource.
   other line does. In the inspector an image is named by its words, or is
   an image without a name. Zoom In, Zoom Out, Fit
   and Close controls complement pinch/trackpad magnification and panning; Escape closes the
-  inspector and Command-plus/minus/zero zooms or fits it. Reader page input is suspended while
+  inspector and Command-plus/minus/zero zooms or fits it. The controls and the image stand
+  inside the safe area, below a toolbar shown over the reader on the Mac as the pages do
+  ([#162](https://github.com/vocaro/EPUBLib/issues/162)). Reader page input is suspended while
   inspecting. Closing preserves the reader's text, selection and reading position.
   Inspection decodes the original archive resource independently of its inline CSS size and
   body font size, retaining resolution up to 16 megapixels and an 8,192-pixel long side.
@@ -1832,12 +1834,12 @@ as they did.
   Every line below a box that follows the visible height moves with it, and its place is an
   estimate until it is laid out again. So once the boxes are resolved for a new height the
   reader rests the kept position again, as after a resize: the last one shown, or the visible
-  start, read from the layout the new height replaces, once the person has scrolled or AppKit
-  has moved the view by a point or more for a bar. A bar shown or hidden over a reader that
-  runs under it (a host's `ignoresSafeArea()`) changes the visible height and not the
-  reader's size. Without the rest an epigraph stood 81 points below the top on an iPhone
-  while the navigation bar was hidden, and on the Mac, after a toolbar was shown over a
-  full-size content view, the next layout drew another chapter, which the reader reported
+  start, read from the layout the new height replaces, once the person has scrolled. A bar
+  shown or hidden over a reader that runs under it (a host's `ignoresSafeArea()`) changes the
+  visible height and not the reader's size. Without the rest an epigraph stood 81 points
+  below the top on an iPhone while the navigation bar was hidden, and on the Mac, after a
+  toolbar was shown over a full-size content view, the next layout drew another chapter,
+  which the reader reported
   ([#338](https://github.com/vocaro/EPUBLib/issues/338)). On iOS the rest puts the line being
   read at the top of the taller area when a bar hides. UIKit reports the scrolling of an
   inset change once the change is over, the reader's rest included. Where that report finds
@@ -1846,9 +1848,13 @@ as they did.
   bar and the text under it is being laid out again. On an iPad a paragraph shown otherwise
   ended 38.6 points below the top once the bar had hidden twice. A book with no box to
   resolve is left as UIKit leaves it: when a bar hides, its text stays where it is on
-  screen. On the Mac nothing lays the reader out when a toolbar changes the insets
-  ([#162](https://github.com/vocaro/EPUBLib/issues/162)), so the boxes stay resolved for the
-  old height until something else does: a change of appearance, or a resize.
+  screen. On the Mac the reader is laid out when a toolbar changes its safe area (Pages,
+  below), and its layout lays out the scroll view, whose automatic insets follow the toolbar
+  then; AppKit's move of the view for the new inset is made inside that layout, by as much as
+  the inset changed in the tests, so nobody has scrolled and the text on screen stays where it
+  was. Before, nothing laid the reader out for a toolbar, and the boxes stayed resolved for a
+  visible height of 620 points where 586 showed until a change of appearance or a resize did
+  ([#162](https://github.com/vocaro/EPUBLib/issues/162)).
   On Mac, VoiceOver
   [enters a text view at its insertion point](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point).
   New text starts with it at its first line, and the scroll view's is kept on the first line
@@ -2137,6 +2143,12 @@ as they did.
   Paginations are cached per section and column size; a resize,
   rotation or bar change repaginates once it ends, in steps when far into a section, with the
   old spread on screen until the new one is ready. A finished pagination keeps only its pages.
+  On the Mac a toolbar shown, hidden or made compact over a reader that runs under it, as over
+  a full-size content view, changes its safe area and not its size. AppKit lays out no view
+  for that, and tells whoever observes the view's `safeAreaInsets` (macOS 27.2); the reader
+  observes its own and is laid out then, where its pages stayed 80 points down under a
+  66-point toolbar until the window was resized
+  ([#162](https://github.com/vocaro/EPUBLib/issues/162)).
 - **Right to left.** `page-progression-direction="rtl"` mirrors spreads, swipes and tap zones.
   Within a page, a box's sides by flow (`margin-inline-start`, `padding-inline`,
   `border-inline-end`) are the sides the element's own `direction` maps them to, and cascade
@@ -3449,10 +3461,7 @@ Go: the native viewer is the bundled engine.
   rule that rests a box's top edge: each of its positions rests its own line. That rule holds
   for every position the reader shows, the one a resize or a setting change keeps included:
   where the person has scrolled part of a one-screen box off the top, a resize shows the box
-  whole again, moving its lines down to where the box puts them. On the Mac the reader is not
-  laid out when a toolbar changes the scroll view's insets
-  ([#162](https://github.com/vocaro/EPUBLib/issues/162)), so until something else lays it out its boxes are resolved for the old
-  height.
+  whole again, moving its lines down to where the box puts them.
 - Generated content ([Decisions](#decisions)) leaves out, with a disclosure, images and the
   other items of `content` the reader does not generate, and the generated content of a table
   laid out as a grid and of its rows. Without a disclosure: a `::before` or `::after` with no
