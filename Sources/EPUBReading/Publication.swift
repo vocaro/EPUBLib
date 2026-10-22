@@ -95,17 +95,16 @@ public struct EPUBPublication: Sendable {
         guard limits.archiveBytes > 0, limits.archiveBytes < Int.max else {
             throw EPUBPublicationError.limitExceeded("archiveBytes")
         }
-        let data = try handle.read(upToCount: limits.archiveBytes + 1) ?? Data()
-        return try open(data: data, limits: limits, onProgress: onProgress)
+        // A file its length or its ends refuse is refused unread beyond them (`ArchiveFile`).
+        var file = ArchiveFile(handle: handle)
+        return try open(data: file.bytes(limits: limits), limits: limits, onProgress: onProgress)
     }
 
     /// `onProgress` receives cumulative expanded bytes synchronously, after each decoded chunk.
     public static func open(data: Data, limits: EPUBImportLimits = .init(),
                             onProgress: (@Sendable (Int) -> Void)? = nil) throws -> Self {
         try Task.checkCancellation()
-        guard limits.archiveBytes > 0, data.count <= limits.archiveBytes,
-              limits.resourceBytes > 0, limits.expandedBytes > 0, limits.entryCount > 0,
-              limits.xmlBytes > 0 else { throw EPUBPublicationError.limitExceeded("import limits") }
+        try limits.admit(archiveBytes: data.count)
         let archive: Archive
         do {
             // Bytes with no end record where one can be, or with one whose comment they cut
@@ -121,15 +120,17 @@ public struct EPUBPublication: Sendable {
         catch { throw EPUBPublicationError.invalidArchive(String(describing: error)) }
         // The bytes this archive reads, whatever it was made from.
         let archiveBytes = archive.data ?? data
-        let directory = try ArchiveBounds.check(archiveBytes, archive: archive, names: limits.entryCount)
+        let directory = try ArchiveBounds.check(archiveBytes, names: limits.entryCount)
         var contents: [String: Data] = [:]
         var paths = Set<String>()
         var total = 0
         var inputWork = ArchiveInputWork(archiveBytes: archiveBytes.count)
         for (index, entry) in archive.enumerated() {
             try Task.checkCancellation()
-            let path = EntryName.path(of: entry)
-            guard ResourceReference.isReadablePath(path, directory: entry.type == .directory), entry.type != .symlink else {
+            // The entry's path and type, read from its directory record's own bytes.
+            let name = try directory.name(at: index, in: archiveBytes)
+            let path = try name.path
+            guard ResourceReference.isReadablePath(path, directory: name.type == .directory), name.type != .symlink else {
                 throw EPUBPublicationError.unsafePath(path)
             }
             guard paths.insert(path).inserted else {
@@ -137,7 +138,7 @@ public struct EPUBPublication: Sendable {
             }
             guard paths.count <= limits.entryCount else { throw EPUBPublicationError.limitExceeded("entry count") }
             // Directories have no data to extract or count toward expanded-byte limits.
-            if entry.type == .directory { continue }
+            if name.type == .directory { continue }
             // An entry that declares more than a limit allows is refused before it is read,
             // unless it is compressed. A compressed entry is not read by its declared size,
             // which may be wrong either way with its data whole: a deflated one is held to the
