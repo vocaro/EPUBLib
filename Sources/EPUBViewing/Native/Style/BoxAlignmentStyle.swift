@@ -200,10 +200,14 @@ extension CSSPropertyParser {
         case .alignSelf, .justifySelf:
             return alignmentKeyword(c, for: property).flatMap { itemAlignment($0, auto: true) }.map(CSSValue.itemAlignment)
         case .order:
-            guard c.count == 1, case .token(.number(let value, _, _)) = c[0], value == value.rounded(), abs(value) <= 1_000_000 else { return nil }
+            guard c.count == 1 else { return nil }
+            if let value = calcInteger(c[0]) { return .integer(min(max(value, -1_000_000), 1_000_000)) }
+            guard case .token(.number(let value, _, _)) = c[0], value == value.rounded(), abs(value) <= 1_000_000 else { return nil }
             return .integer(Int(value))
         case .flexGrow:
-            guard c.count == 1, case .token(.number(let value, _, _)) = c[0], value >= 0 else { return nil }
+            guard c.count == 1 else { return nil }
+            if let value = calcNumber(c[0]) { return .number(min(max(value, 0), 1_000_000)) }
+            guard case .token(.number(let value, _, _)) = c[0], value >= 0 else { return nil }
             return .number(min(value, 1_000_000))
         case .rowGap: return c.count == 1 ? gap(c[0]) : nil
         case .gridColumns:
@@ -348,6 +352,8 @@ extension CSSPropertyParser {
             if case .token(.number(let value, _, _)) = component, value >= 0, numbers.count < 2 {
                 // A third unitless zero is the basis.
                 numbers.append(value)
+            } else if numbers.count < 2, let value = calcNumber(component) {
+                numbers.append(max(value, 0))
             } else if !hasBasis, component.ident.map({ ["auto", "content", "min-content", "max-content", "fit-content"].contains($0) }) == true
                         || length(component, percent: true, negative: false, auto: false) != nil {
                 hasBasis = true
@@ -372,6 +378,8 @@ extension CSSPropertyParser {
                 guard parts.count == 2, let inner = gridTrackCount(parts[1]) else { return nil }
                 if parts[0].count == 1, case .token(.number(let times, _, _)) = parts[0][0], times >= 1 {
                     count += Int(min(times, Double(maximumGridColumns))) * max(inner, 1)
+                } else if parts[0].count == 1, let times = calcInteger(parts[0][0]) {
+                    count += min(max(times, 1), maximumGridColumns) * max(inner, 1)
                 } else if parts[0].count == 1, ["auto-fill", "auto-fit"].contains(parts[0][0].ident ?? "") {
                     count += 2 * max(inner, 1)
                 } else {

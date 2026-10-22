@@ -32,7 +32,6 @@ final class EPUBCheckPackageDocumentCoverageTests: XCTestCase {
     // MARK: Identifiers
 
     func testAManifestIdentifierWithSurroundingWhitespaceIsTheIdentifierWithoutIt() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/80")
         // EPUBCheck accepts these (its issue 332): `id` and `idref` are XML IDs and ID
         // references, whose values are whitespace-normalized.
         let opf = package(

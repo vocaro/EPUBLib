@@ -30,6 +30,9 @@ public struct EPUBMetadata: Equatable, Sendable {
 }
 
 public struct EPUBResource: Equatable, Sendable, Identifiable {
+    /// The manifest item's `id`. One read from a package is read as an XML ID is: without the XML
+    /// white space (space, tab, line feed, carriage return) at its ends, each run of it inside as
+    /// one space.
     public let id: String
     /// Decoded archive path, relative to the archive root.
     public let path: String
@@ -37,7 +40,8 @@ public struct EPUBResource: Equatable, Sendable, Identifiable {
     public var href: String { ResourceReference.encoded(path: path) }
     public let mediaType: String
     public let properties: Set<String>
-    /// The manifest ID of the next resource in this item's fallback chain, when designated.
+    /// The manifest ID of the next resource in this item's fallback chain, when designated,
+    /// read as `id` is.
     public let fallbackID: String?
     public init(id: String, path: String, mediaType: String, properties: Set<String> = [], fallbackID: String? = nil) {
         self.id = id; self.path = path; self.mediaType = mediaType; self.properties = properties
@@ -53,6 +57,8 @@ public enum EPUBPageProgression: String, Sendable { case ltr, rtl, `default` }
 public struct EPUBSpineItem: Equatable, Sendable {
     public let resource: EPUBResource
     public let isLinear: Bool
+    /// The itemref's own `rendition:layout` override, the first its `properties` writes when it
+    /// has several (EPUB Reading Systems 3.3 §5.5.1), else the package's `rendition:layout`.
     public let layout: EPUBLayout
     public init(resource: EPUBResource, isLinear: Bool = true, layout: EPUBLayout = .reflowable) {
         self.resource = resource; self.isLinear = isLinear; self.layout = layout
