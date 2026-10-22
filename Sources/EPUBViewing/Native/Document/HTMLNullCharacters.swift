@@ -17,6 +17,19 @@ import Foundation
 /// between the sign and what would have made a tag of it. In bytes that are not UTF-8 a NUL
 /// stays likewise where leaving it out would join the halves of a character.
 ///
+/// After a DOCTYPE, a `>` and a `[` that only NULs stand between are kept apart. The screen
+/// refuses a `[` directly after a DOCTYPE's `>`, where libxml2's XML parser reads an internal
+/// subset, and leaving the NULs out would give the parser what the screen refuses. The first
+/// NUL is `<!>`, which libxml2 2.9.13 reads as nothing wherever this scan reads text, so the
+/// text is what it is without the NUL. (An HTML tokenizer reads `title`, `textarea` and the
+/// like as RCDATA or raw text, and would show it there.) It holds no quote and no `-->`, `?>`
+/// or `]]>`, so it ends nothing the screen may be reading there; an empty comment `<!---->`
+/// would end a comment the screen reads in a style sheet. The screen reads a DOCTYPE two ways:
+/// as XML does, in capitals and past a quoted `>`, and for this parser, in any case to its first
+/// `>` (`HTMLDoctypes`). The bytes come here after either reading, and the screen reads a
+/// DOCTYPE in the raw text of a style sheet too, so here any `>` after the first `<!DOCTYPE`,
+/// in any case, may end one.
+///
 /// The scan follows what libxml2 does with the bytes it is given here, not what HTML would:
 /// raw text ends at an end tag of its own name and at no other. Where the two part (libxml2
 /// ends raw text at any end tag directly after `<style>`), a NUL reads as U+FFFD that might
@@ -33,6 +46,11 @@ enum HTMLNullCharacters {
         output.reserveCapacity(bytes.count)
         var index = 0
         var rawText: [UInt8]? // The name of the `script` or `style` whose raw text this is.
+        let doctype = bytes.indices.first { HTMLDoctypes.opens(bytes, at: $0) } ?? bytes.count
+        /// Whether the NULs from `start` stand between a `>` that may end a DOCTYPE and a `[`.
+        func opensSubset(at start: Int) -> Bool {
+            start > doctype && bytes[start - 1] == 0x3E && bytes[start...].first(where: { $0 != 0 }) == 0x5B
+        }
         /// Copies the markup that ends before `end`.
         func copyMarkup(to end: Int) {
             for byte in bytes[index..<end] {
@@ -70,7 +88,14 @@ enum HTMLNullCharacters {
             } else {
                 // Text. Before a byte that only continues a character, which is not UTF-8, a
                 // NUL stays, so that the bytes on either side are not joined into a character.
-                if byte != 0 { output.append(byte) } else if let next, next & 0xC0 == 0x80 { output.append(contentsOf: replacement) }
+                // The first of the NULs between a `>` that may end a DOCTYPE and a `[` is `<!>`.
+                if byte != 0 {
+                    output.append(byte)
+                } else if let next, next & 0xC0 == 0x80 {
+                    output.append(contentsOf: replacement)
+                } else if opensSubset(at: index) {
+                    output.append(contentsOf: emptyComment)
+                }
                 index += 1
             }
         }
@@ -78,6 +103,7 @@ enum HTMLNullCharacters {
     }
 
     private static let commentOpen = Array("<!--".utf8)
+    private static let emptyComment = Array("<!>".utf8)
 
     /// The index after the `-->` or `--!>` that ends the comment opened at `start`.
     static func comment(in bytes: [UInt8], at start: Int) -> Int {
