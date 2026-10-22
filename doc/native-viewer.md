@@ -248,7 +248,7 @@ continues to describe the authored spine resource.
   and inspects the attachment, and turns StaticSVG's diagnostics into the section's disclosures.
   StaticSVG ships the renderer as an Apple XCFramework, so consumers do not need Rust; its source
   pins, build, panic boundary and redistribution notices are in its
-  [renderer notes](https://github.com/vocaro/StaticSVG/blob/0.1.0/doc/renderer.md).
+  [renderer notes](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/renderer.md).
 - **Data URLs.** An image a document holds in a `data:` URL, as EPUB 3.3 §3.7 permits, is shown
   as one from the archive is: an `<img>`, and an `<object>` or `<embed>` whose `type` names an
   image ([#134](https://github.com/vocaro/EPUBLib/issues/134)); and an SVG `<image>`, in a drawing
@@ -3121,8 +3121,8 @@ Go: the native viewer is the bundled engine.
   ([verification](https://github.com/vocaro/EPUBLib/issues/53#issuecomment-6159293638); [the book](testing.md#networking-svg-book)). StaticSVG
   screens each drawing against its rendering limits before its renderer reads it, and an SVG
   past any shows its fallback text with the `svg` disclosure. The
-  [limits](https://github.com/vocaro/StaticSVG/blob/0.1.0/doc/design.md#limits) and
-  [how each screen reads the drawing as the renderer does](https://github.com/vocaro/StaticSVG/blob/0.1.0/doc/screens.md)
+  [limits](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/design.md#limits) and
+  [how each screen reads the drawing as the renderer does](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/screens.md)
   are StaticSVG's. Retained renderer font databases share a 64 MiB budget across the process.
   Each distinct set of fonts an SVG names is one database, with its own copy of the fallback
   faces, shared by every drawing that names those fonts. An SVG refused a database shows its fallback text. The networking book

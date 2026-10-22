@@ -1,5 +1,5 @@
 {
-  "originHash" : "078d21ce63f32dcd8f6e019d139647609a20c2f79eb2598a0b4c50bd777411ac",
+  "originHash" : "a8bbe64ef8850f81f2b630fd2676ae8f8c96b1960139431e2b80d8abb36b83aa",
   "pins" : [
     {
       "identity" : "mathmllayout",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/vocaro/StaticSVG.git",
       "state" : {
-        "revision" : "98fb77f556ae462124a796e8a15a27c495927c32",
-        "version" : "0.1.0"
+        "revision" : "a2c4ad57e7f540e03345161082100a59256b3a45",
+        "version" : "0.1.1"
       }
     },
     {

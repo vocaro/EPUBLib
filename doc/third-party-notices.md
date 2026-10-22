@@ -15,17 +15,17 @@
   (Apache-2.0). Readable copies of all required licenses and notices are retained unchanged in
   [Vendor/MathMLLayout](../Vendor/MathMLLayout), from tag `0.3.1`. Applications distributing EPUBViewing must include these copies in their own
   acknowledgments or accompanying documentation; SwiftPM does not bundle them automatically.
-- **StaticSVG 0.1.0** — MIT — Copyright (c) 2026 Vocaro Technologies LLC.
+- **StaticSVG 0.1.1** — MIT — Copyright (c) 2026 Vocaro Technologies LLC.
   https://github.com/vocaro/StaticSVG. EPUBViewing draws SVG with it. Its release includes a
   static library built from **resvg 0.48.1** (MIT/Apache-2.0, https://github.com/linebender/resvg),
   the 60 other Rust crates it depends on and parts of the Rust 1.95.0 standard library, all under
   permissive licenses. Readable copies of StaticSVG's license, the locked dependency inventory and
   the complete dependency and Rust standard-library notices are retained unchanged in
-  [Vendor/StaticSVG](../Vendor/StaticSVG/README.md), from tag `0.1.0`. Applications distributing
+  [Vendor/StaticSVG](../Vendor/StaticSVG/README.md), from tag `0.1.1`. Applications distributing
   EPUBViewing contain this static code and must include these notices in their own
   acknowledgments or accompanying documentation; SwiftPM does not bundle them automatically.
   How the library is built, patched and verified is in StaticSVG's
-  [renderer notes](https://github.com/vocaro/StaticSVG/blob/0.1.0/doc/renderer.md).
+  [renderer notes](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/renderer.md).
 
 The native viewer and its regression tests originate in StudyWright and EPUBLib,
 Copyright (c) 2026 Vocaro Technologies LLC, and are distributed here under this repository's MIT license.
