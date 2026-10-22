@@ -16,6 +16,10 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         tap.delegate = self
         tap.cancelsTouchesInView = false
         addGestureRecognizer(tap)
+        let middle = ReaderMiddleTapRecognizer(target: self, action: #selector(middleTapped(_:)))
+        middle.delegate = self
+        middle.cancelsTouchesInView = false
+        addGestureRecognizer(middle)
         updateInputHandlers()
         NotificationCenter.default.addObserver(self, selector: #selector(memoryWarning(_:)),
                                                name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
@@ -26,7 +30,9 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// Disabled recognizers cannot compete with a host gesture, even before recognition.
     func updateInputHandlers() {
         for recognizer in gestureRecognizers ?? [] {
-            if recognizer is UISwipeGestureRecognizer {
+            if recognizer is ReaderMiddleTapRecognizer {
+                recognizer.isEnabled = configuration.togglesControls
+            } else if recognizer is UISwipeGestureRecognizer {
                 recognizer.isEnabled = configuration.flow == .paginated && configuration.pageControls.touchSwipesEnabled
             } else if recognizer is UITapGestureRecognizer {
                 recognizer.isEnabled = configuration.flow == .paginated && configuration.pageControls.edgeTapsEnabled
@@ -260,10 +266,23 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         turnPageFromInput(forward: forward)
     }
 
+    /// A tap in the middle of the page shows or hides the host's controls (`togglesControls(at:)`),
+    /// unless the touch was a long press, timed as an edge tap is.
+    @objc private func middleTapped(_ recognizer: ReaderMiddleTapRecognizer) {
+        guard let down = pointerDown, let lift = recognizer.liftTime, lift - down.time < 0.35,
+              togglesControls(at: recognizer.location(in: self)) else { return }
+        _ = toggleControls()
+    }
+
     // Swipes never begin while text is selected, so dragging a selection handle never turns the
-    // page; edge taps begin only in the zones.
+    // page; edge taps begin only in the zones, and a tap in the middle only away from them.
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer.view === self else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
+        // VoiceOver's double tap on a line reaches the reader as a touch at the line: under
+        // VoiceOver the controls come and go by Magic Tap and the Show Controls button alone.
+        if gestureRecognizer is ReaderMiddleTapRecognizer {
+            return !UIAccessibility.isVoiceOverRunning && togglesControls(at: gestureRecognizer.location(in: self))
+        }
         guard imageInspector == nil, configuration.flow == .paginated, !hasSelection, !isDraggingSelection else { return false }
         if gestureRecognizer is UISwipeGestureRecognizer { return configuration.pageControls.touchSwipesEnabled && !hasSelection }
         if gestureRecognizer is UITapGestureRecognizer { return edgeTurn(at: gestureRecognizer.location(in: self)) != nil }
@@ -272,12 +291,32 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard gestureRecognizer.isEnabled else { return false }
+        // A touch that stops continuous scroll moving is not a tap on the page.
+        if gestureRecognizer is ReaderMiddleTapRecognizer, scrollTextView?.isDecelerating == true { return false }
         if gestureRecognizer is UITapGestureRecognizer { pointerDown = (touch.location(in: self), touch.timestamp) }
         return true
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
+    /// A tap in the middle waits until it is not the first of the text's double tap, which
+    /// selects a word: that double tap does not show or hide the controls.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRequireFailureOf other: UIGestureRecognizer) -> Bool {
+        gestureRecognizer is ReaderMiddleTapRecognizer && ((other as? UITapGestureRecognizer)?.numberOfTapsRequired ?? 1) > 1
+    }
+
+    /// A finger dragging continuous scroll reads on (`ReaderCanvasDelegate.canvasDidReadOn`).
+    /// VoiceOver's own scrolling drags nothing.
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        guard scrollView === scrollTextView else { return }
+        delegate?.canvasDidReadOn(self)
+    }
+
+    /// VoiceOver's Magic Tap, a two-finger double tap, shows or hides the host's controls from
+    /// wherever its cursor is in the reader. Its lines and text views pass it here.
+    override func accessibilityPerformMagicTap() -> Bool { toggleControls() }
 
     /// The host may focus the canvas for hardware keys; it never takes focus on its own, which
     /// would dismiss a keyboard elsewhere in the window.
@@ -568,7 +607,7 @@ final class ReaderNoteViewController: UIViewController, UIPopoverPresentationCon
 /// The canvas's edge-tap recognizer, which keeps when its touch lifted, as the touch gives it.
 /// With when it went down (`pointerDown`) that times a press without reading a clock: the
 /// system's uptime is an API whose use a host would have to declare to the App Store (#685).
-final class ReaderEdgeTapRecognizer: UITapGestureRecognizer {
+class ReaderEdgeTapRecognizer: UITapGestureRecognizer {
     private(set) var liftTime: TimeInterval?
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
@@ -581,4 +620,8 @@ final class ReaderEdgeTapRecognizer: UITapGestureRecognizer {
         super.touchesEnded(touches, with: event)
     }
 }
+
+/// The canvas's recognizer of a tap in the middle of the page, which shows or hides the host's
+/// controls. It is timed as an edge tap is.
+final class ReaderMiddleTapRecognizer: ReaderEdgeTapRecognizer {}
 #endif

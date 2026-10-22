@@ -554,6 +554,10 @@ final class ReaderScrollView: NSScrollView {
     override func scrollWheel(with event: NSEvent) {
         if let view = canvas?.scrollTextView { canvas?.holdScrollPlace(of: view) }
         super.scrollWheel(with: event)
+        // The person's wheel or trackpad reads on, and its momentum is the same gesture.
+        if let canvas, event.momentumPhase.isEmpty, event.scrollingDeltaX != 0 || event.scrollingDeltaY != 0 {
+            canvas.delegate?.canvasDidReadOn(canvas)
+        }
     }
 }
 

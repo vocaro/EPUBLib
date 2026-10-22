@@ -1119,6 +1119,11 @@ The probe's steps are documented where they are handled, in
 `-QualificationTouchTrace YES`, for the strip `-QualificationStripGroups <names>` (its groups
 in order, as `pages,contents,appearance,readingMode`) and `-QualificationStripRoom <points>`
 (the most height it is offered), and, on the Mac, `-QualificationWindowSize <width>x<height>`.
+`-QualificationHides YES` puts the host under `epubReaderHidesControls`, with Hide Controls in
+its toolbar, and `-QualificationHidesWhileReading NO` has the controls hide only when asked
+([hiding the controls](reader-controls.md#hiding-the-controls-while-reading)). The status line
+then ends in "controls hidden" or "controls shown", and states "contrast increased" and
+"transparency reduced" while those are on.
 UIKit's own `-UIPreferredContentSizeCategoryName`, with a category the guide above names,
 gives the host a text size without a change to the simulator; on the iPhone SE the strip's
 frames at the largest size were those `signal=content_size` gave. For the iPhone Duo set
@@ -2477,6 +2482,10 @@ the same lines and new items for them, all but the one under VoiceOver's cursor.
 host does that hides them while a book is read: VoiceOver reading on by itself does
 differently after a page turn with and without them
 ([#554](https://github.com/vocaro/EPUBLib/issues/554)).
+`-SampleHides YES` puts the sample under `epubReaderHidesControls`, and `-SampleHideAfter 20`
+has it hide its controls by itself 20 seconds after the book opens, as VoiceOver's Magic Tap
+would with VoiceOver already on: what VoiceOver reads of hidden controls, which a simulator's
+VoiceOver cannot be made to hide with Magic Tap.
 `-SampleSearch word00` submits that search once the book is ready, as the strip's field does,
 so that its match row has 99 results to step through, and `-SampleSearchAfter 6` submits it
 that many seconds later: after the text built again for `-SampleFontSize`, which on a Mac

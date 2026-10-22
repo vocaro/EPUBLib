@@ -40,7 +40,8 @@ struct ToolbarReader: View {
 ```
 <!-- /snippet -->
 
-Pass ordered `groups` to omit or rearrange `.pages`, `.search`, `.contents`, `.appearance`, `.readingMode`.
+Pass ordered `groups` to omit or rearrange `.pages`, `.search`, `.contents`, `.appearance`, `.readingMode`
+and `.hideControls` ([below](#hiding-the-controls-while-reading)).
 `placement` accepts SwiftUI's `ToolbarItemPlacement`. Use separate toolbar instances with
 disjoint groups for different placements. Add host `ToolbarItem`s in the same builder.
 The toolbar uses icons with accessible labels to fit phone widths; search opens a popover
@@ -156,6 +157,98 @@ leaves only the field and action buttons; with `.searchResults` the pane adds th
 navigator and result list described below. Feedback describes the submitted query; editing
 text does not replace the active highlight query. `hasMatches` reports occurrences the reader
 can show: a query found only in content that renders nothing completes with no matches.
+
+## Hiding the controls while reading
+
+`epubReaderHidesControls(_:whileReading:)` hides the controls while the book is read and brings
+them back ([#696](https://github.com/vocaro/EPUBLib/issues/696)), as Apple's guidelines ask of a
+toolbar hidden "for a distraction-free experience": with ways to "reliably restore" it
+([Toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars)), and no
+Liquid Glass in the content layer
+([Materials](https://developer.apple.com/design/human-interface-guidelines/materials)). Apply it
+to the view that holds the reader and its toolbar or strip, after the `.toolbar`, so that the
+toolbar's items see it:
+
+<!-- snippet:hiding -->
+```swift
+struct HidingReader: View {
+    let controls: EPUBReaderControls // Retained alongside the existing session by the host.
+
+    var body: some View {
+        EPUBReaderView(session: controls.session)
+            .toolbar {
+                EPUBReaderToolbar(controls: controls, groups: [.search, .contents, .appearance, .readingMode, .hideControls])
+                #if os(iOS)
+                EPUBReaderToolbar(controls: controls, groups: [.pages], placement: .topBarPinnedTrailing)
+                #else
+                ToolbarSpacer(.fixed)
+                EPUBReaderToolbar(controls: controls, groups: [.pages])
+                #endif
+            }
+            // After the toolbar, so that its Hide Controls group is offered.
+            .epubReaderHidesControls(controls)
+    }
+}
+```
+<!-- /snippet -->
+
+`controls.controlsHidden` says whether they are hidden, and `hideControls()`, `showControls()`
+and `toggleControls()` change it, for custom controls too. It is true only while the reader is
+ready: a book that closes or fails shows its controls again, with what they say of it. The
+complete reader of [#690](https://github.com/vocaro/EPUBLib/issues/690), when it comes, applies
+the modifier itself and offers `whileReading` as its own option.
+
+Hidden, on iPhone and iPad the navigation bar, the bottom bar, the status bar and the home
+indicator go. On a Mac the window toolbar goes, as View > Hide Toolbar takes it, and View > Show
+Toolbar brings the controls back with it. An `EPUBReaderControlStrip` keeps its place and its
+height, with its groups unseen, disabled and hidden from assistive technology, and its search
+field gives up its focus and the keyboard. `.hideControls` is a Hide Controls button, offered
+only under the modifier: elsewhere it takes no place in a toolbar or a strip.
+
+They hide by themselves as the person reads on with the reader's own input: a page turned by a
+key, a swipe, an edge tap or click or the wheel, and continuous scroll dragged by a finger or
+moved by a Mac's wheel or trackpad. A page button, a contents entry, a search, a host command
+and VoiceOver's own page turns leave them as they are. While VoiceOver or Switch Control is
+running they do not hide by themselves, since hidden controls are gone from what either can
+reach, and either coming on shows them. `whileReading: false` hides them only when asked.
+
+They come back:
+
+- by a tap in the middle of the page on iPhone and iPad, which hides them again: anywhere on it
+  but the edge zones that turn the page (`EPUBPageControls`), a link, a picture or selected
+  text. It waits until it is not the first tap of the double tap that selects a word. A click
+  of an iPad's pointer is such a tap. While VoiceOver is running it does nothing: VoiceOver's
+  double tap on a line reaches the reader as a touch at the line.
+- by VoiceOver's Magic Tap, a two-finger double tap, from any line of the reader or from the
+  Show Controls button, which hides them again too, on iPhone and iPad.
+- by Option-Command-T, the shortcut of the Mac's own Show Toolbar, which the Hide Controls group
+  and the Show Controls button carry, whatever has keyboard focus. Hide Controls is disabled
+  while the controls are hidden: a hidden bar's items keep their shortcuts, and with both
+  enabled the key did nothing on an iPhone simulator.
+- by the Show Controls button, a chevron in the room the bars left, or over the hidden strip
+  where no bar left room. It is drawn in the secondary label colour, with no glass, at more than
+  the 3:1 a control's graphic needs against the background, in light and dark and with Increase
+  Contrast ([#696](https://github.com/vocaro/EPUBLib/issues/696) has the measures). VoiceOver
+  reads it as "Show Controls, button" where it stands, and reads none of the strip's hidden
+  groups (iPhone and iPad simulators).
+- when the width changes while they are hidden, as in a rotation.
+
+The reader keeps the room the bars took. From the layout that hides the controls until both
+bars are back, it is laid out in the safe area it had while they showed, so the book is not laid
+out again and a bar coming back covers no text. The bars do
+not go or come back at once: the navigation bar and the bottom bar each change the safe area in
+a layout of its own. When the room each left was measured and given back a layout behind it,
+the reader was laid out at five other frames in each round of hiding and showing on an iPhone
+17 Pro simulator (`ReaderControlsHidingTests.testHiddenBarsLeaveTheReaderItsFrame`). The room is
+the host's background, and only the bars are glass, over it. This holds for a reader in the safe
+area, as `EPUBReaderView` is unless the host has it ignore the safe area; one that ignores it
+runs under the bars as before, and was not checked.
+
+On a Mac a click in the middle of the text keeps its meaning, the insertion point VoiceOver
+starts at, and shows or hides nothing. Option-Command-T is View > Hide Toolbar's shortcut there
+too; which of the two takes it in an app with that menu was not checked.
+
+Migration: hosts with exhaustive switches over `EPUBReaderControlGroup` add `.hideControls`.
 
 ## Search results
 
@@ -394,6 +487,7 @@ controls were operated; the Mac's tree agrees where noted.
 | Page buttons | Previous Page, Next Page; Scroll Backward, Scroll Forward in continuous scroll | Disabled at either end of the book |
 | Reading mode | Continuous Scroll, Paging | The current one selected. On the Mac a radio group named Reading Mode with two radio buttons of those names, the current one's value 1. |
 | Search, Contents, Appearance | The same | Contents and Appearance are menu buttons on the Mac |
+| Hide Controls, Show Controls | The same | Option-Command-T on each; Show Controls takes VoiceOver's Magic Tap on iPhone and iPad |
 | Contents entries | The entry's title | The current ones selected; the unlinked entry disabled; a parent "Collapsed" to VoiceOver |
 | Appearance entries | Smaller Text, Larger Text, System, Light, Dark | The chosen appearance selected. On the Mac the three appearances are in a submenu named Appearance. |
 | Search field | Search in book | The query |

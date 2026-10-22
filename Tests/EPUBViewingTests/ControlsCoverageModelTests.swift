@@ -688,7 +688,7 @@ import UIKit
         try await wait("only the host's field") { host.order == ["Host field"] }
         host.show(strip(EPUBReaderControlGroup.allCases))
         try await wait("every group") { host.order.sorted() == [search, "segments"].sorted() }
-        XCTAssertEqual(EPUBReaderControlGroup.allCases, [.pages, .search, .contents, .appearance, .readingMode])
+        XCTAssertEqual(EPUBReaderControlGroup.allCases, [.pages, .search, .contents, .appearance, .readingMode, .hideControls])
         XCTAssertEqual(host.order, [search, "segments"], "the default order puts search before reading mode")
 
         // An engine without a group's capability shows nothing for it, wherever it is listed.

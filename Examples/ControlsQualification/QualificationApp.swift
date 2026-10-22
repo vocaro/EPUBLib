@@ -63,6 +63,9 @@ import SwiftUI
 struct QualificationScreen: View {
     @State private var model = QualificationModel()
     @State private var browsing = false
+    /// Increase Contrast and Reduce Transparency, which the status line states when they are on.
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     private let defaults = UserDefaults.standard
 
     var body: some View {
@@ -91,11 +94,11 @@ struct QualificationScreen: View {
     @ViewBuilder private func host(_ controls: EPUBReaderControls) -> some View {
         switch defaults.string(forKey: "QualificationHost") ?? "toolbar" {
         case "strip":
-            VStack(spacing: 0) {
+            hiding(VStack(spacing: 0) {
                 // Padding and a frame hide the strip's own layout priority from the stack.
                 strip(controls).padding(.horizontal).layoutPriority(1)
                 reader(controls)
-            }
+            }, controls)
         case "navigator":
             titled(reader(controls), controls)
                 .toolbar {
@@ -110,9 +113,9 @@ struct QualificationScreen: View {
                     EPUBSearchResultList(controls: controls) { _ in browsing = false }
                 }
         default:
-            titled(reader(controls), controls)
+            hiding(titled(reader(controls), controls)
                 .toolbar {
-                    EPUBReaderToolbar(controls: controls, groups: [.search, .contents, .appearance, .readingMode], placement: placement)
+                    EPUBReaderToolbar(controls: controls, groups: [.search, .contents, .appearance, .readingMode, .hideControls], placement: placement)
                     // `-QualificationHostItems <count>` adds host actions beside the supplied groups.
                     ToolbarItemGroup(placement: placement) {
                         ForEach(0..<defaults.integer(forKey: "QualificationHostItems"), id: \.self) { index in
@@ -125,7 +128,19 @@ struct QualificationScreen: View {
                     ToolbarSpacer(.fixed)
                     EPUBReaderToolbar(controls: controls, groups: [.pages])
                     #endif
-                }
+                }, controls)
+        }
+    }
+
+    /// `-QualificationHides YES` hides the controls while the book is read, as
+    /// `epubReaderHidesControls` does, and `-QualificationHidesWhileReading NO` only when asked.
+    /// The toolbar then offers Hide Controls.
+    @ViewBuilder private func hiding(_ view: some View, _ controls: EPUBReaderControls) -> some View {
+        if defaults.bool(forKey: "QualificationHides") {
+            let whileReading = defaults.object(forKey: "QualificationHidesWhileReading") == nil || defaults.bool(forKey: "QualificationHidesWhileReading")
+            view.epubReaderHidesControls(controls, whileReading: whileReading)
+        } else {
+            view
         }
     }
 
@@ -158,16 +173,21 @@ struct QualificationScreen: View {
     private func reader(_ controls: EPUBReaderControls) -> some View {
         VStack(spacing: 0) {
             EPUBReaderView(session: controls.session)
-            Text(Self.summary(controls))
+            Text(summary(controls))
                 .font(.caption2).lineLimit(2).dynamicTypeSize(.small).padding(4)
                 .accessibilityIdentifier("qualification.status")
                 #if os(iOS)
-                .onChange(of: Self.summary(controls), initial: true) { TouchTrace.shared.note("status " + $1) }
+                .onChange(of: summary(controls), initial: true) { TouchTrace.shared.note("status " + $1) }
                 #endif
         }
     }
 
     /// The reader's public state on one line, so each control's effect can be read back.
+    private func summary(_ controls: EPUBReaderControls) -> String {
+        [Self.summary(controls), contrast == .increased ? "contrast increased" : nil,
+         reduceTransparency ? "transparency reduced" : nil].compactMap { $0 }.joined(separator: " | ")
+    }
+
     private static func summary(_ controls: EPUBReaderControls) -> String {
         guard let status = controls.status else { return "no state" }
         let search = switch status.search {
@@ -184,6 +204,7 @@ struct QualificationScreen: View {
                 "\(status.style.appearance.rawValue) shown \(status.effectiveAppearance.rawValue)",
                 search,
                 controls.searchResults.map { "\($0.currentIndex.map { String($0 + 1) } ?? "-")/\($0.count)" } ?? "no results",
+                controls.controlsHidden ? "controls hidden" : "controls shown",
         ].joined(separator: " | ")
     }
 
