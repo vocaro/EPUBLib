@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Require a phrase with two or more search results in `EPUBEngineContract.verify`, which now fails a call whose phrase has one, where it passed its step and wrap checks without the current match moving ([#730](https://github.com/vocaro/EPUBLib/issues/730)).
 - Fail an engine in `EPUBEngineContract.verify` whose next search result stays on the last result instead of returning to the first, or that shows an unlisted result because its index is in range, where the verifier stepped forward only from the first result and tried no unlisted result with a listed index ([#160](https://github.com/vocaro/EPUBLib/issues/160)).
 - Time an edge tap on iPhone and iPad by the touch's own timestamps, and build resvg with no file read and its Rust standard library without backtraces, where the reader read the system's uptime and resvg kept `stat` and `fstat`, APIs that an app has to declare in its privacy manifest, so that an app built with EPUBLib has none of them to declare ([#685](https://github.com/vocaro/EPUBLib/issues/685)).
 - Compute custom properties and substitute `var()` as CSS Custom Properties for Cascading Variables 1 does, with fallbacks, cycles, `calc()`, shorthands and the CSS-wide keywords, and within bounds on what a book can make the reader substitute, where a declaration that held a `var()` was dropped and custom properties were not kept, so a stylesheet built on them fell back to inherited or initial values ([#119](https://github.com/vocaro/EPUBLib/issues/119)).

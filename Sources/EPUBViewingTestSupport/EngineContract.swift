@@ -4,7 +4,8 @@ import EPUBViewing
 import Foundation
 
 /// Reusable, toolkit-independent checks. Link this product to an adapter's test target.
-/// Use a two-section publication and mount the supplied session in a real visible test window.
+/// Use a two-section publication and a phrase with two or more search results in it, and mount
+/// the supplied session in a real visible test window.
 @MainActor public enum EPUBEngineContract {
     public struct Failure: LocalizedError, CustomStringConvertible {
         public let description: String
@@ -93,7 +94,7 @@ import Foundation
                 if case .searchResultsChanged(.some) = $0 { return true }; return false
             }
             try require(firstPublished.map { $0 < completion } ?? false, "Results must be published before search completion")
-            try require(!listed.isEmpty, "The supplied text must have at least one search result")
+            try require(listed.count >= 2, "Provide a phrase with two or more search results, so steps and wraps can move the current match")
             try require(listed.query == text, "Results name another query")
             try require(listed.results.map(\.index) == Array(listed.results.indices), "Result indices must match their order")
             try require(listed.results.allSatisfy { $0.location.publicationID == publication.id }, "Result belongs to another publication")

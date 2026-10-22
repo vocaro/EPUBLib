@@ -229,7 +229,7 @@ import XCTest
 
     /// The verifier's failure for an engine, nil when the engine passes. An error the engine
     /// itself threw through the verifier counts as a failure and is described.
-    private func verdict(_ engine: Engine, text: String = "Opening words") async throws -> String? {
+    private func verdict(_ engine: Engine, text: String = "ordinary reading text") async throws -> String? {
         do {
             try await EPUBEngineContract.verify(engine: engine, publication: EPUBPublication.open(data: Fixture.epub()),
                 firstHref: "OPS/one.xhtml", secondHref: "OPS/two.xhtml", text: text, timeout: 0.3) { session in

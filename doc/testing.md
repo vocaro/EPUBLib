@@ -1216,8 +1216,9 @@ Read so on macOS 27.0, the code is what made a departed table of data say "empty
 The internal **EPUBViewingTestSupport** target exercises adapter contracts with
 `EPUBEngineContract.verify`. It uses no XCTest or renderer types, so adapters can call it from
 XCTest, Swift Testing or another async test runner. Provide a validated two-section publication,
-two distinct encoded resource hrefs, a phrase present in the first section, and a `mount` closure
-that places the session in a visible test window and returns a cleanup closure retaining that window.
+two distinct encoded resource hrefs, a phrase present in the first section with two or more
+search results in the publication, and a `mount` closure that places the session in a visible
+test window and returns a cleanup closure retaining that window.
 `NativeSessionTests.testReusableEngineContract` is a complete call-site example.
 
 The verifier checks:
@@ -1234,9 +1235,10 @@ The verifier checks:
   `EPUBSearchResults.steppedIndex(forward:)` says; mirrors the list in `readerState` when it has
   one; refuses an unlisted result, whether its index is out of range or names a listed one; and
   withdraws the list on clear, after which a kept result is refused and no step has any effect.
-  With a phrase that has one result, every step shows that result, so a wrap is checked only
-  for a phrase with two or more. An engine without `.searchResults` refuses the three result
-  commands with `.unsupported(.searchResults)` and publishes no results.
+  The engine must list two or more results for the phrase, or the verifier fails before it
+  steps: with one, every step would show that result, and no step or wrap could move the
+  current match. An engine without `.searchResults` refuses the three result commands with
+  `.unsupported(.searchResults)` and publishes no results.
 - Close is idempotent; closed commands fail and later callbacks are suppressed.
 
 A minimal SwiftUI test engine runs the same checks with no renderer at all, as an engine with no
