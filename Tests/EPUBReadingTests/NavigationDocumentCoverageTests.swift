@@ -463,16 +463,17 @@ final class NavigationDocumentCoverageTests: XCTestCase {
     func testEntryHrefsAreResolvedWhateverMarkFollowsTheirSeparatorsAndDots() throws {
         for m in Fixture.clusteringMarks {
             let e = Fixture.escapingNonASCII(m)
-            let hrefs = ["../\(m)x.xhtml", "./\(m)x.xhtml#s", "a/../\(m)x.xhtml", "a/\(m)x.xhtml", "two.xhtml#\(m)s", "#\(m)s", "..%2F\(e)x.xhtml"]
+            let hrefs = ["../\(m)x.xhtml", "./\(m)x.xhtml#s", "a/../\(m)x.xhtml", "a/\(m)x.xhtml", "two.xhtml#\(m)s", "#\(m)s", "%2E%2E/\(e)x.xhtml"]
             let entries = try contents("<ol>" + hrefs.map { "<li><a href=\"\($0)\">x</a></li>" }.joined() + "</ol>")
             XCTAssertEqual(entries.map(\.href), ["\(e)x.xhtml", "OPS/\(e)x.xhtml#s", "OPS/\(e)x.xhtml", "OPS/a/\(e)x.xhtml", "OPS/two.xhtml#\(e)s",
                                                 "OPS/nav.xhtml#\(e)s", "\(e)x.xhtml"], m.debugDescription)
             // Read as the same href is without the mark. One that climbs past the container root
             // or opens with a slash starts at the root (https://github.com/vocaro/EPUBLib/issues/84)
             // and a colon is a character of the name; one with a backslash does not resolve, and
-            // its entry stays without a target (https://github.com/vocaro/EPUBLib/issues/171).
+            // its entry stays without a target (https://github.com/vocaro/EPUBLib/issues/171), nor
+            // does one with an escaped slash (https://github.com/vocaro/EPUBLib/issues/660).
             let others: [(href: String, resolved: String?)] = [("../../\(m)x.xhtml", "\(e)x.xhtml"), ("/\(m)x.xhtml", "\(e)x.xhtml"),
-                                                               ("./a:\(m)x.xhtml", "OPS/a%3A\(e)x.xhtml"), ("a\\\(m)x.xhtml", nil)]
+                                                               ("./a:\(m)x.xhtml", "OPS/a%3A\(e)x.xhtml"), ("a\\\(m)x.xhtml", nil), ("..%2F\(e)x.xhtml", nil)]
             for (href, resolved) in others {
                 let list = "<ol><li><a href=\"\(href)\">x</a></li><li><a epub:type=\"bodymatter\" href=\"one.xhtml#p2\">kept</a></li></ol>"
                 XCTAssertEqual(try contents(list), [Item(title: "x", href: resolved), Item(title: "kept", href: "OPS/one.xhtml#p2")], href.debugDescription)
