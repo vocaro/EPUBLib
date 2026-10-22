@@ -94,7 +94,7 @@ final class PackageManifestSpineCoverageTests: XCTestCase {
             // Within the container: dot segments resolve and the name begins with the mark.
             let cases: [(href: String, path: String)] = [
                 ("../\(m)x.css", "\(m)x.css"), ("./\(m)x.css", "OPS/\(m)x.css"), ("a/../\(m)x.css", "OPS/\(m)x.css"), ("a/\(m)x.css", "OPS/a/\(m)x.css"),
-                ("a//\(m)x.css", "OPS/a/\(m)x.css"), ("..%2F\(e)y.css", "\(m)y.css"), ("\(e)z.css#\(m)top", "OPS/\(m)z.css"),
+                ("a//\(m)x.css", "OPS/a/\(m)x.css"), ("%2E%2E/\(e)y.css", "\(m)y.css"), ("\(e)z.css#\(m)top", "OPS/\(m)z.css"),
             ]
             var items = "", files: [String: Data?] = [:]
             for (index, item) in cases.enumerated() {
@@ -117,9 +117,13 @@ final class PackageManifestSpineCoverageTests: XCTestCase {
                 XCTAssertEqual(Array(resource.path.unicodeScalars), Array(path.unicodeScalars), href.debugDescription)
                 XCTAssertEqual(try book.data(for: resource), Data(path.utf8), href.debugDescription)
             }
-            // A backslash names no file, and still refuses the book.
-            let href = "a\\\(m)x.css"
-            assertOpening(try self.book(items: "<item id=\"x\" href=\"\(href)\" media-type=\"text/css\"/>"), throws: .unsafePath(href), href.debugDescription)
+            // A backslash names no file, and still refuses the book. So does an escaped slash, a
+            // character of its segment that no file's name holds (https://github.com/vocaro/EPUBLib/issues/660),
+            // though the file it would name decoded is there.
+            for href in ["a\\\(m)x.css", "..%2F\(e)y.css"] {
+                assertOpening(try self.book(items: "<item id=\"x\" href=\"\(href)\" media-type=\"text/css\"/>", adding: ["\(m)y.css": Data()]),
+                              throws: .unsafePath(href), href.debugDescription)
+            }
         }
     }
 
@@ -323,13 +327,50 @@ final class PackageManifestSpineCoverageTests: XCTestCase {
     }
 
     func testIdsWithSurroundingSpacesMatchTheirReferences() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/80")
         // An id is an XML ID, read without the white space around it: EPUBCheck passes
         // attr-id-with-spaces-valid.opf, whose items are `id="  t001"` and itemrefs `idref="t001"`.
         XCTAssertEqual(try book(items: "<item id=\"  three\" href=\"three.xhtml\" \(xhtml)/><item id=\"four  \" href=\"four.xhtml\" \(xhtml)/>",
                                 spine: "<spine><itemref idref=\"one\"/><itemref idref=\"three\"/><itemref idref=\"four\"/></spine>",
                                 adding: ["OPS/three.xhtml": Data("<html/>".utf8), "OPS/four.xhtml": Data("<html/>".utf8)]).spine.map(\.resource.path),
                        ["OPS/one.xhtml", "OPS/three.xhtml", "OPS/four.xhtml"])
+    }
+
+    /// Every other reference to an item reads its id, and its own value, as the spine does: a
+    /// fallback, the spine's `toc` and the EPUB 2 cover. This `toc` names the second of two NCX
+    /// items; the first would stand in for one that named none.
+    func testAFallbackTheNCXAndTheCoverNameTheirItemWhateverWhiteSpaceSurroundsEither() throws {
+        let other = "<ncx xmlns=\"http://www.daisy.org/z3986/2005/ncx/\" version=\"2005-1\"><navMap><navPoint id=\"x\" playOrder=\"1\">"
+            + "<navLabel><text>Another</text></navLabel><content src=\"one.xhtml\"/></navPoint></navMap></ncx>"
+        let book = try book(items: "<item id=\"other\" href=\"other.ncx\" media-type=\"application/x-dtbncx+xml\"/>"
+            + "<item id=\" three\t\" href=\"three.xhtml\" \(xhtml) fallback=\"&#9;four \"/><item id=\"four\" href=\"four.xhtml\" \(xhtml)/>"
+            + "<item id=\"\n art \" href=\"art.png\" media-type=\"image/png\"/>",
+            spine: "<spine toc=\" ncx\n\"><itemref idref=\"three \"/><itemref idref=\"one\"/></spine>",
+            metadata: "<meta name=\"cover\" content=\" art\"/>", epub2: true,
+            adding: ["OPS/other.ncx": Data(other.utf8), "OPS/three.xhtml": Data("<html/>".utf8), "OPS/four.xhtml": Data("<html/>".utf8),
+                     "OPS/art.png": Data([0])])
+        XCTAssertEqual(book.spine.map(\.resource.id), ["three", "one"])
+        XCTAssertEqual(book.spine[0].resource.fallbackID, "four")
+        XCTAssertEqual(book.fallbackChain(for: book.spine[0].resource).map(\.path), ["OPS/three.xhtml", "OPS/four.xhtml"])
+        XCTAssertEqual(book.tableOfContents.map(\.title), ["First Chapter"])
+        XCTAssertEqual(book.cover?.path, "OPS/art.png")
+    }
+
+    /// An id is one ID however much XML white space surrounds it, so an item that differs from
+    /// another only by that repeats it, verbatim or in conflict, and an id of nothing else is
+    /// empty. Within it a run of that white space is one space, as XML Schema collapses an
+    /// `xsd:ID`. Other white space, a no-break space among it, is part of the id.
+    func testAnIdIsOneIdWhateverXMLWhiteSpaceSurroundsIt() throws {
+        let three: [String: Data?] = ["OPS/three.xhtml": Data("<html/>".utf8)]
+        XCTAssertEqual(try book(items: "<item id=\" one \" href=\"one.xhtml\" \(xhtml)/>").resources, try book().resources)
+        assertOpening(try book(items: "<item id=\"one&#9;\" href=\"two.xhtml\" \(xhtml)/>"), throws: .invalidXML("Manifest item"), "a conflict")
+        assertOpening(try book(items: "<item id=\" &#9;&#10;&#13; \" href=\"extra.css\" media-type=\"text/css\"/>", adding: ["OPS/extra.css": Data("a{}".utf8)]),
+                      throws: .invalidXML("Manifest item"), "white space alone")
+        XCTAssertEqual(try book(items: "<item id=\"three &#9;\n four\" href=\"three.xhtml\" \(xhtml)/>",
+                                spine: "<spine><itemref idref=\"three four\"/></spine>", adding: three).spine.map(\.resource.id), ["three four"])
+        for space in ["&#xA0;", "\u{A0}", "\u{3000}", "&#x200B;"] {
+            assertOpening(try book(items: "<item id=\"\(space)three\" href=\"three.xhtml\" \(xhtml)/>",
+                                   spine: "<spine><itemref idref=\"three\"/></spine>", adding: three), throws: .invalidXML("Spine idref"), space)
+        }
     }
 
     func testPropertiesAreSeparatedByAnyWhiteSpace() throws {

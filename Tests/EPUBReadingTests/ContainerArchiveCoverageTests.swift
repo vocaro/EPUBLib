@@ -209,9 +209,9 @@ final class ContainerArchiveCoverageTests: XCTestCase {
                 assertOpening(Fixture.storedArchive(entries + [Fixture.StoredEntry(name, "x")]), throws: .unsafePath(name), name.debugDescription)
             }
         }
-        // A prepended mark takes the separator after it into its `Character`. The last is a
-        // file's name to ZIPFoundation, which looks for a closing "/" by `Character`.
-        for name in ["OPS/x\u{600}/..", "OPS\u{600}/../x", "OPS/x\u{600}/./y", "OPS/x\u{600}//y", "OPS/x\u{600}\\y", "OPS/x\u{600}/"] {
+        // A prepended mark takes the separator after it into its `Character`. A name that ends
+        // in one and a "/" is a folder's (`testANameEndingInAPrependedMarkAndASlashIsAFolderWithAndWithoutTheFlag`).
+        for name in ["OPS/x\u{600}/..", "OPS\u{600}/../x", "OPS/x\u{600}/./y", "OPS/x\u{600}//y", "OPS/x\u{600}\\y"] {
             assertOpening(Fixture.storedArchive(entries + [Fixture.StoredEntry(name, "x")]), throws: .unsafePath(name), name.debugDescription)
         }
         // A colon is a character of a name that is read, beside a mark as anywhere else
@@ -360,9 +360,84 @@ final class ContainerArchiveCoverageTests: XCTestCase {
             let name = Array("OPS/x".utf8) + bytes + Array(".css".utf8)
             let book = try EPUBPublication.open(data: self.book(adding: [entry(named: name, "a{}", flags: 0)]))
             XCTAssertEqual(try book.data(at: "OPS/x\(reading).css"), Data("a{}".utf8), form)
-            XCTAssertThrowsError(try EPUBPublication.open(data: self.book(adding: [entry(named: name, "a{}", flags: 0x0800)])), form) {
-                guard case .unsafePath = $0 as? EPUBPublicationError else { return XCTFail("\(form): \($0)") }
+            // The refusal names the entry by its bytes (https://github.com/vocaro/EPUBLib/issues/207).
+            assertOpening(try self.book(adding: [entry(named: name, "a{}", flags: 0x0800)]),
+                          throws: .invalidArchive("Entry name not UTF-8: OPS/x\(bytes.map { String(format: "%%%02X", $0) }.joined()).css"), form)
+        }
+    }
+
+    func testTheRefusalOfAFlaggedNameThatIsNotUTF8SpellsOutItsBytes() throws {
+        // It was `unsafePath("")`, which said nothing of the entry. Printable ASCII is itself and
+        // every other byte, a space and "%" among them, is escaped as a URL escapes it, so two
+        // names give two refusals and each tells what its bytes are.
+        let cases: [([UInt8], String)] = [
+            (Array("OPS/50% off\t".utf8) + [0xE9] + Array(".css".utf8), "OPS/50%25%20off%09%E9.css"),
+            ([0xFF], "%FF"),
+            (Array("OPS/".utf8) + [0xC3, 0xA9, 0xC3], "OPS/%C3%A9%C3"),
+            ([0xEF, 0xBB, 0xBF, 0x7F, 0x80], "%EF%BB%BF%7F%80"),
+        ]
+        for (bytes, escaped) in cases {
+            assertOpening(try book(adding: [entry(named: bytes, "a{}", flags: 0x0800)]), throws: .invalidArchive("Entry name not UTF-8: \(escaped)"), escaped)
+            // Without the flag the same bytes are a name in code page 437, and the book opens.
+            XCTAssertNoThrow(try EPUBPublication.open(data: book(adding: [entry(named: bytes, "a{}", flags: 0)])), escaped)
+        }
+        // A name of no bytes is a path of none, which is refused as one.
+        assertOpening(try book(adding: [entry(named: [], "a{}", flags: 0x0800)]), throws: .unsafePath(""), "no name")
+    }
+
+    func testAByteOrderMarkThatOpensANameIsPartOfIt() throws {
+        // EF BB BF is U+FEFF, a scalar of the name like any other: Foundation's decoder, which
+        // ZIPFoundation reads a name with, dropped it where it opened the bytes, so this name was
+        // `mimetype` and the book was refused as holding that entry twice.
+        let mark = "\u{FEFF}"
+        XCTAssertEqual(Array(mark.utf8), [0xEF, 0xBB, 0xBF])
+        let files = try Fixture.packageVariantFiles(opf: {
+            $0.replacingOccurrences(of: "</manifest>", with: "<item id=\"marked\" href=\"%EF%BB%BFstyle.css\" media-type=\"text/css\"/>"
+                + "<item id=\"root\" href=\"../%EF%BB%BFroot.css\" media-type=\"text/css\"/></manifest>")
+        })
+        for flags: UInt16 in [0x0800, 0] {
+            let entries = Fixture.storedEntries(files, flags: flags) + [
+                Fixture.StoredEntry("\(mark)mimetype", "not the mimetype", flags: flags),
+                Fixture.StoredEntry("OPS/\(mark)style.css", "a{}", flags: flags),
+                Fixture.StoredEntry("\(mark)root.css", "b{}", flags: flags),
+                Fixture.StoredEntry("\(mark)\(mark)twice.css", "c{}", flags: flags),
+            ]
+            let book = try EPUBPublication.open(data: Fixture.storedArchive(entries))
+            XCTAssertEqual(try book.data(at: "mimetype"), Data("application/epub+zip".utf8), "flags \(flags)")
+            XCTAssertEqual(try book.data(at: "\(mark)mimetype"), Data("not the mimetype".utf8), "flags \(flags)")
+            // A manifest href that spells the mark names the entry, at the root as in a folder.
+            XCTAssertEqual(book.resources.first { $0.id == "marked" }?.path, "OPS/\(mark)style.css", "flags \(flags)")
+            XCTAssertEqual(book.resources.first { $0.id == "root" }?.path, "\(mark)root.css", "flags \(flags)")
+            XCTAssertEqual(try book.data(at: "\(mark)root.css"), Data("b{}".utf8), "flags \(flags)")
+            XCTAssertEqual(try book.data(at: "\(mark)\(mark)twice.css"), Data("c{}".utf8), "flags \(flags)")
+            for unmarked in ["OPS/style.css", "root.css", "\(mark)twice.css", "twice.css"] {
+                XCTAssertThrowsError(try book.data(at: unmarked), "\(unmarked.debugDescription), flags \(flags)")
             }
+        }
+    }
+
+    func testANameEndingInAPrependedMarkAndASlashIsAFolderWithAndWithoutTheFlag() throws {
+        // U+0600 (D8 80) joins the character after it, so by `Character` the name does not end in
+        // "/". ZIPFoundation looks for the "/" so, and found it in the code page 437 reading of the
+        // bytes, which it reads without bit 11, and not in the UTF-8 one it reads with the bit:
+        // the record was a folder without the flag and, with it, a file whose path ends in "/",
+        // refused. By its bytes it is a folder either way, and a folder's data is not read.
+        let names = ["OPS/\u{600}/", "OPS/x\u{600}/", "\u{600}/", "OPS/\u{600}\u{600}/"]
+        for flags: UInt16 in [0, 0x0800] {
+            let entries = names.map { Fixture.StoredEntry($0, Data(), flags: flags) }
+                + [Fixture.StoredEntry("OPS/y\u{600}/", Data("data a folder does not have".utf8), flags: flags)]
+            let book = try EPUBPublication.open(data: self.book(adding: entries))
+            XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/two.xhtml"], "flags \(flags)")
+            for name in names + ["OPS/y\u{600}/"] { XCTAssertThrowsError(try book.data(at: name), "\(name.debugDescription), flags \(flags)") }
+        }
+        // What the system that made the entry says it is decides, as before: a Unix mode of a
+        // regular file makes the record a file, whose path may not end in "/", with the bit and
+        // without it. MS-DOS's directory attribute makes it a folder.
+        for flags: UInt16 in [0, 0x0800] {
+            let file = Fixture.StoredEntry("OPS/x\u{600}/", Data("x".utf8), flags: flags, versionMadeBy: 3 << 8 | 20, externalAttributes: 0o100644 << 16)
+            assertOpening(try book(adding: [file]), throws: .unsafePath("OPS/x\u{600}/"), "a Unix file, flags \(flags)")
+            let folder = Fixture.StoredEntry("OPS/x\u{600}", Data(), flags: flags, versionMadeBy: 20, externalAttributes: 0x10)
+            XCTAssertThrowsError(try EPUBPublication.open(data: book(adding: [folder])).data(at: "OPS/x\u{600}"), "an MS-DOS folder, flags \(flags)")
         }
     }
 
@@ -473,9 +548,9 @@ final class ContainerArchiveCoverageTests: XCTestCase {
             XCTAssertEqual(try book.data(at: "OPS/\(reading)x.css"), Data("a{}".utf8), meant.debugDescription)
             XCTAssertThrowsError(try book.data(at: "OPS/\(meant)x.css"), meant.debugDescription)
             XCTAssertThrowsError(try book.data(at: "x.css"), meant.debugDescription)
-            XCTAssertThrowsError(try EPUBPublication.open(data: self.book(adding: [entry(named: name, "a{}", flags: 0x0800)])), meant.debugDescription) {
-                guard case .unsafePath = $0 as? EPUBPublicationError else { return XCTFail("\(meant.debugDescription): \($0)") }
-            }
+            assertOpening(try self.book(adding: [entry(named: name, "a{}", flags: 0x0800)]),
+                          throws: .invalidArchive("Entry name not UTF-8: OPS/\(bytes.map { String(format: "%%%02X", $0) }.joined())x.css"),
+                          meant.debugDescription)
         }
     }
 

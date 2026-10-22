@@ -24,9 +24,11 @@ import Foundation
 /// text is what it is without the NUL. (An HTML tokenizer reads `title`, `textarea` and the
 /// like as RCDATA or raw text, and would show it there.) It holds no quote and no `-->`, `?>`
 /// or `]]>`, so it ends nothing the screen may be reading there; an empty comment `<!---->`
-/// would end a comment the screen reads in a style sheet. The screen ends a DOCTYPE past a
-/// quoted `>`, and reads one in the raw text of a style sheet, so here any `>` after the first
-/// `<!DOCTYPE` may end one.
+/// would end a comment the screen reads in a style sheet. The screen reads a DOCTYPE two ways:
+/// as XML does, in capitals and past a quoted `>`, and for this parser, in any case to its first
+/// `>` (`HTMLDoctypes`). The bytes come here after either reading, and the screen reads a
+/// DOCTYPE in the raw text of a style sheet too, so here any `>` after the first `<!DOCTYPE`,
+/// in any case, may end one.
 ///
 /// The scan follows what libxml2 does with the bytes it is given here, not what HTML would:
 /// raw text ends at an end tag of its own name and at no other. Where the two part (libxml2
@@ -44,7 +46,7 @@ enum HTMLNullCharacters {
         output.reserveCapacity(bytes.count)
         var index = 0
         var rawText: [UInt8]? // The name of the `script` or `style` whose raw text this is.
-        let doctype = bytes.firstRange(of: doctypeOpen)?.lowerBound ?? bytes.count
+        let doctype = bytes.indices.first { HTMLDoctypes.opens(bytes, at: $0) } ?? bytes.count
         /// Whether the NULs from `start` stand between a `>` that may end a DOCTYPE and a `[`.
         func opensSubset(at start: Int) -> Bool {
             start > doctype && bytes[start - 1] == 0x3E && bytes[start...].first(where: { $0 != 0 }) == 0x5B
@@ -101,7 +103,6 @@ enum HTMLNullCharacters {
     }
 
     private static let commentOpen = Array("<!--".utf8)
-    private static let doctypeOpen = Array("<!DOCTYPE".utf8) // As the screen spells it.
     private static let emptyComment = Array("<!>".utf8)
 
     /// The index after the `-->` or `--!>` that ends the comment opened at `start`.
