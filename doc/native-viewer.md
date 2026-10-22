@@ -3190,7 +3190,18 @@ position in the book does not move.
 - On iPhone and iPad the question is an alert from the view controller on top, over a note's
   popover when one is shown, and the note is still there after it. Open is its preferred
   action, which Return chooses on a keyboard, and Cancel its cancel action, which Escape
-  chooses. On Mac it is a sheet on the reader's window, Open its default button (Return) and
+  chooses. Its title is the question and the address on two lines, and it has no message:
+  UIKit gives a message an element of its own, and VoiceOver reads only an alert's first
+  element as it comes up, so with the address as the message it said the question alone and
+  the address on the next swipe ([#793](https://github.com/vocaro/EPUBLib/issues/793)). After
+  Cancel VoiceOver's cursor goes back to the item it was on, the link, the table's row or the
+  note's text: as the alert went, VoiceOver took the first item of the screen, a control of
+  the host, while the link's element was still listed. The reader names the item with a
+  screen change as the answer comes, and puts the cursor back if VoiceOver comes to another
+  item after it, or is still elsewhere a second later. On simulators that took VoiceOver
+  straight back to a link or a row; over a note the iPhone said the popover's first item and
+  was back on the note's text a second later. After Open the cursor is left to whatever was
+  opened. On Mac it is a sheet on the reader's window, Open its default button (Return) and
   Cancel its second (Escape), and a note's popover is closed first: it is a window of its
   own, which would stand over the sheet.
 - One question at a time: a second link activated while one is asked about replaces it, and

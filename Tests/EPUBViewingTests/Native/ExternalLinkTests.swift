@@ -66,8 +66,10 @@ import UIKit
         guard let alert = try canvas(reader).linkQuestion?.shown as? NSAlert else { return nil }
         return (alert.messageText, alert.informativeText, alert.buttons.map(\.title))
         #else
+        // The question and the address are the title's two lines.
         guard let alert = try canvas(reader).linkQuestion?.shown as? UIAlertController else { return nil }
-        return (alert.title ?? "", alert.message ?? "", alert.actions.compactMap(\.title))
+        let lines = (alert.title ?? "").split(separator: "\n", maxSplits: 1).map(String.init)
+        return (lines.first ?? "", lines.count > 1 ? lines[1] : "", alert.actions.compactMap(\.title))
         #endif
     }
 
@@ -89,6 +91,9 @@ import UIKit
         #else
         XCTAssertEqual(shown.buttons, ["Cancel", "Open"], file: file, line: line)
         let alert = try XCTUnwrap(canvas(reader).linkQuestion?.shown as? UIAlertController)
+        // UIKit gives a message an element of its own, which VoiceOver reads only on the next
+        // swipe: the address is in the title, which it reads as the alert comes up (#793).
+        XCTAssertNil(alert.message, file: file, line: line)
         XCTAssertEqual(alert.preferredAction?.title, "Open", "Return chooses Open", file: file, line: line)
         XCTAssertEqual(alert.actions.first { $0.style == .cancel }?.title, "Cancel", "Escape chooses Cancel", file: file, line: line)
         #endif
@@ -111,7 +116,7 @@ import UIKit
         }
         #else
         let alert = try XCTUnwrap(canvas.linkQuestion?.shown as? UIAlertController, file: file, line: line)
-        canvas.answerLinkQuestion(open, to: alert)
+        canvas.alertAnswered(open, to: alert)
         #endif
     }
 
@@ -369,4 +374,72 @@ import UIKit
         canvas.answerLinkQuestion(true, to: third)
         XCTAssertEqual(try controls(reader).opened.count, 1, "nothing opens for a closed reader")
     }
+
+    #if os(iOS)
+    // MARK: VoiceOver's cursor after the question
+
+    /// #793: as the alert went, VoiceOver took the screen's first item, a control of the host,
+    /// though the link's element was still listed. After Cancel the cursor goes back to the item
+    /// it was on when the question was asked: named with a screen change as the answer comes,
+    /// and put back when VoiceOver comes to another item after it, or, with no item told of
+    /// within a second, when it is still elsewhere then. After Open it is
+    /// left to whatever was opened. Where VoiceOver comes back to the link by itself, nothing is
+    /// done. VoiceOver's cursor is the canvas's to ask, so a test can say where it is.
+    func testCancelPutsVoiceOversCursorBackOnTheLink() async throws {
+        let reader = try await open()
+        let canvas = try canvas(reader)
+        let found = try link("https://example.invalid/page?q=1", in: reader)
+        let elements = try XCTUnwrap(found.view.accessibilityElements as? [UIAccessibilityElement])
+        let element = try XCTUnwrap(elements.first { $0.accessibilityTraits.contains(.link) && $0.accessibilityLabel == "the site" })
+        let elsewhere = UIAccessibilityElement(accessibilityContainer: found.view)
+        var cursor: NSObject = element
+        canvas.voiceOverCursor = { cursor }
+        var posted: [(name: UIAccessibility.Notification, item: AnyObject?)] = []
+        canvas.postAccessibilityNotification = { name, item in posted.append((name, item.map { $0 as AnyObject })) }
+        func backOnTheLink() -> Int { posted.filter { $0.name == .layoutChanged && $0.item === element }.count }
+        func focus(_ item: NSObject?) {
+            NotificationCenter.default.post(name: UIAccessibility.elementFocusedNotification, object: nil,
+                                            userInfo: item.map { [UIAccessibility.focusedElementUserInfoKey: $0] } ?? [:])
+        }
+        func ask() async throws {
+            cursor = element // VoiceOver activates the link it is on.
+            XCTAssertTrue(element.accessibilityActivate())
+            try await assertAsked("https://example.invalid/page?q=1", in: reader)
+            cursor = elsewhere // VoiceOver is in the alert now.
+        }
+
+        // The link is named as the answer comes; VoiceOver comes to the host's first control
+        // all the same: the cursor is put back, once.
+        try await ask()
+        try answer(false, in: reader)
+        XCTAssertTrue(posted.contains { $0.name == .screenChanged && $0.item === element }, "\(posted)")
+        focus(nil) // A move's first notification names only the item left.
+        XCTAssertEqual(backOnTheLink(), 0)
+        focus(elsewhere)
+        XCTAssertEqual(backOnTheLink(), 1)
+        focus(elsewhere)
+        XCTAssertEqual(backOnTheLink(), 1, "only the first item VoiceOver comes to is put right")
+
+        // VoiceOver comes back to the link itself: nothing more.
+        try await ask()
+        let before = posted.count
+        try answer(false, in: reader)
+        focus(element)
+        try await Task.sleep(for: .milliseconds(1_300))
+        XCTAssertFalse(posted.dropFirst(before).contains { $0.name == .layoutChanged }, "\(posted.dropFirst(before))")
+
+        // VoiceOver tells of no item, and its cursor is elsewhere a second later.
+        try await ask()
+        try answer(false, in: reader)
+        try await reader.wait("the cursor put back after a second") { backOnTheLink() == 2 }
+
+        // Open: the cursor is left to what was opened.
+        try await ask()
+        try answer(true, in: reader)
+        focus(elsewhere)
+        try await Task.sleep(for: .milliseconds(1_300))
+        XCTAssertEqual(backOnTheLink(), 2)
+        XCTAssertEqual(try controls(reader).opened, [URL(string: "https://example.invalid/page?q=1")!])
+    }
+    #endif
 }

@@ -1941,20 +1941,21 @@ the heading's line from `ax:lines` before reading anything into it. The sessions
 
 The reader asks before it opens a web or email link outside the book
 ([Security](native-viewer.md#security), [#683](https://github.com/vocaro/EPUBLib/issues/683)).
-What VoiceOver reads of the question on iPhone and iPad is read on simulators, in the
-fixture's **Links out of the book**: a link in the text, then one in a table's cell and one in a
-note's popover, each answered Cancel, so nothing is opened:
+What VoiceOver reads of the question on iPhone and iPad, and where its cursor goes after it,
+is read on simulators, in the fixture's **Links out of the book**: links in the text, then one
+in a table's cell and one in a note's popover, each answered Cancel, so nothing is opened:
 
 ```sh
 python3 scripts/run-voiceover-simulator.py --href OPS/outside.xhtml \
-  --steps 'touch=far site,activate=far site,listen=4,forward=3,activate=Cancel,touch=letter route,activate=letter route,listen=4,activate=Cancel,touch=script route,activate=script route,listen=3,find=This reader opens only'
-python3 scripts/run-voiceover-simulator.py --href OPS/outside.xhtml \
-  --steps 'touch=Left out cell,choose=Follow Table Link: cell far site,doubletap=Left out cell,listen=4,activate=Cancel,touch=noted route,activate=noted route,listen=3,touch=noted far site,activate=noted far site,listen=4,forward=3,activate=Cancel'
+  --steps 'touch=far site,activate=far site,listen=4,forward=2,activate=Cancel,listen=4,touch=letter route,activate=letter route,listen=4,activate=Cancel,listen=4,touch=script route,activate=script route,listen=3,find=This reader opens only,touch=Left out cell,choose=Follow Table Link: cell far site,doubletap=Left out cell,listen=4,activate=Cancel,listen=4,touch=noted route,activate=noted route,listen=3,touch=noted far site,activate=noted far site,listen=4,forward=2,activate=Cancel,listen=4'
 ```
 
-`listen=4` after each activation records what VoiceOver says of the alert by itself, and
-`forward=3` its title, address and buttons one by one. `find=` says whether the notice for
-the `javascript:` link is on screen. A simulator's activation is not evidence that VoiceOver
+`listen=4` after each activation records what VoiceOver says of the alert by itself, the
+question and the address, and `forward=2` its buttons; `listen=4` after Cancel records where
+the cursor went back to ([#793](https://github.com/vocaro/EPUBLib/issues/793)). VoiceOver's
+own log beside the transcript has everything it said in between, which a transcript can miss.
+`find=` says whether the notice for the `javascript:` link is on screen. A simulator's
+activation is not evidence that VoiceOver
 activates the link ([Simulators](#simulators)); that needs an iPhone or iPad. What VoiceOver
 on Mac says of the sheet needs a [hosted Mac session](#hosted-mac-sessions), such as one that
 presses the link with VoiceOver on the search field, `ax:follow` as under

@@ -182,6 +182,17 @@ import AppKit
     /// cursor goes to another: no other item turns the page meanwhile
     /// (`accessibilityPageTurnColumn`).
     weak var accessibilityCursorAtTurn: NSObject?
+    /// The item VoiceOver's cursor was on when a question about a link outside the book was
+    /// asked, until the question is answered (`returnCursorAfterLinkQuestion`).
+    weak var cursorBeforeLinkQuestion: NSObject?
+    /// The item VoiceOver's cursor is to go back to after a cancelled question, while the first
+    /// item VoiceOver comes to after it is awaited, and which wait that is.
+    weak var cursorToReturnTo: NSObject?
+    var cursorReturnWait = 0
+    /// The item VoiceOver's cursor is on; nil while VoiceOver is off. A test puts its own here.
+    var voiceOverCursor: @MainActor () -> NSObject? = {
+        UIAccessibility.isVoiceOverRunning ? UIAccessibility.focusedElement(using: .notificationVoiceOver) as? NSObject : nil
+    }
     #endif
 
     var wheelTurner = ReaderWheelPageTurner()
