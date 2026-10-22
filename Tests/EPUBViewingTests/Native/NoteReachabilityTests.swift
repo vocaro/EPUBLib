@@ -34,11 +34,13 @@ final class NoteReachabilityTests: XCTestCase {
             """)
         XCTAssertNil(text.notes["claimed"])
         XCTAssertNil(text.notes["first"])
-        XCTAssertNil(text.notes["alias"], "An anchor with an id keeps the existing #133 behavior")
+        // HTML 7.4.6.4: an `a` is found by its `name` whatever id it has of its own (#133).
         XCTAssertNotNil(text.notes["own"])
-        for label in ["claimed", "first", "alias"] {
+        XCTAssertEqual(text.notes["alias"], text.notes["own"])
+        for label in ["claimed", "first"] {
             XCTAssertEqual(SectionContentSupport.link(label + " link", in: text), .internal(href: "OPS/one.xhtml#" + label))
         }
+        XCTAssertEqual(SectionContentSupport.link("alias link", in: text), .note(href: "OPS/one.xhtml#alias"))
         XCTAssertEqual(text.anchors["claimed"], BuilderHarness.location(of: "Id wins.", in: text))
         XCTAssertEqual(text.anchors["first"], BuilderHarness.location(of: "First name wins.", in: text))
         SectionContentSupport.assertTextMapContracts(text)

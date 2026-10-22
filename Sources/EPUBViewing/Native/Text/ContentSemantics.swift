@@ -21,11 +21,40 @@ enum ContentSemantics {
     }
 
     /// `epub:type` tokens, also from markup read by the HTML parser, which keeps the prefixed
-    /// name as a plain attribute.
+    /// name as a plain attribute. An element that may not carry them has none
+    /// (`allowsStructuralSemantics`).
     static func types(_ element: ContentNode) -> [Substring] {
-        (element.attribute("type", namespace: ContentNamespace.ops) ?? element.attribute("epub:type") ?? "")
-            .split(whereSeparator: \.isWhitespace)
+        guard let value = element.attribute("type", namespace: ContentNamespace.ops) ?? element.attribute("epub:type"),
+              allowsStructuralSemantics(element) else { return [] }
+        return value.split(whereSeparator: \.isWhitespace)
     }
+
+    /// Whether an element may carry structural semantics. EPUB 3.3 §6.1.3.1: `epub:type` "MUST
+    /// NOT be used on the head element or metadata content" (`metadataContent`), and what the
+    /// head holds is taken as in it, valid there or not; §6.2.3: in SVG it goes only on a
+    /// renderable element (`renderableSVG`). A reading system "MUST ignore the terms" anywhere
+    /// else (EPUB Reading Systems 3.3 §10). ARIA in HTML allows those HTML elements no role
+    /// either, so a DPUB-ARIA role on one makes no note (`noteKind`).
+    static func allowsStructuralSemantics(_ element: ContentNode) -> Bool {
+        if element.isHTML, metadataContent.contains(element.name) { return false }
+        if element.namespace == ContentNamespace.svg, !renderableSVG.contains(element.name) { return false }
+        var node: ContentNode? = element
+        while let current = node {
+            if current.isHTML("head") { return false }
+            node = current.parent
+        }
+        return true
+    }
+
+    /// HTML's metadata content (HTML 3.2.5.2.1), which may stand in the body too.
+    private static let metadataContent: Set<String> = ["base", "link", "meta", "noscript", "script", "style", "template", "title"]
+
+    /// SVG 2's renderable elements (its Rendering Model chapter defines them); `symbol` is one
+    /// only as the root of a `use` element's shadow tree, which the reader does not build.
+    private static let renderableSVG: Set<String> = [
+        "a", "circle", "ellipse", "foreignObject", "g", "image", "line", "path", "polygon", "polyline", "rect", "svg",
+        "switch", "text", "textPath", "tspan", "use",
+    ]
 
     /// The note an element is (EPUB 3 `epub:type` or DPUB-ARIA `role`), or nil. `insideEndnotes`
     /// says whether an element has an endnotes container among its ancestors.
@@ -33,7 +62,7 @@ enum ContentSemantics {
                          insideEndnotes: (ContentNode) -> Bool = isInsideEndnotes) -> NoteKind? {
         guard element.isElement, element.attribute("role") != nil
             || element.attribute("type", namespace: ContentNamespace.ops) != nil
-            || element.attribute("epub:type") != nil else { return nil }
+            || element.attribute("epub:type") != nil, allowsStructuralSemantics(element) else { return nil }
         let types = types(element), roles = roles(element)
         let typed = types.contains { noteTypes.contains(String($0)) }
         let footnoteRole = roles.contains("doc-footnote"), endnoteRole = roles.contains("doc-endnote")
@@ -57,7 +86,7 @@ enum ContentSemantics {
     /// `epub:type` `endnotes` (or EPUB 3.0's `rearnotes`), or `role="doc-endnotes"`.
     static func isEndnotesContainer(_ element: ContentNode) -> Bool {
         guard element.attribute("role") != nil || element.attribute("type", namespace: ContentNamespace.ops) != nil
-            || element.attribute("epub:type") != nil else { return false }
+            || element.attribute("epub:type") != nil, allowsStructuralSemantics(element) else { return false }
         return types(element).contains { $0 == "endnotes" || $0 == "rearnotes" } || roles(element).contains("doc-endnotes")
     }
 
@@ -208,27 +237,32 @@ enum ContentSemantics {
 
     // MARK: Quotation marks
 
-    /// `<q>` marks by language, outer then inner, as the CSS `quotes: auto` tables give them.
+    /// `<q>` marks by language, outer then inner: `quotes: auto` (CSS Generated Content 3
+    /// §2.4.1), the marks typographically appropriate to the language, for which the
+    /// specification points at CLDR. They are CLDR's delimiters for the language, its script and
+    /// its region (`pt` and `pt-PT`, `zh-Hans` and `zh-Hant`), as the platform's locale data has
+    /// them, and as Firefox's table, made from CLDR, has them too.
     /// `language` is the one the content declares; with none the marks are the English ones,
     /// whatever the package's `dc:language` (EPUB Reading Systems 3.3 §3.7).
     static func quotes(language: String?, depth: Int) -> (open: String, close: String) {
-        let tag = language?.lowercased() ?? "en"
-        let primary = tag.split(separator: "-").first.map(String.init) ?? tag
-        let pairs: [(String, String)]
-        switch primary {
-        case "fr": pairs = [("«\u{202F}", "\u{202F}»"), ("“", "”")]
-        case "de", "cs", "sk", "sl", "lt", "et", "is", "bg": pairs = [("„", "“"), ("‚", "‘")]
-        case "pl", "hu", "ro", "hr": pairs = [("„", "”"), ("«", "»")]
-        case "ru", "uk", "be", "es", "it", "pt", "ca", "el", "tr", "ar", "fa", "hy", "ka", "nb", "nn", "no":
-            pairs = [("«", "»"), ("“", "”")]
-        case "sv", "fi": pairs = [("”", "”"), ("’", "’")]
-        case "da": pairs = [("»", "«"), ("›", "‹")]
-        case "ja": pairs = [("「", "」"), ("『", "』")]
-        case "zh" where tag.contains("tw") || tag.contains("hk") || tag.contains("hant"): pairs = [("「", "」"), ("『", "』")]
-        default: pairs = [("“", "”"), ("‘", "’")]
-        }
-        return pairs[depth % 2]
+        let locale = Locale(identifier: language ?? "en")
+        let marks = locale.language.languageCode.flatMap { platformDepartures[$0.identifier] }
+            ?? QuotationMarks(open: locale.quotationBeginDelimiter ?? "“", close: locale.quotationEndDelimiter ?? "”",
+                              innerOpen: locale.alternateQuotationBeginDelimiter ?? "‘",
+                              innerClose: locale.alternateQuotationEndDelimiter ?? "’")
+        return depth % 2 == 0 ? (marks.open, marks.close) : (marks.innerOpen, marks.innerClose)
     }
+
+    private struct QuotationMarks {
+        let open: String, close: String, innerOpen: String, innerClose: String
+    }
+
+    /// The languages whose marks in the platform's locale data are not CLDR's: it gives Arabic
+    /// and Hebrew the typewriter marks `"` and `'`. These are CLDR's.
+    private static let platformDepartures: [String: QuotationMarks] = [
+        "ar": QuotationMarks(open: "”", close: "“", innerOpen: "’", innerClose: "‘"),
+        "he": QuotationMarks(open: "”", close: "”", innerOpen: "’", innerClose: "’"),
+    ]
 }
 
 /// CSS list markers (`list-style-type`) for a counter value.
