@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Run the iOS speech probe on simulators of its own, with no Simulator window and no sound.
+"""Run the iOS speech probe, muted, on simulators of its own; it never opens a live simulator view.
 
 Generates the fixture and project if needed and builds the probe for the simulator once. Then
-it creates one simulator per --device, boots each without Simulator.app, mutes it and runs the
-probe on all of them at the same time, each under a deadline; see doc/testing.md#voiceover-testing.
-Every simulator gets one transcript: the probe's steps and what VoiceOver said after each.
-The simulators are deleted afterwards whatever happened. This script never boots, changes or
-deletes a simulator it did not create, and never opens Simulator.app. It exits 0 only when
-every probe ran all its steps and passed, VoiceOver is off again and no simulator lost its mute.
+it creates one simulator per --device, boots and mutes each and runs the probe on all of them
+at the same time, each under a deadline. Every simulator gets one transcript: the probe's steps
+and what VoiceOver said after each. The simulators are deleted afterwards whatever happened.
+It exits 0 only when every probe ran all its steps and passed, VoiceOver is off again and no
+simulator lost its mute. The runner contract is in
+https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#runner-contract
 """
 import argparse
 from datetime import datetime, timezone
@@ -53,7 +53,8 @@ def build(root, derived, log_path, timeout, skip):
     products = derived / "Build/Products"
     revision_path = derived / BUILD_REVISION_FILE
     if not skip:
-        # A failed or interrupted rebuild must not leave the old build's revision behind.
+        # A failed or interrupted rebuild must not leave the old build's revision behind
+        # (https://github.com/vocaro/apple-engineering/blob/main/guides/evidence.md#evidence-collection).
         revision_path.unlink(missing_ok=True)
         revision = run("git", "-C", str(root), "describe", "--always", "--dirty").strip()
         example = root / "Examples/VoiceOverVerification"
@@ -174,7 +175,8 @@ def main():
                 session.transcript.append(f"{now()} ACTIVATION cursor v3, build {activation.BUILD}, vot SHA-256 {activation.VOT_SHA256}; marker and startup self-test required")
             else:
                 session.transcript.append(f"{now()} ACTIVATION stock (unmodified)")
-            # VoiceOver speaks through the Mac's own output device, so nothing runs before this holds.
+            # VoiceOver speaks through the Mac's own output device, so nothing runs before this holds
+            # (https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#muted-speech-capture).
             volume = state(session.udid, "audio", "--volume", "0")["volume"]
             for _ in range(5):
                 if volume == 0:
@@ -186,7 +188,8 @@ def main():
         print(f"Simulators booted and muted in {time.monotonic() - built:.0f} s: {', '.join(session.name for session in sessions)}.")
         if args.vot_log:
             for session in sessions:
-                # What VoiceOver did, where the transcript has what it read (doc/testing.md#simulators).
+                # What VoiceOver did, where the transcript has what it read
+                # (https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#voiceovers-vot-log).
                 session.stream = subprocess.Popen([
                     "xcrun", "simctl", "spawn", session.udid, "log", "stream", "--level", "debug", "--style", "compact",
                     "--predicate", 'process == "vot"'], stdout=session.vot.open("w"), stderr=subprocess.STDOUT,
@@ -219,7 +222,8 @@ def main():
                 session.transcript.append(f"{now()} LAUNCH {args.launch}")
             session.started = time.monotonic()
             # One xcodebuild per simulator. Left to collect diagnostics, it runs `simctl diagnose`
-            # for up to ten minutes after a test that recorded any issue, a warning included.
+            # for up to ten minutes after a test that recorded any issue, a warning included
+            # (https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#diagnostics-collection).
             session.process = subprocess.Popen([
                 "xcodebuild", "test-without-building", "-xctestrun", str(xctestrun),
                 "-destination", f"platform=iOS Simulator,id={session.udid}", "-resultBundlePath", str(session.bundle),
@@ -242,7 +246,8 @@ def main():
                     elif time.monotonic() >= deadline:
                         session.note, session.late = f"the deadline of {args.timeout} s passed and xcodebuild was stopped", True
                     if session.note:
-                        # Stopping it folds the staged output into the bundle: read that first.
+                        # Stopping it folds the staged output into the bundle: read that first
+                        # (https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#the-xcodebuild-diagnostics-hang).
                         session.recovered = staged(session.bundle)
                         stop(session.process)
                         # Its diagnostics collector runs in a process group of its own and outlives it.
@@ -272,9 +277,11 @@ def main():
                       else f"Could not delete {session.name} ({session.udid}): {deleted.stderr.strip()}")
                 if deleted.returncode:
                     status = max(status, 125)
-            opened = "was already running" if window else "was started by something else" if simulator_app() else "did not run"
+            started = None if window else simulator_app()
+            opened = (f"{window} was already running" if window else
+                      f"{started} was started by something else" if started else "no simulator view ran")
             print(f"Finished in {time.monotonic() - began:.0f} s; load averages "
-                  f"{' '.join(f'{load:.0f}' for load in os.getloadavg())}; Simulator.app {opened}.")
+                  f"{' '.join(f'{load:.0f}' for load in os.getloadavg())}; {opened}.")
     return status
 
 

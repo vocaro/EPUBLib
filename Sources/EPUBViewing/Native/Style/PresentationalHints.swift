@@ -16,7 +16,7 @@ enum PresentationalHints {
                     let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                     let number = Double(trimmed)
                     if let number, number.isFinite, number >= 0 { add(&result, name, "\(number)px") }
-                    else { add(&result, name, trimmed) }
+                    else { add(&result, name, trimmed, substitutes: true) }
                 }
             }
             return result
@@ -107,8 +107,13 @@ enum PresentationalHints {
         return result
     }
 
-    private static func add(_ result: inout [CSSDeclaration], _ name: String, _ value: String) {
-        result += CSSPropertyParser.parse(name: name, text: value) ?? []
+    /// An SVG presentation attribute is a CSS value and `substitutes` its `var()`s, as the
+    /// properties it maps to do (WPT css/css-variables/variable-presentation-attribute.html); an
+    /// HTML attribute is read by HTML's own rules, which have none.
+    private static func add(_ result: inout [CSSDeclaration], _ name: String, _ value: String, substitutes: Bool = false) {
+        guard let declarations = CSSPropertyParser.parse(name: name, text: value, isRuleValue: false) else { return }
+        if !substitutes, declarations.contains(where: { if case .pending = $0.value { true } else { false } }) { return }
+        result += declarations
     }
 
     /// HTML's rules for parsing dimension values: digits with an optional fraction and `%`.

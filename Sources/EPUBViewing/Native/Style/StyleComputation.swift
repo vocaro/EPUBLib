@@ -177,8 +177,12 @@ extension StyleResolver {
 
     // MARK: Cascade to computed values
 
-    func compute(winners: [CSSValue?], userAgent: [CSSValue?], parent: ComputedStyle, rem: CGFloat, isRoot: Bool) -> ComputedStyle {
+    /// `custom` is the element's computed custom properties, which its pending substitutions
+    /// read (`StyleSubstitution.swift`).
+    func compute(winners: [CSSValue?], userAgent: [CSSValue?], custom: CSSCustomProperties?, parent: ComputedStyle,
+                 rem: CGFloat, isRoot: Bool) -> ComputedStyle {
         var style = ComputedStyle()
+        style.customProperties = custom
         // Inherited properties.
         style.fontFamilies = parent.fontFamilies; style.fontSize = parent.fontSize
         style.fontWeight = parent.fontWeight; style.isItalic = parent.isItalic
@@ -202,8 +206,12 @@ extension StyleResolver {
         // order. font-size itself uses its parent's face and size. `rem` is the root's computed
         // size: on the root, the size just computed, except in its own font-size, where it is the
         // initial size passed in (CSS Values 4 §6.1).
+        var substitutions = SubstitutionMemo()
         for property in Self.computationOrder {
             guard var value = winners[property.rawValue] else { continue }
+            if case .pending(let pending, let longhand) = value {
+                value = substituted(pending, longhand: longhand, in: property, custom: custom, memo: &substitutions)
+            }
             if value == .revert { value = userAgent[property.rawValue] ?? .unset }
             if value == .revert || value == .unset { value = property.isInherited ? .inherit : .initial }
             switch property {

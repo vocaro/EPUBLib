@@ -158,7 +158,11 @@ final class CSSParserTests: XCTestCase {
         }
         XCTAssertNil(values("width", "300"), "Unitless lengths are invalid")
         XCTAssertNil(values("padding", "-1px"))
-        XCTAssertNil(values("color", "var(--x)"))
+        guard case .pending(let pending, .color)? = values("color", "var(--x)")?[.color] else { return XCTFail("var() is pending") }
+        XCTAssertEqual(pending.name, "color", "Substituted at computed-value time (#119)")
+        XCTAssertEqual(values("margin", "var(--x) 1px")?.keys.sorted { $0.rawValue < $1.rawValue }, CSSProperty.margins,
+                       "Each longhand of a shorthand holds the shorthand's value until then")
+        XCTAssertNil(values("color", "var()"))
         XCTAssertNil(values("margin", "1px 2px 3px 4px 5px"))
         XCTAssertEqual(values("width", "0")?[.width], .length(.zero))
         XCTAssertEqual(values("margin", "1px auto")?[.marginLeft], .auto)

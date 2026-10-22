@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Keep marked documentation snippets identical to the compiled example code. --write regenerates."""
+"""Keep marked documentation snippets identical to the compiled example code. --write regenerates.
+
+The shared check this adds to: https://github.com/vocaro/apple-engineering/blob/main/guides/maintenance.md#documentation-checks
+"""
 import argparse
 from pathlib import Path
 import re

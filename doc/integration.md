@@ -222,7 +222,8 @@ and decomposing it adds no `/`, `\`, `.`, `:` or NUL. Pass the path whole to `UR
 combining mark is not a `/`. Foundation's `components(separatedBy:)` compares that way too, as
 does `range(of:)` unless told `.literal`.
 
-The names themselves are the book's, and the host still decides what to do with them:
+The names themselves are the book's, and the host still decides what to do with them
+([archive paths](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#archive-paths-need-byte-level-delimiters-and-deliberate-normalization)):
 
 - **Names a platform reserves, alters or does not allow.** A name that begins with a dot or holds
   control characters; a colon, which a book's file names may hold and which Windows reads as a
@@ -376,3 +377,16 @@ Changing the modifier on an already mounted session updates only input handling.
 not rebuild text, repaginate, clear selection or highlights, or emit a relocation. The
 current wheel gesture/cooldown and pending edge press are reset. Host commands and
 accessibility use the same page/viewport operation regardless of direct-input configuration.
+
+## Privacy manifest
+
+A host declares nothing for EPUBLib in its privacy manifest. Apple has an app give a reason for
+each API it calls that reads the system boot time, file timestamps, disk space, the active
+keyboards or user defaults, and the five products, and the StaticSVG package and its resvg
+library that EPUBViewing links, call none of them: the iOS reader times an edge tap by the
+touch's own timestamps, and resvg is built without the file reads and backtraces that would call
+`stat` and `fstat` ([#685](https://github.com/vocaro/EPUBLib/issues/685); StaticSVG 0.1.1 and
+later). The gate reads their compiled code for
+any such call ([testing](testing.md#local-gate)). ZIPFoundation, which reads and writes the
+archives, reads file timestamps and declares that in a manifest of its own, which an app built
+with EPUBLib carries in ZIPFoundation's resource bundle.
