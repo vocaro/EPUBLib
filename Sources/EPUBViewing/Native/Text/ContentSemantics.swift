@@ -140,12 +140,25 @@ enum ContentSemantics {
     /// on an element that can take focus (`tabindex`) or that has a global ARIA attribute,
     /// such as `aria-label` or `aria-describedby`. `aria-hidden="false"` hides nothing.
     static func isHiddenFromAssistiveTechnology(_ element: ContentNode) -> Bool {
+        isAriaHidden(element) || hasPresentationalRole(element)
+    }
+
+    /// Whether `aria-hidden="true"` on `element` or on an element round it keeps it, and all
+    /// that is inside it, from assistive technology, and from nothing else (WAI-ARIA 1.2,
+    /// HTML-AAM): its text is shown, copied and found, and VoiceOver is not given it.
+    /// `aria-hidden="false"` inside such an element shows nothing to it again.
+    static func isAriaHidden(_ element: ContentNode) -> Bool {
         var node: ContentNode? = element
         while let current = node {
-            if current.isElement, isTrue(current.attribute("aria-hidden")) { return true }
+            if hasAriaHidden(current) { return true }
             node = current.parent
         }
-        return hasPresentationalRole(element)
+        return false
+    }
+
+    /// Whether `element` itself has `aria-hidden="true"`.
+    static func hasAriaHidden(_ element: ContentNode) -> Bool {
+        element.isElement && isTrue(element.attribute("aria-hidden"))
     }
 
     /// Whether `element` is presentational to assistive technology: its role is `presentation`

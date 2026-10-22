@@ -362,11 +362,14 @@ continues to describe the authored spine resource.
   iPhone and iPad. The book hid the words, so the link that is such a picture alone is an
   image link without a name. A hidden label reads nothing for an
   image or an inline SVG with a presentational role. Where such an image cannot be drawn,
-  its words are shown in its place as text and read as text. In a table cell the words of
+  its words are shown in its place as text and read as text, and so are kept from VoiceOver
+  where `aria-hidden` keeps the image, as any text it keeps is. In a table cell the words of
   such an image are still read: on iPhone and iPad in the cell's text, and on Mac in what
   its row is called. They are the words a copy of the row takes
   ([#551](https://github.com/vocaro/EPUBLib/issues/551)). Shown text with `aria-hidden` is
-  read as any other ([#552](https://github.com/vocaro/EPUBLib/issues/552)), and an image is
+  kept from VoiceOver too, and a formula with it is passed over as such an image is
+  ([Text kept from assistive technology](#text-kept-from-assistive-technology),
+  [#552](https://github.com/vocaro/EPUBLib/issues/552)). An image is
   not named by `aria-label` ([#167](https://github.com/vocaro/EPUBLib/issues/167)). On
   iPhone and iPad an image in a table cell is read by its words in the cell's text, and one
   without words is not announced there. On Mac a cell is a text area of its own, which
@@ -2462,11 +2465,65 @@ its room and draws nothing, nor do the words shown where an image or a formula c
 ([#132](https://github.com/vocaro/EPUBLib/issues/132)). A hidden table draws none of its
 borders and backgrounds, its rows' or its cells'. One that sets `visibility: visible` again
 inside a hidden box is drawn, a table's row or cell among them; a part of an SVG drawing or
-a formula is not, since the attachment the whole is drawn by is hidden. All of them are still
-read ([#549](https://github.com/vocaro/EPUBLib/issues/549)), and a hidden image is still
-opened by a double click or a tap on its room. A note's popover on iPhone and iPad
-gives VoiceOver UIKit's own text accessibility, which these changes do not reach
-([#550](https://github.com/vocaro/EPUBLib/issues/550)).
+a formula is not, since the attachment the whole is drawn by is hidden.
+
+What is read of them is what is read of hidden text
+([#549](https://github.com/vocaro/EPUBLib/issues/549)). The character of a hidden image,
+drawing, formula or rule carries `.readerHidden`, and so do the words shown where it cannot
+be drawn, so that VoiceOver, Copy, the selection a host is told of, search and a table cell's
+words leave its words out as above, and on the Mac it is a space. The attachment is also
+passed over by assistive technology (`isPassedOverByAssistiveTechnology`, `passesOver`), and
+nothing keeps it, as a link keeps a picture the book keeps from assistive technology: hidden
+content has no link. It has no element on iPhone and iPad, not even on a page of nothing
+else, where decoration is listed, nor on the Mac, nor in a table cell, and offers no Inspect
+Image. A hidden rule is no stop, and on the Mac it is given as a rule the book keeps from
+assistive technology is ("Rules" under Decisions): its character and the break after it are
+spaces and its line is part of the line after it. A table is not hidden as a whole, since
+each of its cells can be shown again: what its cells hold is marked as it is written, and a
+row whose cells are all hidden reads nothing. A tap or a double click on a hidden image's
+room opens nothing, and the inspector does not open for it whatever asks. Two places still
+offer it, and do nothing when chosen: the Inspect Image of a text item's menu on iPhone and
+iPad, and of a table cell's menu ([#775](https://github.com/vocaro/EPUBLib/issues/775)). On
+the Mac a row of a table that is not data, whose cells hold a hidden formula or rule and
+nothing else, is a group with no name, where a row of hidden text or hidden pictures alone is
+passed over ([#774](https://github.com/vocaro/EPUBLib/issues/774)). A note's popover on
+iPhone and iPad gives VoiceOver UIKit's own text accessibility, which these changes do not
+reach ([#550](https://github.com/vocaro/EPUBLib/issues/550)).
+
+### Text kept from assistive technology
+
+Shown text that the book keeps from assistive technology with `aria-hidden="true"`, on its
+element or on one round it, is hidden from VoiceOver and from nothing else, as WAI-ARIA 1.2
+and HTML-AAM have it
+([hiding](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/accessibility.md#map-html-alternatives-and-hiding-as-html-aam-does))
+and as an image or a rule kept so is ("Alternative text" under Decisions,
+[#552](https://github.com/vocaro/EPUBLib/issues/552)): a row of stars between scenes, the
+big first letter of a word the line also gives whole, a mark repeated for the eye. It is
+drawn and laid out as the same text without `aria-hidden`, and copied and found as it,
+generated text and list markers included; `aria-hidden="false"` inside it shows nothing to
+VoiceOver again. Its characters carry `.readerUnspoken`, and what VoiceOver is given
+(`readerPlainText(in:spoken:)`) leaves them out as it leaves hidden text out: the breaks
+stay, and kept words between two shown ones read as one space.
+
+- **iPhone and iPad.** A line that holds kept words alone has no element, and a heading of
+  kept words alone is no heading.
+- **On the Mac.** Each kept character but a break is given to an assistive client as a space,
+  as a hidden one is, in the value, the strings, the rich text and the selected text of a
+  page, of continuous scroll, of a note and of a table cell's text area. A heading of kept
+  words alone has no level, and a line of kept words alone, as a row of stars is, is a line of
+  spaces, which no session has moved onto yet.
+- **Links.** A link of kept words alone stays a link, without a name, as one that is all a
+  picture kept so is: it has to be reachable whatever its words say. On iPhone and iPad its
+  element is a link and nothing else; on the Mac the link's element has no title. Kept words
+  beside others in a link leave the link to them.
+- **Formulas and lost pictures.** A formula with `aria-hidden` on it or round it is passed
+  over as a picture kept so is, and its words are copied. The words shown where a picture
+  kept by `aria-hidden` cannot be drawn are kept text.
+- **Table cells.** VoiceOver still reads kept words where it reads a cell's words, on iPhone
+  and iPad in the cell's element and on the Mac in what its row is called, because those
+  words are also what a copy of the row takes
+  ([#551](https://github.com/vocaro/EPUBLib/issues/551)). On the Mac the cell's own text
+  area gives them as spaces.
 
 ### Flex and grid alignment
 
@@ -2653,7 +2710,11 @@ The following are the defaults. Host commands and accessibility actions stay ena
   first of the lines the scroll view lists (see "Continuous scroll" under Layout). After a
   search result is shown it starts at the result's line, which rests below the top. Text that
   a book hides from the page and keeps for assistive technology is read where it stands, as
-  text ([hidden labels](#floats-and-positioned-boxes)). An image is read by its `alt`, one
+  text ([hidden labels](#floats-and-positioned-boxes)). Text it shows and keeps from
+  assistive technology with `aria-hidden` is not read
+  ([Text kept from assistive technology](#text-kept-from-assistive-technology)), and nor is
+  anything `visibility: hidden` hides, text, pictures, formulas or rules
+  ([Hidden text](#hidden-text)). An image is read by its `alt`, one
   with an empty `alt` is passed over, and so is one the book keeps from assistive
   technology with `aria-hidden` or a presentational role, and one with no `alt` is
   announced as an image without a name ("Alternative text" under Decisions). At a rule
