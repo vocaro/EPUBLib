@@ -169,19 +169,50 @@ final class ReaderTextContainer: NSTextContainer {
         return insets
     }
 
-    /// The width of the first piece a line starting at `index` can hold (`openingWord(in:at:)`).
-    private func openingWordWidth(at index: Int) -> CGFloat {
+    /// The width a line starting at `index` needs for the first piece of content it can hold
+    /// (`openingWord(in:at:)`), or, where that piece surely fits in `room`, a width it fits in
+    /// that is no greater than `room`. A line can end at a space, so the piece is no wider than
+    /// the text before the next one, and most lines beside a float open with a word far narrower
+    /// than the room there. Estimating that text from its fonts' advances
+    /// (`TableMeasure.widestRunEstimate`) spares such a line shaping its word and finding its
+    /// line-break opportunity and hyphenation points, which made laying out the lines beside a
+    /// float a third slower (#152).
+    private func openingWidth(at index: Int, room: CGFloat) -> CGFloat {
         guard let text = layoutText, index >= 0, index < text.length else { return 0 }
-        if let known = measuredOpening, known.index == index, known.text === text { return known.width }
-        let width = Self.openingWord(in: text, at: index).map { piece in
-            let line = CTLineCreateWithAttributedString(piece as CFAttributedString)
-            return ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(line)))
-        } ?? 0
-        measuredOpening = (index, text, width)
+        if let known = measuredOpening, known.index == index, known.text === text, known.exact || known.width <= room { return known.width }
+        // Up to the next space or the paragraph's end, within as far as a word could run; an
+        // attachment character, which TextKit sizes to its line, leaves it to the exact piece.
+        let string = text.string as NSString
+        let limit = min(string.length, index + 256)
+        var end = index, attached = false
+        while end < limit {
+            let character = string.character(at: end)
+            if TableMeasure.breakingSpaces.contains(character) { break }
+            if character == 0xFFFC { attached = true; break }
+            end += 1
+        }
+        if !attached, end < limit || limit == string.length,
+           let bound = TableMeasure.widestRunEstimate(of: text, in: NSRange(location: index, length: end - index)) {
+            if bound <= room {
+                measuredOpening = (index, text, bound, false)
+                return bound
+            }
+        }
+        let width = openingWord(in: text, at: index).map(Self.width(of:)) ?? 0
+        measuredOpening = (index, text, width, true)
         return width
     }
-    /// The piece `openingWordWidth` last measured, by the text and character it starts at.
-    private var measuredOpening: (index: Int, text: NSAttributedString, width: CGFloat)?
+    /// What `openingWidth` last measured, by the text and character it starts at: the piece's
+    /// width, or a width the piece fits in.
+    private var measuredOpening: (index: Int, text: NSAttributedString, width: CGFloat, exact: Bool)?
+    /// The hyphenation locales of the languages of the text laid out (`TableMeasure.hyphenationLocale`).
+    private var hyphenationLocales: [String: CFLocale?] = [:]
+
+    /// The width `text` is set in, without the white space that ends it, up to the next point.
+    private static func width(of text: NSAttributedString) -> CGFloat {
+        let line = CTLineCreateWithAttributedString(text as CFAttributedString)
+        return ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(line)))
+    }
 
     /// The first piece of content a line of `text` starting at `index` can hold, as it is set:
     /// its word, up to the first line-break opportunity after it (UAX #14, as CoreText finds
@@ -190,13 +221,12 @@ final class ReaderTextContainer: NSTextContainer {
     /// set after it (CSS Text 3, 5.4). Nil where any character may end a line (`white-space:
     /// pre`, which the reader wraps by character) and at an attachment, which TextKit sizes to
     /// its line.
-    static func openingWord(in text: NSAttributedString, at index: Int) -> NSAttributedString? {
+    private func openingWord(in text: NSAttributedString, at index: Int) -> NSAttributedString? {
         let style = text.attribute(.paragraphStyle, at: index, effectiveRange: nil) as? NSParagraphStyle
         guard style?.lineBreakMode != .byCharWrapping else { return nil }
         let string = text.string as NSString
-        let paragraph = string.paragraphRange(for: NSRange(location: index, length: 0))
         // A word is far shorter than this; the bound keeps a long paragraph from being read.
-        let span = string.substring(with: NSRange(location: index, length: min(paragraph.upperBound - index, 256))) as CFString
+        let span = string.substring(with: NSRange(location: index, length: min(string.length - index, 256))) as CFString
         let tokenizer = CFStringTokenizerCreate(nil, span, CFRange(location: 0, length: CFStringGetLength(span)), kCFStringTokenizerUnitLineBreak, nil)
         guard CFStringTokenizerAdvanceToNextToken(tokenizer).rawValue != 0 else { return nil }
         let token = CFStringTokenizerGetCurrentTokenRange(tokenizer)
@@ -206,7 +236,11 @@ final class ReaderTextContainer: NSTextContainer {
             if value != nil { attached = true; stop.pointee = true }
         }
         guard !attached, word.length > 0 else { return nil }
-        guard (style?.hyphenationFactor ?? 0) > 0, let point = TableMeasure.hyphenationPoints(in: text, word: word).first else {
+        guard (style?.hyphenationFactor ?? 0) > 0 else { return text.attributedSubstring(from: word) }
+        let language = text.attribute(InlineStyling.languageKey, at: index, effectiveRange: nil) as? String
+        if hyphenationLocales[language ?? ""] == nil { hyphenationLocales[language ?? ""] = .some(TableMeasure.hyphenationLocale(language)) }
+        guard let locale = hyphenationLocales[language ?? ""] ?? nil,
+              let point = TableMeasure.hyphenationPoints(in: text, word: word, locale: locale).first else {
             return text.attributedSubstring(from: word)
         }
         word.length = point - word.location
@@ -374,8 +408,12 @@ final class ReaderTextContainer: NSTextContainer {
             // part of it where the paragraph hyphenates. A line box too narrow beside a float for
             // any of its content is shifted down (CSS 2.2 9.5); in a piece narrower than that
             // TextKit broke the word between any two characters (#152).
-            let readable = max(min(size.width / 3, 48), openingWordWidth(at: index))
+            let readable = min(size.width / 3, 48)
             intervals = intervals.filter { $0.1 - $0.0 >= readable }
+            if let room = intervals.map({ $0.1 - $0.0 }).min() {
+                let opening = openingWidth(at: index, room: room)
+                intervals = intervals.filter { $0.1 - $0.0 >= opening }
+            }
             if let interval = writingDirection == .rightToLeft ? intervals.last : intervals.first {
                 if intervals.count > 1 {
                     let other = writingDirection == .rightToLeft ? intervals.first! : intervals.last!

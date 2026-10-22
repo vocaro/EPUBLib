@@ -343,7 +343,7 @@ enum ReaderBoxLayout {
                             // draws nothing outside its column, and broke the word between any two
                             // characters instead (#152). An auto width is never narrower.
                             if style.float != .none, style.width != .auto || style.maxWidth != .auto, width < available {
-                                width = max(width, attempts.pieceWidth(of: box.id, from: index, in: ranges, text: text))
+                                width = max(width, attempts.pieceWidth(of: box.id, from: index, in: ranges, text: text, within: width))
                             }
                             width = min(available, max(1, width))
                         }
@@ -784,9 +784,11 @@ enum ReaderBoxLayout {
         /// The paragraphs (indexes into the pass's paragraph ranges) of the box first tried there.
         private var runs: [UUID: Range<Int>] = [:]
         /// From the paragraph `start` of a run on, the widest max-content of each paragraph and
-        /// the paragraphs after it, and the widest unbroken piece of each and of those after it.
+        /// the paragraphs after it, and the widest unbroken piece of each and of those after it,
+        /// measured against the box's width in `pieceWidths`.
         private var widths: [UUID: (start: Int, widest: [CGFloat])] = [:]
         private var pieces: [UUID: (start: Int, widest: [CGFloat])] = [:]
+        private var pieceWidths: [UUID: CGFloat] = [:]
         private var layouts: [UUID: Layout] = [:]
 
         /// One past the last of the paragraphs `ranges` of the box `id` that starts at `index`.
@@ -809,11 +811,12 @@ enum ReaderBoxLayout {
             return Self.widest(of: ranges[index..<end], from: index, text: text, known: &widths[id]) { TableMeasure.maximumWidth($0) }
         }
 
-        /// `TableMeasure.widestPiece` of the same: the narrowest the rest of the box can be set
-        /// with no word broken between two characters.
-        mutating func pieceWidth(of id: UUID, from index: Int, in ranges: [NSRange], text: NSAttributedString) -> CGFloat {
+        /// `TableMeasure.widestPiece` of the same within `width`: the narrowest the rest of the box
+        /// can be set with no word broken between two characters, where that is wider than `width`.
+        mutating func pieceWidth(of id: UUID, from index: Int, in ranges: [NSRange], text: NSAttributedString, within width: CGFloat) -> CGFloat {
             let end = end(of: id, at: index, in: ranges, text: text)
-            return Self.widest(of: ranges[index..<end], from: index, text: text, known: &pieces[id]) { TableMeasure.widestPiece($0) }
+            if pieceWidths[id] != width { pieces[id] = nil; pieceWidths[id] = width }
+            return Self.widest(of: ranges[index..<end], from: index, text: text, known: &pieces[id]) { TableMeasure.widestPiece($0, within: width) }
         }
 
         /// The widest `measure` of `paragraphs`, the box's from its paragraph `index` on, from
