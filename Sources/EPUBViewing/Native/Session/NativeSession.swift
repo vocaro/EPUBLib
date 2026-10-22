@@ -142,10 +142,10 @@ import SwiftUI
     private var configuration: ReaderCanvasConfiguration {
         var configuration = ReaderCanvasConfiguration()
         configuration.flow = style.flow
-        configuration.pageMargins = style.typography.pageMargins.map { $0.isFinite ? min(max(CGFloat($0), 0), 4) : 1 } ?? 1
         configuration.isDark = effectiveIsDark
         configuration.isRightToLeft = publication.pageProgression == .rtl
         configuration.division = division
+        configuration.pageMargins = style.typography.pageMargins.map { $0.isFinite ? min(max(CGFloat($0), 0), 4) : 1 } ?? 1
         configuration.pageControls = pageControls
         configuration.selectionActionTitle = action?.title
         configuration.selectionActionImage = action?.systemImage ?? "text.quote"
@@ -550,7 +550,7 @@ import SwiftUI
             $0.effectiveAppearance = effectiveIsDark ? .dark : .light
         }
         applyConfiguration()
-        let typography = NativeTypography(fontSize: style.fontSize, isDark: effectiveIsDark, text: ReaderTextSettings(style.typography))
+        let typography = NativeTypography(fontSize: style.fontSize, isDark: effectiveIsDark).with(text: ReaderTextSettings(style.typography))
         if typography != book.typography {
             book.setTypography(typography)
             let current = visibleRange?.start.section ?? initialSection

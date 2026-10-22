@@ -205,8 +205,10 @@ final class ReaderTextTrace: Equatable, Sendable {
 }
 
 extension NativeTypography {
-    init(fontSize: CGFloat = 17, isDark: Bool = false, text: ReaderTextSettings) {
-        self.init(fontSize: fontSize, isDark: isDark)
-        self.text = text
+    /// This typography with `text` as its text settings.
+    func with(text: ReaderTextSettings) -> NativeTypography {
+        var typography = self
+        typography.text = text
+        return typography
     }
 }

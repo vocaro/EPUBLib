@@ -58,9 +58,6 @@ public struct EPUBReaderStyle: Equatable, Sendable {
     /// System follows the mounted view's color scheme, including live OS theme changes.
     public var appearance: EPUBReaderAppearance
     public var flow: EPUBReadingFlow
-    /// The font, spacing, margins, alignment and hyphenation of book text. Its default sets
-    /// nothing: the book's styles and the reader's own defaults.
-    public var typography = Typography()
     public init(fontSize: Double = 17, appearance: EPUBReaderAppearance = .system, flow: EPUBReadingFlow = .paginated) {
         self.fontSize = fontSize; self.appearance = appearance; self.flow = flow
     }
@@ -74,6 +71,9 @@ public struct EPUBReaderStyle: Equatable, Sendable {
         get { appearance == .dark }
         set { appearance = newValue ? .dark : .light }
     }
+    /// The font, spacing, margins, alignment and hyphenation of book text. Its default sets
+    /// nothing: the book's styles and the reader's own defaults.
+    public var typography = Typography()
 }
 
 extension EPUBReaderStyle {

@@ -260,7 +260,7 @@ extension ReaderTextSettingsTests {
         for _ in 1...8 { cells = "<table><tr><td>\(cells)</td><td>x</td></tr></table>" }
         let publication = try TableCoverage.publication("<p>Before</p>\(cells)")
         for overrides in [false, true] {
-            let typography = NativeTypography(fontSize: 16, text: ReaderTextSettings(Self.settings(overrides: overrides)))
+            let typography = NativeTypography(fontSize: 16).with(text: ReaderTextSettings(Self.settings(overrides: overrides)))
             let result = StackBuild()
             let thread = Thread {
                 let section = TableCoverage.section(of: publication, typography: typography)
