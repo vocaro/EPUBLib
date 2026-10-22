@@ -699,7 +699,11 @@ import UIKit
     /// stylesheet, 2 em on the list's start side, and 40 points on its end side here. With a
     /// float the rows overhung the item by 72 points. Without one the first row, past the
     /// marker's tab, was 22 points narrower left to right and 58 right to left, where the other
-    /// was 8 points narrower too (#376).
+    /// was 8 points narrower too (#376). So are a rule and an image of `width: 100%` that open
+    /// an item. Past the marker's tab TextKit sizes each from a stop measured from the first
+    /// line's start, where it draws it at the head indent; a TextKit that sized it where it
+    /// draws it would make these too wide by the reader's correction, where a row's reservation
+    /// would hide it.
     func testATableInAListItemIsAsWideAsTheItemsContentBoxWithAndWithoutAFloat() throws {
         let column = CGSize(width: 720, height: 980)
         let float = "<div style='float:left; width:60px; height:40px'>F.</div>"
@@ -710,15 +714,62 @@ import UIKit
                                        ("ltr", "<ul style='padding-right:40px'>", 32...680)] {
             for before in [float, ""] {
                 let label = "\(direction), \(before.isEmpty ? "no float" : "a float")"
-                let section = try H.build("\(before)\(prose)\(list)<li>\(table)</li><li>Item.</li></ul><p>After.</p>", css: "")
+                let section = try H.build("\(before)\(prose)\(list)<li>\(table)</li><li><hr/></li><li><img src='picture.png' alt='Pic'/></li>"
+                                          + "<li>Item.</li></ul><p>After.</p>", css: "hr { margin:8px 0; border-width:1px 0 0 } img { width:100% }",
+                                          files: ["picture.png": RichFixture.image(width: 600, height: 400)])
                 let view = H.view(section.string, size: column)
                 if !before.isEmpty { XCTAssertNotNil(H.region("F.", in: section, view: view), "\(label): the float is planned") }
-                let frames = attachmentFrames(TableRowAttachment.self, in: section, view: view)
-                XCTAssertEqual(frames.count, 2, "\(label): a line a row")
-                for (row, frame) in frames.enumerated() {
-                    XCTAssertEqual(frame.minX, box.lowerBound, accuracy: 0.5, "\(label): row \(row)'s left edge")
-                    XCTAssertEqual(frame.maxX, box.upperBound, accuracy: 0.5, "\(label): row \(row)'s right edge")
+                let frames = attachmentFrames(ReaderAttachment.self, in: section, view: view)
+                XCTAssertEqual(frames.count, 4, "\(label): two rows, the rule and the image")
+                for (index, frame) in frames.enumerated() {
+                    let name = index < 2 ? "row \(index)" : index == 2 ? "the rule" : "the image"
+                    XCTAssertEqual(frame.minX, box.lowerBound, accuracy: 0.5, "\(label): \(name)'s left edge")
+                    XCTAssertEqual(frame.maxX, box.upperBound, accuracy: 0.5, "\(label): \(name)'s right edge")
                 }
+            }
+        }
+    }
+
+    /// A tab at the default interval before an image of `width: 100%` in an indented block, white
+    /// space kept: TextKit sizes the image at one stop and draws it at another, and the image
+    /// stays in the block's content box, on the tab's line or below it. Taking a list marker's
+    /// correction for any tab put it across the block's padding, at x = 0 right to left, and past
+    /// the column's edge, to 738 left to right (#376).
+    func testAFullWidthImagePastATabInAnIndentedBlockStaysInTheBlock() throws {
+        let column = CGSize(width: 720, height: 980)
+        let float = "<div style='float:left; width:60px; height:40px'>F.</div>"
+        let prose = "<p>Ordinary prose wraps beside the box and returns to the full column below it. "
+            + "Ordinary prose wraps beside the box and returns to the full column below it.</p>"
+        for direction in ["rtl", "ltr"] {
+            for before in [float, ""] {
+                let label = "\(direction), \(before.isEmpty ? "no float" : "a float")"
+                let (section, view) = try layout("\(before)\(prose)<div dir='\(direction)' style='padding-left:40px; padding-right:22px; white-space:pre-wrap'>"
+                                                 + "\t<img src='picture.png' alt='Pic'/></div><p>After.</p>", css: "img { width:100% }", size: column,
+                                                 files: ["picture.png": RichFixture.image(width: 600, height: 400)])
+                let image = try XCTUnwrap(attachmentFrames(ReaderImageAttachment.self, in: section, view: view).first, label)
+                XCTAssertGreaterThan(image.width, 300, "\(label): the image is drawn")
+                XCTAssertGreaterThanOrEqual(image.minX, 39.5, "\(label): the image is right of the block's left padding")
+                XCTAssertLessThanOrEqual(image.maxX, 698.5, "\(label): the image is left of the block's right padding")
+            }
+        }
+    }
+
+    /// CSS 2.2 10.2: a percentage width is of the containing block's width, whatever the
+    /// `text-indent` of the paragraph an image is in. An image past the paragraph's first line
+    /// took that line's indent off: it was 336 points wide with a float, and 324 right to left
+    /// without one (#376).
+    func testAPercentageWidthImageInAParagraphWithATextIndentIsAPercentageOfTheBlock() throws {
+        let column = CGSize(width: 720, height: 980)
+        let float = "<div style='float:left; width:60px; height:40px'>F.</div>"
+        let sentences = Array(repeating: "Ordinary prose wraps beside the box and returns to the full column below it.", count: 3).joined(separator: " ")
+        for direction in ["rtl", "ltr"] {
+            for before in [float, ""] {
+                let label = "\(direction), \(before.isEmpty ? "no float" : "a float")"
+                let (section, view) = try layout("\(before)<p dir='\(direction)' style='text-indent:3em'>\(sentences) <img src='picture.png' alt='Pic'/> "
+                                                 + "\(sentences)</p>", css: "img { width:50% }", size: column,
+                                                 files: ["picture.png": RichFixture.image(width: 600, height: 400)])
+                let image = try XCTUnwrap(attachmentFrames(ReaderImageAttachment.self, in: section, view: view).first, label)
+                XCTAssertEqual(image.width, 360, accuracy: 0.5, "\(label): half of the 720-point column")
             }
         }
     }

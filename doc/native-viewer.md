@@ -566,9 +566,9 @@ continues to describe the authored spine resource.
   A continuation sharing a page with following rows or prose uses the displayed page’s exact
   bounds; overflowing content advances to the next page once, without laying out the whole
   section again ([#546](https://github.com/vocaro/EPUBLib/issues/546)).
-  A row is drawn across the content box of the block or list item its table is in, between
-  its padding on both sides and in either direction, with or without a float in the section;
-  a list item's marker hangs in the indent beside the first row
+  A row is drawn across the content box of the block or list item its table is in, inside
+  its margins, borders and padding on both sides, in either direction and with or without a
+  float in the section; a list item's marker hangs in the indent beside the first row
   ([#376](https://github.com/vocaro/EPUBLib/issues/376)).
   Continuous scroll retains full row heights. Tables too wide for the line shrink their text
   to 60%, then wrap by character. Only the outer table scales: tables inside cells inherit
@@ -2242,10 +2242,11 @@ are in a text without boxes, and a paragraph with its own margin beside a float 
 float's edge, its margin underneath it
 ([#63](https://github.com/vocaro/EPUBLib/issues/63),
 [#150](https://github.com/vocaro/EPUBLib/issues/150)). An attachment is sized to the same
-line, between its paragraph's indents: a table's rows, a rule and an image are as wide as the
-content box of the block or list item they are in. They took the width of the paragraph
-TextKit is shown, the whole column, and overhung the block by its indents
-([#376](https://github.com/vocaro/EPUBLib/issues/376)). TextKit breaks a justified paragraph's
+line, between its paragraph's indents: a table's rows are as wide as the content box of the
+block or list item they are in, and so are a rule and an image of `width: 100%` where the
+block is indented by less than 15% of the line
+([#376](https://github.com/vocaro/EPUBLib/issues/376); further in, they are not:
+[#769](https://github.com/vocaro/EPUBLib/issues/769)). TextKit breaks a justified paragraph's
 lines a little differently where the container places them; their edges are the same.
 The plan measures its paragraphs one at a time, and measures each as the text lays it out:
 with the container, those above the text's first box included, since where TextKit applies the

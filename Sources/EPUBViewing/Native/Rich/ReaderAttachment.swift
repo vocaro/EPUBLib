@@ -67,11 +67,14 @@ class ReaderAttachment: NSTextAttachment, ReaderTextualAttachment {
                 } else if viewportWidth > 0 {
                     // TextKit applies the indents and gives the position from the fragment's left
                     // edge, past the left one: the start indent left to right, and the end indent
-                    // right to left, where the start indent is at the right. Just past a tab it
-                    // gives that left indent twice, measuring the tab's stop from it (#376).
+                    // right to left, where the start indent is at the right. Sizing an attachment
+                    // past a tab, it measures the tab's stop from that left indent, and drawing it,
+                    // from the paragraph's edge. Past a list item's marker, whose stop is the head
+                    // indent, the left indent is taken off; past another tab the stop it sizes at
+                    // is not the one it draws at, and its position is left as it is (#376).
                     width = min(width, max(1, viewportWidth - indents.right - fragment.minX))
                     leadingIndent = indents.left + indents.hang
-                    if indents.afterTab { offset = indents.left }
+                    if indents.pastMarker { offset = indents.left }
                 }
             } else if let style = paragraphStyle, viewportWidth > 0 {
                 let trailing = style.tailIndent <= 0 ? viewportWidth + style.tailIndent : style.tailIndent

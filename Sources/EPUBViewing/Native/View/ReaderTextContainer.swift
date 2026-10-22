@@ -360,16 +360,21 @@ final class ReaderTextContainer: NSTextContainer {
     var setsLineIndents: Bool { deliversIndents && !isSimpleRectangularTextContainer }
 
     /// The indents of the paragraph an attachment at `index` is in, in a column `width` wide:
-    /// what its first line, a block attachment's, keeps clear at each side (`lineInsets`); how
-    /// much further from that line's start the attachment stands at least, as past a list item's
-    /// marker, which hangs in the indent and whose tab reaches the head indent; and whether a
-    /// tab is just before it. Nil where the text is not known.
-    func attachmentIndents(at index: Int?, width: CGFloat) -> (left: CGFloat, right: CGFloat, hang: CGFloat, afterTab: Bool)? {
+    /// what the attachment's line keeps clear at each side (`lineInsets`); how much further from
+    /// that line's start the attachment stands at least; and whether it stands past a list item's
+    /// marker. Such a marker hangs in the indent before the head indent, its paragraph's one tab
+    /// stop, which the tab after it reaches (`SectionWriter`). An attachment that opens its
+    /// paragraph, or stands past its marker, is on the paragraph's first line; any other is
+    /// taken to be on a later one, as it is unless it follows text on the first. Nil where the
+    /// text is not known.
+    func attachmentIndents(at index: Int?, width: CGFloat) -> (left: CGFloat, right: CGFloat, hang: CGFloat, pastMarker: Bool)? {
         guard let index, let text = layoutText, let style = paragraphStyle(at: index) else { return nil }
-        let line = lineInsets(at: index, writingDirection: style.baseWritingDirection, width: width, firstLine: true)
+        let pastMarker = index > 0 && (text.string as NSString).character(at: index - 1) == 0x09
+            && style.firstLineHeadIndent < style.headIndent && style.tabStops.count == 1
+            && abs(style.tabStops[0].location - style.headIndent) < Self.edgeSlack
+        let line = lineInsets(at: index, writingDirection: style.baseWritingDirection, width: width, firstLine: pastMarker)
         let own = lineInsets(at: index, writingDirection: style.baseWritingDirection, width: width)
-        return (line.left, line.right, max(0, own.left + own.right - line.left - line.right),
-                index > 0 && (text.string as NSString).character(at: index - 1) == 0x09)
+        return (line.left, line.right, max(0, own.left + own.right - line.left - line.right), pastMarker)
     }
 
     /// The size an attachment may use: the proposed line width, and the viewport height (or a
