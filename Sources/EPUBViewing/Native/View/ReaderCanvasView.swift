@@ -367,7 +367,12 @@ import AppKit
         anchorFollowsScroll = false
         carrySelectionAcrossRelayout()
         // The text views go; keyboard focus and the complete selection must not go with them.
+        #if os(iOS)
+        // The canvas keeps a focus it holds itself (`takeKeyboardFocusIfFree`).
+        let hadFocus = textViews.contains(where: \.isFirstResponder)
+        #else
         let hadFocus = hasKeyboardFocus
+        #endif
         tearDownPages()
         tearDownScroll()
         layOutCanvas()

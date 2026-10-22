@@ -184,6 +184,12 @@ struct QualificationScreen: View {
                 "\(status.style.appearance.rawValue) shown \(status.effectiveAppearance.rawValue)",
                 search,
                 controls.searchResults.map { "\($0.currentIndex.map { String($0 + 1) } ?? "-")/\($0.count)" } ?? "no results",
+                // The layout's page on screen, from 1 as a host shows it, and its section's (issue 681).
+                status.layoutPage.map { page in
+                    func number(_ index: Int?) -> String { index.map { String($0 + 1) } ?? "-" }
+                    return "layout page \(number(page.index))/\(page.count.map(String.init) ?? "-"), "
+                        + "section \(number(page.sectionIndex))/\(page.sectionCount.map(String.init) ?? "-")"
+                } ?? "no layout page",
         ].joined(separator: " | ")
     }
 

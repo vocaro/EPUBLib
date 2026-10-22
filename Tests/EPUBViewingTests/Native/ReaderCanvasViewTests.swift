@@ -1091,7 +1091,12 @@ import UIKit
         XCTAssertEqual(canvas.visibleRange, after)
         XCTAssertTrue(canvas.hasKeyboardFocus)
         canvas.configuration.flow = .scrolled
-        XCTAssertTrue((canvas.gestureRecognizers ?? []).allSatisfy { !$0.isEnabled })
+        // The touch observer that takes keyboard focus (#681) stays: it recognizes nothing, so
+        // it competes with no gesture of the host's or the text's.
+        let observers = (canvas.gestureRecognizers ?? []).filter { $0 is ReaderTouchObserver }
+        XCTAssertEqual(observers.count, 1)
+        XCTAssertTrue(observers.allSatisfy { !$0.cancelsTouchesInView && !$0.delaysTouchesBegan && !$0.delaysTouchesEnded })
+        XCTAssertTrue((canvas.gestureRecognizers ?? []).filter { !($0 is ReaderTouchObserver) }.allSatisfy { !$0.isEnabled })
         XCTAssertTrue(canvas.scrollTextView?.isScrollEnabled == true)
     }
 

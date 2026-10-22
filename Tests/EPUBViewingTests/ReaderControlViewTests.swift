@@ -435,7 +435,17 @@ import UIKit
             length += 1
         }
         XCTAssertGreaterThan(length, 1)
+        // The reader holds the keyboard focus nothing else does, and gives none up (#681): the
+        // field takes it when it is edited, and the reader does not take it back while it is.
+        XCTAssertTrue(canvas.hasKeyboardFocus, "the reader has the focus no other view holds")
+        XCTAssertTrue(field.becomeFirstResponder())
         XCTAssertFalse(canvas.hasKeyboardFocus)
+        canvas.takeKeyboardFocusIfFree()
+        XCTAssertTrue(field.isFirstResponder, "the reader leaves the field its focus and its keyboard")
+        XCTAssertFalse(canvas.hasKeyboardFocus)
+        XCTAssertTrue(field.resignFirstResponder())
+        canvas.takeKeyboardFocusIfFree()
+        XCTAssertTrue(canvas.hasKeyboardFocus, "a touch on the reader takes the focus no other view holds")
     }
     #endif
 }

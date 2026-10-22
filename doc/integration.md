@@ -393,7 +393,12 @@ The modifier is specific to the native reader; other engines can choose their ow
   scrolled flow they move one viewport less a line. A single native responder path handles
   a key whether the canvas or a child text view has focus. The reader does not take focus
   from another control when bindings change; focus must be within the reader for a shortcut
-  to apply. On iOS the reader can receive hardware keys when its native text view has focus.
+  to apply. On the Mac the reader takes the focus when its window gives it to no other view.
+  On iPhone and iPad it takes the focus when it is shown and when it is touched, while no other
+  view in its window holds it, so an iPad keyboard's page keys reach it. A search field the
+  person is typing in keeps its focus and its keyboard; once it gives the focus up, a touch
+  on the page brings the keys back to the reader
+  ([#681](https://github.com/vocaro/EPUBLib/issues/681)).
 - Copy, Select All, Shift-arrow selection extension and other host/system chords remain
   native unless explicitly assigned. There are no library-reserved supported combinations,
   but OS-reserved or app-menu shortcuts may be consumed before delivery to the reader.

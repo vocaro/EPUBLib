@@ -2716,6 +2716,15 @@ The following are the defaults. Host commands and accessibility actions stay ena
   its end the last; one not built yet is built and then shown. They are logical, as the turns
   are, and no tap, swipe or wheel goes there
   ([#681](https://github.com/vocaro/EPUBLib/issues/681)).
+  A key reaches the reader only through its responders. On iPhone and iPad UIKit focuses
+  nothing on its own. Before #681, on an iPad simulator, Right Arrow typed with
+  `XCUIElement.typeKey` turned no page, before or after a touch on the page. With the canvas
+  taking the focus it turns one, and Space does too. XCTest sends the app no press for Home or
+  End there ([reader controls probe](testing.md#reader-controls-probe)). The canvas now takes
+  the focus when it is shown and when a touch begins
+  on it (`ReaderTouchObserver`, which recognizes nothing), while no other view in its window
+  holds it (`takeKeyboardFocusIfFree`), so a field keeps its keyboard. A change of flow leaves
+  that focus on the canvas, where the Mac moves it to the first text view.
   In continuous scroll a page turn scrolls by one viewport less a line. A backward turn
   refines the newly shown text through the line that was first and keeps that line at the
   new screen's bottom, so estimates for tall images above a jumped-to position cannot skip

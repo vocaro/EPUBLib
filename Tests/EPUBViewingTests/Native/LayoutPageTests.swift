@@ -375,6 +375,26 @@ import UIKit
             XCTAssertEqual(canvas.visibleRange?.start, bookStart(host), "\(flow): Home")
         }
     }
+
+    /// A hardware keyboard's page keys reach the reader only through its responders, and UIKit
+    /// gives nothing focus by itself: on an iPad simulator `XCUIElement.typeKey` Home, End and
+    /// Right Arrow did nothing with no view focused. The reader takes keyboard focus when it is
+    /// shown and when it is touched, but leaves a field that holds it alone.
+    func testTheReaderTakesTheKeyboardFocusNoOtherViewHolds() throws {
+        let host = keyHost(flow: .paginated)
+        let canvas = host.canvas
+        XCTAssertTrue(canvas.hasKeyboardFocus, "shown with no view focused")
+        let field = UITextField(frame: CGRect(x: 0, y: 0, width: 200, height: 40))
+        host.window.addSubview(field)
+        XCTAssertTrue(field.becomeFirstResponder())
+        XCTAssertFalse(canvas.hasKeyboardFocus)
+        canvas.takeKeyboardFocusIfFree()
+        XCTAssertTrue(field.isFirstResponder, "a field keeps its focus and its keyboard")
+        XCTAssertFalse(canvas.hasKeyboardFocus)
+        XCTAssertTrue(field.resignFirstResponder())
+        canvas.takeKeyboardFocusIfFree()
+        XCTAssertTrue(canvas.hasKeyboardFocus, "a touch takes the focus once no view holds it")
+    }
     #endif
 
     /// The book's end in a section not built yet is asked of the delegate, which shows its end

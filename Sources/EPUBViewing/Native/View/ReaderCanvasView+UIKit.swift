@@ -16,6 +16,7 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         tap.delegate = self
         tap.cancelsTouchesInView = false
         addGestureRecognizer(tap)
+        addGestureRecognizer(ReaderTouchObserver { [weak self] in self?.takeKeyboardFocusIfFree() })
         updateInputHandlers()
         NotificationCenter.default.addObserver(self, selector: #selector(memoryWarning(_:)),
                                                name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
@@ -179,6 +180,25 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
 
     var hasKeyboardFocus: Bool { isFirstResponder || textViews.contains(where: \.isFirstResponder) }
 
+    /// A hardware keyboard's page keys reach the reader only through its responders, and UIKit
+    /// gives nothing focus on its own: on an iPad with a keyboard no page key did anything until
+    /// some text was selected (#681). The reader takes keyboard focus when it is shown and when it
+    /// is touched, as a Mac's does when its window gives it none, but only while no other view in
+    /// its window holds it: a search field keeps its focus and its keyboard.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        takeKeyboardFocusIfFree()
+    }
+
+    func takeKeyboardFocusIfFree() {
+        guard let window, imageInspector == nil, !hasKeyboardFocus, !Self.holdsFocus(window) else { return }
+        becomeFirstResponder()
+    }
+
+    private static func holdsFocus(_ view: UIView) -> Bool {
+        view.isFirstResponder || view.subviews.contains(where: holdsFocus)
+    }
+
     // MARK: Text view delegate
 
     func textViewDidChangeSelection(_ textView: UITextView) {
@@ -274,8 +294,8 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 
-    /// The host may focus the canvas for hardware keys; it never takes focus on its own, which
-    /// would dismiss a keyboard elsewhere in the window.
+    /// The canvas takes keyboard focus for hardware keys only while nothing else in its window
+    /// holds it (`takeKeyboardFocusIfFree`): taking it from a field would dismiss its keyboard.
     override var canBecomeFirstResponder: Bool { true }
 
     /// Bindings are read from the current configuration by both canvas and focused children.
@@ -574,6 +594,25 @@ final class ReaderEdgeTapRecognizer: UITapGestureRecognizer {
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
         liftTime = touches.first?.timestamp
         super.touchesEnded(touches, with: event)
+    }
+}
+
+/// Sees each touch that begins in the canvas, on its text as well, and recognizes nothing: it
+/// fails at once, so every other gesture, the text's own among them, goes on as before.
+final class ReaderTouchObserver: UIGestureRecognizer {
+    private let onTouch: @MainActor () -> Void
+
+    init(onTouch: @escaping @MainActor () -> Void) {
+        self.onTouch = onTouch
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        onTouch()
+        state = .failed
     }
 }
 #endif
