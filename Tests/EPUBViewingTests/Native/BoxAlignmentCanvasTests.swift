@@ -386,6 +386,117 @@ import UIKit
         XCTAssertEqual(canvas.visibleRange?.end, last, "the visible end is the end of the line before")
     }
 
+    /// In continuous scroll a page turn scrolls by one viewport less a line, in a book with box
+    /// geometry as in any: forward from the full-page dedication, from the epigraph and from
+    /// prose to the book's end, each turn by the visible height less the first line on screen,
+    /// and back, each turn keeping the line that was first at the bottom of the new screen, by
+    /// at least half of it (#161). Such a book's lines are placed by the reader, and TextKit 2
+    /// gives its text no height until it is laid out, so on the Mac the document ended at the
+    /// last line laid out and the scroll view stopped each turn there: from the dedication the
+    /// first turn moved 265.5 points of 629.7 and still showed the dedication, and from the
+    /// epigraph 165.5, then 89 at a time (#369).
+    func testAPageTurnScrollsByOneViewportLessALineInABookWithBoxGeometry() async throws {
+        let prose = (0..<60).map { "<p>Paragraph \($0) of ordinary reading text for pagination.</p>" }.joined()
+        let texts = [try H.build(F.shippedTitleBody, css: F.shippedCSS), try H.build(F.shippedDedicationBody, css: F.shippedCSS),
+                     try H.build(F.shippedEpigraphBody, css: F.shippedCSS),
+                     try H.build("<h2>Chapter</h2><p><span style='float: left; font-size: 3em'>T</span>he chapter opens here.</p>" + prose,
+                                 css: F.shippedCSS)]
+        let dedication = ReaderTextPosition(section: 1, offset: 0), epigraph = ReaderTextPosition(section: 2, offset: 0)
+        let paragraph = ReaderTextPosition(section: 3, offset: H.range("Paragraph 12 of", in: texts[3]).location)
+        let end = ReaderTextPosition(section: 3, offset: texts[3].string.length)
+        for shown in [dedication, epigraph, paragraph] {
+            let source = FakeCanvasSource(texts.map(\.string))
+            source.book = CanvasText.book(texts.map(\.string))
+            let host = CanvasHost(source, size: CGSize(width: 500, height: 700), configuration: .init(flow: .scrolled))
+            defer { host.close() }
+            // The title page first, and then the place: the text after it has not been laid out.
+            host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+            host.layOut()
+            try await host.settle()
+            let canvas = host.canvas, view = try XCTUnwrap(canvas.scrollTextView), book = try XCTUnwrap(canvas.scrollBook)
+            XCTAssertTrue(view.readerContainer.hasNonlinearGeometry, "the book has box geometry")
+            canvas.show(shown, selecting: nil)
+            try await host.settle()
+            XCTAssertEqual(canvas.visibleRange?.start, shown, "shown")
+            func line(_ position: ReaderTextPosition) throws -> CGRect {
+                try XCTUnwrap(view.lineFrame(containing: book.location(of: position)))
+            }
+            var turns = 0
+            while canvas.canTurnPage(forward: true) == true, turns < 10 {
+                let before = canvas.scrollVisibleContainerRect, range = try XCTUnwrap(canvas.visibleRange)
+                let first = try line(range.start).height, label = "from \(shown), turn \(turns) forward"
+                XCTAssertEqual(canvas.turnPage(forward: true), .turned, label)
+                let moved = canvas.scrollVisibleContainerRect.minY - before.minY, next = try XCTUnwrap(canvas.visibleRange)
+                XCTAssertGreaterThan(next.start, range.start, "\(label): moved on")
+                // A full-page box ends in blank space, so the next screen can begin at the section after it.
+                XCTAssertLessThanOrEqual(next.start, range.end, "\(label): nothing skipped between \(range) and \(next)")
+                if next.end == end {
+                    XCTAssertLessThanOrEqual(moved, before.height - first + 1, "\(label): to the book's end")
+                } else {
+                    let lessALine = { XCTAssertEqual(moved, before.height - first, accuracy: 1, "\(label): the visible height less a line") }
+                    #if os(iOS)
+                    // The line the turn takes at the dedication's top is the title page's, of hidden labels alone and no height.
+                    if shown == dedication, turns == 0 {
+                        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/737", failingBlock: lessALine)
+                    } else { lessALine() }
+                    #else
+                    lessALine()
+                    #endif
+                }
+                turns += 1
+            }
+            XCTAssertEqual(canvas.visibleRange?.end, end, "from \(shown): the book's last line")
+            XCTAssertEqual(canvas.turnPage(forward: true), .atBoundary, "from \(shown)")
+            turns = 0
+            while canvas.canTurnPage(forward: false) == true, turns < 10 {
+                let range = try XCTUnwrap(canvas.visibleRange), label = "from \(shown), turn \(turns) back"
+                let top = canvas.scrollVisibleContainerRect.minY
+                XCTAssertEqual(canvas.turnPage(forward: false), .turned, label)
+                let next = try XCTUnwrap(canvas.visibleRange), visible = canvas.scrollVisibleContainerRect
+                XCTAssertLessThan(visible.minY, top, "\(label): moved back")
+                // The title page holds hidden labels alone, so the first page starts at the dedication.
+                XCTAssertLessThanOrEqual(next.start, range.start, "\(label): moved back")
+                XCTAssertGreaterThanOrEqual(next.end, range.start, "\(label): nothing skipped between \(next) and \(range)")
+                if !canvas.isScrolledToStart {
+                    let first = try line(range.start)
+                    XCTAssertEqual(first.maxY, visible.maxY, accuracy: first.height / 2 + 1, "\(label): the line that was first ends the screen")
+                }
+                turns += 1
+            }
+            XCTAssertEqual(canvas.visibleRange?.start, dedication, "from \(shown): back to the book's first page")
+        }
+    }
+
+    /// A turn back into the section before, while the book is still being built, shows that
+    /// section's end, in a section with box geometry as in any
+    /// (`ViewCoverageScrollTests.testTurningBackIntoASectionBeforeTheBookIsBuiltShowsItsEnd`).
+    /// The view scrolls as far as it can, and on the Mac a section whose lines the reader places
+    /// was as tall as the text laid out from its start: the turn showed offset 1335 of 11,192 (#369).
+    func testTurningBackIntoASectionWithBoxGeometryBeforeTheBookIsBuiltShowsItsEnd() async throws {
+        let prose = String(repeating: "<p>A paragraph of ordinary reading text for pagination, long enough to wrap onto a second line.</p>",
+                           count: 120)
+        let chapter = try H.build("<h2>Chapter</h2><p><span style='float: left; font-size: 3em'>T</span>he chapter opens here.</p>" + prose,
+                                  css: F.shippedCSS)
+        let host = CanvasHost(FakeCanvasSource([chapter.string, chapter.string]), size: CGSize(width: 500, height: 700),
+                              configuration: .init(flow: .scrolled))
+        defer { host.close() }
+        host.canvas.show(ReaderTextPosition(section: 1, offset: 0), selecting: nil)
+        host.layOut()
+        try await host.settle()
+        let canvas = host.canvas
+        XCTAssertNil(canvas.scrollBook)
+        XCTAssertEqual(canvas.turnPage(forward: false), .turned)
+        let view = try XCTUnwrap(canvas.scrollTextView)
+        XCTAssertEqual(view.placement.section, 0)
+        XCTAssertTrue(view.readerContainer.hasNonlinearGeometry, "the section has box geometry")
+        let range = try XCTUnwrap(canvas.visibleRange)
+        XCTAssertEqual(range.end, ReaderTextPosition(section: 0, offset: chapter.string.length), "the section's last lines, not \(range)")
+        XCTAssertTrue(canvas.isScrolledToEnd)
+        // Forward again from the end crosses back to the next section's start.
+        XCTAssertEqual(canvas.turnPage(forward: true), .turned)
+        XCTAssertEqual(canvas.visibleRange?.start, ReaderTextPosition(section: 1, offset: 0))
+    }
+
     /// A box rested by its top edge stays there through changes of the visible height at the
     /// same column width. Its first line moves by the change in the space above it, and on the
     /// Mac the step that holds the first line on screen in place after a layout behind the view

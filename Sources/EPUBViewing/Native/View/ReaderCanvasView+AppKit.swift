@@ -131,10 +131,18 @@ extension ReaderCanvasView: NSTextViewDelegate {
         guard let scrollView, let textView = scrollTextView else { return }
         let clip = scrollView.contentView
         let insets = scrollView.contentInsets
+        let target = y + textView.textContainerOrigin.y - insets.top - ReaderCanvasGeometry.verticalMargin
+        // Where the reader places the lines itself (box geometry), TextKit 2 gives the text it has
+        // not laid out no height, and the document ends at the last line laid out: a page turn
+        // stopped there, short by a different amount each time (#369). So the screen a target
+        // below that opens is laid out first, and for a section's end the rest of the text.
+        if textView.readerContainer.hasNonlinearGeometry, target > maximumScrollOffset {
+            let visible = scrollVisibleContainerRect
+            textView.readerLayoutManager.ensureLayout(for: CGRect(x: 0, y: y, width: visible.width, height: visible.height))
+        }
         // TextKit 2 grows the document as it lays out; make room for what was just laid out.
         let used = textView.readerLayoutManager.usageBoundsForTextContainer.maxY + 2 * textView.textContainerInset.height
         if textView.frame.height < used { textView.setFrameSize(NSSize(width: textView.frame.width, height: ceil(used))) }
-        let target = y + textView.textContainerOrigin.y - insets.top - ReaderCanvasGeometry.verticalMargin
         clip.scroll(to: NSPoint(x: clip.bounds.minX, y: min(max(-insets.top, target), maximumScrollOffset)))
         scrollView.reflectScrolledClipView(clip)
         textView.readerLayoutManager.textViewportLayoutController.layoutViewport()
