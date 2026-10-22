@@ -8,6 +8,8 @@ import unittest
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 TARGETS = ("EPUBCore", "EPUBReading", "EPUBText", "EPUBWriting", "EPUBViewing")
+# StaticSVG is a dependency, built in its own project folder.
+DEPENDENCIES = ("StaticSVG",)
 MACOS, IOS_SIMULATOR = 1, 7
 # Beside each object, `<object>.symbols` holds what `nm -u` lists for it and
 # `<object>.platform` the platform number of its LC_BUILD_VERSION. Beside a resvg archive,
@@ -50,7 +52,12 @@ class RequiredReasonAPITests(unittest.TestCase):
         for target in TARGETS:
             self.object(self.mac / f"{target}-t.build/Objects-normal/arm64/Clean.o", MACOS)
             self.object(self.ios / f"{target}-t.build/Objects-normal/arm64/Clean.o", IOS_SIMULATOR)
-        self.resvg = self.root / "Vendor/Resvg/Resvg.xcframework"
+        for target in DEPENDENCIES:
+            mac = self.root / f".build/out/Intermediates.noindex/{target}.build/Debug"
+            ios = self.root / f".build/ios-validation/Build/Intermediates.noindex/{target}.build/Debug-iphonesimulator"
+            self.object(mac / f"{target}-t.build/Objects-normal/arm64/Clean.o", MACOS)
+            self.object(ios / f"{target}-t.build/Objects-normal/arm64/Clean.o", IOS_SIMULATOR)
+        self.resvg = self.root / ".build/artifacts/staticsvg/CResvg/Resvg.xcframework"
         for slice in ("ios-arm64", "ios-arm64_x86_64-simulator", "macos-arm64_x86_64"):
             self.archive(slice)
 
@@ -74,7 +81,7 @@ class RequiredReasonAPITests(unittest.TestCase):
     def test_clean_objects_on_both_platforms_pass(self):
         result = self.run_check()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("10 objects of five targets on iOS and macOS, and the three resvg slices", result.stdout)
+        self.assertIn("12 objects of five targets and StaticSVG on iOS and macOS, and the resvg slices", result.stdout)
 
     def test_a_listed_api_in_a_resvg_slice_is_named(self):
         self.archive("macos-arm64_x86_64", "_fstat$INODE64")
@@ -91,16 +98,34 @@ class RequiredReasonAPITests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("Unread resvg slice: ios-arm64_x86_64-simulator: nm: error:", result.stderr)
 
-    def test_no_vendored_resvg_fails(self):
-        shutil.rmtree(self.root / "Vendor")
+    def test_no_resvg_from_staticsvg_fails(self):
+        shutil.rmtree(self.root / ".build/artifacts")
         result = self.run_check()
         self.assertEqual(result.returncode, 1)
         self.assertIn("Unread resvg slice: no libresvg.a under", result.stderr)
 
+    def test_the_ios_builds_copy_of_staticsvgs_resvg_is_read_too(self):
+        self.resvg = self.root / ".build/ios-validation/SourcePackages/artifacts/staticsvg/CResvg/Resvg.xcframework"
+        self.archive("ios-arm64_x86_64-simulator", "_stat")
+        result = self.run_check()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("CResvg (iOS) libresvg.a:resvg.resvg-cgu.0.rcgu.o: _stat (file timestamp)", result.stderr)
+
+    def test_staticsvg_objects_are_read_and_must_be_there(self):
+        staticsvg = self.root / ".build/out/Intermediates.noindex/StaticSVG.build/Debug/StaticSVG-t.build"
+        self.object(staticsvg / "Objects-normal/arm64/Renderer.o", MACOS, "_fstat")
+        result = self.run_check()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("StaticSVG (macOS) Renderer.o: _fstat (file timestamp)", result.stderr)
+        shutil.rmtree(staticsvg)
+        result = self.run_check()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("No compiled objects for StaticSVG (macOS)", result.stderr)
+
     def test_swiftpm_build_system_layout_is_found_through_debug(self):
         shutil.rmtree(self.root / ".build/out")
         native = self.root / ".build/arm64-apple-macosx/debug"
-        for target in TARGETS:
+        for target in TARGETS + DEPENDENCIES:
             self.object(native / f"{target}.build/Clean.swift.o", MACOS)
         (self.root / ".build/debug").symlink_to(native, target_is_directory=True)
         result = self.run_check()
