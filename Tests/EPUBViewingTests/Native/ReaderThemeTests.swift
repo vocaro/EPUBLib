@@ -362,7 +362,11 @@ import UIKit
 
     private func weight(_ font: PlatformFont?) -> CGFloat {
         guard let font else { return .nan }
-        let traits = CTFontCopyTraits(font as CTFont) as NSDictionary
+        return weight(font as CTFont)
+    }
+
+    private func weight(_ font: CTFont) -> CGFloat {
+        let traits = CTFontCopyTraits(font) as NSDictionary
         return (traits[kCTFontWeightTrait] as? NSNumber).map { CGFloat($0.doubleValue) } ?? .nan
     }
 
@@ -446,15 +450,21 @@ import UIKit
         }
     }
 
-    /// Bold Text draws regular text as iOS draws its own with Bold Text on: the system font's
-    /// regular weight becomes the weight UIKit gives body text under a bold legibility weight.
+
+    /// Bold Text draws regular text as iOS draws its own with Bold Text on: SwiftUI's body
+    /// font, resolved under a bold legibility weight, has the weight the reader's regular text
+    /// is drawn at with Bold Text.
     func testBoldTextMatchesTheSystemsOwnBoldText() {
-        let bold = UITraitCollection(legibilityWeight: .bold), regular = UITraitCollection(legibilityWeight: .regular)
-        let systemBold = weight(UIFont.preferredFont(forTextStyle: .body, compatibleWith: bold))
-        let systemRegular = weight(UIFont.preferredFont(forTextStyle: .body, compatibleWith: regular))
+        var environment = EnvironmentValues()
+        environment.legibilityWeight = .regular
+        let systemRegular = weight(Font.body.resolve(in: environment.fontResolutionContext).ctFont)
+        environment.legibilityWeight = .bold
+        let systemBold = weight(Font.body.resolve(in: environment.fontResolutionContext).ctFont)
         XCTAssertGreaterThan(systemBold, systemRegular)
         var style = ComputedStyle(fontSize: 17)
         style.fontFamilies = ["system-ui"]
+        let regular = weight(FontRegistry.systemFont(families: style.fontFamilies, size: 17, weight: style.usedFontWeight, italic: false))
+        XCTAssertEqual(regular, systemRegular, accuracy: 0.01, "the reader's regular is the system's")
         style.usesBoldText = true
         let ours = weight(FontRegistry.systemFont(families: style.fontFamilies, size: 17, weight: style.usedFontWeight, italic: false))
         XCTAssertEqual(ours, systemBold, accuracy: 0.01, "regular text drawn as the system draws body text with Bold Text")
