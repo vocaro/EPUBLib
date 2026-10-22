@@ -1,5 +1,6 @@
 #if os(iOS)
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
 // UIKit views, input, menus and popovers for `ReaderCanvasView`.
 extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
@@ -11,7 +12,7 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
             swipe.delegate = self
             addGestureRecognizer(swipe)
         }
-        let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+        let tap = ReaderEdgeTapRecognizer(target: self, action: #selector(tapped(_:)))
         tap.delegate = self
         tap.cancelsTouchesInView = false
         addGestureRecognizer(tap)
@@ -246,9 +247,10 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     }
 
     /// A tap within a configured physical edge zone turns the page, unless it lands on a
-    /// link, text is selected, or the touch was a long press (a selection beginning).
-    @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
-        guard let down = pointerDown, ProcessInfo.processInfo.systemUptime - down.time < 0.35,
+    /// link, text is selected, or the touch was a long press (a selection beginning). The press
+    /// is timed by the touch's own timestamps, from when it went down to when it lifted.
+    @objc private func tapped(_ recognizer: ReaderEdgeTapRecognizer) {
+        guard let down = pointerDown, let lift = recognizer.liftTime, lift - down.time < 0.35,
               let forward = edgeTurn(at: recognizer.location(in: self)) else { return }
         turnPageFromInput(forward: forward)
     }
@@ -556,5 +558,22 @@ final class ReaderNoteViewController: UIViewController, UIPopoverPresentationCon
 
     func textView(_ textView: UITextView, menuConfigurationFor textItem: UITextItem,
                   defaultMenu: UIMenu) -> UITextItem.MenuConfiguration? { nil }
+}
+
+/// The canvas's edge-tap recognizer, which keeps when its touch lifted, as the touch gives it.
+/// With when it went down (`pointerDown`) that times a press without reading a clock: the
+/// system's uptime is an API whose use a host would have to declare to the App Store (#685).
+final class ReaderEdgeTapRecognizer: UITapGestureRecognizer {
+    private(set) var liftTime: TimeInterval?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        liftTime = nil
+        super.touchesBegan(touches, with: event)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        liftTime = touches.first?.timestamp
+        super.touchesEnded(touches, with: event)
+    }
 }
 #endif

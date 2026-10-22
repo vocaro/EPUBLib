@@ -30,10 +30,15 @@ if [[ ! -x "$CARGO_HOME/bin/rustup" ]]; then
 fi
 export PATH="$CARGO_HOME/bin:$PATH"
 rustup toolchain install 1.95.0 --profile minimal
-rustup target add --toolchain 1.95.0 aarch64-apple-darwin x86_64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+# The standard library is built from its own 1.95.0 source without its `backtrace` feature,
+# whose symbolizer reads the executable with `fstat`: an API that an app has to declare in its
+# privacy manifest (#685). Unwinding stays, for the panic boundary. `-Zbuild-std` is unstable,
+# and RUSTC_BOOTSTRAP lets the pinned stable compiler use it.
+rustup component add --toolchain 1.95.0 rust-src
 export CARGO_TARGET_DIR="$work/target"
 for target in aarch64-apple-darwin x86_64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios; do
-    cargo +1.95.0 build --manifest-path "$work/source/Cargo.toml" --locked --package resvg-capi --profile production --no-default-features --features text,raster-images --target "$target"
+    RUSTC_BOOTSTRAP=1 cargo +1.95.0 build --manifest-path "$work/source/Cargo.toml" --locked --package resvg-capi --profile production --no-default-features --features text,raster-images --target "$target" \
+        -Zbuild-std=std,panic_unwind -Zbuild-std-features=panic-unwind
 done
 mkdir -p "$work/headers" "$work/mac" "$work/ios" "$work/simulator"
 cp "$work/source/crates/c-api/resvg.h" "$work/headers/"

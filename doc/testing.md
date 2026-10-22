@@ -11,7 +11,9 @@ bash scripts/check-all.sh
 
 The gate checks the hosted-run and VoiceOver session scripts, verifies module boundaries,
 compares documentation snippets with compiled Swift sources, runs the Mac tests and the full
-test suite on dedicated iPhone 17 Pro and iPad Air 13-inch (M4) simulators, and builds the
+test suite on dedicated iPhone 17 Pro and iPad Air 13-inch (M4) simulators, reads the objects
+those runs compiled, and the vendored resvg library, for any API that an app would have to
+declare in a privacy manifest ([integration](integration.md#privacy-manifest)), and builds the
 VoiceOver verification host for Mac and iOS. Test devices are created by UUID and
 deleted on exit; existing devices are never selected or shut down. Agents working in the
 repository drive simulators the same way, headlessly ([notes for agents](../AGENTS.md)). iOS logs live in
@@ -33,8 +35,10 @@ no network, GitHub login, build or running app, and never start VoiceOver or a h
 cover queue refusals and dispatch arguments, per-session settings and Safari restrictions,
 session deadlines and reports, the list state used when restoring VoiceOver
 ([#433](https://github.com/vocaro/EPUBLib/issues/433)), simulator build revisions
-([#504](https://github.com/vocaro/EPUBLib/issues/504)), and where the scripts find the shared
-toolkit ([#701](https://github.com/vocaro/EPUBLib/issues/701)).
+([#504](https://github.com/vocaro/EPUBLib/issues/504)), where the scripts find the shared
+toolkit ([#701](https://github.com/vocaro/EPUBLib/issues/701)), and which symbols the privacy
+manifest check counts as an API to declare
+([#685](https://github.com/vocaro/EPUBLib/issues/685)).
 They do not establish what VoiceOver reads or does; that uses the speech lanes below.
 
 These checks and `scripts/eng` need the [shared engineering toolkit](shared-engineering.md), a

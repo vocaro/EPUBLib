@@ -28,6 +28,22 @@ end = text.index('/// @brief Destroys the #resvg_options.', start)
 part = text[start:end].replace('#[cfg(feature = "text")]', '#[cfg(all(feature = "text", feature = "system-fonts"))]')
 part = part.replace('#[cfg(not(feature = "text"))]', '#[cfg(not(all(feature = "text", feature = "system-fonts")))]')
 text = text[:start] + part + text[end:]
+# Parsing from a path opens no file either. Its read, and usvg's default string resolver
+# below, would leave `stat` and `fstat` in every app: file timestamp APIs that an app has to
+# declare in its privacy manifest (#685).
+old = '''    let file_data = match std::fs::read(file_path) {'''
+new = '''    // The host provides every byte; no file is opened.
+    let file_data = match { let _ = file_path; Err::<Vec<u8>, ()>(()) } {'''
+assert text.count(old) == 1, 'Unexpected resvg source: file parsing patch does not apply'
+text = text.replace(old, new)
+image = Path(sys.argv[1]) / 'crates/usvg/src/parser/image.rs'
+image_text = image.read_text()
+# `Options::default()` builds the default resolver, which reads an `href` as a path, before the
+# policy above replaces it.
+old = '''            resolve_string: ImageHrefResolver::default_string_resolver(),'''
+new = '''            resolve_string: Box::new(|_, _| None),'''
+assert image_text.count(old) == 1, 'Unexpected usvg source: default resolver patch does not apply'
+image.write_text(image_text.replace(old, new))
 # The panic wrappers live separately so their ownership and synchronization are reviewable.
 import importlib.util
 spec = importlib.util.spec_from_file_location("panic_boundary", Path(__file__).with_name("resvg-panic-boundary.py"))
