@@ -19,9 +19,10 @@ enum UserAgentStyleSheet {
     address, blockquote, center, dialog, div, figure, figcaption, footer, form, header, hr, legend,
     listing, main, p, plaintext, pre, search, xmp, article, aside, h1, h2, h3, h4, h5, h6, hgroup,
     nav, section, details, summary, dir, dd, dl, dt, menu, ol, ul, fieldset, optgroup, frameset,
-    frame, marquee { display: block; }
+    frame { display: block; }
     li { display: list-item; }
     input, button, select, textarea, meter, progress { display: inline-block; }
+    marquee { display: inline-block; text-align: initial; }
 
     blockquote, figure, listing, p, plaintext, pre, xmp { margin-top: 1em; margin-bottom: 1em; }
     blockquote, figure { margin-left: 40px; margin-right: 40px; }
@@ -80,11 +81,14 @@ enum UserAgentStyleSheet {
     caption { display: table-caption; text-align: center; }
     colgroup { display: table-column-group; }
     col { display: table-column; }
-    thead { display: table-header-group; vertical-align: middle; }
-    tbody { display: table-row-group; vertical-align: middle; }
-    tfoot { display: table-footer-group; vertical-align: middle; }
-    tr { display: table-row; vertical-align: middle; }
-    td, th { display: table-cell; padding: 1px; vertical-align: inherit; }
+    thead { display: table-header-group; }
+    tbody { display: table-row-group; }
+    tfoot { display: table-footer-group; }
+    tr { display: table-row; }
+    td, th { display: table-cell; padding: 1px; }
+    thead, tbody, tfoot, table > tr { vertical-align: middle; }
+    tr, td, th { vertical-align: inherit; }
+    thead, tbody, tfoot, tr { border-color: inherit; }
     th { font-weight: bold; text-align: center; }
 
     [dir="ltr" i] { direction: ltr; }

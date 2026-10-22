@@ -107,10 +107,16 @@ Previous/next always submit logical commands. RTL books reverse the physical ord
 icons, independently of the app's language. Scrolled flow retains viewport-step behavior and
 labels the buttons “Scroll Backward”/“Scroll Forward”.
 Known book boundaries disable turns; nil means unknown and lets the engine decide. The current
-contents entry receives a checkmark when its encoded section href and, for fragments, its
-current title match. Fragment precision is limited by the existing location API; duplicate
-chapter titles can be ambiguous. Nested children appear in submenus and parent links remain
-selectable. An empty contents menu says “No contents available”; entries without links are disabled.
+contents entry receives a checkmark when it names the section being read and, for fragments, its
+current title matches. An entry names the section that `navigate(href:)` shows for it, and the
+location's href is read the same way: the path is percent-decoded and compared as a Swift
+string, by canonical equivalence, as archive paths are
+([architecture](architecture.md#publication-model)). So `cafe%CC%81.xhtml`, `caf%C3%A9.xhtml` and
+`café.xhtml` name one section, and an entry that names a spine item's designated fallback names
+that item's section ([#206](https://github.com/vocaro/EPUBLib/issues/206)). Fragment precision is
+limited by the existing location API; duplicate chapter titles can be ambiguous. Nested children
+appear in submenus and parent links remain selectable. An empty contents menu says “No contents
+available”; entries without links are disabled.
 
 Search sends commands only on Return or the Search button. Typing does not search, and no
 keyboard shortcut is installed that could intercept editing keys. On a Mac, Search and Clear

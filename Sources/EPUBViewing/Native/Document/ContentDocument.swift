@@ -68,11 +68,20 @@ final class ContentNode: @unchecked Sendable {
 }
 
 struct ContentAttribute: Equatable, Sendable {
-    /// Local name.
+    /// Local name. In a section read as HTML, the name as written, lowercased, so that
+    /// `epub:type` is one name there, in no namespace.
     let name: String
     /// Namespace URI, or "" when none.
     let namespace: String
     let value: String
+    /// In a section read as HTML, the namespace that the prefix of a name such as `epub:type`
+    /// stands for, the one an XML parser would have put the attribute in
+    /// (`HTMLAttributePrefixes`); "" for every other attribute.
+    let prefixNamespace: String
+
+    init(name: String, namespace: String, value: String, prefixNamespace: String = "") {
+        self.name = name; self.namespace = namespace; self.value = value; self.prefixNamespace = prefixNamespace
+    }
 }
 
 enum ContentNamespace {
@@ -343,7 +352,8 @@ final class ContentDocument: @unchecked Sendable {
             let signs = signPlaceholder.map { HTMLStraySigns.restored(text, from: $0) } ?? text
             return HTMLLiteralAmpersands.restored(signs, placeholder: ampPlaceholder)
         }
-        func build(_ xml: xmlNodePtr, depth: Int, insideSVG: Bool = false) throws -> ContentNode {
+        /// `prefixes`: in a section read as HTML, the `xmlns:` declarations in scope at the parent.
+        func build(_ xml: xmlNodePtr, depth: Int, insideSVG: Bool = false, prefixes: [String: String] = [:]) throws -> ContentNode {
             guard depth < limits.depth else { throw ContentDocumentError.limitExceeded("depth") }
             let rawName = string(xml.pointee.name)
             let recoveredSVG = html && (insideSVG || rawName.lowercased() == "svg")
@@ -351,6 +361,8 @@ final class ContentDocument: @unchecked Sendable {
             let name = recoveredSVG ? HTMLSVGNames.element(rawName.lowercased())
                 : namespace == ContentNamespace.xhtml || html ? rawName.lowercased() : rawName
             var attributes: [ContentAttribute] = []
+            // libxml2's HTML parser keeps each name whole, prefix and all.
+            var written: [(name: String, value: String)] = []
             var attribute = xml.pointee.properties
             while let current = attribute {
                 var value = ""
@@ -361,12 +373,15 @@ final class ContentDocument: @unchecked Sendable {
                     if let content = text.pointee.content { value += String(cString: content) }
                     part = text.pointee.next
                 }
-                let attributeNamespace = html ? "" : string(current.pointee.ns?.pointee.href)
                 let local = string(current.pointee.name)
-                attributes.append(recoveredSVG ? HTMLSVGNames.attribute(local.lowercased(), value: restored(value))
-                    : ContentAttribute(name: html ? local.lowercased() : local,
-                                       namespace: attributeNamespace, value: restored(value)))
+                if html { written.append((local.lowercased(), restored(value))) }
+                else { attributes.append(ContentAttribute(name: local, namespace: string(current.pointee.ns?.pointee.href), value: restored(value))) }
                 attribute = current.pointee.next
+            }
+            let prefixes = html ? HTMLAttributePrefixes.scope(written, inheriting: prefixes) : prefixes
+            if html {
+                attributes = recoveredSVG ? written.map { HTMLSVGNames.attribute($0.name, value: $0.value) }
+                    : HTMLAttributePrefixes.attributes(written, scope: prefixes)
             }
             let node = ContentNode(element: name, namespace: namespace, attributes: attributes)
             node.order = nodes.count
@@ -388,7 +403,8 @@ final class ContentDocument: @unchecked Sendable {
                 case XML_ELEMENT_NODE:
                     flushText()
                     let element = try build(current, depth: depth + 1,
-                                            insideSVG: recoveredSVG && !HTMLSVGNames.integrationPoints.contains(name))
+                                            insideSVG: recoveredSVG && !HTMLSVGNames.integrationPoints.contains(name),
+                                            prefixes: prefixes)
                     element.parent = node; element.indexInParent = node.children.count
                     node.children.append(element)
                 case XML_TEXT_NODE, XML_CDATA_SECTION_NODE:
@@ -427,10 +443,13 @@ final class ContentDocument: @unchecked Sendable {
             let node: ContentNode
             if source.isText { node = ContentNode(text: source.text + extraText) }
             else {
+                // The prefix kept for an attribute's namespace, which selectors still match it by
+                // (`HTMLAttributePrefixes`).
                 let attributes = source.attributes.map { attribute in
                     let prefix = attribute.namespace == ContentNamespace.xml ? "xml:"
                         : attribute.namespace == ContentNamespace.ops ? "epub:" : ""
-                    return ContentAttribute(name: prefix + attribute.name.lowercased(), namespace: "", value: attribute.value)
+                    return ContentAttribute(name: prefix + attribute.name.lowercased(), namespace: "", value: attribute.value,
+                                            prefixNamespace: prefix.isEmpty ? "" : attribute.namespace)
                 }
                 node = ContentNode(element: source.name.lowercased(), namespace: ContentNamespace.xhtml, attributes: attributes)
             }

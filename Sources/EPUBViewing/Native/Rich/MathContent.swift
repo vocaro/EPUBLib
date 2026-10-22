@@ -342,14 +342,18 @@ final class MathAttachment: NSTextAttachment {
         rendering.bounds(lineWidth: lineWidth, height: height)
     }
 
-    private func bounds(container: NSTextContainer?, lineWidth: CGFloat, position: CGFloat) -> CGRect {
+    private func bounds(container: NSTextContainer?, lineWidth: CGFloat, position: CGFloat, heightLimit: CGFloat? = nil) -> CGRect {
         let available = ReaderTextContainer.available(in: container, lineWidth: lineWidth)
-        return rendering.bounds(lineWidth: available.width, height: available.height, position: position, container: container)
+        return rendering.bounds(lineWidth: available.width, height: min(available.height, heightLimit ?? available.height),
+                                position: position, container: container)
     }
 
+    /// A formula is as tall as the viewport at most, and on a page whose line it cannot fit,
+    /// as tall as the typography fallback fits that line's runs to (`.readerFallbackHeight`).
     override func attachmentBounds(for attributes: [NSAttributedString.Key: Any], location: any NSTextLocation,
                                    textContainer: NSTextContainer?, proposedLineFragment: CGRect, position: CGPoint) -> CGRect {
-        bounds(container: textContainer, lineWidth: proposedLineFragment.width, position: position.x)
+        bounds(container: textContainer, lineWidth: proposedLineFragment.width, position: position.x,
+               heightLimit: (attributes[.readerFallbackHeight] as? NSNumber).map { CGFloat($0.doubleValue) })
     }
 
     /// String drawing (a formula in a table cell) may lay out with TextKit 1.

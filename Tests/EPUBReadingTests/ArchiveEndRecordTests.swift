@@ -83,6 +83,66 @@ final class ArchiveEndRecordTests: XCTestCase {
         }
     }
 
+    /// The pages of `data`'s own memory that have been read or written, counted from the one its
+    /// first byte is in, as `UnreadZeros` counts them.
+    private func pagesUsed(by data: Data) throws -> Set<Int> {
+        try data.withUnsafeBytes { bytes in
+            let pageSize = Int(getpagesize()), start = Int(bitPattern: bytes.baseAddress) / pageSize * pageSize
+            var states = [CChar](repeating: 0, count: (Int(bitPattern: bytes.baseAddress) + bytes.count - start + pageSize - 1) / pageSize)
+            guard mincore(UnsafeMutableRawPointer(bitPattern: start), states.count * pageSize, &states) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EINVAL)
+            }
+            return Set(states.indices.filter { Int32(UInt8(bitPattern: states[$0])) & ~MINCORE_ANONYMOUS != 0 })
+        }
+    }
+
+    func testRestatingAZeroCopiesNoPageOfTheArchiveButTheRecordsItRestates() throws {
+        // An all-ZIP64 book whose first entry's header offset is the zero to restate, and whose
+        // last entry is 16 MiB of zeros, in memory none of whose pages is used but those that hold
+        // something else: the other entries, the last one's header, the directory and the end
+        // records. It begins at a page's first byte, or 13 bytes into one, as a slice of other
+        // bytes may. Foundation's copy of `Data` shared the pages of the first as this copy does;
+        // the second it read every page of and wrote as many again, as it did an archive of less
+        // than 4 MiB wherever it began (#208).
+        let files = try Fixture.files()
+        let entries = Fixture.storedEntries(files) + [Fixture.StoredEntry("OPS/zeros.bin", Data(count: 16 << 20))]
+        let archive = Fixture.storedArchive(entries, zip64: .everything)
+        let pageSize = Int(getpagesize())
+        for lead in [0, 13] {
+            let laid = Data(count: lead) + archive
+            let memory = try UnreadZeros(count: laid.count)
+            laid.withUnsafeBytes { bytes in
+                for start in stride(from: 0, to: bytes.count, by: pageSize) {
+                    let page = bytes[start..<min(start + pageSize, bytes.count)]
+                    if page.contains(where: { $0 != 0 }) { memory.write(Array(page), at: start) }
+                }
+            }
+            let written = try memory.pagesUsed()
+            XCTAssertLessThan(written.count, memory.pages(holding: 0..<memory.count).count / 4, "\(lead): the zeros are no page of their own")
+            let directory = try XCTUnwrap(Fixture.directoryOffset(of: "mimetype", in: archive)) + lead
+            let bytes = memory.data[lead...]
+
+            let restated = ZIP64ZeroValues.inlined(in: bytes)
+            XCTAssertEqual(try memory.pagesUsed(), written, "\(lead): pages of the archive read for the copy")
+            // The copy's pages in memory are those it shares with the archive, which that has in
+            // memory too, and the restated record's: none of the entry's 16 MiB.
+            let copied = Set(try pagesUsed(by: restated).map { $0 + lead / pageSize })
+            XCTAssertTrue(copied.contains(directory / pageSize), "\(lead): the restated record's page: \(copied.sorted())")
+            XCTAssertEqual(copied.subtracting(written), [], "\(lead): pages of the copy that the archive does not have in memory")
+
+            // The copy is the archive restated, and the book opens from it as from any other copy.
+            try withExtendedLifetime(memory) {
+                XCTAssertEqual(restated, ZIP64ZeroValues.inlined(in: archive), "\(lead)")
+                XCTAssertNotEqual(restated, archive, "\(lead)")
+                let book = try EPUBPublication.open(data: bytes)
+                XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/two.xhtml"], "\(lead)")
+                XCTAssertEqual(try book.data(at: "OPS/zeros.bin"), Data(count: 16 << 20), "\(lead)")
+                XCTAssertEqual(book.archiveData, archive, "\(lead)")
+                XCTAssertEqual(book.id, SHA256.hash(data: archive).map { String(format: "%02x", $0) }.joined(), "\(lead)")
+            }
+        }
+    }
+
     // MARK: Bytes that are no archive
 
     func testBytesWithNoEndRecordAreRefusedByTheirFirstFourBytesAndTheirLast() throws {
@@ -596,7 +656,8 @@ final class ArchiveEndRecordTests: XCTestCase {
     func testACutShortRecordIsRefusedBeforeItsDirectoryIsReadOrCopied() throws {
         // A megabyte of zeros with a ZIP64 end record and locator naming a directory at its
         // first byte: one record, whose header offset of zero is in its ZIP64 field. Such a
-        // zero is restated in a copy of the archive, and ZIPFoundation is given the copy.
+        // zero is restated in a copy of the archive, and ZIPFoundation is given the copy, which
+        // shares every page of the archive but the record's (#208).
         let count = 1 << 20, end = count - 22
         let archive: [(bytes: [UInt8], offset: Int)] = [
             ([0x50, 0x4B, 0x01, 0x02], 0), ([12, 0], 30), ([0xFF, 0xFF, 0xFF, 0xFF], 42), ([1, 0, 8, 0], 46),
@@ -605,7 +666,9 @@ final class ArchiveEndRecordTests: XCTestCase {
         let whole = try UnreadZeros(count: count)
         for write in archive { whole.write(write.bytes, at: write.offset) }
         let restated = ZIP64ZeroValues.inlined(in: whole.data)
-        XCTAssertFalse(try whole.pagesUsed(outside: 0..<58, (end - 76)..<count).isEmpty, "a copy is made, which every page is read for")
+        XCTAssertEqual(try whole.pagesUsed(outside: 0..<58, (end - 76)..<count), [], "pages read for the copy")
+        XCTAssertEqual(try pagesUsed(by: restated).subtracting(whole.pages(holding: 0..<58)).subtracting(whole.pages(holding: (end - 76)..<count)),
+                       [], "pages the copy has of its own or has read")
         XCTAssertNotEqual(restated, whole.data, "and the zero is restated in it")
         // With its end record cut short there is no archive to make, and so no copy, which
         // ZIPFoundation would have kept as it keeps whatever it refuses.

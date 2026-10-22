@@ -352,6 +352,8 @@ final class SectionWriter {
         // The element is rendered: its counters change where it opens, in scope for it, its
         // descendants and its following siblings.
         state.generated.apply(style, owner: parent.node.order)
+        // A note shown here, in the flow or in a table's cell, is reported here.
+        if !isNote, state.noteKind(node) != nil { state.showsNoteInPlace(node) }
 
         return Prepared(style: style, context: context)
     }
@@ -560,11 +562,9 @@ final class SectionWriter {
 
     private func register(_ node: ContentNode) {
         guard isSection else { return }
-        if let id = node.id { if anchors[id] == nil { pendAnchor(id) } }
-        else if node.isHTML("a"), let name = node.attribute("name"), !name.isEmpty, anchors[name] == nil,
-                document.element(id: name) == nil {
-            pendAnchor(name) // A legacy named anchor, when no element claims the id.
-        }
+        if let id = node.id, anchors[id] == nil { pendAnchor(id) }
+        // A legacy named anchor, beside any id of its own, when no element claims the name as its id.
+        if let name = state.legacyName(of: node), anchors[name] == nil { pendAnchor(name) }
     }
 
     private func countUnsupported(_ node: ContentNode) {
@@ -979,7 +979,7 @@ final class SectionWriter {
             let stop = max(head, width)
             key.firstLineHeadIndent = max(0, head - width)
             key.headIndent = stop
-            key.tabStop = stop
+            key.tabStop = Self.markerStop(stop, indent: indent)
         }
         key.spacingBefore = max(0, paragraph.spacingBefore)
         key.spacingAfter = max(0, paragraph.spacingAfter)
@@ -1022,6 +1022,11 @@ final class SectionWriter {
     }
 
     // MARK: Lists
+
+    /// Where the first line of a paragraph an outside marker opens starts: `text-indent` past
+    /// the item's edge, `stop` (CSS 2.2 16.1), the marker staying outside the box before it. A
+    /// negative indent would set the line's first words over the marker, so it starts at `stop`.
+    static func markerStop(_ stop: CGFloat, indent: CGFloat) -> CGFloat { stop + max(0, indent) }
 
     private func startListItem(_ node: ContentNode, style: ComputedStyle, context: InlineContext) {
         let value: Int
@@ -1796,13 +1801,14 @@ final class SectionWriter {
         return string.attributedSubstring(from: NSRange(location: leading, length: string.length - leading - trailing))
     }
 
-    /// Ids inside a unit point at it, and notes inside it are captured.
+    /// Ids and legacy names inside a unit point at it, and notes inside it are captured.
     private func claimSubtree(of node: ContentNode, at location: Int) {
         guard isSection, node.order < node.subtreeEnd else { return }
         for index in (node.order + 1)...node.subtreeEnd {
             let element = document.nodes[index]
             guard element.isElement else { continue }
             if let id = element.id, anchors[id] == nil { anchors[id] = location }
+            if let name = state.legacyName(of: element), anchors[name] == nil { anchors[name] = location }
             if state.noteKind(element) != nil { state.captureNote(element) }
         }
     }
