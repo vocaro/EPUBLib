@@ -1,1 +1,0 @@
-module CResvg { header "resvg.h" export * }

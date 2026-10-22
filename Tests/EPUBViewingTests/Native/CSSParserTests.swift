@@ -148,7 +148,7 @@ final class CSSParserTests: XCTestCase {
             """, path: "css/a.css")
         XCTAssertEqual(sheet.imports, [CSSImport(path: "css/early.css", media: .all)], "@import after other rules is ignored")
         XCTAssertEqual(sheet.remoteReferences, 1)
-        XCTAssertEqual(sheet.rules.map { $0.selectors[0].compounds[0].name }, ["a", "i", "q", "u", "em"])
+        XCTAssertEqual(sheet.rules.map { $0.selectors[0].compounds[0].name?.string }, ["a", "i", "q", "u", "em"])
         XCTAssertEqual(sheet.rules[3].media, .dark)
     }
 

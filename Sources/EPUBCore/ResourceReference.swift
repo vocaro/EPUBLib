@@ -53,13 +53,30 @@ package enum ResourceReference {
         return String(decoding: bytes[first...last], as: UTF8.self)
     }
 
+    /// A URL path's segments as URL parsing has them: split at each `/` written as one, and only
+    /// then decoded, so that an escaped slash (`%2F`) is a character of its segment and `%2E%2E`
+    /// is the `..` it spells. Nil when a segment does not decode.
+    private static func segments(_ path: some Collection<UInt8>) -> [String]? {
+        var names: [String] = []
+        for segment in path.split(separator: 0x2F, omittingEmptySubsequences: false) { // /
+            guard let name = String(decoding: segment, as: UTF8.self).removingPercentEncoding else { return nil }
+            names.append(name)
+        }
+        return names
+    }
+
     /// Resolves a local EPUB reference as EPUB Reading Systems 3.3 §4.1.1 has it parsed against
     /// the container root URL: white space round it is read past (`stripped`), a leading `/` names
-    /// the root and `..` stops there, so no reference leaves the container. An empty segment (a
-    /// doubled slash), in the reference or its base, is a segment as URL parsing has it, so a `..`
-    /// after one removes it and not the name before it; one that remains, which no entry's path
-    /// has, is read past. A query is dropped; it cannot change which entry is meant. A remote
-    /// reference, and one that does not decode to a path an entry can have, throw.
+    /// the root and `..` stops there, so no reference leaves the container. The reference is
+    /// split as URL parsing splits it, at the delimiters written as themselves, before anything
+    /// is decoded: the fragment at the first `#`, the query at the first `?` before it, and the
+    /// path at each `/` (`segments`). A delimiter written as an escape is a character of its part,
+    /// so `a%2Fb.xhtml` is one segment, whose name no entry can have, and is refused as a name
+    /// holding a backslash is. An empty segment (a doubled slash), in the reference or its base,
+    /// is a segment as URL parsing has it, so a `..` after one removes it and not the name before
+    /// it; one that remains, which no entry's path has, is read past. A query is dropped; it
+    /// cannot change which entry is meant. A remote reference, and one that does not decode to a
+    /// path an entry can have, throw.
     ///
     /// `strict` is for a reference about to be written. What EPUB forbids its author (white space
     /// round it, a leading `/`, `..` beyond the root, a query, a colon in the path) is then
@@ -72,26 +89,26 @@ package enum ResourceReference {
         let hash = raw.firstIndex(of: 0x23) ?? raw.endIndex // #
         let query = raw[..<hash].firstIndex(of: 0x3F) ?? hash // ?
         func isPlain(_ text: String) -> Bool { !text.utf8.contains(0x5C) && !text.utf8.contains(0) }
-        guard !isRemote(href), !strict || query == hash,
-              let target = String(decoding: raw[..<query], as: UTF8.self).removingPercentEncoding,
+        guard !isRemote(href), !strict || query == hash, let target = segments(raw[..<query]),
+              target.allSatisfy({ isPlain($0) && !$0.utf8.contains(0x2F) }),
               let fragment = String(decoding: raw[hash...].dropFirst(), as: UTF8.self).removingPercentEncoding,
-              isPlain(target), isPlain(fragment) else { throw unsafe }
-        let absolute = target.utf8.first == 0x2F
+              isPlain(fragment) else { throw unsafe }
+        let absolute = raw[..<query].first == 0x2F
         let base = path.utf8.split(separator: 0x2F, omittingEmptySubsequences: false).map { String(decoding: $0, as: UTF8.self) }
         guard !strict || !absolute else { throw unsafe }
         var stack = absolute ? [] : Array(base.dropLast())
-        if target.isEmpty {
+        if query == raw.startIndex {
             // The document itself, which a reference from nowhere cannot name.
             guard !path.isEmpty, let document = base.last else { throw unsafe }
             stack.append(document)
         } else {
             // The slash that opens an absolute reference has no segment before it.
-            for part in target.utf8.split(separator: 0x2F, omittingEmptySubsequences: false).dropFirst(absolute ? 1 : 0) {
-                if part.elementsEqual(dot) { continue }
-                if part.elementsEqual(dotDot) {
+            for part in target.dropFirst(absolute ? 1 : 0) {
+                if part.utf8.elementsEqual(dot) { continue }
+                if part.utf8.elementsEqual(dotDot) {
                     // The root has no parent to step up to.
                     if !stack.isEmpty { stack.removeLast() } else if strict { throw unsafe }
-                } else { stack.append(String(decoding: part, as: UTF8.self)) }
+                } else { stack.append(part) }
             }
         }
         // An empty segment no `..` removed names no entry, and is read past.
@@ -122,12 +139,12 @@ package enum ResourceReference {
         let value = stripped(fullPath)
         if !value.isEmpty, !value.utf8.contains(0x3F), // ?
            let reference = try? resolve(value, relativeTo: "mimetype"), !reference.contains("#"),
-           let written = value.removingPercentEncoding?.utf8.split(separator: 0x2F, omittingEmptySubsequences: false),
-           !written.contains(where: \.isEmpty), let name = written.last, !name.elementsEqual(dot), !name.elementsEqual(dotDot) {
+           let written = segments(value.utf8), !written.contains(where: \.isEmpty), let name = written.last?.utf8,
+           !name.elementsEqual(dot), !name.elementsEqual(dotDot) {
             // Every `..` has a folder of the path to step out of.
             var depth = 0
             let inside = written.allSatisfy { segment in
-                depth += segment.elementsEqual(dotDot) ? -1 : segment.elementsEqual(dot) ? 0 : 1
+                depth += segment.utf8.elementsEqual(dotDot) ? -1 : segment.utf8.elementsEqual(dot) ? 0 : 1
                 return depth >= 0
             }
             if inside { url = reference.removingPercentEncoding }
