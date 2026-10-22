@@ -1461,9 +1461,24 @@ continues to describe the authored spine resource.
     names, and navigates where the id names none (a later child of a note that stays in the
     flow, or its first of several items). Deeper into a note that is in the flow it is an ordinary link and navigates.
     Inside a popover, a link to the note being shown is plain text.
-  - An eligible legacy `<a name>` can name a note by the same rules as its fragment target:
-    ids take precedence, an anchor with an id uses that id, and the first eligible name wins.
-    Table cells and captions inside a note inherit its backlink and nested-note rules.
+  - A legacy `<a name>` names a note, and is a fragment target, as HTML 7.4.6.4 finds the
+    element a fragment indicates: the element whose id it is comes first, then the first `a`
+    whose `name` it is, whether or not that `a` has an id as well, so `<a id="page12"
+    name="p12">` answers to both. Inside a table, formula or image the name points at it, as
+    an id there does ([#133](https://github.com/vocaro/EPUBLib/issues/133)). Table cells and
+    captions inside a note inherit its backlink and nested-note rules.
+  - `epub:type` is read only where EPUB 3.3 allows it, and EPUB Reading Systems 3.3 §10 has a
+    reading system ignore it anywhere else: not on the `head` or anything in it, nor on HTML's
+    metadata content (`title`, `meta`, `link`, `base`, `style`, `script`, `noscript`,
+    `template`) wherever it stands, and in SVG only on a renderable element. A
+    `title` typed `footnote` is no note, and a `noteref` to it opens none (W3C test
+    `pss-support_ignore-title`). A DPUB-ARIA role on one of those elements makes no note
+    either: ARIA in HTML allows those HTML elements no role
+    ([#133](https://github.com/vocaro/EPUBLib/issues/133)).
+  - What a note holds is disclosed once. The section counts it where it shows it, in the flow
+    or in a table's cell, and the note's own rendering for its popover counts only what the
+    section shows nowhere else: a footnote hidden from the flow, a note in hidden content
+    ([#258](https://github.com/vocaro/EPUBLib/issues/258)).
   - A footnote `aside` with neither an id nor an eligible name anywhere in it cannot be
     referred to and is not shown.
   - An empty id names nothing: a link to `#` goes to the top of its document, whatever
@@ -1483,7 +1498,10 @@ continues to describe the authored spine resource.
   dimensions before measuring and removes resize metadata from page slices so continuation
   indentation and spacing do not repeat. Continuous-scroll layout starts from immutable source
   dimensions on each resize, changing attributes while preserving characters, selection ranges
-  and DOM maps.
+  and DOM maps. A list item's first line takes its `text-indent` after an outside marker,
+  which stays outside the item's box (CSS 2.2 16.1), in the item's own paragraph and in a first
+  paragraph inside it. A negative indent there, which would set the line's first words over
+  the marker, is not applied ([#133](https://github.com/vocaro/EPUBLib/issues/133)).
 
   `ex` lengths use CoreText's x-height for the face selected by the font registry, including
   embedded `@font-face` resources. An `ex` font size uses its parent's metrics. Font metric
@@ -1550,7 +1568,12 @@ continues to describe the authored spine resource.
   around a `q` are generated the same way, from the user-agent sheet's `q::before` and
   `q::after` as HTML gives them, so a book's `quotes`, and the reset stylesheets that write
   `q:before, q:after { content: none }`, apply to them as they do in a browser. Before, the
-  marks were drawn whatever the book's styles said.
+  marks were drawn whatever the book's styles said. With `quotes: auto` the marks are CLDR's
+  for the content's language, script and region, outer and inner, as the platform's locale
+  data has them: “ ” in Brazilian Portuguese and Turkish, « » in European Portuguese,
+  «bonjour «toi»» in French, with no space added inside them, as Firefox, whose table is made
+  from CLDR, shows them. Arabic and Hebrew take CLDR's marks, where Apple's locale data has
+  the typewriter `"` and `'` ([#133](https://github.com/vocaro/EPUBLib/issues/133)).
   - **Where it stands.** An inline box is written in its line, and white space collapses
     across it as across the book's text. A block box is a paragraph of its own. A box that
     floats or is positioned is written in its line, with the disclosure of the boxes left in
