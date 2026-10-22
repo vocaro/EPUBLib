@@ -8,6 +8,7 @@ python3 scripts/check-docs.py
 swift build --target ReaderHostSupport
 swift test
 bash scripts/test-ios.sh
+python3 scripts/check-required-reason-apis.py
 xcodegen generate --spec Examples/VoiceOverVerification/project.yml
 xcodebuild -project Examples/VoiceOverVerification/VoiceOverVerification.xcodeproj -scheme VoiceOverProbeMac \
     -destination 'platform=macOS' -derivedDataPath .build/host-mac CODE_SIGNING_ALLOWED=NO build

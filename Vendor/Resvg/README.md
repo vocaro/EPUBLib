@@ -8,6 +8,13 @@ EPUBViewing uses resvg 0.48.1, MIT/Apache-2.0, from upstream commit
 arm64/x86_64 libraries, built with isolated Rust 1.95.0 and the upstream production
 profile (`opt-level=3`, LTO, one codegen unit, stripped debug information), with
 `panic = "unwind"` explicitly set so boundary catches can run.
+Rust's standard library is built with it from the toolchain's own 1.95.0 source
+(`-Zbuild-std`, which `RUSTC_BOOTSTRAP=1` enables on the stable compiler) without its
+`backtrace` feature, whose symbolizer reads the executable with `fstat`. Apple counts that, and
+the `stat` and `fstat` of a file read, as file timestamp APIs that an app has to declare in its
+privacy manifest. The library calls none of the APIs Apple requires a reason for
+([#685](https://github.com/vocaro/EPUBLib/issues/685)), and
+`scripts/check-required-reason-apis.py` reads each slice for one.
 Features: `text,raster-images`; filesystem font scanning, font memory mapping, and
 SVGZ are disabled. Swift package consumers do not need Rust. Only EPUBViewing
 depends on CResvg; the headless products retain their existing dependencies.
@@ -18,15 +25,16 @@ Rebuild on either Apple Silicon or Intel macOS with Xcode installed:
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bash scripts/build-resvg.sh
 ```
 
-The script pins/checks the source archive, downloads an isolated Rust toolchain
-under `.build/resvg`, preserves the previous framework, and regenerates license
+The script pins/checks the source archive, downloads an isolated Rust toolchain and its
+library source under `.build/resvg`, preserves the previous framework, and regenerates license
 inventory and archive checksums. `EPUBLIB_RESVG_BUILD_DIR` and
 `EPUBLIB_RESVG_OUTPUT` can redirect these outputs. The library's build deployment
 targets are macOS 11.0 and iOS 10.0 (Rust's Apple defaults); EPUBLib itself
 requires iOS/macOS 27.
 
 The resource-policy upstream changes, in `scripts/patch-resvg.py`, close every non-data image
-resolver, allow raster data types only (never nested SVG/SVGZ), and fix the C API's
+resolver, usvg's default one too, which `Options::default()` builds before the policy replaces
+it, make `resvg_parse_tree_from_file` open no file, allow raster data types only (never nested SVG/SVGZ), and fix the C API's
 feature gates so filesystem font methods compile to no-ops. Fonts are supplied
 as host-exported CoreText SFNT outline bytes, with SVG/COLR/bitmap color-glyph
 tables removed and disclosed as `svg:font-color`. No script or remote/file-resource loader is
@@ -71,7 +79,7 @@ The build downloads the crate archive with its Cargo.lock SHA-256 and uses an
 isolated path patch; it never modifies Cargo's registry cache.
 
 The default Rust panic hook is deliberately unchanged: caught panic diagnostics
-still go to stderr. There is no process-global hook replacement that could silence
+still go to stderr, with no backtrace, which the standard library is built without. There is no process-global hook replacement that could silence
 a host's own Rust panics. EPUBLib never invokes `resvg_init_log`.
 
 SVG initialization draws a 64-pixel raster so a known render-stage panic, as well
@@ -88,7 +96,8 @@ Unwinding does not contain stack overflow, allocation failure, memory or CPU
 exhaustion, or a parser loop that never returns; their screens and budgets stay.
 The image output size bound remains a capacity bound, not a prediction of panics.
 
-The XCFramework is approximately 45 MiB before compression. `checksums.json`
+The XCFramework is approximately 19 MiB before compression; it was 45 MiB before the standard
+library was built with the production profile and without backtraces. `checksums.json`
 records the exact vendored archive hashes. `dependencies.json` identifies the
 locked normal dependency graph. `Licenses/` contains their complete license and
 notice texts, plus Rust's standard-library copyright/third-party notices. Host
