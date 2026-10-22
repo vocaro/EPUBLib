@@ -2200,14 +2200,16 @@ Absolute callouts honor `top`, `right`, `bottom`, `left` and `inset` within thei
 positioned ancestor, including a top inset that places them before their source location.
 Prose and floats written before such a callout in its containing block keep clear of it: the
 layout places the callouts, then sets that text again beside them. Where a callout stands
-depends only on what is above its containing block, and the layout anticipates it there, so a
-chapter of margin notes, each written after its paragraph in a relative container of its own,
-has every note placed however long it is, where twelve containers had every note set in flow
+depends only on what is above its containing block and on the callouts before it, which it
+settles below, and the layout anticipates it there. So a chapter of margin notes, each written
+after its paragraph in a relative container of its own, has every note placed however long it
+is, where twelve containers had every note set in flow
 ([#209](https://github.com/vocaro/EPUBLib/issues/209)). Callouts that four layouts of the
-section cannot settle are still set in flow, and so is such a chapter with a float before each
-note on its side, which keeps clear of where the layout before placed the notes below it
-([#751](https://github.com/vocaro/EPUBLib/issues/751)). Relative containers honor column
-sizing and horizontal offsets, with positive vertical offsets moving their content downward. Fixed callouts use the section's viewport coordinates
+section cannot settle are still set in flow. Such a chapter with a float before each note, on
+the note's side, can be: the float keeps clear of where the layout before placed the notes in
+the containers below it ([#751](https://github.com/vocaro/EPUBLib/issues/751)).
+Relative containers honor column sizing and horizontal offsets, with positive vertical
+offsets moving their content downward. Fixed callouts use the section's viewport coordinates
 and appear once; they do not remain pinned while scrolling or repeat on each page. The reader
 reserves space around rectangular boxes to keep prose readable rather than reproducing
 arbitrary overlapping layers.

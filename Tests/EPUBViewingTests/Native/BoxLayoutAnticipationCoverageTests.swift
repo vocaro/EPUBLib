@@ -65,6 +65,37 @@ import XCTest
         XCTAssertLessThan(large, 64 * small, "50 of each took \(small) s of CPU and 400 took \(large) s")
     }
 
+    /// A container of many floats, or many paragraphs, and then as many boxes positioned by an
+    /// inset, below the issue's container from #209, whose paragraph gains a line in the pass that
+    /// knows of its note. The container below moves down then, so every box in it is anticipated
+    /// from its new top, and every float and paragraph before them asks where they will be. While
+    /// each question settled every such box again, below a list growing with each, 400 of each
+    /// took 19 s of CPU, where the layout before #209 took 0.75 s; settled once a pass, they take
+    /// 0.9 s. The text is one pixel high, so that every group fits a page, and the boxes stand side
+    /// by side.
+    func testAnticipatingBoxesInAContainerThatMovedDoesNotGrowCubically() throws {
+        let first = "<div class='rel'><p>P. Ordinary prose wraps beside the box and returns.</p><aside class='note'>A.</aside></div>"
+        let css = ".rel { position:relative } .note { position:absolute; right:0; top:0; width:120px; height:50px } "
+            + ".low { position:absolute; width:1px; font-size:1px; line-height:1px } .t { font-size:1px; line-height:1px } "
+        func boxes(_ count: Int) -> String { (0..<count).map { "<aside class='low' style='left:\($0)px'>.</aside>" }.joined() }
+        func floats(_ count: Int) throws -> Double {
+            try cpuSeconds(resolving: first + "<div class='rel'>" + String(repeating: "<figure>.</figure>", count: count) + boxes(count)
+                            + "</div><p style='clear:left'>End.</p>",
+                           css: css + ".low { top:300px } figure { float:left; width:1px; font-size:1px; line-height:1px }",
+                           regions: 2 * count + 1, positioned: count + 1)
+        }
+        func paragraphs(_ count: Int) throws -> Double {
+            try cpuSeconds(resolving: first + "<div class='rel'>" + String(repeating: "<p class='t'>.</p>", count: count) + boxes(count) + "</div><p>End.</p>",
+                           css: css + ".low { top:520px }", regions: count + 1, positioned: count + 1)
+        }
+        // Linear work is 8 times as long, quadratic 64, cubic 512.
+        let smallFloats = try floats(50), largeFloats = try floats(400)
+        XCTAssertLessThan(largeFloats, 64 * smallFloats, "50 floats and boxes took \(smallFloats) s of CPU and 400 took \(largeFloats) s")
+        let smallParagraphs = try paragraphs(50), largeParagraphs = try paragraphs(400)
+        XCTAssertLessThan(largeParagraphs, 64 * smallParagraphs,
+                          "50 paragraphs and boxes took \(smallParagraphs) s of CPU and 400 took \(largeParagraphs) s")
+    }
+
     // MARK: Anticipated boxes
 
     /// End to end: a callout written last is positioned at the top of the column, where a float
@@ -208,11 +239,11 @@ import XCTest
         pending.place(NSRange(location: 30, length: 4))
         XCTAssertEqual(pending.unplaced(wrappingTextIn: scope(1)).map(\.range), [second.range])
         // A box left in flow is still one for floats to keep clear of, as it was.
-        let held = ReaderBoxLayout.Anticipation([first, second, third], disabled: [NSRange(location: 34, length: 30)])
+        var held = ReaderBoxLayout.Anticipation([first, second, third], disabled: [NSRange(location: 34, length: 30)])
         XCTAssertEqual(held.unplaced.map(\.range), [first.range, second.range, third.range])
         XCTAssertEqual(held.unplaced(wrappingTextIn: scope(1)).map(\.range), [first.range])
         XCTAssertEqual(held.unplaced(wrappingTextIn: scope(2)).map(\.range), [])
-        let none = ReaderBoxLayout.Anticipation([], disabled: [NSRange(location: 0, length: 10)])
+        var none = ReaderBoxLayout.Anticipation([], disabled: [NSRange(location: 0, length: 10)])
         XCTAssertTrue(none.unplaced.isEmpty); XCTAssertTrue(none.unplaced(wrappingTextIn: nil).isEmpty)
     }
 
