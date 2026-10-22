@@ -90,8 +90,18 @@ of any kind surrounds it.
 
 A path the reader keeps is relative and made of names separated by single `/`: no name is empty,
 `.` or `..`, and the path holds no backslash or NUL. Entry names, the rootfile path and the path
-of every resolved reference are held to that. A delimiter in a path or a reference is found as
-its byte, not by `Character`, and paths are compared as Swift strings, by canonical equivalence:
+of every resolved reference are held to that. A reference is split as URL parsing splits it,
+at the delimiters written as themselves, before anything in it is decoded: the fragment at the
+first `#`, the query at the first `?` before it, and the path into names at each `/`. A query
+is found so whether or not Foundation's `URLComponents` would parse the reference
+([#215](https://github.com/vocaro/EPUBLib/issues/215)). An escaped delimiter is a character of
+its part: `%2E%2E` is the `..` it spells, but `%3F` and `%23` are in the name, and so is `%2F`,
+which no name an entry has can hold, so `a%2Fb.xhtml` names no entry and does not resolve, as
+a reference with a backslash does not. A manifest href that does not resolve so refuses the book;
+a contents entry keeps its label without a target, and a landmark, page, stylesheet or image is
+left out ([#660](https://github.com/vocaro/EPUBLib/issues/660)). A delimiter in a path or a
+reference is found as its byte, not by `Character`, and paths are compared as Swift strings, by
+canonical equivalence:
 an entry answers to a reference in either normalization form, and two entry names equal after
 normalization are duplicates
 ([archive paths](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#archive-paths-need-byte-level-delimiters-and-deliberate-normalization)).

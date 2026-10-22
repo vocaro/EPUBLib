@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Keep a percent-encoded slash inside its path segment when resolving a reference, as URL parsing does, so that `a%2Fb.xhtml` names no entry, where it named `a/b.xhtml` ([#660](https://github.com/vocaro/EPUBLib/issues/660)).
+- Find a reference's query at its first `?` before any `#`, whatever else the reference holds, so that one `URLComponents` cannot parse, such as `1:x/../y?q`, has its query dropped when it is read and refused when it is written, as any other reference does, where the query was kept in the path as `y%3Fq` ([#215](https://github.com/vocaro/EPUBLib/issues/215)).
 - Lay out a spine item that overrides `rendition:layout` more than once by the first override, as EPUB Reading Systems 3.3 §5.5.1 requires, where it was pre-paginated whenever either override said so ([#79](https://github.com/vocaro/EPUBLib/issues/79)).
 - Read a manifest `id` and every reference to one (`idref`, `fallback`, the spine's `toc`, `unique-identifier`, a `dc:identifier`'s `id` and the EPUB 2 cover `meta`) without the XML white space round it, as XML Schema reads an ID and EPUBCheck accepts it, where `id=" one "` with `idref="one"` refused the book and a font keyed by such a unique identifier was left out ([#80](https://github.com/vocaro/EPUBLib/issues/80)).
 - Strip and collapse the white space of an EPUB 2 guide reference's `title`, as a navigation landmark's title is, where it was kept as written ([#269](https://github.com/vocaro/EPUBLib/issues/269)).
