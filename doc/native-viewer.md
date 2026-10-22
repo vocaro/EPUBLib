@@ -553,7 +553,12 @@ continues to describe the authored spine resource.
   one image-drawn attachment per row so pages can break between any two rows; rows a rowspan
   joins, and the header, keep with the next row and share a page when they fit. `colspan`/
   `rowspan` honoured (`rowspan="0"` spans one row, as WebKit does); a spanning cell is drawn in
-  each row it covers. Consecutive columns spanned by exactly the same cells, and declared by no
+  each row it covers. A table, its columns, rows and cells take their sizes, and a cell where
+  its content sits, from the cascade, where `width`, `height` and `valign` are presentational
+  hints that an author rule beats (HTML §15.3.8): a table's width of zero and a cell's width
+  or height of zero are no size at all ([#121](https://github.com/vocaro/EPUBLib/issues/121)),
+  and a row group's alignment reaches its rows and their cells, which inherit it
+  ([#142](https://github.com/vocaro/EPUBLib/issues/142)). Consecutive columns spanned by exactly the same cells, and declared by no
   `col` or `colgroup`, are laid out as one (CSS Tables 3 §3.3.2, track merging): the 98 columns
   a title row's `colspan="100"` runs past over a two-column body add one border spacing to the
   table, not 98 ([#140](https://github.com/vocaro/EPUBLib/issues/140)). The model keeps the
@@ -2166,7 +2171,9 @@ of the requested side, with all it holds, a float it opens with included; inside
 clears again, so its later lines wrap beside its own floats. An empty block that clears moves
 what follows it. On a float, `clear` moves that float alone below the earlier floats of the
 side (CSS 2.2 9.5.2), and on a `br` it moves the line after the break, as browsers do
-([#151](https://github.com/vocaro/EPUBLib/issues/151)).
+([#151](https://github.com/vocaro/EPUBLib/issues/151)). So does a `br`'s `clear` attribute,
+`left`, `right`, `all` or `both` in any case, which HTML maps to the property as a
+presentational hint (HTML §15.3.4, [#121](https://github.com/vocaro/EPUBLib/issues/121)).
 
 A float, and a sized `inline-block`, is placed and sized in its containing block: the content
 box of the block it is in, between the content edges where that block's own lines are set
