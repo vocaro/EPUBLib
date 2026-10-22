@@ -356,13 +356,16 @@ import UIKit
         XCTAssertEqual(session.visibleRange, opening)
 
         // No default page key reaches the reader from the field, whatever it does there.
+        // Home, End, Command-Up and Command-Down go to the book's ends with reader focus (#681).
         let pageKeys: [(UInt16, String, NSEvent.ModifierFlags)] = [
             (49, " ", []), (49, " ", .shift), (123, "\u{F702}", []), (124, "\u{F703}", []),
             (116, "\u{F72C}", []), (121, "\u{F72D}", []),
+            (115, "\u{F729}", [.function]), (119, "\u{F72B}", [.function]),
+            (126, "\u{F700}", [.command, .function, .numericPad]), (125, "\u{F701}", [.command, .function, .numericPad]),
         ]
         for (code, characters, flags) in pageKeys {
             let event = try key(code, characters, flags, in: host.window)
-            XCTAssertNotNil(ReaderTextView.pageTurnDirection(for: event), "key \(code) turns pages with reader focus")
+            XCTAssertNotNil(ReaderTextView.pageAction(for: event), "key \(code) is a page key with reader focus")
             XCTAssertFalse(canvas.handlePageKeyEquivalent(event), "key \(code)")
             XCTAssertFalse(host.root.performKeyEquivalent(with: event), "key \(code)")
             XCTAssertEqual(session.visibleRange, opening, "key \(code)")

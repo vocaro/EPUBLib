@@ -24,7 +24,8 @@ import XCTest
         case stateDoesNotMirrorResults, stateKeepsClearedResults, publishesResultsWithoutTheCapability
     }
     static let everything: Set<EPUBReaderCapability> = [.pagination, .scrolling, .typography, .selection, .bookmarks, .locateText,
-                                                        .navigateHref, .searchHighlight, .highlights, .search, .searchResults]
+                                                        .navigateHref, .searchHighlight, .highlights, .search, .searchResults,
+                                                        .goToProgression]
     let id = "coverage.contract"
     var capabilities = Self.everything
     var fault = Fault.none
@@ -195,6 +196,7 @@ import XCTest
             }
             if fault != .showDoesNotSelect { show(result.index) }
         case .setHighlights: _ = try require(.highlights)
+        case .goToProgression: _ = try require(.goToProgression)
         case .style(let style):
             if style.flow == .scrolled, try !require(.scrolling) { return }
             if style.fontSize != EPUBReaderStyle().fontSize, try !require(.typography) { return }
@@ -271,7 +273,7 @@ import XCTest
         let commands: [(EPUBReaderCapability, String)] = [
             (.pagination, "pagination"), (.navigateHref, "navigateHref"), (.locateText, "locateText"), (.search, "search)"),
             (.highlights, "highlights"), (.typography, "typography"), (.scrolling, "scrolling"), (.bookmarks, "bookmarks"),
-            (.searchResults, "searchResults"),
+            (.searchResults, "searchResults"), (.goToProgression, "goToProgression"),
         ]
         for (capability, name) in commands {
             let capabilities = Engine.everything.subtracting([capability])

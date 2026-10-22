@@ -399,8 +399,8 @@ extension ReaderCanvasView: NSTextViewDelegate {
     }
 
     override func keyDown(with event: NSEvent) {
-        guard let forward = ReaderTextView.pageTurnDirection(for: event, controls: configuration.pageControls) else { return super.keyDown(with: event) }
-        turnPageFromInput(forward: forward)
+        guard let action = ReaderTextView.pageAction(for: event, controls: configuration.pageControls) else { return super.keyDown(with: event) }
+        performPageActionFromInput(action)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -409,9 +409,9 @@ extension ReaderCanvasView: NSTextViewDelegate {
 
     func handlePageKeyEquivalent(_ event: NSEvent) -> Bool {
         guard imageInspector == nil, hasKeyboardFocus,
-              let forward = ReaderTextView.pageTurnDirection(for: event, controls: configuration.pageControls)
+              let action = ReaderTextView.pageAction(for: event, controls: configuration.pageControls)
         else { return false }
-        turnPageFromInput(forward: forward)
+        performPageActionFromInput(action)
         return true
     }
 

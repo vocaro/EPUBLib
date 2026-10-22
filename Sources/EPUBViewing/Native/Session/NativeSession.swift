@@ -28,6 +28,7 @@ import SwiftUI
     let capabilities: Set<EPUBReaderCapability> = [
         .navigateHref, .pagination, .scrolling, .typography, .selection, .bookmarks, .locateText,
         .search, .searchHighlight, .searchResults, .highlights,
+        .goToProgression,
     ]
     let publication: EPUBPublication
     let readerState: EPUBReaderState?
@@ -136,7 +137,7 @@ import SwiftUI
         canvas.dataSource = nil
         canvas.releaseContent()
         self.canvas = nil
-        if !closed { readerState?.modify { $0.lifecycle = .loading } }
+        if !closed { readerState?.modify { $0.lifecycle = .loading; $0.layoutPage = nil } }
     }
 
     private var configuration: ReaderCanvasConfiguration {
@@ -217,7 +218,23 @@ import SwiftUI
         case .showSearchResult(let result): try showSearchResult(result)
         case .style(let newStyle): try applyStyle(newStyle)
         case .setHighlights(let list): setHighlights(list)
+        case .goToProgression(let progression): try await go(toProgression: progression)
         }
+    }
+
+    /// Shows the place `progression` of the way through the book, as `EPUBLocation.progression`
+    /// measures it (`NativeProgress.target(progression:isShown:)`). The page is entered at its
+    /// first line, as after a page turn: the place asked for is a fraction, not a passage.
+    private func go(toProgression progression: Double) async throws {
+        guard progression.isFinite else { throw EPUBReaderError.invalidCommand("The progression is not a finite number") }
+        guard let target = progress.target(progression: progression, isShown: { [book] in !book.isOmitted($0) }) else { return }
+        let ticket = beginNavigation()
+        let text = await book.build(target.section)
+        guard isCurrent(ticket) else { return }
+        let length = text.string.length
+        let offset = target.fraction >= 1 ? length : min(length, Int((Double(length) * target.fraction).rounded(.down)))
+        canvas?.clearSelection()
+        canvas?.show(ReaderTextPosition(section: target.section, offset: offset), selecting: nil, entry: .firstLine)
     }
 
     private func turn(_ canvas: ReaderCanvasView, forward: Bool) {
@@ -635,6 +652,7 @@ import SwiftUI
             canvas?.reloadContent(keeping: nil)
         }
         if !searchMatches.isEmpty || !highlights.isEmpty { refreshHighlights() }
+        canvas?.sectionsDidChange()
     }
 
     private func bookCompleted() {
@@ -642,6 +660,7 @@ import SwiftUI
         publishDisclosure()
         if style.flow == .scrolled { canvas?.reloadContent(keeping: nil) }
         if !searchMatches.isEmpty || !highlights.isEmpty { refreshHighlights() }
+        canvas?.sectionsDidChange()
     }
 
     private func publishDisclosure() {
@@ -756,6 +775,7 @@ extension NativeSession: ReaderCanvasDataSource {
     /// section; this departs from it on purpose, so the book reads through in either flow.
     func isLinear(section index: Int) -> Bool { !book.isOmitted(index) }
     var bookText: ReaderBookText? { book.bookText }
+    func isCurrent(section index: Int) -> Bool { book.isCurrent(index) }
 }
 
 extension NativeSession: ReaderCanvasDelegate {
@@ -765,6 +785,8 @@ extension NativeSession: ReaderCanvasDelegate {
         readerState?.modify {
             $0.canGoPrevious = self.canvas?.canTurnPage(forward: false)
             $0.canGoNext = self.canvas?.canTurnPage(forward: true)
+            // Before the `.relocated` of the same pages, which a host may read it beside.
+            $0.layoutPage = self.canvas?.layoutPage
         }
         // A page is read to its end, as foliate measured it: the last page of a book is 1.
         var fraction = sectionProgress
@@ -825,6 +847,11 @@ extension NativeSession: ReaderCanvasDelegate {
             tasks.append(task)
             return task
         }
+    }
+
+    func canvasDidChangeLayoutPage(_ canvas: any ReaderCanvas) {
+        guard isReady, !closed, canvas === self.canvas else { return }
+        readerState?.modify { $0.layoutPage = self.canvas?.layoutPage }
     }
 
     func canvas(_ canvas: any ReaderCanvas, needsSection index: Int, forward: Bool) {

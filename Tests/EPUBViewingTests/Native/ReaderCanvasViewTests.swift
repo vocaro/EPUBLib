@@ -574,7 +574,7 @@ import UIKit
     func testPageTurnKeyCommandsTakePriorityAndLeaveSelectionChords() throws {
         let host = host(sections(1, paragraphs: 20))
         let commands = try XCTUnwrap(host.canvas.keyCommands)
-        XCTAssertEqual(commands.count, 6)
+        XCTAssertEqual(commands.count, 8, "six turns, Home and End (#681)")
         XCTAssertTrue(commands.allSatisfy(\.wantsPriorityOverSystemBehavior))
         XCTAssertFalse(commands.contains { !$0.modifierFlags.isDisjoint(with: [.command, .alternate, .control]) })
         let start = try XCTUnwrap(host.canvas.visibleRange?.start)

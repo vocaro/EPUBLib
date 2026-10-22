@@ -100,6 +100,8 @@ import AppKit
         }
     }
     private var sectionHeadings: [Int: SectionHeadings] = [:]
+    /// The book's pages at the spread's column size (`layoutPage`).
+    let pageCounter = ReaderPageCounter()
 
     // Continuous scroll.
     private(set) var scrollContainer: PlatformView?
@@ -194,6 +196,11 @@ import AppKit
         super.init(frame: frame)
         platformSetUp()
         applyAppearance()
+        pageCounter.canvas = self
+        pageCounter.onCount = { [weak self] in
+            guard let self else { return }
+            self.delegate?.canvasDidChangeLayoutPage(self)
+        }
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -510,6 +517,7 @@ import AppKit
         columns.removeAll()
         spread = nil
         shownPage = nil
+        pageCounter.stop()
     }
 
     /// A text view the canvas is done with. The platform frees views in its own time, so the
@@ -537,6 +545,15 @@ import AppKit
         paginators[key] = paginator
         trimPaginators()
         return paginator
+    }
+
+    /// The cached pagination of a section's current text at a column size, if there is one;
+    /// unlike `paginator(for:size:)` it makes none and leaves the cache's order alone.
+    func cachedPaginator(for section: Int, size: CGSize) -> ReaderPaginator? {
+        guard let text = dataSource?.text(forSection: section),
+              let cached = paginators[PaginatorKey(section: section, width: size.width, height: size.height)],
+              cached.sourceText === text else { return nil }
+        return cached
     }
 
     /// The paginator of the spread on screen, never trimmed.
@@ -569,12 +586,14 @@ import AppKit
     func trimCaches() {
         let kept = shownPaginatorKey
         for key in paginatorUse where key != kept { removePaginator(key) }
+        pageCounter.trimCaches()
     }
 
     /// The reader is closed or this view is going away: nothing here is shown again, so the
     /// text and its paginations go now rather than with the views.
     func releaseContent() {
         cancelPendingSpread()
+        pageCounter.stop()
         for view in columns + [scrollTextView].compactMap({ $0 }) { empty(view) }
         scrollBook = nil
         paginators.removeAll()
@@ -651,6 +670,9 @@ import AppKit
         accessibilityPageWasShown(at: anchor)
         #endif
         trimPaginators()
+        // Counts at another column size are dropped before the delegate reads `layoutPage`.
+        pageCounter.count(for: spread.columnSize)
+        pageCounter.resume()
         applyHighlights()
         updateVisibleRange(force: true)
         if let carriedSelection, carriedSelection.start.tableCell != nil || carriedSelection.end.tableCell != nil

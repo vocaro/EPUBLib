@@ -142,6 +142,7 @@ import XCTest
             show(result.index)
         case .setHighlights: throw EPUBReaderError.unsupported(.highlights)
         case .style(let style): throw EPUBReaderError.unsupported(style.flow == .scrolled ? .scrolling : .typography)
+        case .goToProgression: throw EPUBReaderError.unsupported(.goToProgression)
         }
     }
     func close() {

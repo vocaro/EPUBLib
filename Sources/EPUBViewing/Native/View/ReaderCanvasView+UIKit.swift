@@ -293,16 +293,16 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(pageTurnKeyCommand(_:)), let command = sender as? UIKeyCommand {
-            return ReaderTextView.pageTurnDirection(input: command.input, flags: command.modifierFlags,
-                                                    controls: configuration.pageControls) != nil
+            return ReaderTextView.pageAction(input: command.input, flags: command.modifierFlags,
+                                             controls: configuration.pageControls) != nil
         }
         return super.canPerformAction(action, withSender: sender)
     }
 
     @objc func pageTurnKeyCommand(_ command: UIKeyCommand) {
-        guard imageInspector == nil, let forward = ReaderTextView.pageTurnDirection(input: command.input, flags: command.modifierFlags,
-                                                             controls: configuration.pageControls) else { return }
-        turnPageFromInput(forward: forward)
+        guard imageInspector == nil, let action = ReaderTextView.pageAction(input: command.input, flags: command.modifierFlags,
+                                                                    controls: configuration.pageControls) else { return }
+        performPageActionFromInput(action)
     }
 
     /// VoiceOver orders sibling containers by their frames, top first. A column starting below

@@ -147,10 +147,16 @@ enum ReaderPageEntry: Equatable, Sendable {
     func isLinear(section index: Int) -> Bool
     /// The whole book for continuous scroll, once every section is built.
     var bookText: ReaderBookText? { get }
+    /// Whether a section's text is built for the current typography (`isCurrent(section:)` below).
+    func isCurrent(section index: Int) -> Bool
 }
 
 extension ReaderCanvasDataSource {
     func selectionText(in range: ReaderTextRange) -> String? { nil }
+    /// Whether a section's text is built for the current typography, so its pages are the ones
+    /// the reader will show. A text kept on screen while its rebuild runs is not. A source that
+    /// never rebuilds its texts keeps this default.
+    func isCurrent(section index: Int) -> Bool { true }
 }
 
 @MainActor protocol ReaderCanvasDelegate: AnyObject {
@@ -165,6 +171,13 @@ extension ReaderCanvasDataSource {
     /// A page turn or scroll needs a section that is not built. When it is, the session shows
     /// its start (`forward`) or end.
     func canvas(_ canvas: any ReaderCanvas, needsSection index: Int, forward: Bool)
+    /// `ReaderCanvasView.layoutPage` changed without a new visible range: counting went on, or
+    /// the count was dropped for a new layout.
+    func canvasDidChangeLayoutPage(_ canvas: any ReaderCanvas)
+}
+
+extension ReaderCanvasDelegate {
+    func canvasDidChangeLayoutPage(_ canvas: any ReaderCanvas) {}
 }
 
 /// The TextKit 2 surface: continuous scroll in a real scroll view, or columns paginated from the
