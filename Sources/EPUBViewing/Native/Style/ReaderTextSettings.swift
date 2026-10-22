@@ -57,7 +57,8 @@ struct ReaderTextSettings: Hashable, Sendable {
         wordSpacing = bounded(typography.wordSpacing, Self.wordSpacings)
         justifies = typography.alignment.map { $0 == .justified }
         hyphenates = typography.hyphenation
-        overrides = typography.overridesBookStyles
+        // The switch alone sets nothing, and rebuilds nothing.
+        overrides = typography.overridesBookStyles && !isEmpty
     }
 
     /// Nothing set: the book's styles and the reader's defaults, computed as before.

@@ -131,8 +131,9 @@ extension EPUBReaderStyle {
         public var pageMargins: Double?
         /// Ragged or justified lines. Text the book centres or sets to its end side stays so.
         public var alignment: Alignment?
-        /// Whether words break at line ends where the language's hyphenation allows (CSS
-        /// `hyphens: auto`, the reader's own), or only where the book marks a soft hyphen.
+        /// Whether words break at line ends where the language's hyphenation allows: CSS
+        /// `hyphens: auto`, the reader's own. false is `hyphens: manual`, which hyphenates no
+        /// word by itself.
         public var hyphenation: Bool?
         /// Whether the values set apply over the book's own declarations, rather than in place of
         /// the reader's defaults only: a reader's "publisher defaults" switch turned off.

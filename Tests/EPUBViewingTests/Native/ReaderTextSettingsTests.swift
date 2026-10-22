@@ -44,8 +44,8 @@ final class ReaderTextSettingsTests: XCTestCase {
         let css = "body { font-family: Georgia, serif } p { margin: 0 }"
         let before = try styled(body, css: css)
         let after = try styled(body, css: css, EPUBReaderStyle.Typography(pageMargins: 2, overridesBookStyles: true))
-        XCTAssertTrue(ReaderTextSettings(EPUBReaderStyle.Typography(pageMargins: 2, overridesBookStyles: true)).isEmpty,
-                      "page margins are the canvas's, and the switch alone sets nothing")
+        XCTAssertEqual(ReaderTextSettings(EPUBReaderStyle.Typography(pageMargins: 2, overridesBookStyles: true)), ReaderTextSettings(),
+                       "page margins are the canvas's, and the switch alone sets nothing, so neither rebuilds the text")
         for (order, style) in before.styles {
             XCTAssertEqual(after.styles[order], style)
             XCTAssertNil(after.styles[order]?.textSettings)
