@@ -295,6 +295,17 @@ continues to describe the authored spine resource.
   publication bytes are preserved. Opaque images and transparent light artwork retain their
   pixels; an author's explicit CSS inversion retains its own appearance treatment. Display
   renditions are cached separately by appearance under the existing image memory budget.
+- **Media queries.** A `media` attribute, `@import` and `@media` are evaluated by Media
+  Queries 4 against a screen of the nominal 600 × 800 CSS pixels, an `em` of 16, a resolution
+  of 2dppx, colour, no scripting and the reader's appearance (**Appearance media**). A query
+  has three values: a feature the reader does not know, a value or a `min-`/`max-` prefix its
+  feature does not take, and parentheses around anything that is neither a condition nor a
+  feature are unknown. `not` leaves unknown unknown and `and` and `or` combine it as browsers
+  do, so `not (bogus)` and `not all and (min-orientation: portrait)` apply nowhere, while
+  `(color) or (bogus)` applies; a query that comes to unknown is `not all`, and the others in
+  its list still count ([#114](https://github.com/vocaro/EPUBLib/issues/114)). A feature's
+  value is a literal: `calc()` and the lengths other than `px`, `em`, `rem` and the absolute
+  units are unknown.
 - **Appearance media.** `prefers-color-scheme` follows the reader's appearance only for what
   paints: `color`, `background-color`, the border colours, `text-decoration-color` and `filter`
   (`CSSProperty.followsAppearance`). Every other property in a rule for one appearance, and
