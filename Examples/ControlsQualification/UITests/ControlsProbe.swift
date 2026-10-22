@@ -54,38 +54,31 @@ import XCUIAutomation
         #if os(macOS)
         // Synthesized keys and clicks go to whatever is in front. Another session's window or a
         // system dialog there must not receive them: stop acting until the host is frontmost again.
-        if ["tap", "forcetap", "tapbegins", "tapcontains", "tapxy", "type", "key", "swipe", "scrolllist", "resize"].contains(command),
+        if ["tap", "forcetap", "tapbegins", "tapcontains", "keyboard", "tapxy", "type", "key", "swipe", "scrolllist", "resize"].contains(command),
            app.state != .runningForeground {
             return note(command, "SKIPPED \(argument): the host is not the frontmost application")
         }
         #endif
         switch command {
-        case "tap", "forcetap":
-            // `forcetap` touches the element's centre even when XCTest calls it unhittable.
-            guard let element = find(argument) else { return note(command, "\(argument): MISSING") }
+        case "tap", "forcetap", "tapbegins", "tapcontains", "keyboard":
+            // `tap=WORD` touches the one element WORD names (see `find`); `forcetap` touches its
+            // centre even when XCTest calls it unhittable. `tapbegins` names by a label that begins
+            // with TEXT, such as a result named "Match 6 of 14, …"; `tapcontains` by a label,
+            // identifier or title that contains it, for a system control of unknown name.
+            // `keyboard=search` touches the on-screen keyboard's own key, here the Return of a field
+            // whose submit label is Search; no other step touches the keyboard (issue 366).
+            let element = switch command {
+            case "tapbegins": find(command, argument, by: ["label"], "%K BEGINSWITH %@")
+            case "tapcontains": find(command, argument, by: ["label", "identifier", "title"], "%K CONTAINS[c] %@")
+            default: find(command, argument, onKeyboard: command == "keyboard")
+            }
+            guard let element else { return }
             let before = describe(element)
             guard element.isHittable || command == "forcetap" else { return note(command, "NOT HITTABLE \(before)") }
             #if os(macOS)
             element.click()
             #else
             if element.isHittable { element.tap() } else { element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
-            #endif
-            note(command, before)
-            settle()
-        case "tapbegins", "tapcontains":
-            // The first element whose label begins with TEXT, such as a result named "Match 6 of 14, …";
-            // or whose label, title or identifier contains it, for a system control of unknown name.
-            let format = command == "tapbegins" ? "label BEGINSWITH %@"
-                : "label CONTAINS[c] %@ OR title CONTAINS[c] %@ OR identifier CONTAINS[c] %@"
-            let element = app.descendants(matching: .any)
-                .matching(NSPredicate(format: format, argumentArray: Array(repeating: argument, count: command == "tapbegins" ? 1 : 3))).firstMatch
-            guard element.waitForExistence(timeout: 5) else { return note(command, "\(argument): MISSING") }
-            let before = describe(element)
-            guard element.isHittable else { return note(command, "NOT HITTABLE \(before)") }
-            #if os(macOS)
-            element.click()
-            #else
-            element.tap()
             #endif
             note(command, before)
             settle()
@@ -128,7 +121,7 @@ import XCUIAutomation
             #endif
         case "type":
             // `\n` is Return as a hardware keyboard sends it, which can put the keyboard away under
-            // a field that keeps focus (issue 307). `tap=search` presses the keyboard's own key.
+            // a field that keeps focus (issue 307). `keyboard=search` touches the keyboard's own key.
             app.typeText(argument.replacingOccurrences(of: "\\n", with: "\n"))
             note(command, argument)
             settle()
@@ -196,28 +189,36 @@ import XCUIAutomation
         case "wait":
             RunLoop.current.run(until: Date().addingTimeInterval(Double(argument) ?? 1))
         case "waitfor", "waitgone":
-            let element = app.descendants(matching: .any).matching(predicate(argument)).firstMatch
-            let found = command == "waitfor" ? element.waitForExistence(timeout: 30) : element.waitForNonExistence(timeout: 30)
-            note(command, "\(argument): \(found ? "yes" : "TIMED OUT")")
+            // Until WORD names an element, or names none, as `find` reads it.
+            let deadline = Date().addingTimeInterval(30)
+            var shown = !naming(argument).elements.isEmpty
+            while shown != (command == "waitfor"), Date() < deadline {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+                shown = !naming(argument).elements.isEmpty
+            }
+            note(command, "\(argument): \(shown == (command == "waitfor") ? "yes" : "TIMED OUT")")
         case "watch":
-            // When LABEL is on screen during the next SECONDS, for states too brief to tap after.
+            // When WORD names an element during the next SECONDS, for states too brief to tap after.
             let parts = argument.split(separator: ",", maxSplits: 1).map(String.init)
-            let element = app.descendants(matching: .any).matching(predicate(parts[0])).firstMatch
             let deadline = Date().addingTimeInterval(Double(parts.last ?? "") ?? 5)
             var shown: Bool?
             while Date() < deadline {
-                let exists = element.exists
-                if exists != shown {
-                    shown = exists
-                    note(command, "\(parts[0]) \(exists ? "ON SCREEN \(describe(element))" : "not on screen")")
-                    if exists { screenshot("watch") }
+                let element = naming(parts[0]).elements.first
+                if (element != nil) != shown {
+                    shown = element != nil
+                    note(command, "\(parts[0]) \(element.map { "ON SCREEN \(describe($0))" } ?? "not on screen")")
+                    if element != nil { screenshot("watch") }
                 }
             }
         case "find":
-            // Every element named LABEL, in tree order.
-            let matches = app.descendants(matching: .any).matching(predicate(argument)).allElementsBoundByIndex
-            note(command, "\(argument): \(matches.count) match(es)")
-            for (index, element) in matches.enumerated() { note(command, "  @\(index) \(describe(element))") }
+            // Every element WORD names, numbered as `tap=WORD@N` takes them, then what else carries
+            // the word and is passed over: the keyboard's keys, and other attributes' matches.
+            let named = naming(argument)
+            note(command, "\(argument): \(named.elements.count) match(es)" + (named.elements.isEmpty ? "" : " by \(named.attribute)"))
+            for (index, element) in named.elements.enumerated() { note(command, "  @\(index) \(describe(element))") }
+            for other in named.passedOver {
+                note(command, "  passed over, by \(other.attribute)\(other.onKeyboard ? " on the keyboard" : ""): \(describe(other.element))")
+            }
         case "containing":
             // Every element whose label contains TEXT, with whether it lies inside the window.
             let window = app.windows.firstMatch.frame
@@ -278,7 +279,7 @@ import XCUIAutomation
         case "votouch", "voactivate":
             // Under VoiceOver a touch moves its cursor to the item; a double tap then activates it.
             #if os(iOS)
-            guard let element = find(argument) else { return note(command, "\(argument): MISSING") }
+            guard let element = find(command, argument) else { return }
             let service = XCUIDevice.shared.voiceOverService
             element.tap()
             note(command, "touched: " + ((try? service.currentSpeech().utterance) ?? "no speech"))
@@ -309,23 +310,109 @@ import XCUIAutomation
 
     // MARK: Elements
 
-    private func predicate(_ label: String) -> NSPredicate {
-        NSPredicate(format: "label == %@ OR identifier == %@ OR placeholderValue == %@ OR title == %@", label, label, label, label)
+    /// What a step's word is compared with, in this order. The first attribute that carries the
+    /// word decides, and the later ones are passed over: `Search` names a button labelled Search
+    /// before anything whose identifier is Search.
+    private static let attributes = ["label", "identifier", "placeholderValue", "title"]
+
+    /// What WORD names: the elements that carry it in the earliest attribute any of them carries it
+    /// in, numbered as XCTest's query numbers them, and what else carries the word.
+    /// Only the application's own elements are named, or with `onKeyboard` only the keyboard's:
+    /// everything in the window that holds it, its predictions, Emoji and Dictate as well as its
+    /// keys. With the keyboard up, `Search` was the search field's button and, by its identifier,
+    /// the keyboard's Search key (issue 366). `format` compares an attribute (`%K`) with the word.
+    private func naming(_ word: String, onKeyboard: Bool = false, by attributes: [String] = ControlsProbe.attributes,
+                        _ format: String = "%K == %@") -> Naming {
+        guard let tree = try? app.snapshot() else { return Naming(failed: true) }
+        let predicates = attributes.map { NSPredicate(format: format, $0, word) }
+        func holdsKeyboard(_ element: any XCUIElementSnapshot) -> Bool {
+            element.elementType == .keyboard || element.children.contains(where: holdsKeyboard)
+        }
+        // XCTest's query takes descendants breadth first: the keyboard's Search key, eight levels
+        // down, came before the field's button, thirteen down. Each element that carries the word
+        // keeps its place among each attribute's matches, its frame, and whether it is the keyboard's.
+        var carriers: [(onKeyboard: Bool, places: [Int?], frame: CGRect)] = []
+        var counts = attributes.map { _ in 0 }
+        var queue = tree.children.map { ($0, holdsKeyboard($0)) }
+        var next = 0
+        while next < queue.count {
+            let (element, keyboard) = queue[next]
+            next += 1
+            let values = ["label": element.label, "identifier": element.identifier,
+                          "placeholderValue": element.placeholderValue ?? "", "title": element.title]
+            var places: [Int?] = []
+            for (n, predicate) in predicates.enumerated() {
+                if predicate.evaluate(with: values) { places.append(counts[n]); counts[n] += 1 } else { places.append(nil) }
+            }
+            if places.contains(where: { $0 != nil }) { carriers.append((keyboard, places, element.frame)) }
+            queue += element.children.map { ($0, keyboard) }
+        }
+        var named = Naming()
+        let query = { (n: Int) in self.app.descendants(matching: .any).matching(predicates[n]) }
+        let chosen = predicates.indices.first { n in carriers.contains { $0.onKeyboard == onKeyboard && $0.places[n] != nil } }
+        if let chosen { named.attribute = attributes[chosen] }
+        for carrier in carriers {
+            if let chosen, carrier.onKeyboard == onKeyboard, let place = carrier.places[chosen] {
+                named.elements.append(query(chosen).element(boundBy: place))
+                named.frames.append(carrier.frame)
+            } else if let n = carrier.places.firstIndex(where: { $0 != nil }), let place = carrier.places[n] {
+                named.passedOver.append((attributes[n], carrier.onKeyboard, query(n).element(boundBy: place)))
+            }
+        }
+        return named
     }
 
-    /// `Label`, or `Label@2` for the third element of that name in tree order. Without an index,
-    /// the first hittable element of that name.
-    private func find(_ specification: String) -> XCUIElement? {
-        var label = specification
+    private struct Naming {
+        var failed = false
+        var attribute = ""
+        var elements: [XCUIElement] = []
+        var frames: [CGRect] = []
+        var passedOver: [(attribute: String, onKeyboard: Bool, element: XCUIElement)] = []
+    }
+
+    /// The one element SPECIFICATION names, after noting why there is none if there is not.
+    /// `Word@2` takes the third that `find=Word` lists. Without an index, Word must name one
+    /// element or one hittable element: a step never takes the first of several it could touch.
+    private func find(_ command: String, _ specification: String, onKeyboard: Bool = false,
+                      by attributes: [String] = ControlsProbe.attributes, _ format: String = "%K == %@") -> XCUIElement? {
+        var word = specification
         var index: Int?
         if let at = specification.lastIndex(of: "@"), let number = Int(specification[specification.index(after: at)...]) {
-            label = String(specification[..<at]); index = number
+            word = String(specification[..<at]); index = number
         }
-        let query = app.descendants(matching: .any).matching(predicate(label))
-        guard query.firstMatch.waitForExistence(timeout: 5) else { return nil }
-        let matches = query.allElementsBoundByIndex
-        if let index { return index < matches.count ? matches[index] : nil }
-        return matches.first { $0.isHittable } ?? matches.first
+        let deadline = Date().addingTimeInterval(5)
+        var named = naming(word, onKeyboard: onKeyboard, by: attributes, format)
+        while named.elements.isEmpty, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            named = naming(word, onKeyboard: onKeyboard, by: attributes, format)
+        }
+        if named.failed { note(command, "\(specification): SNAPSHOT FAILED"); return nil }
+        guard !named.elements.isEmpty else {
+            // What the word names elsewhere, such as the keyboard's key `tap` passes over.
+            let other = named.passedOver.first.map { other in
+                "; " + (other.onKeyboard ? "on the keyboard, for keyboard=\(word): " : "not on the keyboard, for tap=\(word): ")
+                    + describe(other.element)
+            }
+            note(command, "\(specification): MISSING" + (other ?? ""))
+            return nil
+        }
+        let hittable = index == nil && named.elements.count > 1 ? named.elements.indices.filter { named.elements[$0].isHittable } : []
+        let chosen = index ?? (named.elements.count == 1 ? 0 : hittable.count == 1 ? hittable[0] : nil)
+        guard let chosen, chosen < named.elements.count else {
+            note(command, index == nil
+                 ? "\(word): AMBIGUOUS, \(named.elements.count) by \(named.attribute), \(hittable.count) hittable; take one as \(word)@N"
+                 : "\(specification): MISSING, \(named.elements.count) by \(named.attribute)")
+            for (n, element) in named.elements.enumerated() { note(command, "  @\(n) \(describe(element))") }
+            return nil
+        }
+        // The query is read again when the element is used: refuse if the tree has moved since. A
+        // field that had not moved was 34.0 high in the tree and 34.000000000000014 as an element.
+        let element = named.elements[chosen], was = named.frames[chosen], now = element.frame
+        guard element.exists, [now.minX - was.minX, now.minY - was.minY, now.width - was.width, now.height - was.height].allSatisfy({ abs($0) < 0.5 }) else {
+            note(command, "\(specification): MOVED, \(was) is now \(now): \(describe(element))")
+            return nil
+        }
+        return element
     }
 
     /// The host's line of reader state. AppKit gives a text's words as its value.

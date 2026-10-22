@@ -37,7 +37,8 @@ public struct EPUBPublication: Sendable {
     public let tableOfContents: [EPUBNavigationItem]
     /// The navigation document's `landmarks` in order or, when it lists none, the OPF `guide`'s
     /// references. Entries whose href does not resolve inside the archive are left out. A title
-    /// is the link's text read as a contents title is, or a guide reference's `title` as written.
+    /// is the link's text read as a contents title is, or a guide reference's `title` read the
+    /// same way.
     public let landmarks: [EPUBLandmark]
     /// The navigation document's `page-list` in order, `hidden` or not, or, when it lists none,
     /// the NCX's `pageList`. nil when the book lists no page. Entries whose href does not resolve
@@ -50,7 +51,8 @@ public struct EPUBPublication: Sendable {
     public let archiveData: Data
     private let contents: [String: Data]
     /// All declared IDs, including missing and remote hops. They are never fetched. By the ID's
-    /// code units, as an IDREF names it (`EPUBElementID`).
+    /// code units, as an IDREF names it (`EPUBElementID`), once both are read as XML IDs are
+    /// (`XMLNode.identifier`).
     private let manifestByID: [EPUBElementID: EPUBResource]
 
     /// The designated manifest chain, starting with `resource`, stopping at a missing ID or
@@ -228,10 +230,11 @@ public struct EPUBPublication: Sendable {
         if contents["META-INF/encryption.xml"] != nil {
             let encryption = try xml("META-INF/encryption.xml")
             let identifiers = metadataElements.filter { $0.name == "identifier" }
-            // The identifier `unique-identifier` names, by its exact code units. A package without the
-            // attribute names none, not the first identifier that has no `id`.
-            let unique = opf.attribute("unique-identifier").flatMap { id in
-                identifiers.first { $0.attribute("id").map { EPUBElementID($0) } == EPUBElementID(id) }
+            // The identifier `unique-identifier` names, by its exact code units once each is read as
+            // an XML ID is. A package without the attribute names none, not the first identifier
+            // that has no `id`.
+            let unique = opf.identifier("unique-identifier").flatMap { id in
+                identifiers.first { $0.identifier("id").map { EPUBElementID($0) } == EPUBElementID(id) }
             }
             // IDPF's key is made from the unique identifier as written, less "specifically, the
             // Unicode code points U+0020, U+0009, U+000D and U+000A" (EPUB 3.3 §4.4.3) and nothing
@@ -285,7 +288,7 @@ public struct EPUBPublication: Sendable {
         // Archive paths by their lower-case form, made when a manifest href first matches no entry.
         var folded: [String: [String]]?
         for item in manifest.children where item.name == "item" {
-            guard let id = item.attribute("id"), !id.isEmpty,
+            guard let id = item.identifier("id"), !id.isEmpty,
                   let href = item.attribute("href"), let type = item.attribute("media-type") else {
                 throw EPUBPublicationError.invalidXML("Manifest item")
             }
@@ -308,7 +311,7 @@ public struct EPUBPublication: Sendable {
             }
             let resource = EPUBResource(id: id, path: path, mediaType: type,
                 properties: Set((item.attribute("properties") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)),
-                fallbackID: item.attribute("fallback").flatMap { $0.isEmpty ? nil : $0 })
+                fallbackID: item.identifier("fallback").flatMap { $0.isEmpty ? nil : $0 })
             // Some converters write an item more than once; a verbatim repeat adds nothing, but one
             // id naming two different resources is ambiguous.
             if let earlier = declared[id] {
@@ -330,7 +333,7 @@ public struct EPUBPublication: Sendable {
             $0.name == "meta" && $0.attribute("property") == "rendition:layout" && $0.text == "pre-paginated"
         }
         let spine = try spineNode.children.filter { $0.name == "itemref" }.map { item in
-            guard let ref = item.attribute("idref"), let named = declared[ref] else {
+            guard let ref = item.identifier("idref"), let named = declared[ref] else {
                 throw EPUBPublicationError.invalidXML("Spine idref")
             }
             guard let resource = byID[ref] else {
@@ -338,11 +341,13 @@ public struct EPUBPublication: Sendable {
                 if undecoded.contains(named.path) { throw EPUBPublicationError.unsupportedEncryption }
                 throw EPUBPublicationError.missingResource(named.path)
             }
-            let properties = Set((item.attribute("properties") ?? "").split(whereSeparator: \.isWhitespace))
-            let fixed = properties.contains("rendition:layout-pre-paginated") ||
-                (fixedLayout && !properties.contains("rendition:layout-reflowable"))
+            // The item's own layout is the first override its properties write, in their order:
+            // of several for one property, a reading system "MUST use only the first value"
+            // (EPUB Reading Systems 3.3 §5.5.1). Without one it is the package's.
+            let override = (item.attribute("properties") ?? "").split(whereSeparator: \.isWhitespace)
+                .lazy.compactMap { Self.layoutOverrides[String($0)] }.first
             return EPUBSpineItem(resource: resource, isLinear: item.attribute("linear") != "no",
-                                layout: fixed ? .prePaginated : .reflowable)
+                                layout: override ?? (fixedLayout ? .prePaginated : .reflowable))
         }
         guard !spine.isEmpty else { throw EPUBPublicationError.invalidXML("Empty spine") }
         var toc: [EPUBNavigationItem] = []
@@ -354,7 +359,7 @@ public struct EPUBPublication: Sendable {
         // is taken whatever media type it is declared with, as foliate-js and Readium take it. A
         // book without a navigation document is refused when the NCX it names does not parse; one
         // found by its media type was never needed to open the book, so it is ignored.
-        let namedNCX = spineNode.attribute("toc").flatMap { byID[$0] }
+        let namedNCX = spineNode.identifier("toc").flatMap { byID[$0] }
         let ncx = namedNCX ?? resources.first {
             $0.mediaType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "application/x-dtbncx+xml"
         }
@@ -428,12 +433,15 @@ public struct EPUBPublication: Sendable {
                 guard let href = reference.attribute("href"),
                       let resolved = try? ResourceReference.resolve(href, relativeTo: opfPath) else { return nil }
                 let types = (reference.attribute("type") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
-                return EPUBLandmark(types: types, title: reference.attribute("title") ?? "", href: resolved)
+                // The title, read as a navigation landmark's is, so that `landmarks` reads alike
+                // from either document (#269).
+                return EPUBLandmark(types: types, title: XMLNode.collapsed(reference.attribute("title") ?? ""), href: resolved)
             }
         }
+        // `content` is not typed as an IDREF, but it names an item's ID and is read as one.
         let coverID = metadataElements.first {
             $0.name == "meta" && $0.attribute("name") == "cover"
-        }?.attribute("content")
+        }?.identifier("content")
         return Self(id: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
             metadata: EPUBMetadata(title: values("title").first ?? "", authors: values("creator"),
                                    languages: values("language"), identifiers: values("identifier")),
@@ -458,6 +466,11 @@ public struct EPUBPublication: Sendable {
 
     /// The font obfuscation algorithms: IDPF's and Adobe's.
     private static let obfuscations: Set = ["http://www.idpf.org/2008/embedding", "http://ns.adobe.com/pdf/enc#RC"]
+
+    /// The spine overrides of `rendition:layout` and the layout each gives.
+    private static let layoutOverrides: [String: EPUBLayout] = [
+        "rendition:layout-pre-paginated": .prePaginated, "rendition:layout-reflowable": .reflowable,
+    ]
 
     /// Whether a resource is a font: its manifest media type is one's, in any of the spellings
     /// books give them (`font/otf`, `application/x-font-ttf`, `application/vnd.ms-opentype`),
@@ -550,14 +563,19 @@ private final class XMLNode {
     /// HTML's embedded content but `picture`, whose image stands for it, by local name, as the
     /// navigation reader matches every element.
     private static let embedded: Set = ["img", "svg", "math", "audio", "video", "canvas", "object", "embed", "iframe"]
-    /// A value read as `text` reads `content`.
-    private static func collapsed(_ value: String) -> String {
+    /// A value read as `text` reads `content`, and a guide reference's `title` as a label's.
+    static func collapsed(_ value: String) -> String {
         guard !value.unicodeScalars.allSatisfy(CharacterSet.whitespacesAndNewlines.contains) else { return "" }
+        return joined(value) { $0 == 0x20 || $0 == 0x09 || $0 == 0x0A || $0 == 0x0C || $0 == 0x0D }
+    }
+    /// `value` with each run of the bytes `isSpace` names read as one space and none left at
+    /// either end.
+    private static func joined(_ value: String, isSpace: (UInt8) -> Bool) -> String {
         var bytes: [UInt8] = []
         bytes.reserveCapacity(value.utf8.count)
         var gap = false
         for byte in value.utf8 {
-            if byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0C || byte == 0x0D { gap = !bytes.isEmpty; continue }
+            if isSpace(byte) { gap = !bytes.isEmpty; continue }
             if gap { bytes.append(0x20); gap = false }
             bytes.append(byte)
         }
@@ -571,6 +589,17 @@ private final class XMLNode {
     /// The value of an attribute by local name; `namespace` nil matches an attribute in no namespace.
     func attribute(_ local: String, namespace: String? = nil) -> String? {
         attributes[AttributeName(namespace: namespace ?? "", local: local)]
+    }
+    /// The value of an attribute in no namespace, read as XML IDs (`id`) and the references to
+    /// them (`idref`, `fallback`, `toc`, `unique-identifier`) are read: the package schema gives
+    /// them XML Schema's name types (`NCName`, `ID`, `IDREF`), whose white space is collapsed
+    /// (XML Schema Part 2 §4.3.6), as a parser normalizes an attribute declared as an ID (XML 1.0
+    /// §3.3.3) and as EPUBCheck reads them (#80). Each run of XML white space (space, tab, line
+    /// feed, carriage return) is one space and none is left at either end. Other white space, a
+    /// no-break space among it, is part of the value. The parser has already read a line break
+    /// written in the value as a space.
+    func identifier(_ local: String) -> String? {
+        attribute(local).map { Self.joined($0) { $0 == 0x20 || $0 == 0x09 || $0 == 0x0A || $0 == 0x0D } }
     }
     /// Whitespace-separated `epub:type` tokens, also from an `epub` prefix the document never
     /// declared, which keeps its prefixed name as a plain attribute.

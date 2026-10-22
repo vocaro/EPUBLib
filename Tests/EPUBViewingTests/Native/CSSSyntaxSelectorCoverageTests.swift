@@ -570,18 +570,63 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
 
     // MARK: Documents read by the HTML parser
 
-    private func recovered(css: String, linked: Bool) throws -> StyledDocument {
+    /// `prefix` is the one the book binds to the OPS namespace and writes `type` with.
+    private func recovered(css: String, linked: Bool, prefix: String = "epub") throws -> StyledDocument {
         // No XHTML namespace on the root: the reader retries the section as HTML, where
-        // `epub:type` is a plain attribute whose name contains a colon.
+        // `epub:type` is a plain attribute whose name contains a colon. A linked sheet leaves
+        // markup the XML-shaped route takes; a `style` element sends it to libxml2's HTML parser.
         let style = linked ? #"<link rel="stylesheet" href="notes.css"/>"# : "<style>\(css)</style>"
         let section = """
-            <html xmlns:epub="http://www.idpf.org/2007/ops"><head><title>T</title>\(style)</head><body>\
-            <aside id="note" epub:type="footnote">n</aside><aside id="rear" epub:type="rearnote endnotes">r</aside><p id="p" class="Lead">p</p>\
-            <p id="t" type="footnote">t</p></body></html>
+            <html xmlns:\(prefix)="http://www.idpf.org/2007/ops"><head><title>T</title>\(style)</head><body>\
+            <aside id="note" \(prefix):type="footnote">n</aside><aside id="rear" \(prefix):type="rearnote endnotes">r</aside>\
+            <p id="p" class="Lead" xml:lang="fr">p</p><p id="t" type="footnote">t</p></body></html>
             """
         let result = try CSSSyntaxSupport.styled(section: section, files: linked ? ["notes.css": css] : [:])
         XCTAssertTrue(result.document.recoveredAsHTML)
+        XCTAssertEqual(result.document.canResolveCFIs, linked, "Which route read the section")
         return result
+    }
+
+    func testANamespacedAttributeSelectorMatchesByTheNamespaceItsPrefixStandsFor() throws {
+        // Selectors 4 §6.7: `[ns|att]` is `att` in the namespace the sheet binds `ns` to, whatever
+        // prefix the book wrote the attribute with, as in XHTML (#642). Both HTML routes name an
+        // attribute whose prefix stands for OPS `epub:`, so `ops:type` is `epub:type` on either.
+        let prelude = #"@namespace ops "http://www.idpf.org/2007/ops"; @namespace x "http://www.w3.org/XML/1998/namespace";"#
+        for prefix in ["epub", "ops"] {
+            for linked in [true, false] {
+                func marked(_ rule: String, prelude: String = prelude) throws -> [String] {
+                    CSSSyntaxSupport.marked(try recovered(css: "\(prelude)\n\(rule) { clear: both }", linked: linked, prefix: prefix))
+                }
+                let context = "\(prefix):type, linked: \(linked)"
+                XCTAssertEqual(try marked(#"[ops|type~="footnote"]"#), ["note"], context)
+                XCTAssertEqual(try marked(#"aside[ops|type^="rear"]"#), ["rear"], context)
+                XCTAssertEqual(try marked(#"[*|type~="footnote"]"#), ["note", "t"], "Any namespace or none, \(context)")
+                XCTAssertEqual(try marked(#"[x|lang="fr"]"#), ["p"], context)
+                XCTAssertEqual(try marked(#"[epub\:type~="footnote"]"#), ["note"], context)
+                XCTAssertEqual(try marked(#"[ops\:type]"#), [], context)
+                XCTAssertEqual(try marked("[epub|type]", prelude: #"@namespace epub "urn:other";"#), [],
+                               "The sheet binds epub to another namespace, \(context)")
+            }
+        }
+    }
+
+    func testAPrefixStandsForTheNamespaceItsDeclarationInScopeGivesIt() throws {
+        // libxml2's HTML parser keeps `xmlns:a` as a plain attribute. Read as XML reads it, it binds
+        // `a` on its element and inside it, and an empty one unbinds it; a prefix declared nowhere
+        // stands for no namespace, apart from `xml` and `epub`.
+        let section = """
+            <html><head><title>T</title><style>@namespace n "urn:n"; @namespace o "urn:o"; @namespace e "http://www.idpf.org/2007/ops";
+            [n|title], [o|title], [e|type] { clear: both } [o|title] { float: left }</style></head><body>\
+            <div xmlns:a="urn:n"><p id="inside" a:title="1">x</p><p id="unbound" xmlns:a="" a:title="2">y</p></div>\
+            <p id="outside" a:title="3">z</p><p id="undeclared" n:title="4">w</p><p id="rebound" xmlns:a="urn:o" a:title="5">v</p>\
+            <p id="epub" epub:type="chapter">u</p></body></html>
+            """
+        let result = try CSSSyntaxSupport.styled(section: section)
+        XCTAssertTrue(result.document.recoveredAsHTML)
+        XCTAssertFalse(result.document.canResolveCFIs, "libxml2's HTML parser read it")
+        XCTAssertEqual(CSSSyntaxSupport.marked(result), ["inside", "rebound", "epub"])
+        XCTAssertEqual(result.style("rebound").float, .left)
+        XCTAssertEqual(result.style("inside").float, ComputedStyle.Float.none)
     }
 
     func testANamespacedAttributeSelectorMatchesThePrefixedAttributeOfAnHTMLParsedDocument() throws {

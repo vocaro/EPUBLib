@@ -567,7 +567,6 @@ final class SectionContentElementCoverageTests: XCTestCase {
     }
 
     func testQuotationMarksForBrazilianPortugueseAndTurkishAreThoseLanguagesOwn() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/133")
         // CSS Generated Content 3 section 2.4.1 (`quotes: auto`, what `q::before { content: open-quote }` uses):
         // "A typographically appropriate quotation mark system" for the content language, for which the
         // specification points at CLDR. CLDR gives “ ” for `pt` and `tr` (« » only for `pt-PT`), as
@@ -575,6 +574,20 @@ final class SectionContentElementCoverageTests: XCTestCase {
         XCTAssertEqual(try H.build("<p lang='pt-BR'><q>a</q></p>").string.string, "“a”")
         XCTAssertEqual(try H.build("<p lang='pt-PT'><q>a</q></p>").string.string, "«a»")
         XCTAssertEqual(try H.build("<p lang='tr'><q>a</q></p>").string.string, "“a”")
+    }
+
+    /// `quotes: auto` takes each language's outer and inner marks from CLDR, by language, script
+    /// and region, as `Locale` reads them, where the reader had a table of its own. Where the
+    /// platform's data gives typewriter marks, for Arabic and Hebrew, CLDR's are used.
+    func testQuotationMarksAreThoseCLDRGivesTheLanguage() throws {
+        let expected = [
+            "es": "“a‘b’”", "da": "“a‘b’”", "nl": "‘a‘b’’", "fr": "«a«b»»", "fr-CH": "«a‹b›»", "ru": "«a„b“»", "hu": "„a»b«”",
+            "nb": "«a‘b’»", "ka": "„a«b»“", "zh-TW": "「a『b』」", "zh-Hans": "“a‘b’”", "ko": "“a‘b’”", "pt": "“a‘b’”",
+            "ar": "”a’b‘“", "he": "”a’b’”", "xx": "“a‘b’”",
+        ]
+        for (language, marks) in expected {
+            XCTAssertEqual(try H.build("<p lang='\(language)'><q>a<q>b</q></q></p>").string.string, marks, language)
+        }
     }
 
     // MARK: Rules, breaks and definition lists
