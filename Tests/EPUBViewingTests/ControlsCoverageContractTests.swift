@@ -332,17 +332,13 @@ import XCTest
     /// forward from the last result returns to the first, as one backward from the first
     /// returns to the last.
     func testTheVerifierRejectsAnEngineThatDoesNotWrapForwardFromTheLastResult() async throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/160")
-        let found = try await verdict(Engine(fault: .doesNotWrapForward))
-        XCTAssertNotNil(found, "an engine whose Next Match stops at the last result passed the verifier")
+        try await expectRejected(.doesNotWrapForward, "Timed out waiting for first search result after the last")
     }
 
     /// "refuses an unlisted result": `.showSearchResult` is for "one of the current
     /// `EPUBSearchResults.results`", so a result kept from a replaced search, whose index is
     /// still in range, is unlisted too.
     func testTheVerifierRejectsAnEngineThatChecksOnlyAResultsIndex() async throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/160")
-        let found = try await verdict(Engine(fault: .checksOnlyAResultsIndex))
-        XCTAssertNotNil(found, "an engine that shows any result whose index is in range passed the verifier")
+        try await expectRejected(.checksOnlyAResultsIndex, "Accepted an unlisted search result with a listed index")
     }
 }

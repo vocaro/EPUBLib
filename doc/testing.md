@@ -1229,11 +1229,14 @@ The verifier checks:
 - Locations carry the publication identity and a valid engine-tagged bookmark when supported.
 - Foreign publication, engine and bookmark format identities are rejected.
 - An engine with `.searchResults` lists the phrase's results before reporting completion, with
-  indices in order and the publication's identity; steps, wraps and selects as
+  indices in order and the publication's identity; steps, wraps back from the first result to
+  the last and on from the last to the first, and selects as
   `EPUBSearchResults.steppedIndex(forward:)` says; mirrors the list in `readerState` when it has
-  one; refuses an unlisted result; and withdraws the list on clear, after which a kept result is
-  refused and no step has any effect. An engine without it refuses the three result commands
-  with `.unsupported(.searchResults)` and publishes no results.
+  one; refuses an unlisted result, whether its index is out of range or names a listed one; and
+  withdraws the list on clear, after which a kept result is refused and no step has any effect.
+  With a phrase that has one result, every step shows that result, so a wrap is checked only
+  for a phrase with two or more. An engine without `.searchResults` refuses the three result
+  commands with `.unsupported(.searchResults)` and publishes no results.
 - Close is idempotent; closed commands fail and later callbacks are suppressed.
 
 A minimal SwiftUI test engine runs the same checks with no renderer at all, as an engine with no
