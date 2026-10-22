@@ -117,6 +117,7 @@ public struct EPUBPublication: Sendable {
             // archive, in the same memory, and so does not look through what follows it.
             archive = try Archive(data: ZIP64ZeroValues.inlined(in: data.prefix(length)), accessMode: .read)
         }
+        catch Archive.ArchiveError.missingEndOfCentralDirectoryRecord { throw EPUBPublicationError.notArchive }
         catch { throw EPUBPublicationError.invalidArchive(String(describing: error)) }
         // The bytes this archive reads, whatever it was made from.
         let archiveBytes = archive.data ?? data
@@ -186,9 +187,7 @@ public struct EPUBPublication: Sendable {
             guard crc == entry.checksum else { throw EPUBPublicationError.invalidArchive("CRC: \(path)") }
             contents[path] = bytes
         }
-        guard isEPUBMimetype(contents["mimetype"]) else {
-            throw EPUBPublicationError.invalidArchive("Missing EPUB mimetype")
-        }
+        guard isEPUBMimetype(contents["mimetype"]) else { throw EPUBPublicationError.notEPUB }
         func xml(_ path: String) throws -> XMLNode {
             guard let bytes = contents[path] else { throw EPUBPublicationError.missingResource(path) }
             guard bytes.count <= limits.xmlBytes else { throw EPUBPublicationError.limitExceeded(path) }

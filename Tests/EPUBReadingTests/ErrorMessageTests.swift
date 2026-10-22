@@ -21,10 +21,10 @@ final class ErrorMessageTests: XCTestCase {
         case .unsupportedEncryption:
             ("unsupportedEncryption", ("This book is protected by DRM and cannot be opened. The file is not damaged.",
                                        "Open it in the app it came from, or get a copy without DRM."))
-        case .invalidArchive("Missing EPUB mimetype"): ("invalidArchive", ("This file is not an EPUB book.", nil))
-        case .invalidArchive("missingEndOfCentralDirectoryRecord"):
-            ("invalidArchive", ("This file is not an EPUB book, or it is damaged.",
-                                "If it is an EPUB book, download it again or get another copy."))
+        case .notEPUB: ("notEPUB", ("This file is not an EPUB book.", nil))
+        case .notArchive:
+            ("notArchive", ("This file is not an EPUB book, or it is damaged.",
+                            "If it is an EPUB book, download it again or get another copy."))
         case .invalidArchive: ("invalidArchive", ("This book is damaged and cannot be opened.", anotherCopy))
         case .unsafePath: ("unsafePath", ("This book cannot be opened because it refers to files outside the book.", nil))
         case .limitExceeded: ("limitExceeded", ("This book is too large to open.", nil))
@@ -35,8 +35,7 @@ final class ErrorMessageTests: XCTestCase {
 
     /// Each case, with the details the library gives it.
     private static let publicationErrors: [EPUBPublicationError] = [
-        .unsupportedEncryption,
-        .invalidArchive("Missing EPUB mimetype"), .invalidArchive("missingEndOfCentralDirectoryRecord"),
+        .unsupportedEncryption, .notEPUB, .notArchive,
         .invalidArchive("CRC: OPS/one.xhtml"), .invalidArchive("OPS/one.xhtml: corruptedData"),
         .invalidArchive("Duplicate path: OPS/one.xhtml"), .invalidArchive("Entry data past the end of the archive"),
         .invalidArchive("Central directory past the end of the archive"), .invalidArchive("Entry name not UTF-8: OPS/\\xff.xhtml"),
@@ -50,7 +49,8 @@ final class ErrorMessageTests: XCTestCase {
 
     func testEachCaseOfAFailureToOpenABookHasAPlainMessage() throws {
         XCTAssertEqual(Set(Self.publicationErrors.map { Self.expected($0).name }),
-                       ["unsupportedEncryption", "invalidArchive", "unsafePath", "limitExceeded", "missingResource", "invalidXML"])
+                       ["unsupportedEncryption", "notEPUB", "notArchive", "invalidArchive", "unsafePath", "limitExceeded",
+                        "missingResource", "invalidXML"])
         for error in Self.publicationErrors {
             assertMessage(error, Self.expected(error).message)
         }
@@ -84,9 +84,9 @@ final class ErrorMessageTests: XCTestCase {
         let outside = Fixture.storedArchive(Fixture.storedEntries(files) + [Fixture.StoredEntry("../outside.xhtml", "<p/>")])
         let cases: [(String, Data, EPUBImportLimits, EPUBPublicationError)] = [
             ("DRM", drm, .init(), .unsupportedEncryption),
-            ("another kind of ZIP archive", document, .init(), .invalidArchive("Missing EPUB mimetype")),
-            ("a PDF", pdf, .init(), .invalidArchive("missingEndOfCentralDirectoryRecord")),
-            ("a book cut short", book.prefix(book.count / 2), .init(), .invalidArchive("missingEndOfCentralDirectoryRecord")),
+            ("another kind of ZIP archive", document, .init(), .notEPUB),
+            ("a PDF", pdf, .init(), .notArchive),
+            ("a book cut short", book.prefix(book.count / 2), .init(), .notArchive),
             ("a damaged chapter", damaged, .init(), .invalidArchive("CRC: OPS/one.xhtml")),
             ("an entry outside the book", outside, .init(), .unsafePath("../outside.xhtml")),
             ("over the limits", book, small, .limitExceeded("import limits")),
@@ -99,7 +99,7 @@ final class ErrorMessageTests: XCTestCase {
                 assertMessage($0, Self.expected(thrown).message, name)
             }
         }
-        XCTAssertEqual(Set(cases.map { Self.expected($0.3).name }).count, 6, "every case")
+        XCTAssertEqual(Set(cases.map { Self.expected($0.3).name }).count, 8, "every case")
     }
 
     func testAFileOpenedByURLGivesThePlainMessage() throws {
@@ -110,7 +110,7 @@ final class ErrorMessageTests: XCTestCase {
         let pdf = folder.appending(path: "notes.epub")
         try (Data("%PDF-1.7\n".utf8) + Data(count: 70_000)).write(to: pdf)
         XCTAssertThrowsError(try EPUBPublication.open(at: pdf)) {
-            XCTAssertEqual($0 as? EPUBPublicationError, .invalidArchive("missingEndOfCentralDirectoryRecord"))
+            XCTAssertEqual($0 as? EPUBPublicationError, .notArchive)
             assertMessage($0, ("This file is not an EPUB book, or it is damaged.",
                                "If it is an EPUB book, download it again or get another copy."))
         }

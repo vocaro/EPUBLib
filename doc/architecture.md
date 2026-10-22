@@ -133,7 +133,9 @@ that `open(at:)` opens is read no further to be refused: one longer than `archiv
 length, read not at all, and one with no end record by those last and first bytes. A pipe, a
 socket or a device, which gives no length, is read from its first byte, as far as
 `archiveBytes` and one more, and refused as its bytes are
-([#208](https://github.com/vocaro/EPUBLib/issues/208)).
+([#208](https://github.com/vocaro/EPUBLib/issues/208)). Bytes with no end record are refused as
+`notArchive`, a ZIP archive with no EPUB mimetype as `notEPUB`, and other damage to the archive as
+`invalidArchive` ([when something fails](integration.md#when-something-fails)).
 
 Faults that leave a book readable are read past instead. Apart from `lostEntries` (under
 Archive), the publication model has no channel for warnings, so this list is where they are

@@ -223,19 +223,19 @@ gives the error to its message, which can show the suggestion; AppKit's `NSAlert
 both; the complete reader above joins them in one line. `String(describing:)` still gives the case
 and its detail, for a log rather than a person.
 
-| A book is refused as | Message | Suggestion |
-| --- | --- | --- |
-| `unsupportedEncryption`, DRM | This book is protected by DRM and cannot be opened. The file is not damaged. | Open it in the app it came from, or get a copy without DRM. |
-| `invalidArchive`, a ZIP archive with no EPUB `mimetype` | This file is not an EPUB book. | |
-| `invalidArchive`, bytes with no ZIP end record | This file is not an EPUB book, or it is damaged. | If it is an EPUB book, download it again or get another copy. |
-| `invalidArchive`, any other damage | This book is damaged and cannot be opened. | Download the book again, or get another copy. |
-| `limitExceeded` | This book is too large to open. | |
-| `missingResource` | Part of this book is missing. | Download the book again, or get another copy. |
-| `invalidXML` | This book cannot be opened because it contains errors. | Download the book again, or get another copy. |
-| `unsafePath` | This book cannot be opened because it refers to files outside the book. | |
+| The file | Case | Message | Suggestion |
+| --- | --- | --- | --- |
+| Is protected by DRM | `unsupportedEncryption` | This book is protected by DRM and cannot be opened. The file is not damaged. | Open it in the app it came from, or get a copy without DRM. |
+| Is a ZIP archive with no EPUB `mimetype`, such as another kind of document | `notEPUB` | This file is not an EPUB book. | |
+| Has no ZIP end record: another kind of file, such as a PDF, or an EPUB book cut short | `notArchive` | This file is not an EPUB book, or it is damaged. | If it is an EPUB book, download it again or get another copy. |
+| Is an archive damaged in any other way | `invalidArchive` | This book is damaged and cannot be opened. | Download the book again, or get another copy. |
+| Is over the import limits | `limitExceeded` | This book is too large to open. | |
+| Lacks a part its package names | `missingResource` | Part of this book is missing. | Download the book again, or get another copy. |
+| Has a malformed container or package | `invalidXML` | This book cannot be opened because it contains errors. | Download the book again, or get another copy. |
+| Names a part outside the book | `unsafePath` | This book cannot be opened because it refers to files outside the book. | |
 
-Bytes with no end record may be another kind of file or an EPUB book cut short, as by a download
-that did not finish, and the message says both. A file that `open(at:)` cannot read at all, one
+A file with no end record may be another kind of file or an EPUB book cut short, as by a download
+that did not finish, and its message says both. A file that `open(at:)` cannot read at all, one
 that is absent or that the app may not read, gives Foundation's own error, whose message is plain
 already. `CancellationError` is the host's own cancellation, not a failure to show.
 

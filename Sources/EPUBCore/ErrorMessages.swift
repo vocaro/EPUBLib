@@ -7,21 +7,15 @@ import Foundation
 // which holds English alone: translating it is #684's.
 
 extension EPUBPublicationError: LocalizedError {
-    /// What `invalidArchive` says of a ZIP archive with no EPUB `mimetype`: a file that is no EPUB.
-    static let noEPUBMimetype = "Missing EPUB mimetype"
-    /// What it says of bytes with no ZIP end record, by ZIPFoundation's name for that: a file that is
-    /// no archive, or one cut short.
-    static let noEndRecord = "missingEndOfCentralDirectoryRecord"
-
     public var errorDescription: String? {
         switch self {
         case .unsupportedEncryption:
             String(localized: "This book is protected by DRM and cannot be opened. The file is not damaged.", bundle: .module,
                    comment: "A book encrypted by DRM, which the reader cannot read, was refused. Its file is intact.")
-        case .invalidArchive(Self.noEPUBMimetype):
+        case .notEPUB:
             String(localized: "This file is not an EPUB book.", bundle: .module,
                    comment: "A file that reads as a ZIP archive but is not marked as an EPUB book, such as another kind of document, was refused.")
-        case .invalidArchive(Self.noEndRecord):
+        case .notArchive:
             String(localized: "This file is not an EPUB book, or it is damaged.", bundle: .module,
                    comment: "A file that is no ZIP archive was refused: another kind of file, or an EPUB book cut short, as by a download that did not finish.")
         case .invalidArchive:
@@ -47,8 +41,8 @@ extension EPUBPublicationError: LocalizedError {
         case .unsupportedEncryption:
             String(localized: "Open it in the app it came from, or get a copy without DRM.", bundle: .module,
                    comment: "What to do with a book protected by DRM: read it where it was bought or borrowed, or find a copy that is not protected.")
-        case .invalidArchive(Self.noEPUBMimetype), .unsafePath, .limitExceeded: nil
-        case .invalidArchive(Self.noEndRecord):
+        case .notEPUB, .unsafePath, .limitExceeded: nil
+        case .notArchive:
             String(localized: "If it is an EPUB book, download it again or get another copy.", bundle: .module,
                    comment: "What to do with a file that is not an EPUB book or is damaged, in case it is a book cut short.")
         case .invalidArchive, .missingResource, .invalidXML:
