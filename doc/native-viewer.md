@@ -1604,9 +1604,20 @@ continues to describe the authored spine resource.
     Properties and Values API 1) are not: the rule is ignored, and every custom property takes
     any value and inherits.
 - **Building** is per section and lazy for first paint: the opening section builds first and
-  the session emits `.ready` once it is on screen; the rest build in the background in
-  parallel. Images decode lazily, downsampled to their displayed size, under a shared cache
-  budget.
+  the session emits `.ready` once it is on screen, built for the appearance the reader opens
+  in; the rest build in the background in parallel. Images decode lazily, downsampled to
+  their displayed size, under a shared cache budget.
+- **One appearance on screen.** A page's text and the canvas behind it always have the same
+  appearance ([#243](https://github.com/vocaro/EPUBLib/issues/243)). A section's colours are
+  part of its build, and a session builds for Light until its host reports Dark, which a host
+  does when the view appears, possibly after the first build is in. The first page therefore
+  waits for text built for the host's appearance, on an empty canvas of that appearance.
+  After a live change the canvas keeps the old appearance, with the old text, until it shows
+  text built for the new: the section on screen once it is rebuilt, which it is first, or
+  another that a page turn or a link shows. A page turn to a section not yet rebuilt shows it
+  in the old appearance until its rebuild arrives, so while a book is rebuilt the canvas can
+  change appearance with each page it turns to. `effectiveAppearance` reports the new
+  appearance at once.
 - **Release.** A typography change keeps each built section on screen until its rebuild
   arrives. A rebuilt SVG shares the font database its replaced build still holds, so a
   relayout needs no more of the font budget than the book already has. The text view drops
@@ -2936,7 +2947,8 @@ change of the current match, and nil when a clear, another query, a failure, a c
 `.locate` withdraws the list. Results are in spine order, then document order
 (see [search results](reader-controls.md#search-results)).
 
-`.ready` is emitted once, when the opening section is on screen in a mounted view, and the first
+`.ready` is emitted once, when the opening section is on screen in a mounted view, built for the
+host's appearance (see Decisions), and the first
 `.relocated` reports the opening position (the text start, see Decisions). `.relocated`
 carries the section href, overall progression (by section byte size, as foliate-js computed it),
 the table-of-contents title for the position, the page-list entries it shows (see Decisions)

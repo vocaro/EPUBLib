@@ -142,7 +142,7 @@ import SwiftUI
     private var configuration: ReaderCanvasConfiguration {
         var configuration = ReaderCanvasConfiguration()
         configuration.flow = style.flow
-        configuration.isDark = effectiveIsDark
+        configuration.isDark = shownIsDark
         configuration.isRightToLeft = publication.pageProgression == .rtl
         configuration.division = division
         configuration.pageControls = pageControls
@@ -151,13 +151,29 @@ import SwiftUI
         return configuration
     }
 
+    /// The appearance of the text on screen, which the canvas draws in, so a page's text and its
+    /// background never disagree (#243). After a change of appearance the canvas keeps the old
+    /// one until it shows text built for the new: the section on screen once it is rebuilt, or
+    /// another that a page turn or a link shows. An empty canvas takes the appearance asked for.
+    private var shownIsDark: Bool {
+        guard isReady, let canvas else { return effectiveIsDark }
+        // Continuous scroll's whole book is one build of every section; one loaded before the
+        // change stays on screen, in the canvas's appearance, until it is replaced.
+        if let whole = canvas.scrollBook {
+            return whole.string === book.bookText?.string ? book.typography.isDark : canvas.configuration.isDark
+        }
+        return book.typography(ofSection: visibleRange?.start.section ?? initialSection)?.isDark ?? effectiveIsDark
+    }
+
     private func applyConfiguration() {
         guard let canvas, canvas.configuration != configuration else { return }
         canvas.configuration = configuration
     }
 
+    /// The opening page waits for text built for the appearance asked for: a host reports Dark
+    /// on appearing, which can be after the first build, made for Light, is in.
     private func becomeReadyIfPossible() {
-        guard !isReady, !closed, let canvas, book.section(initialSection) != nil else { return }
+        guard !isReady, !closed, let canvas, book.isCurrent(initialSection) else { return }
         isReady = true
         emit(.ready)
         publishDisclosure()
@@ -761,6 +777,8 @@ extension NativeSession: ReaderCanvasDataSource {
 extension NativeSession: ReaderCanvasDelegate {
     func canvas(_ canvas: any ReaderCanvas, didShow range: ReaderTextRange, sectionProgress: Double) {
         visibleRange = range
+        // Every page shown, rebuilt or turned to, brings its text's appearance (`shownIsDark`).
+        applyConfiguration()
         guard isReady, !closed else { return }
         readerState?.modify {
             $0.canGoPrevious = self.canvas?.canTurnPage(forward: false)
