@@ -399,6 +399,102 @@ final class StyleResolverTests: XCTestCase {
         XCTAssertEqual(result.style("re\u{301}sume\u{301}").textAlign, .right)
     }
 
+    private func matched(_ selector: String, in body: String, prelude: String = "") throws -> [String] {
+        try CSSSyntaxSupport.matched(selector, in: body, prelude: prelude)
+    }
+
+    /// A class selector matches the class with its code units, as browsers compare them:
+    /// `.caf\E9` and `.cafe\301` name two classes, though `String` compares them equal. So it is
+    /// for a rule indexed under its subject's class, a class an ancestor must have, one inside
+    /// `:is()` or `:not()`, and an element that has both (#640).
+    func testClassSelectorsMatchTheClassesExactCodeUnits() throws {
+        let body = """
+            <p id="composed" class="caf&#xE9;">c</p><p id="decomposed" class="cafe&#x301;">d</p>
+            <p id="both" class="caf&#xE9; cafe&#x301;">b</p>
+            <div class="na&#xEF;ve"><p id="in-composed">x</p></div><div class="nai&#x308;ve"><p id="in-decomposed">y</p></div>
+            """
+        XCTAssertEqual(try matched(#".caf\E9"#, in: body), ["composed", "both"])
+        XCTAssertEqual(try matched(#".cafe\301"#, in: body), ["decomposed", "both"])
+        XCTAssertEqual(try matched(#".caf\E9.cafe\301"#, in: body), ["both"], "An element keeps both classes")
+        XCTAssertEqual(try matched(#".nai\308 ve p"#, in: body), ["in-decomposed"])
+        XCTAssertEqual(try matched(#"p:is(.cafe\301)"#, in: body), ["decomposed", "both"])
+        XCTAssertEqual(try matched(#"p:not(.caf\E9)"#, in: body), ["decomposed", "in-composed", "in-decomposed"])
+    }
+
+    /// Two selectors whose classes differ only in their code units stay two wherever the
+    /// resolver keeps a selector by its value: the left-hand search that `~` rules share and the
+    /// `of S` list that `:nth-child()` ranks by, both memoized past a few siblings (#640).
+    func testSelectorsDifferingOnlyInCodeUnitsShareNoMemo() throws {
+        let siblings = (1...12).map { #"<p id="s\#($0)" class="x">s</p>"# }.joined()
+        let ranked = (1...12).map { #"<span id="r\#($0)" class="\#($0.isMultiple(of: 2) ? "cafe&#x301;" : "caf&#xE9;")">r</span>"# }
+        let result = try styled("""
+            <div><p id="first" class="cafe&#x301;">d</p>\(siblings)</div><div>\(ranked.joined())</div>
+            """, css: #"""
+            .caf\E9 ~ .x { color: blue }
+            .cafe\301 ~ .x { font-weight: 700 }
+            span:nth-child(2 of .caf\E9) { text-align: right }
+            span:nth-child(2 of .cafe\301) { font-style: italic }
+            """#)
+        for n in 1...12 {
+            XCTAssertNil(result.style("s\(n)").color, "s\(n)")
+            XCTAssertEqual(result.style("s\(n)").fontWeight, 700, "s\(n)")
+            // r1, r3, r5… hold the composed class and r2, r4, r6… the decomposed one.
+            XCTAssertEqual(result.style("r\(n)").textAlign, n == 3 ? .right : .start, "r\(n)")
+            XCTAssertEqual(result.style("r\(n)").isItalic, n == 4, "r\(n)")
+        }
+    }
+
+    /// An attribute selector compares the value's code units, as browsers do: by every operator,
+    /// whichever bucket the rule index holds it in, and under the `i` flag, which folds the ASCII
+    /// letters alone (Selectors 4 §6.3) (#640).
+    func testAttributeSelectorsCompareTheValuesCodeUnits() throws {
+        let body = """
+            <p id="composed" title="caf&#xE9;">c</p><p id="decomposed" title="cafe&#x301;">d</p>
+            <p id="tokens" title="x cafe&#x301; y">t</p><p id="dash" title="cafe&#x301;-fr">h</p>
+            <p id="mark" title="e&#x301;x">m</p><p id="kelvin" title="&#x212A;">k</p><p id="upper" title="CAF&#xC9;">u</p>
+            """
+        XCTAssertEqual(try matched(#"[title="caf\E9"]"#, in: body), ["composed"])
+        XCTAssertEqual(try matched(#"p[title="caf\E9"]"#, in: body), ["composed"])
+        XCTAssertEqual(try matched(#"[title="cafe\301"]"#, in: body), ["decomposed"])
+        XCTAssertEqual(try matched(#"[title~="caf\E9"]"#, in: body), ["composed"])
+        XCTAssertEqual(try matched(#"[title~="cafe\301"]"#, in: body), ["decomposed", "tokens"])
+        XCTAssertEqual(try matched(#"p[title~="cafe\301"]"#, in: body), ["decomposed", "tokens"])
+        XCTAssertEqual(try matched(#"[title|="caf\E9"]"#, in: body), ["composed"])
+        XCTAssertEqual(try matched(#"[title|="cafe\301"]"#, in: body), ["decomposed", "dash"])
+        XCTAssertEqual(try matched(#"[title^="caf\E9"]"#, in: body), ["composed"])
+        XCTAssertEqual(try matched(#"[title^="cafe"]"#, in: body), ["decomposed", "dash"], "A prefix may end before a combining mark")
+        XCTAssertEqual(try matched(#"[title^="e"]"#, in: body), ["mark"])
+        XCTAssertEqual(try matched(#"[title$="caf\E9"]"#, in: body), ["composed"])
+        XCTAssertEqual(try matched(#"[title$="\301"]"#, in: body), ["decomposed"], "A suffix may be a combining mark alone")
+        XCTAssertEqual(try matched(#"[title*="f\E9"]"#, in: body), ["composed"])
+        XCTAssertEqual(try matched(#"[title*="e\301"]"#, in: body), ["decomposed", "tokens", "dash", "mark"])
+        XCTAssertEqual(try matched(#"[title*="\301  y"]"#, in: body), ["tokens"], "The escape takes the first space")
+        XCTAssertEqual(try matched(#"[title="CAF\E9" i]"#, in: body), ["composed"], "É and é are not ASCII letters")
+        XCTAssertEqual(try matched(#"[title="caf\C9" i]"#, in: body), ["upper"])
+        XCTAssertEqual(try matched(#"[title="k" i]"#, in: body), [], "Nor is the Kelvin sign")
+        XCTAssertEqual(try matched(#"[title^="CAFE" i]"#, in: body), ["decomposed", "dash"])
+        XCTAssertEqual(try matched(#"[title~="CAFE\301" i]"#, in: body), ["decomposed", "tokens"])
+    }
+
+    /// Element and attribute names, namespace URIs and `:lang()` ranges compare their code units
+    /// as well, with `:lang()` folding the ASCII letters alone (Selectors 4 §7.2) (#640).
+    func testNamesNamespacesAndLanguageRangesCompareCodeUnits() throws {
+        let body = """
+            <caf\u{E9} id="composed-element">a</caf\u{E9}><cafe\u{301} id="decomposed-element">b</cafe\u{301}>
+            <p id="composed-attribute" caf\u{E9}="">c</p><p id="decomposed-attribute" cafe\u{301}="">d</p>
+            <x:p xmlns:x="urn:caf&#xE9;" id="composed-namespace">e</x:p><x:p xmlns:x="urn:cafe&#x301;" id="decomposed-namespace">f</x:p>
+            <p id="kelvin" lang="&#x212A;">g</p><p id="mark" lang="fr-&#x301;">h</p>
+            """
+        XCTAssertEqual(try matched(#"caf\E9"#, in: body), ["composed-element"])
+        XCTAssertEqual(try matched(#"cafe\301"#, in: body), ["decomposed-element"])
+        XCTAssertEqual(try matched(#"[caf\E9]"#, in: body), ["composed-attribute"])
+        XCTAssertEqual(try matched(#"p[cafe\301]"#, in: body), ["decomposed-attribute"])
+        XCTAssertEqual(try matched("c|p", in: body, prelude: #"@namespace c "urn:caf\E9";"#), ["composed-namespace"])
+        XCTAssertEqual(try matched("c|p", in: body, prelude: #"@namespace c "urn:cafe\301";"#), ["decomposed-namespace"])
+        XCTAssertEqual(try matched(":lang(k)", in: body), [], "The Kelvin sign is not an ASCII letter")
+        XCTAssertEqual(try matched(":lang(fr)", in: body), ["mark"], "A range ends at a hyphen, whatever follows it")
+    }
+
     func testDefaultNamespaceAndHTMLCaseInsensitivity() throws {
         let result = try styled("""
             <p id="p">p</p><svg xmlns="http://www.w3.org/2000/svg"><text id="svgtext" class="c">t</text></svg>

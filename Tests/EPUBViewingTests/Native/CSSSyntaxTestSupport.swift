@@ -25,7 +25,7 @@ enum CSSSyntaxSupport {
     static func sheet(_ css: String, path: String = "OPS/css/main.css") -> CSSStyleSheet { CSSStyleSheet.parse(css, path: path) }
 
     /// Each rule's first subject: its type name, or `*`.
-    static func subjects(_ sheet: CSSStyleSheet) -> [String] { sheet.rules.map { $0.selectors[0].compounds[0].name ?? "*" } }
+    static func subjects(_ sheet: CSSStyleSheet) -> [String] { sheet.rules.map { $0.selectors[0].compounds[0].name?.string ?? "*" } }
 
     /// The longhands a declaration list yields, in order.
     static func properties(_ declarations: String) -> [CSSProperty] { CSSStyleSheet.declarations(declarations).map(\.property) }
