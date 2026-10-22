@@ -821,10 +821,10 @@ import XCTest
         }
     }
 
-    /// "Task cancellation ends pending search feedback"; "a rejected or cancelled search"
-    /// withdraws the results. A cancellation that arrives before the results, as an earlier list
-    /// is withdrawn or as the search begins, ends the search: idle, with no list and nothing of
-    /// either query drawn, the reader where it was, and `send` reporting the cancellation.
+    /// "Task cancellation ends pending search feedback"; "A search cancelled before its results
+    /// are published ends with none." A cancellation that arrives before the results, as an
+    /// earlier list is withdrawn or as the search begins, ends the search: idle, with no list and
+    /// nothing of either query drawn, the reader where it was, and `send` reporting the cancellation.
     func testACancellationBeforeTheResultsEndsTheSearchWithNoResults() async throws {
         enum Moment: CaseIterable { case withdrawal, searching }
         for moment in Moment.allCases {
