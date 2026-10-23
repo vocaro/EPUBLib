@@ -199,4 +199,69 @@ final class XMLParsingRegressionTests: XCTestCase {
         XCTAssertEqual(ncx.tableOfContents.map(\.title), ["Opening Part"])
     }
 
+    func testNamesThatNamespacesInXMLForbidsAreUnknownElementsInContainerPackageAndNavigationDocuments() throws {
+        // libxml2 reports these names with a namespace error and reads on, and XMLParser hands
+        // each on as written, with no error (#644).
+        final class Names: NSObject, XMLParserDelegate {
+            var elements: [String] = [], attributes: [String] = []
+            func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?,
+                        qualifiedName: String?, attributes: [String: String]) {
+                elements.append(name)
+                self.attributes += attributes.keys.sorted()
+            }
+        }
+        let names = Names()
+        let parser = XMLParser(data: Data("<r><:navPoint/><script:/><a:b:c/><a::/><p :id='1' id:='2' a:b:c='3' xmlns:='4'/></r>".utf8))
+        parser.delegate = names
+        XCTAssertTrue(parser.parse())
+        XCTAssertEqual(names.elements, ["r", ":navPoint", "script:", "a:b:c", "a::", "p"])
+        XCTAssertEqual(names.attributes, [":id", "a:b:c", "id:", "xmlns:"])
+
+        // Each is an unknown element, as libxml2's XML parser reads it, and not the element its
+        // last piece names; the book is not refused. Every decoy here was
+        // once read as that element, and each case has one, so that each is shown on its own.
+        let typed = "full-path='missing.opf' media-type='application/oebps-package+xml'"
+        let navStart = "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml#start\">"
+        let decoys = "<ol><li><a href=\"two.xhtml\">Decoy</a></li></ol>"
+        let pointStart = "<navPoint id=\"one\" playOrder=\"1\"><navLabel>"
+        func decoy(_ element: String, before tag: String, in start: String) -> String {
+            start.replacingOccurrences(of: tag, with: element + tag)
+        }
+        let cases: [(file: String, target: String, replacement: String)] = [
+            ("META-INF/container.xml", "<rootfiles>", "<rootfiles><:rootfile \(typed)/>"),
+            ("META-INF/container.xml", "<rootfiles>", "<rootfiles><rootfile: \(typed)/>"),
+            ("META-INF/container.xml", "<rootfiles>", "<rootfiles><a:b:rootfile \(typed)/>"),
+            ("OPS/book.opf", "<itemref idref=\"one\"/>", "<:itemref idref='two'/><itemref idref=\"one\"/>"),
+            ("OPS/book.opf", "<itemref idref=\"one\"/>", "<itemref: idref='two'/><itemref idref=\"one\"/>"),
+            ("OPS/book.opf", "<itemref idref=\"one\"/>", "<opf:a:itemref idref='two'/><itemref idref=\"one\"/>"),
+            ("OPS/nav.xhtml", navStart, "<x:y:nav epub:type=\"toc\">\(decoys)</x:y:nav>\(navStart)"),
+            // An attribute's name is split the same way: `:epub:type` is not `epub:type`.
+            ("OPS/nav.xhtml", navStart, "<nav :epub:type=\"toc\">\(decoys)</nav>\(navStart)"),
+            ("OPS/nav.xhtml", navStart, decoy("<:a href=\"two.xhtml\">Decoy</:a>", before: "<a ", in: navStart)),
+            ("OPS/nav.xhtml", navStart, decoy("<span: href=\"two.xhtml\">Decoy</span:>", before: "<a ", in: navStart)),
+            ("OPS/nav.xhtml", navStart, decoy("<a:b:ol>\(decoys.dropFirst(4).dropLast(5))</a:b:ol>", before: "<a ", in: navStart)),
+            ("OPS/toc.ncx", pointStart, "<:navPoint id=\"z\"><navLabel><text>Decoy</text></navLabel>"
+                + "<content src=\"two.xhtml\"/></:navPoint>\(pointStart)"),
+            ("OPS/toc.ncx", pointStart, decoy("<a:b:navLabel><text>Decoy</text></a:b:navLabel>", before: "<navLabel>", in: pointStart)),
+            ("OPS/toc.ncx", pointStart, decoy("<content: src=\"two.xhtml\"/>", before: "<navLabel>", in: pointStart)),
+        ]
+        for (file, target, replacement) in cases {
+            let epub2 = file.hasSuffix(".ncx")
+            let source = String(decoding: try XCTUnwrap(Fixture.files(epub2: epub2)[file]), as: UTF8.self)
+            XCTAssertTrue(source.contains(target), "\(file) has no \(target)")
+            let book: EPUBPublication
+            do {
+                book = try EPUBPublication.open(data: Fixture.epub(
+                    overrides: [file: source.replacingOccurrences(of: target, with: replacement)], epub2: epub2))
+            } catch {
+                XCTFail("\(replacement): \(error)")
+                continue
+            }
+            XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/two.xhtml"], replacement)
+            XCTAssertEqual(book.tableOfContents.map(\.title), ["First Chapter"], replacement)
+            XCTAssertEqual(book.tableOfContents.first?.href, "OPS/one.xhtml#start", replacement)
+            XCTAssertEqual(book.tableOfContents.first?.children.map(\.title), ["Second Chapter"], replacement)
+        }
+    }
+
 }
