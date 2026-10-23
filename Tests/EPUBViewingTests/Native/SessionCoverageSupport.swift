@@ -187,6 +187,7 @@ enum SessionCoverageBook {
     var mounted = true
     var division: CGRect?
     var foldRegions: [ReaderFold.Region]?
+    var pageTurnAnimation = EPUBPageTurnAnimation.none
 }
 
 private struct SessionCoverageStageView: View {
@@ -197,6 +198,7 @@ private struct SessionCoverageStageView: View {
             if stage.mounted {
                 EPUBReaderView(session: session).epubReaderDivision(stage.division)
                     .environment(\.epubReaderFoldRegions, stage.foldRegions)
+                    .epubReaderPageTurnAnimation(stage.pageTurnAnimation)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

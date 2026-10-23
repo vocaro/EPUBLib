@@ -459,7 +459,8 @@ import XCTest
 
     /// Closing iPhone Duo takes the reader to the outer display, which has no fold, and opening
     /// it brings it back to the fold (#686). The first line of the page last turned to stays on
-    /// screen through each, and the spread it opens to is the one it closed on.
+    /// screen through each, also when the phone is closed while a turn slides (#688), and the
+    /// spread it opens to is the one it closed on.
     func testClosingAndOpeningTheDuoKeepTheFirstLineOnScreen() async throws {
         for (label, data) in [("left to right", try SessionCoverageBook.chapters()),
                               ("right to left", try SessionCoverageBook.chapters(spine: " page-progression-direction=\"rtl\""))] {
@@ -509,6 +510,25 @@ import XCTest
             try await reader.wait("\(label): the same outer page") {
                 canvas.bounds.width == Self.duoOuter.width && reader.session.visibleRange == page
             }
+
+            // Closed while a turn slides: the relayout ends the slide, and the first line of the
+            // page turned to stays on screen.
+            window.stage.pageTurnAnimation = .slide
+            reopen()
+            try await reader.wait("\(label): opened to slide") {
+                canvas.bounds.width == Self.duoInner.width && canvas.configuration.division == fold
+                    && canvas.configuration.pageTurnAnimation == .slide
+            }
+            try await reader.settle()
+            let before = try XCTUnwrap(reader.session.visibleRange)
+            try await reader.session.send(.nextPage)
+            try await reader.wait("\(label): the page slides") { canvas.visibleRange != before && canvas.pageTransition != nil }
+            let turned = try XCTUnwrap(canvas.visibleRange)
+            close()
+            try await reader.wait("\(label): closed while sliding") {
+                canvas.bounds.width == Self.duoOuter.width && canvas.pageTransition == nil && reader.isVisible(turned.start)
+            }
+            XCTAssertEqual(canvas.textViews.count, 1, "\(label): one page after the slide")
             XCTAssertTrue(reader.locations(since: since).allSatisfy { $0.href == "OPS/two.xhtml" }, label)
             reader.close()
             window.close()
