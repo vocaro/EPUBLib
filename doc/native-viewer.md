@@ -2345,8 +2345,8 @@ as they did.
   [Input and accessibility](#input-and-accessibility)). Given no element then, a
   simulator's VoiceOver went to whichever line was drawn where its cursor had stood, the
   line after a link's target in the session that tried it. Nothing is posted while
-  VoiceOver's Headings rotor moves the reader, because VoiceOver takes its cursor to the
-  item the rotor gives it, nor for scrolling the reader does not do: a finger's, and
+  VoiceOver's Headings or Paragraphs rotor moves the reader, because VoiceOver takes its
+  cursor to the item the rotor gives it, nor for scrolling the reader does not do: a finger's, and
   UIKit's for VoiceOver's cursor and its three-finger scroll. The Mac posts a layout change
   after the same moves, for its own reason (above)
   ([#428](https://github.com/vocaro/EPUBLib/issues/428)).
@@ -3329,7 +3329,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   Forward ("Continuous scroll" above), so this is for what it did not do itself; no
   device has run it
   ([VoiceOver testing](testing.md#voiceover-testing), "Harness pitfalls and current results"). And
-  a move by heading that turns the page posts
+  a move by heading or by block that turns the page posts
   nothing, since VoiceOver goes to the item the rotor gives it. VoiceOver's scroll, three
   fingers swiped, announces "Page N" as before, and the cursor is sent after the
   announcement. Posted in that order after a page turned under a simulator's cursor,
@@ -3558,6 +3558,35 @@ The following are the defaults. Host commands and accessibility actions stay ena
   past the last heading begins again.
   Not marked for VoiceOver: a heading inside a table, whose cells are read as cells, and on
   iPhone and iPad a heading inside a note's popover, which keeps UIKit's own elements.
+- Paragraphs: on iPhone and iPad each line is an element of its own, so a flick moves one
+  line, and VoiceOver has no rotor setting that moves by paragraph. Each text view that
+  lists its lines gives VoiceOver one of its own after Headings, called Paragraphs as
+  VoiceOver calls its own settings, by the plural of what they move by
+  (`UIAccessibilityCustomRotor`, [#711](https://github.com/vocaro/EPUBLib/issues/711)). It
+  moves by block, as DAISY's reading-810 asks of a "next item" gesture: a paragraph, a
+  picture or a rule in a paragraph of its own, a list item, a table and a heading. A block is
+  one of the builder's paragraphs (`NSAttributedString.readerBlocks`), so a paragraph is one
+  stop however many lines it takes and with the links, pictures and breaks in it. A table is
+  one stop, its captions and rows together, and its stop is its caption or its first cell or
+  row. A heading is one stop however many paragraphs it takes, and it is a block of its own
+  where it shares a paragraph too: a hidden heading at the head of the words after it, or one
+  set run-in. The break that parts a sized inline box from the line it stands in parts no
+  block (`.readerLayoutBreak`), as a copy reads that line as one. A block with nothing to read
+  is passed over: decoration, a picture or a rule the book keeps from assistive technology,
+  words it keeps so or that `visibility: hidden` hides, and a table row with nothing to say.
+  The rotor gives the first element that reads the block. Forward it goes to the first block
+  that begins to be read at or after the end of the item under the cursor, and back to the
+  last that begins before the item's start: back from inside a paragraph goes to its first
+  line, and from there to the block before. It searches as the Headings rotor does, through
+  the sections page turns reach and by the place in the book and the length that each
+  element keeps, so that it gives the same answer twice, and a block on another page or past
+  the lines listed is turned or scrolled to as a heading is, with nothing posted. The lines'
+  elements are as they were. In iOS 27.2 simulators VoiceOver lists the rotor as it lands
+  in the text ("Use the rotor to access Headings, Paragraphs") and reads each block's first
+  line, in pages and in continuous scroll
+  ([sessions](https://github.com/vocaro/EPUBLib/issues/711#issuecomment-6372973411)). A hidden label that is no heading and opens the line of the
+  words after it, as a parked byline does, is one block with those words. On Mac a text area
+  is VoiceOver's own, which moves by paragraph in it, and has no such rotor.
 - Language: VoiceOver chooses a voice for the language it is given
   ([spoken language](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/text-layout-and-unicode.md#voiceover-speaks-the-language-each-item-and-range-names)).
   On iPhone and iPad each

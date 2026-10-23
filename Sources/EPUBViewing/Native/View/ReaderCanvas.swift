@@ -42,6 +42,17 @@ struct ReaderBookHeading {
     var position: ReaderTextPosition { ReaderTextPosition(section: section, offset: range.location) }
 }
 
+/// A block and where it is in the book: its section, and its characters in that section's
+/// string (`NSAttributedString.readerBlocks`).
+struct ReaderBookBlock {
+    var section: Int
+    var block: ReaderTextBlock
+    /// Where it begins to be read.
+    var position: ReaderTextPosition { ReaderTextPosition(section: section, offset: block.spoken) }
+    /// Its characters from there on.
+    var spokenRange: ReaderTextRange { ReaderTextRange(section: section, block.spoken..<NSMaxRange(block.range)) }
+}
+
 /// The whole book as one string for continuous scroll: every section's string in spine order,
 /// each followed by one paragraph break except the last. Sections in `omitted` (nonlinear spine
 /// items, which page turns step over too) are left out; the canvas shows one of them on its own

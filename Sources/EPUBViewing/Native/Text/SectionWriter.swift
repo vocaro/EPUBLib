@@ -28,7 +28,9 @@ import AppKit
 ///   Asian wide characters disappears. A single trailing forced break in a block makes no line.
 /// - Floats, positioned callouts and sized inline-blocks keep separate source paragraphs and
 ///   symbolic constraints. The native layout resolves wrapping and positions at viewport size;
-///   oversized or complex boxes remain pageable in-flow text with the same exact map. `clear`
+///   oversized or complex boxes remain pageable in-flow text with the same exact map. The
+///   break that parts a sized inline box from the line it stands in is the map's layout
+///   separator and carries `.readerLayoutBreak`: a copy and a move by block go over it. `clear`
 ///   is `.readerClear` on the first character of the paragraph that opens the blocks setting
 ///   it, and of the line after a `br` setting it, for the layout to resolve against the floats.
 /// - A positioned box hidden from the page but not from assistive technology (parked off screen
@@ -809,6 +811,8 @@ final class SectionWriter {
                     space.segmentBreak && next.map { Self.removesSegmentBreak(between: space.before, and: $0) } == true
                 } ?? false
                 if recordsMap { map.layoutSeparator(at: buffer.count, copyText: space != nil && !removesBreak ? " " : "") }
+                // A move by block goes over it, as a copy does (`readerBlocks`).
+                postAttributes.append((NSRange(location: buffer.count, length: 1), .readerLayoutBreak, true))
             }
             buffer.append(CollectionOfOne(0x0A), attributes: paragraphs[previous].separatorAttributes)
             paragraph.start = buffer.count

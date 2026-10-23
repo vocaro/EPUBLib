@@ -3253,6 +3253,20 @@ offered as evidence at a fixed pause, the runner's default, on a workstation or 
    has gone to another menu with `listright` starts the next one there. With `tracking`
    sent first, which turns cursor tracking off, the same steps in pages say the heading
    and leave the page where it is.
+   Paragraphs, on an iPhone and iPad. With the rotor on Paragraphs (`rotor=Paragraphs`),
+   `flick=down` says the first line of the next paragraph, picture, list item, table or
+   heading, turning the page or scrolling to it, and `flick=up` from inside a paragraph
+   says its first line and then goes to the block before. A move by item or a touch on a
+   line of a page puts VoiceOver's rotor on Actions, so turn it again after one. In the book
+   of ordinary paragraphs,
+   `wait=8,touch=p001w01,rotor=Paragraphs,flick=down*8,forward=2,rotor=Paragraphs,flick=up*5,visible`
+   says `p002w01` to `p009w01` over page turns and then `p009w01`, `p008w01` and back to
+   `p005w01`; with `--flow scrolled` the same without the second rotor turn. On "What each
+   line offers" a link or a picture inside a line is no stop and the table row is one; on
+   "Tables of data" each table is one stop, at its caption or its first cell or row, and
+   from a cell (`touch=Twelve`) `flick=up` says the caption and the next `flick=down` the
+   words after the table. Sessions on iOS 27.2 simulators are on
+   [#711](https://github.com/vocaro/EPUBLib/issues/711#issuecomment-6372973411).
 10. Links on a Mac, in pages and in continuous scroll, with VoiceOver's link setting at Speak
     ([Links](#links)). `ax:links` lists each link on screen once as a `CHILD`, by its words:
     "Verification link" on the first page, "Parked link to the target" on the hidden-labels

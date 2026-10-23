@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Move by paragraph, picture, table, list item and heading through the book with a Paragraphs rotor beside Headings on iPhone and iPad, in pages and in continuous scroll, where a flick moved one line and a paragraph of eight lines took eight ([#711](https://github.com/vocaro/EPUBLib/issues/711)).
 - Leave `epub:type` terms on the head and what it holds, on metadata content such as `script`, `template` and `noscript`, in what a script, style or template holds, and on an SVG element that is not rendered, such as `title`, `desc` and `defs`, out of a section's extracted `semanticTypes`, as the reader ignores them ([#777](https://github.com/vocaro/EPUBLib/issues/777)).
 - Check a recovered section's DOCTYPEs in one pass in text extraction, where four mebibytes of DOCTYPE openers in an unclosed comment were read again from each opener and took tens of minutes ([#783](https://github.com/vocaro/EPUBLib/issues/783)).
 - Scan a recovered section once more with its abrupt comments left open where closing one leads the declaration check to refuse it, as one that leads the scan to refuse it already was, so that `< <!--> <!DO<![CDATA[]]>CTYPE html [` is read as before the comments were closed ([#333](https://github.com/vocaro/EPUBLib/issues/333)).

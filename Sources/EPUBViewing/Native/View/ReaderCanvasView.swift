@@ -100,6 +100,16 @@ import AppKit
         }
     }
     private var sectionHeadings: [Int: SectionHeadings] = [:]
+    /// The blocks of one section's text, kept as its headings are.
+    private final class SectionBlocks {
+        weak var text: NSAttributedString?
+        let blocks: [ReaderTextBlock]
+        init(text: NSAttributedString, blocks: [ReaderTextBlock]) {
+            self.text = text
+            self.blocks = blocks
+        }
+    }
+    private var sectionBlocks: [Int: SectionBlocks] = [:]
     /// The book's pages at the spread's column size (`layoutPage`).
     let pageCounter = ReaderPageCounter()
 
@@ -659,6 +669,7 @@ import AppKit
         paginators.removeAll()
         paginatorUse.removeAll()
         sectionHeadings.removeAll()
+        sectionBlocks.removeAll()
     }
 
     var cachedPaginatorCount: Int { paginators.count }
@@ -1790,12 +1801,47 @@ import AppKit
     /// after the last: the whole book once it is built, and until then the sections built so far
     /// around the reader.
     func bookHeading(from position: ReaderTextPosition?, forward: Bool) -> ReaderBookHeading? {
+        let found = searchBook(from: position?.section, forward: forward, items: headings(inSection:)) { headings, section in
+            guard let position else { return forward ? headings.first : headings.last }
+            return forward ? headings.first { section > position.section || $0.range.location > position.offset }
+                : headings.last { section < position.section || NSMaxRange($0.range) <= position.offset }
+        }
+        return found.map { ReaderBookHeading(heading: $0.item.heading, section: $0.section, range: $0.item.range) }
+    }
+
+    /// The block of the book after the item `item` names, or the one before it, where an
+    /// assistive technology's move by block goes (`NSAttributedString.readerBlocks`): forward,
+    /// the first that begins to be read at or after the item's end; back, the last that
+    /// begins to be read before the item's start. So the move back from inside a block goes
+    /// to where it begins to be read, and from there to the block before. The sections it
+    /// goes through are those of a move by heading (`bookHeading`). From no item it takes in
+    /// every block it can reach from the section on screen, and begins before the first of
+    /// them, or after the last.
+    func bookBlock(from item: ReaderTextRange?, forward: Bool) -> ReaderBookBlock? {
+        let start = item.map { forward ? $0.end.section : $0.start.section }
+        let found = searchBook(from: start, forward: forward, items: blocks(inSection:)) { blocks, section in
+            guard let item else { return forward ? blocks.first : blocks.last }
+            return forward ? blocks.first { section > item.end.section || $0.spoken >= item.end.offset }
+                : blocks.last { section < item.start.section || $0.spoken < item.start.offset }
+        }
+        return found.map { ReaderBookBlock(section: $0.section, block: $0.item) }
+    }
+
+    /// The first item `pick` takes of a section's (`items`), from the section `start` on, or
+    /// back from it: `bookHeading`'s search, which `bookBlock`'s shares. A section that page
+    /// turns step over is passed over unless the search starts in it or it is the one on
+    /// screen, and a section not built yet ends the search, as does one a page turn would wait
+    /// to have built again (`canShow`), whose build is then asked for (`wantsSection`). From no
+    /// section the search begins in the furthest section built against its direction from the
+    /// one on screen.
+    private func searchBook<Item>(from start: Int?, forward: Bool, items: (Int) -> [Item]?,
+                                  pick: (_ items: [Item], _ section: Int) -> Item?) -> (section: Int, item: Item)? {
         guard let dataSource, dataSource.sectionCount > 0 else { return nil }
         let shown = visibleRange?.start.section
-        func searched(_ section: Int) -> Bool { section == position?.section || section == shown || dataSource.isLinear(section: section) }
+        func searched(_ section: Int) -> Bool { section == start || section == shown || dataSource.isLinear(section: section) }
         func built(_ section: Int) -> Bool { dataSource.text(forSection: section) != nil && dataSource.canShow(section: section) }
         var section: Int
-        if let position { section = position.section } else {
+        if let start { section = start } else {
             // Back from the section on screen, against the search, through the sections built.
             section = min(max(0, shown ?? 0), dataSource.sectionCount - 1)
             let back = forward ? -1 : 1
@@ -1804,16 +1850,11 @@ import AppKit
         }
         while section >= 0, section < dataSource.sectionCount {
             if searched(section) {
-                guard built(section), let headings = headings(inSection: section) else {
+                guard built(section), let found = items(section) else {
                     if dataSource.text(forSection: section) != nil { delegate?.canvas(self, wantsSection: section) }
                     return nil
                 }
-                let found: (heading: ReaderHeading, range: NSRange)?
-                if let position {
-                    found = forward ? headings.first { section > position.section || $0.range.location > position.offset }
-                        : headings.last { section < position.section || NSMaxRange($0.range) <= position.offset }
-                } else { found = forward ? headings.first : headings.last }
-                if let found { return ReaderBookHeading(heading: found.heading, section: section, range: found.range) }
+                if let item = pick(found, section) { return (section, item) }
             }
             section += forward ? 1 : -1
         }
@@ -1829,6 +1870,17 @@ import AppKit
         let found = SectionHeadings(text: text, headings: text.readerHeadings())
         sectionHeadings[section] = found
         return found.headings
+    }
+
+    /// A section's blocks (`NSAttributedString.readerBlocks`), found once for each text the
+    /// data source gives for it; nil while the section is not built.
+    func blocks(inSection section: Int) -> [ReaderTextBlock]? {
+        guard let dataSource, section >= 0, section < dataSource.sectionCount,
+              let text = dataSource.text(forSection: section) else { return nil }
+        if let known = sectionBlocks[section], known.text === text { return known.blocks }
+        let found = SectionBlocks(text: text, blocks: text.readerBlocks())
+        sectionBlocks[section] = found
+        return found.blocks
     }
 
     /// A non-empty `range` in a text view's own characters, clipped to what the view shows;
