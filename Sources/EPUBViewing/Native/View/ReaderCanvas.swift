@@ -111,6 +111,8 @@ struct ReaderCanvasConfiguration: Equatable, Sendable {
     /// A host-reserved vertical division (a fold or hinge), in the canvas's coordinates. In
     /// paginated flow the spread puts its gutter on it; text never crosses it.
     var division: CGRect?
+    /// The outer margins as a multiple of the reader's own (`ReaderCanvasGeometry`), 0–4.
+    var pageMargins: CGFloat = 1
     var selectionActionTitle: String?
     var selectionActionImage = "text.quote"
 }
@@ -222,4 +224,11 @@ extension ReaderCanvasDelegate {
     /// Shows a note in place (a popover), anchored at `rect` in canvas coordinates, in the
     /// appearance its text was built for (`dark`), which a rebuild can reach before the page.
     func presentNote(_ text: NSAttributedString, dark: Bool, from rect: CGRect)
+    /// Asks the reader whether to open a link outside the book: an alert on iPhone and iPad,
+    /// over a note's popover when one is shown, and a sheet on the window on Mac. `answer` is
+    /// called once, true for Open; a question asked while another is shown answers that one no.
+    /// False, with nothing asked, when there is no window to ask in.
+    func askToOpen(_ question: ExternalLinkQuestion, from rect: CGRect, answer: @escaping @MainActor (Bool) -> Void) -> Bool
+    /// Takes a question still shown away, answered no.
+    func withdrawLinkQuestion()
 }

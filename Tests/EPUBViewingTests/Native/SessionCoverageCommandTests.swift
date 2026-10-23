@@ -115,7 +115,7 @@ import XCTest
         try await wait("the first location") { !locations().isEmpty }
         XCTAssertEqual(events.first, .ready, "readiness comes before anything else")
         let first = try XCTUnwrap(locations().first)
-        XCTAssertEqual(first.publicationID, publication.id)
+        XCTAssertEqual(first.publicationID, publication.persistentID)
         XCTAssertEqual(first.href, "OPS/one.xhtml")
         XCTAssertEqual(first.title, "First Chapter")
         XCTAssertEqual(first.bookmark?.engineID, EPUBReader.identifier)
@@ -615,7 +615,7 @@ import XCTest
         XCTAssertEqual(reader.section, 3)
         XCTAssertEqual(selection.location.href, "OPS/three.xhtml")
         XCTAssertEqual(selection.location.quote, "Closing words with findword")
-        XCTAssertEqual(selection.location.publicationID, reader.publication.id)
+        XCTAssertEqual(selection.location.publicationID, reader.publication.persistentID)
         XCTAssertNil(selection.location.progression, "a selection is a passage, not a reading position")
         XCTAssertNil(selection.location.title)
         // Locating again without highlight drops the selection and says so.

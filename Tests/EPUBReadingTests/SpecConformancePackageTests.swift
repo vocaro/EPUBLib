@@ -129,7 +129,7 @@ final class SpecConformancePackageTests: XCTestCase {
         // central directory.
         let segment = Data([0x50, 0x4B, 0x07, 0x08]) + whole.prefix(whole.count / 2)
         XCTAssertThrowsError(try EPUBPublication.open(data: segment), "a split archive's first segment") {
-            guard case .invalidArchive = $0 as? EPUBPublicationError else { return XCTFail("\($0)") }
+            XCTAssertEqual($0 as? EPUBPublicationError, .notArchive)
         }
         // Method 12 (bzip2) on the package document, in its local and central headers.
         var bytes = [UInt8](whole)
