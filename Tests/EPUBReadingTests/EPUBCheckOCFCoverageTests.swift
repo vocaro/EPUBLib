@@ -240,7 +240,7 @@ final class EPUBCheckOCFCoverageTests: XCTestCase {
                         "application/epub +zip", "application/epub+zip\u{FEFF}", "application/epub+zip\u{A0}", "application/vnd.oasis.opendocument.text",
                         "APPLICATION/EPUB+ZIP"] {
             XCTAssertThrowsError(try EPUBPublication.open(data: Fixture.epub(overrides: ["mimetype": content])), content.debugDescription) {
-                XCTAssertEqual($0 as? EPUBPublicationError, .invalidArchive("Missing EPUB mimetype"), content.debugDescription)
+                XCTAssertEqual($0 as? EPUBPublicationError, .notEPUB, content.debugDescription)
             }
         }
         // A UTF-16 file is not the ASCII one behind a mark.
@@ -248,7 +248,7 @@ final class EPUBCheckOCFCoverageTests: XCTestCase {
         var files = try Fixture.files()
         files["mimetype"] = utf16
         XCTAssertThrowsError(try EPUBPublication.open(data: Fixture.archive(files))) {
-            XCTAssertEqual($0 as? EPUBPublicationError, .invalidArchive("Missing EPUB mimetype"))
+            XCTAssertEqual($0 as? EPUBPublicationError, .notEPUB)
         }
     }
 

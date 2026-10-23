@@ -65,7 +65,23 @@ elif name == "xcodebuild":
     if os.environ.get("TEST_IOS_FAIL_TEST") == device:
         print("fake test failure", flush=True)
         sys.exit(65)
-    print("Executed 2 tests, with 0 failures", flush=True)
+    if os.environ.get("TEST_IOS_NO_TESTS") == device:
+        print("Test Suite 'All tests' passed at 2026-10-23 00:00:00.000.\n"
+              "\t Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds", flush=True)
+        sys.exit(0)
+    # As xcodebuild reports them: each bundle's classes and its All tests, or Selected tests when
+    # filtered, then Swift Testing's run.
+    top = "Selected tests" if any(arg.startswith("-only-testing:") for arg in args) else "All tests"
+    print("Test Suite 'ZIPTests' passed at 2026-10-23 00:00:00.000.\n"
+          "\t Executed 2 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds\n"
+          "Test Suite 'EPUBReadingTests.xctest' passed at 2026-10-23 00:00:00.000.\n"
+          "\t Executed 2 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds\n"
+          f"Test Suite '{top}' passed at 2026-10-23 00:00:00.000.\n"
+          "\t Executed 2 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds\n"
+          "━ Test run with 1 test in 1 suite passed after 0.001 seconds.\n"
+          f"Test Suite '{top}' passed at 2026-10-23 00:00:01.000.\n"
+          "\t Executed 3 tests, with 1 test skipped and 0 failures (0 unexpected) in 0.001 (0.001) seconds",
+          flush=True)
 else:
     raise AssertionError(name)
 '''
@@ -95,8 +111,8 @@ class IOSGateTests(unittest.TestCase):
     def events(self):
         return [json.loads(line) for line in self.trace.read_text().splitlines()]
 
-    def run_gate(self, **environment):
-        result = subprocess.run(["bash", "scripts/test-ios.sh"], cwd=self.root,
+    def run_gate(self, *arguments, **environment):
+        result = subprocess.run(["bash", "scripts/test-ios.sh", *arguments], cwd=self.root,
                                 env=dict(self.env, **environment), capture_output=True,
                                 text=True, timeout=15)
         self.assertEqual(result.stderr, "", result.stderr)
@@ -116,6 +132,37 @@ class IOSGateTests(unittest.TestCase):
         for _, _, args in tests:
             self.assertEqual(args[args.index("-destination-timeout") + 1], "600")
             self.assertEqual(args[args.index("-collect-test-diagnostics") + 1], "never")
+            self.assertEqual(args[-1], "test")
+        self.assert_cleanup(KINDS)
+
+    def test_each_device_reports_its_tests_over_every_bundle_and_framework(self):
+        # Two bundles' All tests, 2 and 3, and Swift Testing's 1; ZIPTests' own 2 is in the first bundle's.
+        result = self.run_gate()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        for kind in KINDS:
+            self.assertIn(f"Passed: {kind} (com.apple.CoreSimulator.SimRuntime.iOS-27-0): Executed 6 tests\n",
+                          result.stdout)
+
+    def test_arguments_reach_each_devices_test_action(self):
+        selection = "-only-testing:EPUBViewingTests/NativeSessionTests"
+        result = self.run_gate(selection)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        tests = [event for event in self.events() if event[0] == "test"]
+        self.assertEqual(len(tests), 2)
+        for _, _, args in tests:
+            self.assertEqual(args.count(selection), 1)
+            self.assertLess(args.index(selection), args.index("test"))
+        # A filtered run's bundles report under Selected tests, not All tests.
+        for kind in KINDS:
+            self.assertIn(f"Passed: {kind} (com.apple.CoreSimulator.SimRuntime.iOS-27-0): Executed 6 tests\n",
+                          result.stdout)
+        self.assert_cleanup(KINDS)
+
+    def test_a_device_that_ran_no_tests_fails_and_the_other_still_runs(self):
+        result = self.run_gate(TEST_IOS_NO_TESTS="mock-" + KINDS[0])
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn(f"Failed: {KINDS[0]} (com.apple.CoreSimulator.SimRuntime.iOS-27-0): no tests ran", result.stdout)
+        self.assertIn("Passed: " + KINDS[1], result.stdout)
         self.assert_cleanup(KINDS)
 
     def test_failed_first_test_still_runs_second_and_fails_gate(self):

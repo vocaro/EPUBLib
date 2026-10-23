@@ -258,6 +258,9 @@ final class NoteReachabilityTests: XCTestCase {
         let host = NoteSessionHost(session: reader.session)
         defer { closeNote(reader.session.canvas); reader.close(); host.close() }
         try await reader.settle()
+        // An external link is no note and moves nothing; with links outside the book turned off
+        // it gives the notice (#683).
+        try await host.refuseExternalLinks(reader)
         let canvas = try XCTUnwrap(reader.session.canvas)
         let source = try XCTUnwrap(reader.session.book.section(0))
         func activate(_ label: String) throws {
@@ -372,6 +375,19 @@ final class NoteReachabilityTests: XCTestCase {
         window.isHidden = true
         window.rootViewController = nil
         #endif
+    }
+
+    /// Turns links outside the book off: on Mac through the reader's view, and on iPhone and
+    /// iPad, where the canvas is mounted without SwiftUI, on the session itself.
+    func refuseExternalLinks(_ reader: SessionCoverageReader) async throws {
+        #if os(macOS)
+        window.pageControls.externalLinks = .refuse
+        #else
+        reader.session.externalLinks = .refuse
+        #endif
+        try await reader.wait("links outside the book turned off") {
+            if case .refuse = reader.session.externalLinks.behavior { true } else { false }
+        }
     }
 }
 

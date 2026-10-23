@@ -104,7 +104,8 @@ script/style contexts after source rewriting ([#196](https://github.com/vocaro/E
 [testing](testing.md#attribute-parser-cost-probe) has the parser-only probe. Callers processing a whole book enforce
 their own cumulative text budget while iterating. `CancellationError` propagates during parsing.
 `EPUBTextExtractionError` distinguishes invalid spine indices, unsupported media types, malformed
-XHTML and exceeded limits. Named character references such as `&nbsp;` and `&rcaron;` are read
+XHTML and exceeded limits, each with a plain message for a person
+([when something fails](integration.md#when-something-fails)). Named character references such as `&nbsp;` and `&rcaron;` are read
 from the HTML Standard's table, the one the native reader uses, without loading a DTD
 ([#184](https://github.com/vocaro/EPUBLib/issues/184)). Their spelling inside CDATA and comments
 is left unchanged. A name the table lacks, such as `&bogus;`, is malformed markup on the strict
