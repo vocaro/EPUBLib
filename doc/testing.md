@@ -1412,8 +1412,8 @@ after the hidden ones." stand round them, and sixty numbered lines follow. It ha
 and no link, no word of it is one VoiceOver uses, and no shown word holds a hidden one, so
 "concealed", "Concealed" or "collapsed" in a transcript is a hidden word read. Open it with
 `--href OPS/veiled.xhtml` on a simulator and `"launch=-SampleHref OPS/veiled.xhtml"` in a
-hosted session. **Math readings** (`OPS/math.xhtml`) follows it, and the book's last section,
-**Words kept from listeners** (`OPS/kept.xhtml`), holds shown words the book keeps from
+hosted session. **Math readings** (`OPS/math.xhtml`) follows it, and then **Words kept from
+listeners** (`OPS/kept.xhtml`), which holds shown words the book keeps from
 assistive technology with `aria-hidden="true"`
 ([Text kept from assistive technology](native-viewer.md#text-kept-from-assistive-technology)):
 a paragraph of its own, "* Unheard stars *", after "Words before the kept ones."; "unheard
@@ -1425,7 +1425,20 @@ between "Shown words beside" and "the hidden square.". "Words after the kept one
 numbered lines follow. Every kept or hidden word begins "unheard" or "Unheard" and no shown
 word does, so either in a transcript is a kept word read, and no word of it is one VoiceOver
 uses for a heading, a link or a picture. Open it with `--href OPS/kept.xhtml` on a simulator
-and `"launch=-SampleHref OPS/kept.xhtml"` in a hosted session. A second bundled book, opened with
+and `"launch=-SampleHref OPS/kept.xhtml"` in a hosted session. The book's last section,
+**Folded notes** (`OPS/folded.xhtml`), holds two details
+([Details and summary](native-viewer.md#details-and-summary)). The first, `folded`, is
+closed by the book, and its summary "Open the folded notes" opens it on a picture's long
+description as DAISY's extdescription-010 has one: "Tucked overview" in bold, "Tucked words
+of the notes.", a table of data under the header cells "Tucked month" and "Tucked visits"
+with the rows "Tucked first" 135 and "Tucked second" 117, and "Tucked closing words.", whose
+paragraph is the target `folded-end`. The second is open in the book, "Open aside" over
+"Aside words shown.". "Words before the folded notes." and "Words after the folded notes."
+stand round them, and sixty numbered lines follow. Every word a closed details holds begins
+"Tucked" or "tucked" and no shown word does, so either in a transcript was read while it
+was open. It has no heading and no link, and no word of it is one VoiceOver uses for a
+button, its state, a table or a heading. Open it with `--href OPS/folded.xhtml` on a
+simulator and `"launch=-SampleHref OPS/folded.xhtml"` in a hosted session. A second bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
 twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
@@ -1439,7 +1452,8 @@ section of parts below a jump; the sections of entries and of jumps inside a gri
 "What each line offers" and "Tables of data", have none, and neither has the section of
 jumps at a grid's edges nor the three of squares and of gaps inside grids and of words
 hidden in the flow. "Math readings" (level 1) opens the section after them, and "Harbour
-notes" (level 2) stands in the book's last. The second book's are "Chapter one", "Chapter two"
+notes" (level 2) stands in the section of words kept from listeners, the book's last heading.
+The second book's are "Chapter one", "Chapter two"
 and "Chapter three", screens apart.
 Do not import private books for this check. The fixture keeps to the shared rules for
 [speech fixtures and reference views](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#speech-fixtures-and-reference-views),

@@ -379,7 +379,7 @@ files['OPS/package.opf'] = files['OPS/package.opf'].replace('</manifest>',
     '<item id="math" href="math.xhtml" media-type="application/xhtml+xml" properties="mathml"/></manifest>').replace(
     '</spine>', '<itemref idref="math"/></spine>')
 files['OPS/nav.xhtml'] = files['OPS/nav.xhtml'].replace('</ol>', '<li><a href="math.xhtml">Math readings</a></li></ol>')
-# Words kept from listeners, the book's last section: shown words the book keeps from
+# Words kept from listeners: shown words the book keeps from
 # assistive technology with aria-hidden="true", which are drawn, copied and found as any
 # words are and given to no assistive technology (#552), and a picture `visibility: hidden`
 # hides, which keeps its room and is read by nobody (#549). A row of stars between scenes is
@@ -402,6 +402,28 @@ files["OPS/package.opf"] = files["OPS/package.opf"].replace(
     "</spine>", '<itemref idref="kept"/></spine>')
 files["OPS/nav.xhtml"] = files["OPS/nav.xhtml"].replace(
     "</ol></nav>", '<li><a href="kept.xhtml">Words kept from listeners</a></li></ol></nav>')
+# Folded notes, the book's last section (#708): a details that the book leaves closed, whose
+# summary opens it, holding a picture's long description as DAISY's extdescription-010 has
+# one, words and a table of data with header cells; and a details the book opens. Every word
+# a closed details holds begins "Tucked" or "tucked", and no shown word does, so either in a
+# transcript was read while it was open. Sixty numbered lines follow. It has no heading and
+# no link, and no word of it is one VoiceOver uses for a button, its state, a table or a
+# heading, so "button", "collapsed", "expanded", "row" and "column" in a transcript are its own.
+files["OPS/folded.xhtml"] = (
+    '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Folded '
+    'notes</title></head><body><p>Words before the folded notes.</p>'
+    '<details id="folded"><summary>Open the folded notes</summary><div><p><b>Tucked overview</b></p>'
+    '<p>Tucked words of the notes.</p><table><tr><th scope="col">Tucked month</th><th scope="col">Tucked visits</th></tr>'
+    '<tr><th scope="row">Tucked first</th><td>135</td></tr><tr><th scope="row">Tucked second</th><td>117</td></tr>'
+    '</table><p id="folded-end">Tucked closing words.</p></div></details>'
+    '<details open=""><summary>Open aside</summary><p>Aside words shown.</p></details>'
+    "<p>Words after the folded notes.</p>"
+    + "".join(f"<p>Line {i:02d} after the folded notes.</p>" for i in range(1, 61)) + "</body></html>")
+files["OPS/package.opf"] = files["OPS/package.opf"].replace(
+    "</manifest>", '<item id="folded" href="folded.xhtml" media-type="application/xhtml+xml"/></manifest>').replace(
+    "</spine>", '<itemref idref="folded"/></spine>')
+files["OPS/nav.xhtml"] = files["OPS/nav.xhtml"].replace(
+    "</ol></nav>", '<li><a href="folded.xhtml">Folded notes</a></li></ol></nav>')
 # Declare the embedded content of the fixture's existing picture and entry sections too.
 for name, property in [('pictures.xhtml', 'svg'), ('entries.xhtml', 'mathml')]:
     item = f'href="{name}" media-type="application/xhtml+xml"'
@@ -416,7 +438,8 @@ chapters = {"one": range(1, 41), "two": range(41, 81), "three": range(81, 87)}
 paragraphs = dict(files)
 for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "scenes.xhtml", "offers.xhtml",
              "entries.xhtml", "cells.xhtml", "grids.xhtml", "ledger.xhtml", "tallrow.xhtml", "edges.xhtml", "parts.xhtml",
-             "squares.xhtml", "gaps.xhtml", "veiled.xhtml", "math.xhtml", "kept.xhtml", "square.svg", "titled.svg"]:
+             "squares.xhtml", "gaps.xhtml", "veiled.xhtml", "math.xhtml", "kept.xhtml", "folded.xhtml", "square.svg",
+             "titled.svg"]:
     del paragraphs["OPS/" + name]
 paragraphs["OPS/package.opf"] = (
     '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
