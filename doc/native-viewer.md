@@ -3557,17 +3557,21 @@ asked for at 512 points and 2 pixels a point, decodes to 794 by 1,024. The thumb
 cover's proportions within the size asked for. A book with no cover that can be drawn has a title
 page instead, two by three: its title, and each author on a line, in the system's serif face at
 the largest size that fits, on paper inside a ruled border. `draw(in:)` draws in Core Graphics
-coordinates, the origin at the lower left.
+coordinates, the origin at the lower left. Decoding takes more than the thumbnail's pixels for a
+moment: the W3C cover raised the footprint by about 23 MiB while it decoded to 1,024 pixels on
+a Mac, and by about 5 MiB to 773, a quarter of its size, or fewer
+([#695](https://github.com/vocaro/EPUBLib/issues/695)).
 
 **Preview.** `EPUBPreview` decodes the cover for 240 by 360 points at 2 pixels a point by
-default, as large as the view shows it, and gives no title page for a book without one: its title and authors are text beside
-it. The opening is the spine's items from the first through its fourth linear item
-(`openingSections`), or through the linear item that brings the linear items' documents to 256
-KiB (`openingBytes`), whichever comes first, and at most 16 items whatever they are.
-`EPUBPreviewView` shows the opening in the package's reader, in continuous scroll, at the text
-start when the opening holds it and otherwise at its first linear section (see Decisions). The
-reader builds the opening and no more, and reads only the resources the opening's sections use. The cover, title and authors stand beside it where the view is at least 560
-points wide and wider than it is tall, and above it otherwise. The reader keeps selection and
+default, as large as the view shows it, and gives no title page for a book without one: its
+title and authors are text beside it. The opening is the spine's items from the first through
+its fourth linear item (`openingSections`), or through the linear item that brings the linear
+items' documents to 256 KiB (`openingBytes`), whichever comes first, and at most 16 items
+whatever they are. `EPUBPreviewView` shows the opening in the package's reader, in continuous
+scroll, at the text start when the opening holds it and otherwise at its first linear section
+(see Decisions). The reader builds the opening and no more, and reads only the resources the
+opening's sections use. The cover, title and authors stand beside it where the view is at least
+560 points wide and wider than it is tall, and above it otherwise. The reader keeps selection and
 Copy, and claims no edge or swipe, since a swipe in Quick Look moves to the next file; what it
 discloses is shown under the authors, and a failure in place of the text. The view opens its
 reader when it appears and closes it when it disappears.
