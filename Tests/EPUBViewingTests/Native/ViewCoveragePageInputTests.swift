@@ -79,22 +79,36 @@ import UIKit
 
     // MARK: Keys
 
-    func testDefaultKeyBindingsAreTheSixDocumentedOnes() {
+    /// The six turns, Home and End to the book's start and end, and on the Mac Command-Up and
+    /// Command-Down too, as a Mac text view and an iPad's keyboard go to a document's ends (#681).
+    func testDefaultKeyBindingsAreTheDocumentedOnes() {
         let controls = EPUBPageControls()
-        XCTAssertEqual(controls.effectiveBindings.count, 6)
+        #if os(macOS)
+        XCTAssertEqual(controls.effectiveBindings.count, 10)
+        #else
+        XCTAssertEqual(controls.effectiveBindings.count, 8)
+        #endif
         let keys: [EPUBPageKey] = [.leftArrow, .rightArrow, .upArrow, .downArrow, .pageUp, .pageDown, .home, .end, .space,
                                    .character("n"), .character("j"), .character("1")]
         let modifiers: [EPUBPageKeyModifiers] = [[], .shift, .command, .option, .control, [.shift, .command], [.shift, .option],
                                                  [.command, .option], [.shift, .command, .option, .control]]
         for key in keys {
             for modifier in modifiers {
-                let expected: Bool?
+                let expected: EPUBPageAction?
                 switch (key, modifier) {
-                case (.rightArrow, []), (.pageDown, []), (.space, []): expected = true
-                case (.leftArrow, []), (.pageUp, []), (.space, .shift): expected = false
+                case (.rightArrow, []), (.pageDown, []), (.space, []): expected = .next
+                case (.leftArrow, []), (.pageUp, []), (.space, .shift): expected = .previous
+                case (.home, []): expected = .bookStart
+                case (.end, []): expected = .bookEnd
+                #if os(macOS)
+                case (.upArrow, .command): expected = .bookStart
+                case (.downArrow, .command): expected = .bookEnd
+                #endif
                 default: expected = nil
                 }
-                XCTAssertEqual(controls.direction(for: key, modifiers: modifier), expected, "\(key) with \(modifier.rawValue)")
+                XCTAssertEqual(controls.action(for: key, modifiers: modifier), expected, "\(key) with \(modifier.rawValue)")
+                let turn: Bool? = switch expected { case .next: true; case .previous: false; default: nil }
+                XCTAssertEqual(controls.direction(for: key, modifiers: modifier), turn, "\(key) with \(modifier.rawValue)")
             }
         }
     }
@@ -150,8 +164,18 @@ import UIKit
         XCTAssertNil(direction(124, "\u{F703}", [.shift, .function, .numericPad]), "Shift-Right extends a selection")
         XCTAssertNil(direction(125, "\u{F701}", [.function, .numericPad]), "Down is not a default page key")
         XCTAssertNil(direction(126, "\u{F700}", [.function, .numericPad]))
-        XCTAssertNil(direction(115, "\u{F729}", [.function]), "Home")
-        XCTAssertNil(direction(119, "\u{F72B}", [.function]), "End")
+        XCTAssertNil(direction(115, "\u{F729}", [.function]), "Home turns no page")
+        XCTAssertNil(direction(119, "\u{F72B}", [.function]), "End turns no page")
+        // They go to the book's ends, as Command-Up and Command-Down do (#681).
+        func action(_ code: UInt16, _ characters: String, _ flags: NSEvent.ModifierFlags) -> EPUBPageAction? {
+            ReaderTextView.pageAction(for: key(code, characters, flags, in: host))
+        }
+        XCTAssertEqual(action(115, "\u{F729}", [.function]), .bookStart)
+        XCTAssertEqual(action(119, "\u{F72B}", [.function]), .bookEnd)
+        XCTAssertEqual(action(126, "\u{F700}", [.command, .function, .numericPad]), .bookStart)
+        XCTAssertEqual(action(125, "\u{F701}", [.command, .function, .numericPad]), .bookEnd)
+        XCTAssertNil(action(126, "\u{F700}", [.command, .shift, .function, .numericPad]), "Command-Shift-Up extends a selection")
+        XCTAssertNil(action(115, "\u{F729}", [.shift, .function]), "Shift-Home extends a selection")
         XCTAssertNil(direction(45, "n"))
         XCTAssertNil(direction(36, "\r"))
         // A custom letter binding follows the character typed, whatever its case or key code.
@@ -405,7 +429,7 @@ import UIKit
                 let host = host([CanvasText.section(0, paragraphs: 30)], flow: flow, rtl: rtl)
                 let canvas = host.canvas, label = "\(flow) rtl \(rtl)"
                 let commands = canvas.pageKeyCommands
-                XCTAssertEqual(commands.count, 6, label)
+                XCTAssertEqual(commands.count, 8, "\(label): six turns, Home and End (#681)")
                 func command(_ input: String, _ flags: UIKeyModifierFlags = []) throws -> UIKeyCommand {
                     try XCTUnwrap(commands.first { $0.input == input && $0.modifierFlags == flags }, "\(label): \(input)")
                 }

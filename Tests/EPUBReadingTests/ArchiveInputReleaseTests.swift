@@ -17,7 +17,7 @@ final class ArchiveInputReleaseTests: XCTestCase {
     /// A local file header's signature, which an archive begins with.
     private let localHeader: [UInt8] = [0x50, 0x4B, 0x03, 0x04]
     /// What ZIPFoundation says of bytes it finds no end record in.
-    private let noEndRecord = EPUBPublicationError.invalidArchive("missingEndOfCentralDirectoryRecord")
+    private let noEndRecord = EPUBPublicationError.notArchive
     private let chapter = "OPS/one.xhtml"
 
     private func le<T: FixedWidthInteger>(_ value: T) -> Data { withUnsafeBytes(of: value.littleEndian) { Data($0) } }
@@ -116,7 +116,7 @@ final class ArchiveInputReleaseTests: XCTestCase {
         let mimetype = entries[0], rest = Array(entries.dropFirst())
         let far = le(UInt32(0xFFFF_FFF0))
         let cases: [(name: String, bytes: Data, limits: EPUBImportLimits, expected: EPUBPublicationError)] = [
-            ("no entries", Data(signature) + Data(count: 18), .init(), .invalidArchive("Missing EPUB mimetype")),
+            ("no entries", Data(signature) + Data(count: 18), .init(), .notEPUB),
             // What `ArchiveBounds` refuses before an entry is read.
             ("a directory past the end", stating(far, at: plain.count - 6, in: plain), .init(), .invalidArchive("Central directory past the end of the archive")),
             ("an entry header past the end", stating(far, at: record + 42, in: plain), .init(), .invalidArchive("Entry header past the end of the archive")),
@@ -131,7 +131,7 @@ final class ArchiveInputReleaseTests: XCTestCase {
             ("entries declared larger together than the limit", plain, limits { $0.expandedBytes = 64 }, .limitExceeded("META-INF/container.xml")),
             ("a checksum that does not match", stating(Data([plain[content] ^ 0xFF]), at: content, in: plain), .init(), .invalidArchive("CRC: \(chapter)")),
             // What the book's own documents are refused for, every entry read.
-            ("another mimetype", Fixture.storedArchive([Fixture.StoredEntry("mimetype", "text/plain")] + rest), .init(), .invalidArchive("Missing EPUB mimetype")),
+            ("another mimetype", Fixture.storedArchive([Fixture.StoredEntry("mimetype", "text/plain")] + rest), .init(), .notEPUB),
             ("no container", Fixture.storedArchive([mimetype]), .init(), .missingResource("META-INF/container.xml")),
             ("a container that is not XML", Fixture.storedArchive(entries.map { $0.name == Data("META-INF/container.xml".utf8) ? Fixture.StoredEntry("META-INF/container.xml", "<container") : $0 }),
              .init(), .invalidXML("META-INF/container.xml")),
@@ -140,7 +140,7 @@ final class ArchiveInputReleaseTests: XCTestCase {
             ("an all-ZIP64 archive with an unsafe path", Fixture.storedArchive([mimetype, Fixture.StoredEntry("../evil", "x")] + rest, zip64: .everything), .init(), .unsafePath("../evil")),
             // An archive that other bytes follow is made of its own bytes, which are the same
             // memory, or of a copy of those alone.
-            ("no entries, and other bytes after", Data(localHeader) + Data(signature) + Data(count: 18) + Data(count: 70_000), .init(), .invalidArchive("Missing EPUB mimetype")),
+            ("no entries, and other bytes after", Data(localHeader) + Data(signature) + Data(count: 18) + Data(count: 70_000), .init(), .notEPUB),
             ("a checksum that does not match, and other bytes after", stating(Data([plain[content] ^ 0xFF]), at: content, in: plain) + Data(count: 70_000), .init(), .invalidArchive("CRC: \(chapter)")),
             ("entry data past the archive's end, among the bytes after", stating(le(UInt32(plain.count)), at: record + 24, in: plain) + Data(count: 1 << 20), .init(),
              .invalidArchive("Entry data past the end of the archive")),

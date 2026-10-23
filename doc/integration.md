@@ -29,6 +29,17 @@ without files the archive lacks, and `publication.lostEntries` gives how many th
 whichever of their paths can still be read. When it is not nil, tell the reader the book may be
 incomplete.
 
+The URL may also name a book unpacked into a folder, as Apple Books keeps one on the Mac and as
+the type `org.idpf.epub-folder` names it ([#680](https://github.com/vocaro/EPUBLib/issues/680)).
+A host that declares that type passes the folder's URL, with security-scoped access to the
+folder. The folder is read as an archive is, with the same refusals and limits: `resourceBytes`
+for each file, `expandedBytes` for all of them, and `entryCount` for its files and folders
+together; `archiveBytes` limits only an archive. A symbolic link anywhere in it is refused, as a
+link entry in an archive is, and so is anything but a file or a folder. It need not hold
+`mimetype`, which EPUB 3.3 §4.2.2 reserves for a ZIP container. Its `archiveData` is empty, and
+its `id` is the SHA-256 of its files, so read them with `data(at:)` and key positions on
+`persistentID` ([positions and highlights](#positions-and-highlights)).
+
 ## Showing a book
 
 Create and retain a reading session on the main actor, then mount `EPUBReaderView(session:)`:
@@ -51,7 +62,12 @@ func makeReader(publication: EPUBPublication,
 <!-- /snippet -->
 
 After `.ready`, send commands with `try await session.send(...)`: for example `.nextPage`,
-`.locate(text: "a passage", highlight: true)` or `.style(.init(fontSize: 20, appearance: .dark))`.
+`.locate(text: "a passage", highlight: true)` or `.style(.init(fontSize: 20, appearance: .sepia))`.
+The appearances are System, Light, Dark, Sepia, Black and Custom, whose colours a style's
+`customColors` holds; the reader follows Increase Contrast and Bold Text by itself
+([themes](native-viewer.md#decisions)).
+A style whose `followsDynamicType` is set has its font size scaled by the system text size, as
+body text is, also while the book is open ([commands and events](native-viewer.md#commands-and-events)).
 Check `session.capabilities` before offering an optional feature. Navigate with a resource's
 encoded href, safely handling optional entries:
 
@@ -97,7 +113,13 @@ final class BookReader {
     private var generation = UUID()
     var sessionID: UUID { generation }
 
-    func reportImportError(_ error: Error) { self.error = error.localizedDescription }
+    func reportImportError(_ error: Error) { self.error = Self.message(for: error) }
+
+    /// What to tell the reader: what went wrong and, where the error says, what to do about it.
+    nonisolated static func message(for error: Error) -> String {
+        let error = error as NSError
+        return [error.localizedDescription, error.localizedRecoverySuggestion].compactMap { $0 }.joined(separator: " ")
+    }
 
     func open(url: URL) {
         close()
@@ -118,7 +140,7 @@ final class BookReader {
                 // Closing or opening another book intentionally cancels the previous import.
             } catch {
                 guard let self, generation == token else { return }
-                self.error = String(describing: error)
+                self.error = Self.message(for: error)
             }
             if let self, generation == token { loading = false; opening = nil }
         }
@@ -127,7 +149,8 @@ final class BookReader {
     func install(_ book: EPUBPublication, engine: any EPUBReaderEngine) throws {
         let token = generation
         publication = book
-        if let data = UserDefaults.standard.data(forKey: "position.\(book.id)") {
+        // Saved under the book's persistentID, or under an identity it had before.
+        if let data = book.publicationIDs.lazy.compactMap({ UserDefaults.standard.data(forKey: "position.\($0)") }).first {
             savedPosition = try? JSONDecoder().decode(EPUBLocation.self, from: data)
         }
         session = try engine.makeSession(publication: book,
@@ -141,7 +164,7 @@ final class BookReader {
                 case .relocated(let value): location = value
                 case .disclosure(let value): disclosure = value
                 case .notice(let value): notice = value
-                case .failed(let value): error = String(describing: value); ready = false
+                case .failed(let value): error = Self.message(for: value); ready = false
                 case .selectionChanged(let value): selection = value?.text
                 case .searchChanged, .searchResultsChanged: break
                 }
@@ -178,7 +201,7 @@ final class BookReader {
 
     func clearPosition() {
         guard let publication else { return }
-        UserDefaults.standard.removeObject(forKey: "position.\(publication.id)")
+        for id in publication.publicationIDs { UserDefaults.standard.removeObject(forKey: "position.\(id)") }
         savedPosition = nil
         notice = "Bookmark cleared."
     }
@@ -204,6 +227,78 @@ its own current document/navigation identity so old work cannot affect a newly o
 That code owns security-scoped access until import finishes and cancels expansion when another
 book opens. `EPUBPublication.open` also accepts an optional `onProgress` callback with cumulative
 expanded bytes; it runs synchronously on the importing thread and must return promptly.
+
+## When something fails
+
+Every error the library throws or emits is a `LocalizedError` with a plain message that a host
+shows as it is ([#698](https://github.com/vocaro/EPUBLib/issues/698)): `EPUBPublicationError`
+when a book cannot be opened, `EPUBReaderError` from a session, its `.failed` event or a failed
+search, `EPUBTextExtractionError` and `EPUBWritingError`. Show `localizedDescription`, and under it
+`recoverySuggestion` where there is one (`localizedRecoverySuggestion` as `NSError` has it).
+SwiftUI's `alert(isPresented:error:actions:message:)` takes its title from `errorDescription` and
+gives the error to its message, which can show the suggestion; AppKit's `NSAlert(error:)` shows
+both; the complete reader above joins them in one line. `String(describing:)` still gives the case
+and its detail, for a log rather than a person.
+
+| The file | Case | Message | Suggestion |
+| --- | --- | --- | --- |
+| Is protected by DRM | `unsupportedEncryption` | This book is protected by DRM and cannot be opened. The file is not damaged. | Open it in the app it came from, or get a copy without DRM. |
+| Is a ZIP archive with no EPUB `mimetype`, such as another kind of document | `notEPUB` | This file is not an EPUB book. | |
+| Has no ZIP end record: another kind of file, such as a PDF, or an EPUB book cut short | `notArchive` | This file is not an EPUB book, or it is damaged. | If it is an EPUB book, download it again or get another copy. |
+| Is an archive damaged in any other way | `invalidArchive` | This book is damaged and cannot be opened. | Download the book again, or get another copy. |
+| Is over the import limits | `limitExceeded` | This book is too large to open. | |
+| Lacks a part its package names | `missingResource` | Part of this book is missing. | Download the book again, or get another copy. |
+| Has a malformed container or package | `invalidXML` | This book cannot be opened because it contains errors. | Download the book again, or get another copy. |
+| Names a part outside the book | `unsafePath` | This book cannot be opened because it refers to files outside the book. | |
+
+A file with no end record may be another kind of file or an EPUB book cut short, as by a download
+that did not finish, and its message says both. A file that `open(at:)` cannot read at all, one
+that is absent or that the app may not read, gives Foundation's own error, whose message is plain
+already. `CancellationError` is the host's own cancellation, not a failure to show.
+
+A session's errors say that the reader does not support an action, that a saved position belongs
+to another book or reader, that it cannot carry out a request (`invalidCommand`), that it is not
+ready (try again in a moment), that the book is closed, or that it cannot show the book
+(`engineFailure`). The text these two cases carry is the engine's detail, for a developer, as
+`String(describing:)` gives it. The reader's controls show `message` beside a refused command or
+search, and a host's own controls can show it as it is: a plain sentence too, which for a request
+the bundled reader refuses says why, and is otherwise `localizedDescription`. A failed search's
+accessibility value in the controls is "Search failed." followed by it. An engine that wants a
+reader to see its own wording throws its own `LocalizedError`, whose `localizedDescription` the
+controls show; an `EPUBReaderError`'s detail is for developers.
+
+| The request | Message |
+| --- | --- |
+| `.navigate(href:)`, as from a contents entry, to nothing in the book: an empty href, a fragment alone, a file the book does not have or an address outside it | That part of the book cannot be found. |
+| `.navigate(href:)` to a file of the book that is not a section and has none to fall back on, such as an image or a style sheet | That part of the book cannot be shown. |
+| `.goToProgression` with a number that is not finite | That place in the book cannot be found. |
+| `.locate` with a passage that is empty or longer than 4,096 characters | The passage to find is empty or longer than 4,096 characters. |
+| `.search` or `.searchHighlight` with text that is empty or longer than 512 characters | The search is empty or longer than 512 characters. |
+| `.showSearchResult` with a result of a search since replaced or cleared | That search result is no longer available. |
+| `.style` with a font size that is not finite | That text size cannot be used. |
+| `.style` with a spacing or page margin that is not finite | That spacing or margin cannot be used. |
+
+The bundled reader's `.notice` text is a plain sentence too, which a host shows as it is:
+
+| What the reader could not do | Notice |
+| --- | --- |
+| `.restore` a position the book does not have, or does not have any more | The saved position could not be found in this book. |
+| `.locate` a passage the book does not hold | The passage could not be found in this book. |
+| Draw one or more highlights of a `.setHighlights` list | Some highlights could not be shown. |
+| Open a link outside the book ([below](#links-outside-the-book)) | This reader does not open links outside the book. *or* This reader opens only web and email links outside the book. |
+
+A list of highlights gives one notice however many of them are not drawn, when the first is found:
+at once, or when its section is built. The notice names none of them.
+`EPUBReaderStatus.undrawnHighlights` does, by `id`, with why (`EPUBHighlightFailure`): a location
+of another book or reader (`incompatibleLocation`), or a passage not in this book as the reader
+shows it (`passageNotFound`). It is set before the notice, and the next list replaces it.
+
+The messages are in English, in the string catalog of the module that throws them
+(`Localizable.xcstrings` in `EPUBCore`, `EPUBText` and `EPUBWriting`, and in `EPUBViewing` for the
+sentences above other than the two link notices), each with a comment for its translator, and
+each is looked up in that module's resource bundle, which an app built with the package carries as
+it carries ZIPFoundation's. A translation added to a catalog reaches every host
+([#684](https://github.com/vocaro/EPUBLib/issues/684)).
 
 ## Resource paths
 
@@ -247,13 +342,39 @@ need not match it byte for byte.
 
 ## Positions and highlights
 
-To store a position, encode `EPUBLocation` using `JSONEncoder`. On reopen, compare its publication
-ID and send `.restore(location)` only when bookmarks are supported. Compare a stored bookmark with
+To store a position, encode `EPUBLocation` using `JSONEncoder` and key it on
+`publication.persistentID`, which every location the reader emits carries as its `publicationID`
+([#679](https://github.com/vocaro/EPUBLib/issues/679)). It is the package's unique identifier,
+which EPUB 3.3 §5.5.3.1.1 asks a book's makers to keep through minor revisions such as an edit
+of the metadata. So a position saved in a book restores in a copy downloaded again, zipped again
+with other compression, whose metadata a library manager such as Calibre edited, or unpacked
+into a folder, and another edition, which has another unique identifier, does not take it. A
+package without a unique identifier is known by the SHA-256 of its content: each resource it
+holds and the order of its spine, without the package document, so an edit of its metadata
+leaves that too. `publication.id` is still the SHA-256 of the file's bytes, which every such
+copy changes.
+
+On reopen, look the position up under each of `publication.publicationIDs` in order:
+`persistentID`, then the content's SHA-256, for a position saved before the package gave a
+unique identifier, then `id`, which locations carried before `persistentID`. Send
+`.restore(location)` only when bookmarks are supported. The reader restores, and draws as a
+highlight, a location that carries any of them, as far as its CFI resolves in the copy at hand,
+and gives a `.notice` where it does not. The complete reader screen's `BookReader`
+[above](#a-complete-reader) does this.
+
+To tell versions of a book apart, compare `publication.releaseIdentifier`: the unique identifier,
+`@` and the package's `dcterms:modified`, as EPUB 3.0.1 defined a release identifier. Two books
+can give one unique identifier, which EPUB Reading Systems 3.3 §5.2 has a reading system not
+depend on being unique to one publication. They then share a `persistentID`, and a position saved
+in the one is restored in the other as far as its CFI resolves there. A host that must keep them
+apart adds the title, `releaseIdentifier` or `id` to its key, at the cost of positions that a
+metadata edit or another copy would otherwise keep.
+
+Compare a stored bookmark with
 `EPUBReader.identifier` and `EPUBReader.bookmarkFormat` rather than literal strings. A bookmark the
 former WebKit reader stored (`org.epubreaderlib.foliate`, `epubcfi-v1`) is migrated by replacing
 those two fields; its CFI value names the same position. If restoration reports an
-incompatible location, offer an explicit section/quote fallback where supported. EPUB files that
-change have a different SHA-256 identity, even when their metadata identifier is unchanged.
+incompatible location, offer an explicit section/quote fallback where supported.
 
 For a saved passage, persist the entire selection's `location` and pass it to
 `.setHighlights([EPUBHighlight(id: ..., location: saved)])`. In continuous scroll a selection
@@ -262,8 +383,10 @@ can span documents: `rangeBookmarks` contains the ordered per-document range CFI
 copying a location. Existing JSON without this optional field remains valid. `.restore` validates
 all segments and navigates to the passage's start; it does not recreate the native selection.
 Highlights restore every segment in paginated and scrolled flow and survive typography changes.
-The reader draws the complete annotation once all segments are available, or emits a `.notice`
-if any segment cannot be resolved; it never silently draws just its first section.
+The reader draws the complete annotation once all segments are available, or, if any segment
+cannot be resolved, names it in `EPUBReaderStatus.undrawnHighlights` and gives the list's one
+`.notice` ([When something fails](#when-something-fails)); it never silently draws just its first
+section.
 
 Paginated selections can span both columns. Copy and the host action receive the complete
 passage, including a located passage extending onto later pages; the viewer shows continuation
@@ -276,6 +399,32 @@ effect where the shown range starts, and `pages`, every entry the range shows pa
 another view on the matching page, such as the source PDF beside the book, move it to `page`
 only when its current page is not among `pages`: navigating to a marker partway down a screen
 shows the end of the page before it first.
+
+## Page X of Y and going through the book
+
+For "page 12 of 230" and the pages left in a chapter, read `layoutPage` from the session's
+`readerState?.status`, which SwiftUI observes. Its indices count from 0: the first page on
+screen is `index` in the book and `sectionIndex` in its section, of `count` and `sectionCount`
+pages, and the spread shows `shownCount` pages, 1 or 2. Show page `index + 1` of `count`, or
+pages 12–13 when two are shown, and `sectionCount - sectionIndex - shownCount` pages left in
+the section. The pages are those of the layout on screen, so they change with the reader's
+size and text size and are no part of a saved position; save `EPUBLocation` for that.
+
+The reader counts pages a little at a time without holding up page turns, and what it has not
+counted yet is nil: a section's count soon after it is shown, the book's index once the
+sections before it are counted, and its count once all are. After a resize or a text size
+change they are counted again. In continuous scroll `layoutPage` is nil; show
+`EPUBLocation.progression` as a percentage there, or wherever a count is nil. The status is
+set before the `.relocated` of the same pages, so a host can also read it there, and it changes
+again, with no event, as counting goes on.
+
+`.goToProgression(value)` shows the place `value` of the way through the book, as `progression`
+measures it, so a percentage control can send what it shows; `.goToStart` and `.goToEnd` show
+the first and last page. The page shown reports a progression at or after `value`, since a
+page's progression is measured at its end. Engines with these commands list
+`.goToProgression` among their capabilities. Home and End go to the book's start and end from
+the keyboard, and on the Mac Command-Up and Command-Down too
+([configuring page controls](#configuring-page-controls)).
 
 ## Adding an engine
 
@@ -295,7 +444,8 @@ Run the shared [engine contract checks](testing.md#adapter-contract-tests) again
 Apply `epubReaderPageControls(_:)` to the retained `EPUBReaderView` for the bundled native
 reader. `EPUBPageControls()` keeps existing behavior: 56-point edge zones, iOS horizontal
 swipes, Mac wheel/trackpad turns, and Left/Page Up previous, Right/Page Down/Space next,
-Shift-Space previous. `.hostOnly` disables all direct page input; buttons can still send
+Shift-Space previous, Home the book's start and End its end, and on the Mac Command-Up the
+start and Command-Down the end. `.hostOnly` disables all direct page input; buttons can still send
 `.nextPage` / `.previousPage`, and VoiceOver page actions remain available: each line of a
 page offers them on iPhone and iPad, and each text area on Mac, in VoiceOver's Actions menu
 ([native viewer](native-viewer.md#input-and-accessibility)).
@@ -366,7 +516,12 @@ The modifier is specific to the native reader; other engines can choose their ow
   scrolled flow they move one viewport less a line. A single native responder path handles
   a key whether the canvas or a child text view has focus. The reader does not take focus
   from another control when bindings change; focus must be within the reader for a shortcut
-  to apply. On iOS the reader can receive hardware keys when its native text view has focus.
+  to apply. On the Mac the reader takes the focus when its window gives it to no other view.
+  On iPhone and iPad it takes the focus when it is shown and when it is touched, while no other
+  view in its window holds it, so an iPad keyboard's page keys reach it. A search field the
+  person is typing in keeps its focus and its keyboard; once it gives the focus up, a touch
+  on the page brings the keys back to the reader
+  ([#681](https://github.com/vocaro/EPUBLib/issues/681)).
 - Copy, Select All, Shift-arrow selection extension and other host/system chords remain
   native unless explicitly assigned. There are no library-reserved supported combinations,
   but OS-reserved or app-menu shortcuts may be consumed before delivery to the reader.
@@ -377,6 +532,109 @@ Changing the modifier on an already mounted session updates only input handling.
 not rebuild text, repaginate, clear selection or highlights, or emit a relocation. The
 current wheel gesture/cooldown and pending edge press are reset. Host commands and
 accessibility use the same page/viewport operation regardless of direct-input configuration.
+
+## Setting book text
+
+`EPUBReaderStyle.typography` sets the font, line and paragraph spacing, letter and word
+spacing, page margins, alignment and hyphenation of book text. Send it with `.style`, or
+change it through `controls.changeStyle`. A value left nil keeps the book's styles and the
+reader's own defaults, and the reader keeps its place across every change, as it does for a
+text size. `EPUBReaderStyle.Typography` is `Codable`, for a host that keeps a reader's choices.
+
+<!-- snippet:typography -->
+```swift
+/// Registers a font the app bundles, once at launch, so that the reader finds it by its family
+/// name. Listing it under `UIAppFonts` (iOS) or `ATSApplicationFontsPath` (macOS) in the app's
+/// Info.plist does the same.
+func registerBundledFont(at url: URL) {
+    CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+}
+
+/// Sets book text in that font with WCAG 2.2's text spacing (SC 1.4.12), ragged and unhyphenated,
+/// over the book's own styles. Preformatted text, code, tables and MathML keep the book's.
+@MainActor
+func readWithLegibleText(_ controls: EPUBReaderControls, family: String) {
+    controls.changeStyle { style in
+        style.typography = EPUBReaderStyle.Typography(
+            fontFamily: .named(family), lineHeight: 1.5, paragraphSpacing: 2, letterSpacing: 0.12,
+            wordSpacing: 0.16, pageMargins: 0.5, alignment: .start, hyphenation: false,
+            overridesBookStyles: true)
+    }
+}
+```
+<!-- /snippet -->
+
+- **Font.** `.serif` is the reader's own, New York; `.sansSerif`, `.rounded` and `.monospace`
+  are the system font's designs; `.named` takes an installed family or one the app registers,
+  such as a bundled Atkinson Hyperlegible or OpenDyslexic, by its family name. A character the
+  font has no glyph for is drawn in the font the text would otherwise have, then in the
+  system's fallback fonts, and a family that is not available leaves the book's font. The
+  package bundles no font yet ([#692](https://github.com/vocaro/EPUBLib/issues/692)).
+- **Spacing** is in ems of the text's font size: a line height of 1.5, paragraph spacing of 2,
+  letter spacing of 0.12 and word spacing of 0.16 are WCAG's text spacing.
+- **Margins** are a multiple of the reader's own side margins, 0 for none. They are the
+  reader's, and apply whatever the book declares.
+- **The book's styles.** With `overridesBookStyles` off, the default, the values set stand in
+  for the reader's defaults, and the book's own declarations win where it makes them. With it
+  on they apply to the book's text whatever it declares, as a reader's "publisher defaults"
+  switch turned off does. Either way preformatted text, code, tables, MathML, SVG and boxes the
+  book sizes or places keep the book's styles.
+
+The rules and their limits are under "Reading adjustments" in the
+[native viewer's decisions](native-viewer.md#decisions). The supplied controls have no setting
+for these yet; a settings sheet is [#692](https://github.com/vocaro/EPUBLib/issues/692).
+
+## Links outside the book
+
+The bundled reader asks before it opens a link outside the book, and an app needs no code for
+it. A web page or an email address that the reader activates, in the text, a table cell or a
+note's popover, by pointer, keyboard or VoiceOver, brings up "Open a link outside the book?"
+with the address, and Open opens it with the view's `openURL` action: the system's, so a web
+page opens in the browser and an address in the mail app. Set your own `OpenURLAction` on the
+reader's view to show web pages in the app; the reader still asks first. Any other link outside
+the book, such as `javascript:`, `file:` or `data:`, is never opened or given to the app, and
+`.notice` says so. What the reader does and why is under
+[Security](native-viewer.md#security).
+
+`epubReaderExternalLinks(_:)` changes this on a mounted view, as `epubReaderPageControls(_:)`
+does input: `.ask` is the default, `.refuse` gives every such link the `.notice` "This reader
+does not open links outside the book.", and `.handle` gives the app each web or email address
+without asking, to ask and open in its own way.
+
+<!-- snippet:externalLinks -->
+```swift
+/// Links outside the book: asked about and opened with the system (the default), refused with
+/// the reader's notice, or handed to the app, which here shows the address it was given.
+struct ExternalLinksExample: View {
+    enum Choice: String, CaseIterable { case ask = "Ask", refuse = "Refuse", app = "In the app" }
+    let session: any EPUBReaderSession
+    @State private var choice = Choice.ask
+    @State private var given: URL?
+
+    var body: some View {
+        VStack {
+            Picker("Links outside the book", selection: $choice) {
+                ForEach(Choice.allCases, id: \.self) { Text($0.rawValue) }
+            }
+            EPUBReaderView(session: session)
+                .epubReaderExternalLinks(links)
+            if let given { Text("The book links to \(given.absoluteString)") }
+        }
+    }
+
+    private var links: EPUBExternalLinks {
+        switch choice {
+        case .ask: .ask
+        case .refuse: .refuse
+        case .app: .handle { url in given = url }
+        }
+    }
+}
+```
+<!-- /snippet -->
+
+The modifier is specific to the native reader. Remote images, fonts and style sheets are never
+fetched, whatever it says.
 
 ## Privacy manifest
 
