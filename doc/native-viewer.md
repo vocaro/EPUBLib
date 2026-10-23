@@ -316,7 +316,8 @@ continues to describe the authored spine resource.
   URLs are not read: in a MathML `mglyph`; in an `<object>` or `<embed>` with no image `type`;
   and in a stylesheet `<link>`, `@import` or `@font-face`. A link to one is refused as a link
   outside the book is, and so never opens as a document of its own (RS 3.3 §3.4).
-- **Image contrast.** In dark appearance, transparent images containing dark strokes receive
+- **Image contrast.** On a dark theme's page (Dark, Black, or custom colours whose background is
+  dark: **Themes**), transparent images containing dark strokes receive
   a white backdrop so diagram edges and labels remain legible. Their authored colors and
   publication bytes are preserved. Opaque images and transparent light artwork retain their
   pixels; an author's explicit CSS inversion retains its own appearance treatment. Display
@@ -349,6 +350,53 @@ continues to describe the authored spine resource.
   declared for one appearance is substituted into what paints in that appearance, and into
   everything else, in either appearance, only when that is the light one (**Custom
   properties**).
+- **Themes.** `EPUBReaderStyle.appearance` chooses the page's colours (`EPUBReaderColors`): Light,
+  black on white; Dark, light grey (92%) on the dark grey `#1C1C1E` of a raised surface in iOS's
+  dark appearance; Sepia, `#5F4B32` on `#FBF0D9`; Black, Dark's text on pure black, which is
+  what Dark drew before Black was added; and Custom, the style's `customColors`, Light's when it
+  has none ([#674](https://github.com/vocaro/EPUBLib/issues/674)). System is Light or Dark by
+  the mounted view's colour scheme. Text and links are 4.5:1 or more against the page in every
+  preset (`ReaderColorsTests`); a custom theme below that is drawn as given, as the reader's
+  own choice. A theme is dark when white has more contrast with its background than black has,
+  a relative luminance below about 0.18. A dark theme draws as Dark always has: the book's own
+  text, border, decoration and background colours give way to the theme's, transparent dark
+  line art gets its white backdrop (**Image contrast**), and `prefers-color-scheme: dark` applies
+  (**Appearance media**); `effectiveAppearance` is Dark. A light theme, Sepia among them, draws
+  the colours a book sets for itself, as Light does, and the theme's where it sets none. What
+  the theme does not name derives from it: secondary text (words in place of a picture, a
+  section that could not be shown) is the text faded toward the page as far as 4.5:1 allows;
+  rules and a dark theme's table borders are a quarter of the way from the page to the text;
+  highlights keep their yellow and orange, deeper on a dark page, each drawn as strongly as it
+  can be while the text over it keeps 4.5:1, down to half its usual strength; the Mac's
+  selection is the theme's link colour, 30% over the page, by the same rule. The page behind
+  both flows, the image inspector and a note's popover is the theme's background (on the Mac
+  the popover's arrow is AppKit's); on iPhone and iPad the canvas's tint, which UIKit draws the
+  selection, its handles and the caret in, is the theme's link colour, and UIKit chooses how
+  translucent it draws the selection. A table's cells are drawn and selected as the text around
+  them. The status's `effectiveColors` gives a host the colours to draw its own controls in.
+  Changing theme rebuilds the text, never its characters, so the position, search results,
+  highlights and the selection are kept, and the page and the canvas change theme together
+  (**One appearance on screen**).
+- **Increase Contrast and Bold Text.** The reader follows both from SwiftUI's environment
+  (`colorSchemeContrast` and `legibilityWeight`), so on iPhone and iPad from the window's
+  traits, live, whatever the theme; turning either on or off rebuilds an open book's text and
+  keeps its place. With Increase Contrast, the background stays and the theme's text and links
+  move toward black on a light page or white on a dark one, half the way there and further if
+  they are still short of WCAG's enhanced 7:1 (`EPUBReaderColors.increasingContrast`); text
+  already black or white stays. Secondary text then keeps 7:1, rules are half the way from page
+  to text and at least 3:1, and each highlight and the Mac's selection are drawn half the way
+  from their usual strength to opaque, as far as the text over them keeps 4.5:1. With Bold
+  Text, fonts are found for a weight 200 heavier than the book's, to at most 900, so regular
+  text is drawn semibold, as iOS draws its own body text with Bold Text, and bold heavier still;
+  a family without the heavier face is emboldened as for any synthetic bold. The weight is the
+  reader's, carried from the root with no CSS property to reset it, so the book's own weights
+  keep their order; text in a table's cells, list markers and generated content is drawn so as
+  well, while a formula's glyphs and an SVG drawing's text keep their own weight. The Mac has no
+  Bold Text setting of its own, and its environment reports none unless a host sets one. Not
+  followed: `prefers-contrast`, which the reader's media
+  queries do not know (**Media queries**), and a light theme's book colours, which Increase
+  Contrast leaves as the book set them. Links drawn over a highlight are not held to 4.5:1,
+  and a custom theme's highlights take Light's hues or Dark's, by whether it is dark.
 - **Alternative text.** HTML tells an image with an empty `alt` from one with none, and the
   reader keeps the two apart (`ImageAlternative`). Words in `alt` stand for the image in
   selections, copies, search and VoiceOver, which reads them as the image's name. An empty
@@ -499,8 +547,9 @@ continues to describe the authored spine resource.
   laid over its characters, or over the first of them, was not announced. A table row in a
   link stays the group of its cells.
   Not done: a list of links in VoiceOver's rotor, for the reasons in the same article and under
-  Headings in "Input and accessibility". A note's popover keeps AppKit's elements, and its links
-  do nothing.
+  Headings in "Input and accessibility". A note's popover keeps AppKit's elements. A link
+  inside the book does nothing there, and a press of one outside it is asked about
+  ([Security](#security)).
   A link below the screen. In continuous scroll the children were the links on screen, so
   from the last of them Find Next Link began again with the first, or said "Last link"
   and stayed, and from the text after it, once VoiceOver had been on that link, it said
@@ -716,8 +765,8 @@ continues to describe the authored spine resource.
   20,000th.
   Visible cells have
   native text interaction surfaces aligned to their drawn glyphs: select and Copy cell text,
-  invoke the host's selection action, follow internal links and open notes. External links retain
-  the reader's refusal notice. Cell selections, located passages and saved highlights use exact
+  invoke the host's selection action, follow internal links and open notes. A link outside the
+  book is asked about as one in the text is ([Security](#security)). Cell selections, located passages and saved highlights use exact
   DOM-based character ranges, including Unicode and inline markup. VoiceOver reads a table
   where it stands among the lines of its page, and each continuation by the
   words it shows, completing a word once if character wrapping splits it between pages. On
@@ -1789,6 +1838,55 @@ continues to describe the authored spine resource.
     declaration that holds one is dropped. Registered custom properties (`@property`, CSS
     Properties and Values API 1) are not: the rule is ignored, and every custom property takes
     any value and inherits.
+- **Reading adjustments.** `EPUBReaderStyle.typography` sets the font, line height, paragraph
+  spacing, letter and word spacing, page margins, alignment and hyphenation of book text
+  ([#673](https://github.com/vocaro/EPUBLib/issues/673)). Each value is part of the
+  typography a section is built for, apart from the margins, which are the canvas's, so a
+  change rebuilds the text, which keeps its characters, or lays the columns out again, and the
+  reader keeps its place as it does for a text size. Lengths are in ems: letter and word
+  spacing add to the font's own, and the paragraph spacing is a `p`'s top and bottom margin,
+  which collapse between paragraphs (CSS 2.2 §8.3.1). `ReaderTextSettings` bounds each value.
+  - **The switch off** (`overridesBookStyles`, the default). The values set are a user style
+    sheet (CSS Cascade 4 §6.2): normal declarations of the user origin, between the user
+    agent's and the book's, on the root element (family, line height, letter and word
+    spacing, alignment, hyphenation) and on `p` (its margins). The book's declarations win
+    wherever it makes them, and its `revert` rolls back to the settings (§7.3.4); what it leaves
+    to inheritance takes them. So a book's own fonts and spacing are unchanged, and a book
+    with no styles of its own reads as the settings say. A letter or word spacing declared on
+    the root is inherited as a length (CSS Text 3 §8), so a heading's is the root's, not its
+    own ems.
+  - **The switch on.** Each value set is given to every element the settings reach, after the
+    cascade, over whatever the book declares, `!important` included: its family first, with
+    the element's own families after it; line height; letter and word spacing in the element's
+    own ems; hyphenation; and a `p`'s margins. Alignment replaces only ragged or justified
+    lines (`start`, `justify`, or the start side's physical value), so a centred heading or a
+    signature set to the end side keeps its place. This is what a reader's "publisher
+    defaults" switch turned off does; Readium CSS's user settings, with their per-element
+    selectors, are the same idea.
+  - **What is left alone.** In both modes an element the settings must not change, and all it
+    holds, is styled from the book's styles alone, exactly as with no settings: `pre`,
+    `listing`, `plaintext`, `xmp`, and an element that keeps white space where its parent does
+    not, whose columns are the book's; `code`, `kbd`, `samp` and `tt`; a table; MathML and SVG,
+    which lay themselves out; and a box the book sizes or places: a float, an absolutely
+    positioned box, or one with a height or maximum height other than a percentage, whose text
+    is set to fit it, a drop cap among them. The root and the body are never left alone, so a
+    book that sizes them to the page, or keeps white space throughout as a plain text made a
+    book can, is still set. Every other style records the inherited values the book alone gives
+    it (`ReaderTextTrace`), and an element left alone inherits those. With a setting set, each
+    element is cascaded and computed twice, for the book's styles and for the settings'.
+  - **Fonts.** `.serif`, `.sansSerif`, `.monospace` and `.rounded` are the system's designs;
+    `.named` finds an installed family, or one the app registers for its process, by name, as
+    a book's `font-family` does (`FontRegistry`). A family that is not available leaves the
+    element's own. An installed family has the next family in the list that resolves as its
+    cascade list, so a character it lacks, Greek in a Latin font, is drawn in the font the text
+    would have had (CSS Fonts 4 §5), and only then in the system's fallback fonts. This holds
+    for a book's installed families too; its `@font-face` faces and the system designs keep the
+    system's fallback alone. The package bundles no font
+    ([#692](https://github.com/vocaro/EPUBLib/issues/692)).
+  - **Margins.** `pageMargins` scales the outer side margins, 3.5% of the page's width each
+    side ([Layout](#layout)); 0 removes them. A column stays at most 720 points wide, the gap
+    between two columns and the top and bottom margins stay as they are, and a wider margin can
+    turn a two-column spread into one column.
 - **Building** is per section and lazy for first paint: the opening section builds first and
   the session emits `.ready` once it is on screen, built for the appearance the reader opens
   in; the rest build in the background in parallel. Images decode lazily, downsampled to
@@ -1816,7 +1914,10 @@ continues to describe the authored spine resource.
   rebuild (`ReaderCanvasDelegate.canvas(_:wantsSection:)`): the next move finds the heading
   once that one build is in, rather than wait on the main thread. A note is shown in the
   appearance its text was built for, the new one, whatever the page behind it shows.
-  `effectiveAppearance` reports the new appearance at once.
+  `effectiveAppearance` reports the new appearance at once. All of this holds for a theme as for
+  Light and Dark: a change to Sepia, Black or custom colours, or of Increase Contrast, is a
+  change of the theme a section is built in, and the canvas draws in the theme of the text it
+  shows (**Themes**, [#674](https://github.com/vocaro/EPUBLib/issues/674)).
 - **Release.** A typography change keeps each built section on screen until its rebuild
   arrives. A rebuilt SVG shares the font database its replaced build still holds, so a
   relayout needs no more of the font budget than the book already has. The text view drops
@@ -1902,7 +2003,9 @@ as they did.
   and its content width, 93% of the width, is more than 720 (about 775 pt wide); otherwise one.
   The outer horizontal margin is at least 3.5% of the width each side, columns are at most 720
   wide (the content area is centred when that caps it), the column gap is 7.53% of the content
-  width (foliate's `g / (1 − g)` with g = 7%), and the top and bottom margins are 48.
+  width (foliate's `g / (1 − g)` with g = 7%), and the top and bottom margins are 48. A host's
+  `pageMargins` scales the outer margin, and the content width and column count with it; the
+  gap keeps its width ([Reading adjustments](#decisions)).
 - **Keyboard.** On iPhone and iPad, while a keyboard is up over the reader's window, pages
   keep the height they were laid out at without it, and the canvas cuts off their foot where
   a host has made the reader shorter, as the keyboard covers it. The area kept is the last one
@@ -2379,6 +2482,32 @@ as they did.
   own and is laid out then, where its pages stayed 80 points down under a
   66-point toolbar until the window was resized
   ([#162](https://github.com/vocaro/EPUBLib/issues/162)).
+- **Page numbers.** `EPUBReaderStatus.layoutPage` gives the pages on screen in paginated flow:
+  the first one's index in the book and in its section, the book's and the section's page
+  counts, and how many pages the spread shows
+  ([#681](https://github.com/vocaro/EPUBLib/issues/681)). A page is one column of a spread. A
+  section starts on a spread's first column, so a spread that ends a section with an odd
+  number of pages shows one, and its empty column is no page. The book's pages are those of
+  the sections page turns reach (not a nonlinear one, unless no section is linear); a
+  nonlinear section shown by a link has its own index and count but no index in the book.
+  `ReaderPageCounter` paginates every section at the spread's column size with the paginator
+  the canvas shows pages from, so the count is of the pages turns pass: the section on screen
+  first, by finishing the canvas's own pagination, then the sections before it, which the
+  book index needs, then the rest, each with a pagination of its own that is dropped once its
+  pages are counted. It runs on the main actor, as layout does, for 6 ms at a time, then lets
+  the run loop serve input before it goes on, so a page turn waits for one slice at most and
+  never for the count; a resize's own pagination goes before it. What is not counted yet is
+  nil, and the status changes as counting goes on, without a `.relocated`. A new column size
+  drops every count; a section built again for a new typography is counted again, and only a
+  section built for the current one is counted. While the page on screen shows a section's
+  earlier build, as it does through a change of appearance until the sections in reach are
+  rebuilt ([#243](https://github.com/vocaro/EPUBLib/issues/243)), the status has no page. In
+  continuous scroll it is nil. Closing the reader stops the count and drops what it holds. On
+  iOS, text that ends with an attachment keeps that attachment alive after its whole layout is
+  gone, until text ending with another attachment is laid out. The counter lays out each
+  section's last page, so close then lays out a text that ends with an empty attachment
+  (`releaseLayoutResidue`). Without it, an iPhone simulator kept the picture that ended the
+  last section counted, with its SVG renderer, after the reader was closed.
 - **Right to left.** `page-progression-direction="rtl"` mirrors spreads, swipes and tap zones.
   Within a page, a box's sides by flow (`margin-inline-start`, `padding-inline`,
   `border-inline-end`) are the sides the element's own `direction` maps them to, and cascade
@@ -2855,6 +2984,22 @@ The following are the defaults. Host commands and accessibility actions stay ena
   wheel spun fast still turns a page each 450 ms
   ([#163](https://github.com/vocaro/EPUBLib/issues/163)).
 - Keys (all flows): Left/Page Up previous, Right/Page Down/Space next, Shift-Space previous.
+  Home and End go to the book's start and end (`EPUBPageAction.bookStart` and `.bookEnd`), as
+  `.goToStart` and `.goToEnd` do, and on the Mac Command-Up and Command-Down too, which a Mac
+  text view takes for a document's start and end; on the Mac they come as key equivalents, as
+  every bound chord with Command does. The book's start is the first section page turns reach,
+  its end the last; one not built yet is built and then shown. They are logical, as the turns
+  are, and no tap, swipe or wheel goes there
+  ([#681](https://github.com/vocaro/EPUBLib/issues/681)).
+  A key reaches the reader only through its responders. On iPhone and iPad UIKit focuses
+  nothing on its own. Before #681, on an iPad simulator, Right Arrow typed with
+  `XCUIElement.typeKey` turned no page, before or after a touch on the page. With the canvas
+  taking the focus it turns one, and Space does too. XCTest sends the app no press for Home or
+  End there ([reader controls probe](testing.md#reader-controls-probe)). The canvas now takes
+  the focus when it is shown and when a touch begins
+  on it (`ReaderTouchObserver`, which recognizes nothing), while no other view in its window
+  holds it (`takeKeyboardFocusIfFree`), so a field keeps its keyboard. A change of flow leaves
+  that focus on the canvas, where the Mac moves it to the first text view.
   In continuous scroll a page turn scrolls by one viewport less a line. A backward turn
   refines the newly shown text through the line that was first and keeps that line at the
   new screen's bottom, so estimates for tall images above a jumped-to position cannot skip
@@ -2877,6 +3022,17 @@ The following are the defaults. Host commands and accessibility actions stay ena
   ([#746](https://github.com/vocaro/EPUBLib/issues/746)). Once the book is built no turn
   asks for a section's end. On iOS the scroll view's content has the whole text's height
   already.
+- The host's controls, under `epubReaderHidesControls`
+  ([reader controls](reader-controls.md#hiding-the-controls-while-reading)): on iPhone and iPad
+  a tap in the middle of a page, anywhere but the edge zones, a link, a picture or selected
+  text, shows or hides them once it is not the first tap of a double tap, except while VoiceOver
+  is running, whose double tap on a line arrives as such a tap; VoiceOver's Magic Tap does the
+  same from any line of the text. A page turned by a key, a swipe, an edge or the
+  wheel, and continuous scroll dragged by a finger or moved by a Mac's wheel or trackpad, are
+  reading on, which hides them where `whileReading` asks (by default on iPhone and iPad, not on
+  a Mac); a turn VoiceOver or the host asks for is not. Without the
+  modifier the tap's recognizer is off and Magic Tap goes on to the app
+  ([#696](https://github.com/vocaro/EPUBLib/issues/696)).
 - VoiceOver: the text offers the page turn itself, and reads in order from the text views.
   On iPhone and iPad each line of a page offers Next Page and Previous Page, and the
   reader's SwiftUI surface has a page-turn `accessibilityScrollAction`. On Mac each text
@@ -3283,13 +3439,14 @@ The following are the defaults. Host commands and accessibility actions stay ena
 | `nextPage` / `previousPage` | Page turn (paginated) or one viewport (scrolled); stops at the book's ends; skips nonlinear sections as foliate-js did, unless no section is linear. |
 | `navigate(href:)` | An encoded spine or resource href with optional fragment; unknown or non-local hrefs throw `invalidCommand`. |
 | `restore(location)` | Same publication, engine ID and `epublib-cfi-v1` format or `incompatibleLocation`; validates/resolves every bookmark segment and shows the first segment's start. Does not select text or add a highlight. |
-| `locate(text, highlight)` | First match in reading order with foliate's matcher that renders and shows, as a search result does. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A passage found only in content that renders nothing (`display: none`, a hidden note) or that `visibility: hidden` hides is shown where its first match is, wherever that sits in its section, and is never selected. A miss emits `.notice("the cited passage could not be found in this book")`. Clears search highlights. |
+| `locate(text, highlight)` | First match in reading order with foliate's matcher that renders and shows, as a search result does. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A passage found only in content that renders nothing (`display: none`, a hidden note) or that `visibility: hidden` hides is shown where its first match is, wherever that sits in its section, and is never selected. A miss emits `.notice("The passage could not be found in this book.")`. Clears search highlights. |
 | `searchHighlight` / `clearSearch` | Draws every match across the book and lists the rendered ones as `EPUBSearchResults` with no current match / removes and withdraws them. |
 | `search` | Draws and lists matches, opens the first rendered match in spine order and makes it the current match; no matches preserve the position. |
 | `nextSearchResult` / `previousSearchResult` | Shows the result after or before the current match, wrapping at the ends; the first or last when none is current. No effect without results. |
 | `showSearchResult(result)` | Shows a listed result and makes it current; a result of a replaced or cleared search throws `invalidCommand`. |
-| `style` | Font size 12–96, System/Light/Dark appearance, flow. System is the default and tracks the host color scheme live; explicit modes stay fixed. Size or resolved appearance rebuilds the text; the position is kept across rebuilds and flow switches. |
+| `style` | Font size 12–96, scaled by the system text size first with `followsDynamicType` (below), System/Light/Dark/Sepia/Black/Custom appearance with the style's custom colours, flow. System is the default and tracks the host color scheme live; explicit modes stay fixed. Size, resolved colours, Increase Contrast and Bold Text rebuild the text; the position is kept across rebuilds and flow switches (see Themes under Decisions). |
 | `setHighlights` | Replaces drawn host highlights. |
+| `goToProgression(value)` | Shows the place `value` of the way through the book by `progression`'s own measure (section byte size, nonlinear sections weighing nothing): the section where that share of the bytes ends, at the same share of its characters, entered at its page's first line. 0 or less is the first linear section's start and 1 or more the last one's end, so `goToStart` and `goToEnd` show the first and last page, or the top and bottom of continuous scroll; on a boundary between sections the later one's start. A value that is not finite throws `invalidCommand`. The page shown reports a progression at or after `value`, measured at its end ([#681](https://github.com/vocaro/EPUBLib/issues/681)). |
 
 `.searchResultsChanged` reports the result list before `.searchChanged(.completed)`, then each
 change of the current match, and nil when a clear, another query, a failure or `.locate`
@@ -3303,7 +3460,10 @@ host's appearance (see Decisions), and the first `.relocated` reports the openin
 start, see Decisions). `.relocated` carries the section href, overall progression (by section byte
 size, as foliate-js computed it), the table-of-contents title for the position, the page-list
 entries it shows (see Decisions) and the visible range's CFIs. A nonlinear section counts nothing
-toward progression unless no section is linear (see Decisions). A selection's `.selectionChanged`
+toward progression unless no section is linear (see Decisions). The pages of the layout on
+screen are not in the location: `EPUBReaderStatus.layoutPage` has them, set before the
+`.relocated` of the same pages and changed again, with no event, as counting goes on
+([Layout](#layout), "Page numbers"). A selection's `.selectionChanged`
 event and host selection action carry the same complete passage: `text` omits nonlinear sections,
 and `location.rangeBookmarks` preserves all included documents. Its `page` names the entry in effect
 at its start and `pages` includes the entries it spans, omitting nonlinear pages. Save the entire
@@ -3312,8 +3472,10 @@ after typography changes.
 No partial annotation is drawn while a section is building or if any segment fails to resolve.
 An empty collection, a contradictory first bookmark, a foreign identity/format or malformed CFI
 is incompatible; unordered/duplicate document targets, nonlinear multi-document targets or
-unresolved CFIs emit one `.notice` per rejected highlight, as does a passage that renders
-nothing, wherever it sits in its section. `restore` similarly refuses an incompatible location
+unresolved CFIs leave a highlight undrawn, as does a passage that renders nothing, wherever it
+sits in its section. `EPUBReaderStatus.undrawnHighlights` names each highlight not drawn, an
+incompatible one too, by `id` with why, and the list gives one `.notice`, "Some highlights could
+not be shown.", however many there are (#698). `restore` similarly refuses an incompatible location
 or emits a notice without navigating for an unresolved collection, or one with a document whose
 part renders nothing.
 Sections requiring unqualified HTML tree repair do not emit bookmarks. Existing CFIs into
@@ -3342,7 +3504,28 @@ ordinary original-document CFIs
 remain unchanged ([#78](https://github.com/vocaro/EPUBLib/issues/78)).
 
 `.disclosure` text summarises the books' `SectionReport`s and is re-emitted when it changes. `.notice` reports
-refused external links, unresolved CFIs and quotes, and highlights that could not be drawn.
+refused links outside the book ([Security](#security)), unresolved CFIs and quotes, and highlights that could not be drawn,
+each in a plain sentence that a host shows as it is ([integration](integration.md#when-something-fails)).
+
+`EPUBReaderStyle.followsDynamicType`, off by default, scales the chosen font size by the system
+text size before it is drawn: by the body text style's size at the mounted view's
+`dynamicTypeSize` over its 17 points at Large (`DynamicTypeScale.swift`), so that book text at
+the default size is as large as the system's body text. On iPhone and iPad UIKit's preferred body
+font gives both sizes, which are those Apple's Human Interface Guidelines list: 17 points is
+drawn at 53 at the largest accessibility size and at 14 at the smallest, and 31 or more reaches
+96. `UIFontMetrics`, which scales a custom size along a curve of its own, was not used: on iOS
+27.0 it scaled 17 points to 48 at the largest size and to 15 at the smallest, so book text would
+have been smaller than body text at every accessibility size. What is drawn stays
+within 12–96. The system text size reaches the reader as its view's `dynamicTypeSize`, from the
+window's content size category, so a host's own `.dynamicTypeSize` on the reader applies too. A
+change while a book is open rebuilds the text as a size command does and keeps the place read,
+the canvas's anchor, in both flows. The view's size is remembered while the option is off, so
+turning it on applies the latest at once. `readerState.status.effectiveFontSize` reports the
+size drawn and `dynamicTypeScale` the factor, 1 while the option is off. AppKit has no Dynamic
+Type metrics or content size category: on a Mac the factor comes from the same guideline sizes,
+and a view's `dynamicTypeSize` is Large unless its host sets another. Whether macOS's own text
+size setting reaches a SwiftUI view's `dynamicTypeSize` has not been observed, since that would
+change the Mac's settings ([#675](https://github.com/vocaro/EPUBLib/issues/675)).
 
 ## Security
 
@@ -3350,10 +3533,58 @@ Books are untrusted. Nothing is executed: there is no JavaScript engine. Every r
 resolves inside the archive through `ResourceReference`, but for an image in a `data:` URL,
 which is read from the URL's own bytes (**Data URLs** under [Decisions](#decisions)); remote
 URLs are never fetched and are counted for disclosure. XML, CSS and font input is bounded, and
-the import limits in `EPUBReading` still apply. External links are refused with a notice.
+the import limits in `EPUBReading` still apply.
 What `var()` substitutes is bounded for one value and for a section, so that custom properties
 that expand at each reference cannot stall a build or exhaust its memory (**Custom
 properties** under [Decisions](#decisions)).
+
+**Links outside the book.** EPUB Reading Systems 3.3 §3.9 has a reading system get the
+reader's consent before it opens an `http` or `https` link, and before it hands a link to the
+application of its scheme. So a link outside the book that the reader activates, by pointer,
+keyboard or VoiceOver, in the text, in a table cell or in a note's popover, is asked about
+first ([#683](https://github.com/vocaro/EPUBLib/issues/683)): "Open a link outside the book?",
+with the address, and Open and Cancel. Only on Open is it opened, with the view's `openURL`
+action, the system's unless the host sets its own, so a web page opens in the browser, apart
+from the reader, and an email address in the mail app. Nothing is fetched to ask, and the
+position in the book does not move.
+
+- Only a web page, an `http` or `https` URL with a host, and an email address, a `mailto` URL
+  with one, are asked about. Anything else outside the book, `javascript:`, `file:`, `data:`,
+  `tel:`, an app's own scheme or an address with no scheme or no host, is never opened or
+  handed to a host, and the `.notice` "This reader opens only web and email links outside the
+  book." says so: such a link would run the book's own content, reach the device's files, or
+  have another app act on the book's behalf.
+- The address shown is the URL as the system will open it: percent-encoded, with an
+  international domain name in its ASCII form, so the characters a book puts in it cannot
+  reorder or disguise it. Past 1,000 characters it is cut short with "…"; the scheme and host
+  come first.
+- On iPhone and iPad the question is an alert from the view controller on top, over a note's
+  popover when one is shown, and the note is still there after it. Open is its preferred
+  action, which Return chooses on a keyboard, and Cancel its cancel action, which Escape
+  chooses. Its title is the question and the address on two lines, and it has no message:
+  UIKit gives a message an element of its own, and VoiceOver reads only an alert's first
+  element as it comes up, so with the address as the message it said the question alone and
+  the address on the next swipe ([#793](https://github.com/vocaro/EPUBLib/issues/793)). After
+  Cancel VoiceOver's cursor goes back to the item it was on, the link, the table's row or the
+  note's text: as the alert went, VoiceOver took the first item of the screen, a control of
+  the host, while the link's element was still listed. The reader names the item with a
+  screen change as the answer comes, and puts the cursor back if VoiceOver comes to another
+  item after it, or is still elsewhere a second later. On simulators that took VoiceOver
+  straight back to a link or a row; over a note the iPhone said the popover's first item and
+  was back on the note's text a second later. After Open the cursor is left to whatever was
+  opened. On Mac it is a sheet on the reader's window, Open its default button (Return) and
+  Cancel its second (Escape), and a note's popover is closed first: it is a window of its
+  own, which would stand over the sheet.
+- One question at a time: a second link activated while one is asked about replaces it, and
+  the first is answered no. Closing the session, or the view leaving the window, takes the
+  question away, and nothing is opened after it.
+- A host chooses with `epubReaderExternalLinks(_:)`
+  ([integration](integration.md#links-outside-the-book)): `.ask`, the default; `.refuse`,
+  where every link outside the book gives the `.notice` "This reader does not open links outside
+  the book.", as every one did before; or `.handle`, where the host is given each web or email
+  address and asks, if it wants to, itself. The view's setting is read each time SwiftUI
+  updates it, so a change reaches a reader already shown.
+- A link inside the book in a note's popover still does nothing there.
 
 Subsequent-sibling CSS searches (`~`) share a memo entry when their entire left-hand selector
 suffix is equal, across rule declarations, right-hand subjects and nested pseudo-classes.

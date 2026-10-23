@@ -1,0 +1,42 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Search failed. %@" : {
+      "comment" : "What a screen reader says of a search that failed, followed by why it failed, a sentence such as “The search is empty or longer than 512 characters.”"
+    },
+    "Some highlights could not be shown." : {
+      "comment" : "One or more of the reader's saved highlights could not be shown, as when the book has changed since they were made or they belong to another book."
+    },
+    "That part of the book cannot be found." : {
+      "comment" : "The reader was asked to go to a part of the book that the book does not have, as by an entry in its contents that leads nowhere."
+    },
+    "That part of the book cannot be shown." : {
+      "comment" : "The reader was asked to go to a file of the book that is not a page of text, such as a picture, as by an entry in its contents."
+    },
+    "That place in the book cannot be found." : {
+      "comment" : "The reader was asked to go to a place in the book given as a fraction of the way through it, and the fraction was not a number or was infinite."
+    },
+    "That search result is no longer available." : {
+      "comment" : "A search result was chosen after the search it came from was replaced or cleared."
+    },
+    "That spacing or margin cannot be used." : {
+      "comment" : "The reader was asked to space the book's lines, paragraphs, letters or words, or to set its page margins, by an amount that is not a number or is infinite."
+    },
+    "That text size cannot be used." : {
+      "comment" : "The reader was asked to show the book's text at a size that is not a number or is infinite."
+    },
+    "The passage could not be found in this book." : {
+      "comment" : "The reader was asked to show a passage of the book, such as a quotation, and the book does not have it."
+    },
+    "The passage to find is empty or longer than 4,096 characters." : {
+      "comment" : "The reader was asked to find and show a passage, such as a quotation, that is empty or longer than the reader looks for."
+    },
+    "The saved position could not be found in this book." : {
+      "comment" : "A saved reading position, such as a bookmark, could not be found in the book, as when the book has changed since it was saved."
+    },
+    "The search is empty or longer than 512 characters." : {
+      "comment" : "A search was refused because its text is empty or longer than the reader searches for."
+    }
+  },
+  "version" : "1.0"
+}

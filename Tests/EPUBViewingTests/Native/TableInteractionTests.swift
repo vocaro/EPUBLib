@@ -113,7 +113,14 @@ import UIKit
             #endif
             try await Task.sleep(for: .milliseconds(100))
             if title == "Outside link" {
-                XCTAssertTrue(events.contains { if case .notice(let text) = $0 { return text.contains("outside the book") }; return false })
+                // The session's policy for a link outside the book, by default: the reader is
+                // asked, naming the address, and nothing is opened or noticed before it answers
+                // (#683; `ExternalLinkTests` has the answers).
+                XCTAssertEqual(session.askedLink?.url.absoluteString, "https://example.com")
+                XCTAssertNotNil(session.canvas?.linkQuestion, "the question is shown")
+                XCTAssertFalse(events.contains { if case .notice = $0 { return true }; return false }, "\(events)")
+                XCTAssertEqual(window.pageControls.opened, [])
+                session.canvas?.withdrawLinkQuestion()
             } else if title == "Footnote" {
                 XCTAssertNotNil(session.canvas?.presentedNote, "noteref opens authored note in place")
             } else {

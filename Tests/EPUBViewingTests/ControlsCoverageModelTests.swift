@@ -65,8 +65,10 @@ import UIKit
         XCTAssertEqual(EPUBReaderError.unsupported(.search).message, "This reader does not support this action.")
         XCTAssertEqual(EPUBReaderError.unsupported(.bookmarks).message, EPUBReaderError.unsupported(.search).message)
         XCTAssertEqual(EPUBReaderError.incompatibleLocation.message, "This saved position belongs to a different book or reader.")
-        XCTAssertEqual(EPUBReaderError.invalidCommand("Unknown publication href").message, "Unknown publication href")
-        XCTAssertEqual(EPUBReaderError.engineFailure("The package document could not be read").message, "The package document could not be read")
+        // A refusal of the bundled reader's says why; another engine's detail is for a developer.
+        XCTAssertEqual(EPUBReaderError.invalidCommand("Unknown publication href").message, "That part of the book cannot be found.")
+        XCTAssertEqual(EPUBReaderError.invalidCommand("Not this book's").message, "The reader cannot carry out this request.")
+        XCTAssertEqual(EPUBReaderError.engineFailure("The package document could not be read").message, "The reader cannot show this book.")
         XCTAssertEqual(EPUBReaderError.notReady.message, "The reader is not ready.")
         XCTAssertEqual(EPUBReaderError.closed.message, "This book is closed.")
         XCTAssertNotEqual(EPUBReaderError.invalidCommand("a"), .invalidCommand("b"))
@@ -111,11 +113,12 @@ import UIKit
 
     func testFlowsAppearancesAndStylesKeepTheSpellingAHostStores() throws {
         XCTAssertEqual([EPUBReadingFlow.paginated, .scrolled].map(\.rawValue), ["paginated", "scrolled"])
-        XCTAssertEqual(EPUBReaderAppearance.allCases.map(\.rawValue), ["system", "light", "dark"])
+        XCTAssertEqual(EPUBReaderAppearance.allCases.map(\.rawValue), ["system", "light", "dark", "sepia", "black", "custom"])
         XCTAssertEqual(try JSONDecoder().decode([EPUBReadingFlow].self, from: Data(#"["scrolled","paginated"]"#.utf8)), [.scrolled, .paginated])
-        XCTAssertEqual(String(decoding: try JSONEncoder().encode(EPUBReaderAppearance.allCases), as: UTF8.self), #"["system","light","dark"]"#)
+        XCTAssertEqual(String(decoding: try JSONEncoder().encode(EPUBReaderAppearance.allCases), as: UTF8.self),
+                       #"["system","light","dark","sepia","black","custom"]"#)
         XCTAssertThrowsError(try JSONDecoder().decode([EPUBReadingFlow].self, from: Data(#"["Paginated"]"#.utf8)))
-        XCTAssertThrowsError(try JSONDecoder().decode([EPUBReaderAppearance].self, from: Data(#"["sepia"]"#.utf8)))
+        XCTAssertThrowsError(try JSONDecoder().decode([EPUBReaderAppearance].self, from: Data(#"["purple"]"#.utf8)))
 
         let style = EPUBReaderStyle()
         XCTAssertEqual(style, EPUBReaderStyle(fontSize: 17, appearance: .system, flow: .paginated))
@@ -283,7 +286,12 @@ import UIKit
         for stray: Character in ["\u{130}", "\u{DF}", "\u{FF11}", " ", "-", "\u{E9}"] {
             XCTAssertNil(controls.direction(for: .character(stray), modifiers: []), "\(stray)")
         }
-        XCTAssertEqual(EPUBPageKeyBinding.defaults.count, 6)
+        // Six turns, Home and End, and on the Mac Command-Up and Command-Down (#681).
+        #if os(macOS)
+        XCTAssertEqual(EPUBPageKeyBinding.defaults.count, 10)
+        #else
+        XCTAssertEqual(EPUBPageKeyBinding.defaults.count, 8)
+        #endif
         XCTAssertEqual(EPUBPageControls(), EPUBPageControls(keyboardBindings: EPUBPageKeyBinding.defaults))
         XCTAssertNotEqual(EPUBPageControls(), .hostOnly)
         XCTAssertEqual(EPUBPageControls.hostOnly.leftTapWidth, 56, "host-only input turns the zones off, it does not resize them")
@@ -298,10 +306,11 @@ import UIKit
         let session = Session(), model = try controls(session)
         XCTAssertNil(model.commandError)
         let failures: [(any Error, String)] = [
-            (EPUBReaderError.invalidCommand("Unknown publication href"), "Unknown publication href"),
+            (EPUBReaderError.invalidCommand("Unknown publication href"), "That part of the book cannot be found."),
+            (EPUBReaderError.invalidCommand("Renderer refused"), "The reader cannot carry out this request."),
             (EPUBReaderError.unsupported(.highlights), "This reader does not support this action."),
             (EPUBReaderError.incompatibleLocation, "This saved position belongs to a different book or reader."),
-            (EPUBReaderError.notReady, "The reader is not ready."), (EPUBReaderError.engineFailure("Renderer lost"), "Renderer lost"),
+            (EPUBReaderError.notReady, "The reader is not ready."), (EPUBReaderError.engineFailure("Renderer lost"), "The reader cannot show this book."),
             (EPUBReaderError.closed, "This book is closed."),
         ]
         for (failure, message) in failures {
@@ -688,7 +697,7 @@ import UIKit
         try await wait("only the host's field") { host.order == ["Host field"] }
         host.show(strip(EPUBReaderControlGroup.allCases))
         try await wait("every group") { host.order.sorted() == [search, "segments"].sorted() }
-        XCTAssertEqual(EPUBReaderControlGroup.allCases, [.pages, .search, .contents, .appearance, .readingMode])
+        XCTAssertEqual(EPUBReaderControlGroup.allCases, [.pages, .search, .contents, .appearance, .readingMode, .hideControls])
         XCTAssertEqual(host.order, [search, "segments"], "the default order puts search before reading mode")
 
         // An engine without a group's capability shows nothing for it, wherever it is listed.
@@ -710,7 +719,7 @@ import UIKit
         session.failure = EPUBReaderError.invalidCommand("The reader refused this command")
         model.send(.nextPage)
         await model.waitForCommands()
-        XCTAssertEqual(model.commandError, "The reader refused this command")
+        XCTAssertEqual(model.commandError, "The reader cannot carry out this request.", "an engine's detail is for a developer")
         try await wait("the error under the groups") { host.fittingHeight > plain }
         model.dismissError()
         XCTAssertNil(model.commandError)

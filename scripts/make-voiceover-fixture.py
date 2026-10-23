@@ -402,6 +402,28 @@ files["OPS/package.opf"] = files["OPS/package.opf"].replace(
     "</spine>", '<itemref idref="kept"/></spine>')
 files["OPS/nav.xhtml"] = files["OPS/nav.xhtml"].replace(
     "</ol></nav>", '<li><a href="kept.xhtml">Words kept from listeners</a></li></ol></nav>')
+# Links out of the book (#683): a web page, an email address and a
+# script in lines of their own, a web page in a table's cell, and a note whose only words
+# after its first are a web page. The reader asks before it opens a web page or an email
+# address and refuses a script with a notice. Every address is under example.invalid, which
+# nothing answers. No word of it is one VoiceOver uses for a link, a table or a note.
+files["OPS/outside.xhtml"] = (
+    '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml" '
+    'xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Links out of the book</title></head>'
+    '<body><p>Words before the routes out.</p>'
+    '<p>Shown before <a href="https://example.invalid/far">far site</a> in the line.</p>'
+    '<p>Shown before <a href="mailto:reader@example.invalid">letter route</a> in the line.</p>'
+    '<p>Shown before <a href="javascript:void(0)">script route</a> in the line.</p>'
+    '<table><tr><td>Left out cell</td><td><a href="https://example.invalid/cell">cell far site</a></td></tr></table>'
+    '<p>Shown before the <a epub:type="noteref" href="#far-note">noted route</a> in the line.</p>'
+    '<aside epub:type="footnote" id="far-note"><p>Noted words, then <a href="https://example.invalid/noted">noted far site</a>.</p></aside>'
+    "<p>Words after the routes out.</p>"
+    + "".join(f"<p>Line {i:02d} after the routes out.</p>" for i in range(1, 61)) + "</body></html>")
+files["OPS/package.opf"] = files["OPS/package.opf"].replace(
+    "</manifest>", '<item id="outside" href="outside.xhtml" media-type="application/xhtml+xml"/></manifest>').replace(
+    "</spine>", '<itemref idref="outside"/></spine>')
+files["OPS/nav.xhtml"] = files["OPS/nav.xhtml"].replace(
+    "</ol></nav>", '<li><a href="outside.xhtml">Links out of the book</a></li></ol></nav>')
 # A passage to select and copy, the book's last section: the paragraphs of DAISY's
 # Non-visual Reading test reading-1310 (epub30-test-0302), which asks for the 399 characters,
 # spaces aside, between "Begin" and "End" to be copied with assistive technology. The words
@@ -438,7 +460,7 @@ chapters = {"one": range(1, 41), "two": range(41, 81), "three": range(81, 87)}
 paragraphs = dict(files)
 for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "scenes.xhtml", "offers.xhtml",
              "entries.xhtml", "cells.xhtml", "grids.xhtml", "ledger.xhtml", "tallrow.xhtml", "edges.xhtml", "parts.xhtml",
-             "squares.xhtml", "gaps.xhtml", "veiled.xhtml", "math.xhtml", "kept.xhtml", "passage.xhtml", "square.svg", "titled.svg"]:
+             "squares.xhtml", "gaps.xhtml", "veiled.xhtml", "math.xhtml", "kept.xhtml", "outside.xhtml", "passage.xhtml", "square.svg", "titled.svg"]:
     del paragraphs["OPS/" + name]
 paragraphs["OPS/package.opf"] = (
     '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '

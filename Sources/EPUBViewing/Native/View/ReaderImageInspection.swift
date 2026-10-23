@@ -63,7 +63,7 @@ extension ReaderCanvasView {
         #else
         let responder = window.flatMap { Self.firstResponder(in: $0) }
         #endif
-        let inspector = ReaderImageInspector(bitmap: bitmap, label: attachment.spokenAlt, dark: configuration.isDark)
+        let inspector = ReaderImageInspector(bitmap: bitmap, label: attachment.spokenAlt, theme: configuration.theme)
         inspector.onClose = { [weak self, weak inspector, weak responder, weak hostWindow] in
             inspector?.removeFromSuperview()
             self?.imageInspector = nil

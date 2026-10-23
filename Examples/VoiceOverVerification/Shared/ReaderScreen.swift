@@ -19,6 +19,8 @@ struct ReaderScreen: View {
     /// `-SampleControls none` shows the reader with none of the host's controls above it, as a
     /// host that hides them while a book is read: nothing between the open buttons and the page.
     private let showsControls = UserDefaults.standard.string(forKey: "SampleControls") != "none"
+    /// `-SampleHides YES` hides the controls while the book is read (`epubReaderHidesControls`).
+    private let hidesControls = UserDefaults.standard.bool(forKey: "SampleHides")
     #if os(iOS)
     /// `-SampleCopiedLine YES` keeps a line under the selection line that says what the general
     /// pasteboard holds since the app last wrote to it, for an automated check of Copy.
@@ -99,6 +101,7 @@ struct ReaderScreen: View {
                 #endif
             }
         }
+        .modifier(SampleControlsHiding(controls: hidesControls ? reader.controls : nil))
         .fileImporter(isPresented: $importing, allowedContentTypes: [UTType(filenameExtension: "epub") ?? .data]) { result in
             switch result {
             case .success(let url): reader.open(url: url)
@@ -133,6 +136,8 @@ struct ReaderScreen: View {
     /// after the book is ready: a move the host makes with nothing on screen touched for it.
     /// `-SampleDarkAfter <seconds>` makes the reader dark that long after the book is ready,
     /// as a host does that follows the time of day: the same text is shown again in place.
+    /// `-SampleHideAfter <seconds>` hides the controls once, that long after the book is ready, as
+    /// VoiceOver's Magic Tap does: with `-SampleHides YES`, with VoiceOver already on.
     /// `-SampleSearch <query>` submits that search once the book is ready, as its field does,
     /// so that the strip has results to step through, or `-SampleSearchAfter <seconds>` later:
     /// after the text built again for `-SampleFontSize`, which moves the view under a search.
@@ -167,6 +172,13 @@ struct ReaderScreen: View {
                 }
             }
         }
+        let hideAfter = defaults.double(forKey: "SampleHideAfter")
+        if hideAfter > 0 {
+            Task {
+                try? await Task.sleep(for: .seconds(hideAfter))
+                reader.controls?.hideControls()
+            }
+        }
         let dark = defaults.double(forKey: "SampleDarkAfter")
         if dark > 0 {
             Task {
@@ -175,5 +187,13 @@ struct ReaderScreen: View {
                 reader.send(.style(style))
             }
         }
+    }
+}
+
+/// Hides the controls while the book is read, once there are controls to hide.
+private struct SampleControlsHiding: ViewModifier {
+    let controls: EPUBReaderControls?
+    func body(content: Content) -> some View {
+        if let controls { content.epubReaderHidesControls(controls) } else { content }
     }
 }

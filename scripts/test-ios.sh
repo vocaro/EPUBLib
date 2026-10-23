@@ -1,6 +1,7 @@
 #!/bin/bash
 # Own both simulators and always delete them; never select a shared booted device.
 # Method: https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#disposable-simulators
+# Arguments go to each device's xcodebuild test, such as -only-testing:EPUBViewingTests/NativeSessionTests.
 set -uo pipefail
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 cd "$(dirname "$0")/.." || exit 1
@@ -95,6 +96,17 @@ run_child() {
     return "$status"
 }
 
+# The tests a device ran: XCTest's total for each test bundle, which xcodebuild runs one at a
+# time under All tests, or Selected tests when filtered, and Swift Testing's for each run.
+executed_tests() {
+    awk '
+        /^Test Suite .(All|Selected) tests. (passed|failed)/ { bundle = 1; next }
+        bundle && match($0, /Executed [0-9]+ test/) { split(substr($0, RSTART, RLENGTH), word, " "); total += word[2] }
+        { bundle = 0 }
+        match($0, /Test run with [0-9]+ test/) { split(substr($0, RSTART, RLENGTH), word, " "); total += word[4] }
+        END { print total + 0 }' "$1"
+}
+
 failed=0
 for kind in iPhone-17-Pro iPad-Air-13-inch-M4; do
     boot_log=".build/validation/$kind-boot.log"
@@ -146,8 +158,15 @@ for kind in iPhone-17-Pro iPad-Air-13-inch-M4; do
     echo "Testing: $kind ($device); log: $test_log"
     if run_child xcodebuild -scheme EPUBLib-Package -destination "platform=iOS Simulator,id=$device" \
         -destination-timeout 600 -derivedDataPath .build/ios-validation -parallel-testing-enabled NO \
-        -collect-test-diagnostics never CODE_SIGNING_ALLOWED=NO test > "$test_log" 2>&1; then
-        echo "Passed: $kind ($runtime)"
+        -collect-test-diagnostics never "$@" CODE_SIGNING_ALLOWED=NO test > "$test_log" 2>&1; then
+        executed=$(executed_tests "$test_log")
+        if (( executed > 0 )); then
+            echo "Passed: $kind ($runtime): Executed $executed tests"
+        else
+            # A filter that selects nothing passes xcodebuild and establishes nothing.
+            echo "Failed: $kind ($runtime): no tests ran; see $test_log"
+            failed=$((failed + 1))
+        fi
     else
         echo "Failed: $kind ($runtime): tests; see $test_log"
         tail -n 40 "$test_log"

@@ -147,7 +147,7 @@ struct NativeRichContent: RichContentFactory {
     }
 
     func horizontalRule(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString {
-        attachment(ReaderRuleAttachment(style: style, isDark: context.typography.isDark,
+        attachment(ReaderRuleAttachment(style: style, theme: context.typography.theme,
                                         isHiddenFromAssistiveTechnology: ContentSemantics.isHiddenFromAssistiveTechnology(element)),
                    style: style, context: context)
     }
@@ -251,7 +251,7 @@ struct NativeRichContent: RichContentFactory {
         guard !alt.isEmpty else { return nil }
         return NSAttributedString(string: alt, attributes: [
             .font: context.fonts.font(for: style),
-            .foregroundColor: style.isHidden ? PlatformColor.clear : ReaderPalette.secondaryText(dark: context.typography.isDark),
+            .foregroundColor: style.isHidden ? PlatformColor.clear : context.typography.theme.secondaryText,
         ])
     }
 }
