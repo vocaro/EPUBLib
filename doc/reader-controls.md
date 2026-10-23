@@ -40,7 +40,8 @@ struct ToolbarReader: View {
 ```
 <!-- /snippet -->
 
-Pass ordered `groups` to omit or rearrange `.pages`, `.search`, `.contents`, `.appearance`, `.readingMode`.
+Pass ordered `groups` to omit or rearrange `.pages`, `.search`, `.contents`, `.appearance`, `.readingMode`
+and `.hideControls` ([below](#hiding-the-controls-while-reading)).
 `placement` accepts SwiftUI's `ToolbarItemPlacement`. Use separate toolbar instances with
 disjoint groups for different placements. Add host `ToolbarItem`s in the same builder.
 The toolbar uses icons with accessible labels to fit phone widths; search opens a popover
@@ -156,6 +157,109 @@ leaves only the field and action buttons; with `.searchResults` the pane adds th
 navigator and result list described below. Feedback describes the submitted query; editing
 text does not replace the active highlight query. `hasMatches` reports occurrences the reader
 can show: a query found only in content that renders nothing completes with no matches.
+
+## Hiding the controls while reading
+
+`epubReaderHidesControls(_:whileReading:)` hides the controls while the book is read and brings
+them back ([#696](https://github.com/vocaro/EPUBLib/issues/696)), as Apple's guidelines ask of a
+toolbar hidden "for a distraction-free experience": with ways to "reliably restore" it
+([Toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars)), and no
+Liquid Glass in the content layer
+([Materials](https://developer.apple.com/design/human-interface-guidelines/materials)). Apply it
+to the view that holds the reader and its toolbar or strip, after the `.toolbar`, so that the
+toolbar's items see it:
+
+<!-- snippet:hiding -->
+```swift
+struct HidingReader: View {
+    let controls: EPUBReaderControls // Retained alongside the existing session by the host.
+
+    var body: some View {
+        EPUBReaderView(session: controls.session)
+            .toolbar {
+                EPUBReaderToolbar(controls: controls, groups: [.search, .contents, .appearance, .readingMode, .hideControls])
+                #if os(iOS)
+                EPUBReaderToolbar(controls: controls, groups: [.pages], placement: .topBarPinnedTrailing)
+                #else
+                ToolbarSpacer(.fixed)
+                EPUBReaderToolbar(controls: controls, groups: [.pages])
+                #endif
+            }
+            // After the toolbar, so that its Hide Controls group is offered.
+            .epubReaderHidesControls(controls)
+    }
+}
+```
+<!-- /snippet -->
+
+`controls.controlsHidden` says whether they are hidden, and `hideControls()`, `showControls()`
+and `toggleControls()` change it, for custom controls too. It is true only while the reader is
+ready: a book that closes or fails shows its controls again, with what they say of it. The
+complete reader of [#690](https://github.com/vocaro/EPUBLib/issues/690), when it comes, applies
+the modifier itself and offers `whileReading` as its own option.
+
+Hidden, on iPhone and iPad the navigation bar, the bottom bar, the status bar and the home
+indicator go. On a Mac the controls hide and show with the window toolbar, by the window's own
+command, View > Hide Toolbar and Show Toolbar (`NSWindow.toggleToolbarShown(_:)`, Option-Command-T):
+the toolbar going hides them all and its coming back shows them, and controls hidden or shown
+otherwise, as by Show Controls or VoiceOver coming on, take the toolbar with them by the same
+command. An `EPUBReaderControlStrip` keeps its place and its height, with its groups unseen,
+disabled and hidden from assistive technology, and its search field gives up its focus and the
+keyboard. `.hideControls` is a Hide Controls button on iPhone and iPad, offered only under the
+modifier: elsewhere, and on a Mac, whose window has that command, it takes no place in a toolbar
+or a strip.
+
+They hide by themselves as the person reads on with the reader's own input: a page turned by a
+key, a swipe, an edge tap or click or the wheel, and continuous scroll dragged by a finger or
+moved by a Mac's wheel or trackpad. A page button, a contents entry, a search, a host command
+and VoiceOver's own page turns leave them as they are. While VoiceOver or Switch Control is
+running they do not hide by themselves, since hidden controls are gone from what either can
+reach, and either coming on shows them. This is `whileReading`, true on iPhone and iPad and
+false on a Mac, where a window's toolbar hides on command and not because a page turned; a host
+can pass either. With `false` they hide only when asked.
+
+They come back:
+
+- by a tap in the middle of the page on iPhone and iPad, which hides them again: anywhere on it
+  but the edge zones that turn the page (`EPUBPageControls`), a link, a picture or selected
+  text. It waits until it is not the first tap of the double tap that selects a word. A click
+  of an iPad's pointer is such a tap. While VoiceOver is running it does nothing: VoiceOver's
+  double tap on a line reaches the reader as a touch at the line.
+- by VoiceOver's Magic Tap, a two-finger double tap, from any line of the reader or from the
+  Show Controls button, which hides them again too, on iPhone and iPad.
+- by Option-Command-T. On iPhone and iPad the Hide Controls group and the Show Controls button
+  carry it, whatever has keyboard focus. Hide Controls is disabled while the controls are
+  hidden: a hidden bar's items keep their shortcuts, and with both enabled the key did nothing
+  on an iPhone simulator. On a Mac the key is the window's own Show Toolbar and Hide Toolbar,
+  and nothing in the window takes it before the menu. When the group and the button carried it
+  there as well, the window took it first, as AppKit offers a key equivalent to the key window
+  before the menu bar
+  (`ReaderControlsHidingTests.testOnAMacOptionCommandTIsLeftToTheWindowsToolbarCommand`).
+- by the Show Controls button, a chevron in the room the bars left, or over the hidden strip
+  where no bar left room. It is drawn in the secondary label colour, with no glass, at more than
+  the 3:1 a control's graphic needs against the background, in light and dark and with Increase
+  Contrast ([#696](https://github.com/vocaro/EPUBLib/issues/696) has the measures). VoiceOver
+  reads it as "Show Controls, button" where it stands, and reads none of the strip's hidden
+  groups (iPhone and iPad simulators).
+- when the width changes while they are hidden, as in a rotation.
+
+The reader keeps the room the bars took. From the layout that hides the controls until both
+bars are back, it is laid out in the safe area it had while they showed, so the book is not laid
+out again and a bar coming back covers no text. The bars do
+not go or come back at once: the navigation bar and the bottom bar each change the safe area in
+a layout of its own. When the room each left was measured and given back a layout behind it,
+the reader was laid out at five other frames in each round of hiding and showing on an iPhone
+17 Pro simulator (`ReaderControlsHidingTests.testHiddenBarsLeaveTheReaderItsFrame`). The room is
+the host's background, and only the bars are glass, over it. At either end of iOS 27's Liquid
+Glass Tint Amount (Settings > Appearance > Liquid Glass), the bar stood over the empty margin, and
+with the controls hidden the two screens were the same to the pixel. This holds for a reader in the safe
+area, as `EPUBReaderView` is unless the host has it ignore the safe area; one that ignores it
+runs under the bars as before, and was not checked.
+
+On a Mac a click in the middle of the text keeps its meaning, the insertion point VoiceOver
+starts at, and shows or hides nothing.
+
+Migration: hosts with exhaustive switches over `EPUBReaderControlGroup` add `.hideControls`.
 
 ## Search results
 
@@ -302,13 +406,35 @@ results as above; `EPUBEngineContract.verify` checks each of these.
 
 Commands submitted through one controls model execute in FIFO order. Style edits read the latest
 style when they execute, preserving fields changed by earlier queued edits or host commands.
-Appearance controls change font size two points at a time within 12–36 points, the sizes the
-bundled reader draws distinctly, and are disabled at either end; they choose System, Light or Dark. System
+Appearance controls change font size within 12–96 points, the sizes the bundled reader draws:
+two points at a time up to 36, four up to 48 and eight up to 96, so that each step changes the
+page about as much to the eye and 96 is 22 steps from 12. A size a host set off those steps
+goes to the next one, and one outside the range steps from its nearer end. Each control is
+disabled where no step changes the size drawn
+([#675](https://github.com/vocaro/EPUBLib/issues/675)). Smaller Text and Larger Text carry the
+size drawn, "19 points", as a second line, which iOS puts in their names, "Larger Text, 19
+points", since a menu item's accessibility value is not exposed on iPhone and iPad. Once the reader has taken a new
+size, the size it reports drawing is announced, as a step through search results is, so that
+VoiceOver says the size at every step. On iPhone and iPad the menu stays open after either, to step again under the same finger
+or cursor; on the Mac it closes, as SwiftUI offers no other. Use System Text Size sets
+`followsDynamicType`: the chosen size is then scaled by the system text size, as body text is,
+and the controls step the chosen size and show and say the size drawn
+(`readerState.status.effectiveFontSize`); several chosen sizes can be drawn at one size at either
+end, and a step passes over them. Appearance controls also choose System, Light, Dark,
+Sepia or Black, and Custom once the style holds custom colours. System
 is the default and follows the mounted view's color scheme, including OS theme changes and
-host color-scheme overrides. Explicit Light/Dark remain fixed until changed. Use
-`controls.changeStyle { $0.appearance = .system }` (or `.light` / `.dark`) in host controls.
+host color-scheme overrides. Explicit appearances remain fixed until changed. Use
+`controls.changeStyle { $0.appearance = .system }` (or `.light`, `.dark`, `.sepia`, `.black`)
+in host controls, and give the reader's own colours with
+`controls.changeStyle { $0.customColors = colors; $0.appearance = .custom }`; they are kept
+while another appearance is chosen. `EPUBReaderColors` holds the presets, WCAG's contrast ratio
+for a colour picker to show, and the colours Increase Contrast draws
+([themes](native-viewer.md#decisions)).
 `readerState.status.effectiveAppearance` reports the resolved Light/Dark value without
-replacing the selected preference. Existing `isDark:` initializers and property writes still
+replacing the selected preference: Sepia resolves to Light and Black to Dark, and custom colours
+by whether their background is dark. `effectiveColors` reports the colours drawn, Increase
+Contrast applied, for a host's own controls. Increase Contrast and Bold Text are the system's
+and need no control. Existing `isDark:` initializers and property writes still
 select an explicit appearance; the Boolean getter is true only for explicit Dark.
 Reading mode controls
 switch between continuous scrolling and paging. The native engine's
@@ -324,7 +450,7 @@ The native session maintains `readerState` for direct commands, input navigation
 close. Third-party sessions remain source-compatible via a default nil state; built-in controls
 are unavailable until they opt in. An engine can retain `EPUBReaderState`, expose it on the session,
 and update an `EPUBReaderStatus` using `state.update(_:)`. Publish lifecycle, capabilities, actual
-style, resolved effective appearance, location, optional turn boundaries, search feedback and the number of active commands.
+style, resolved effective appearance and colours, location, optional turn boundaries, search feedback and the number of active commands.
 Update state before the corresponding event
 ([publish state first](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/command-lifecycles.md#publish-state-before-the-event-that-reports-it)).
 Existing event callbacks remain host-owned.
@@ -339,7 +465,10 @@ ownership of persistence, library/import management, selection actions and app-s
 
 Page-button help describes the configured native inputs. On Mac, default Next Page help
 lists Right Arrow, Page Down and Space, the right edge click, and wheel/trackpad directions;
-Previous Page lists Left Arrow, Page Up and Shift-Space with the opposite gestures. Keyboard
+Previous Page lists Left Arrow, Page Up and Shift-Space with the opposite gestures. Help for
+`EPUBPageAction.bookStart` and `.bookEnd` ("First Page" and "Last Page", or "Scroll to
+Beginning" and "Scroll to End" in continuous scroll) lists their keys alone, Home or End and
+on the Mac Command-Up or Command-Down Arrow: no gesture goes there. Keyboard
 hints say “With reader focus”: they do not apply while the search field or another host field
 has focus. On iPhone/iPad the help describes edge taps and horizontal touch swipes instead
 of mouse gestures, alongside any configured hardware keys. SwiftUI presents help on platforms
@@ -394,8 +523,9 @@ controls were operated; the Mac's tree agrees where noted.
 | Page buttons | Previous Page, Next Page; Scroll Backward, Scroll Forward in continuous scroll | Disabled at either end of the book |
 | Reading mode | Continuous Scroll, Paging | The current one selected. On the Mac a radio group named Reading Mode with two radio buttons of those names, the current one's value 1. |
 | Search, Contents, Appearance | The same | Contents and Appearance are menu buttons on the Mac |
+| Hide Controls, Show Controls | The same | Option-Command-T on each; Show Controls takes VoiceOver's Magic Tap on iPhone and iPad |
 | Contents entries | The entry's title | The current ones selected; the unlinked entry disabled; a parent "Collapsed" to VoiceOver |
-| Appearance entries | Smaller Text, Larger Text, System, Light, Dark | The chosen appearance selected. On the Mac the three appearances are in a submenu named Appearance. |
+| Appearance entries | Smaller Text, Larger Text, Use System Text Size, System, Light, Dark, Sepia, Black, and Custom once the style holds custom colours; on iOS the first two go on with the size drawn, their second line: "Larger Text, 19 points" | Smaller Text and Larger Text disabled where no step changes the size drawn. Use System Text Size selected while the style follows the system text size. The chosen appearance selected. On the Mac the appearances are in a submenu named Appearance. Sepia, Black and Custom were added in [#674](https://github.com/vocaro/EPUBLib/issues/674) to the same picker and have not been read from the tree. |
 | Search field | Search in book | The query |
 | Pane buttons | Search, Close Search, Clear Search; Search Results and Close Search Results in the strip's browser | |
 | Count | Search matches | "Match 2 of 14, Low tide"; "Match 1 of 14, first match, Before the road"; "Match 14 of 14, last match, Afterword"; "Match 1 of 1, only match, The market"; "Match 1 of at least 10,000, first match, Stage 1" |

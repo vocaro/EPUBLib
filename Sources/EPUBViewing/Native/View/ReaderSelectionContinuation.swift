@@ -54,8 +54,8 @@ import UIKit
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func configure(previous: Bool, next: Bool, dark: Bool) {
-        let color = ReaderPalette.text(dark: dark)
+    func configure(previous: Bool, next: Bool, theme: ReaderTheme) {
+        let color = theme.text
         #if os(macOS)
         label.textColor = color
         self.previousButton.contentTintColor = color

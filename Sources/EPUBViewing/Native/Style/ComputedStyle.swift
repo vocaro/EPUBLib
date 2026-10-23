@@ -186,6 +186,10 @@ struct ComputedStyle: Equatable, Sendable {
     var fontSize: CGFloat = 17
     /// 100–900.
     var fontWeight: Int = 400
+    /// The system's Bold Text is on: fonts are found for `usedFontWeight`, not `fontWeight`.
+    /// Not a CSS property: the root takes it from the reader and every element inherits it, so
+    /// no rule or `initial` resets it, and a weight is made heavier once, where it is drawn.
+    var usesBoldText = false
     var isItalic = false
     var isSmallCaps = false
     var lineHeight: LineHeight = .normal
@@ -218,6 +222,13 @@ struct ComputedStyle: Equatable, Sendable {
     /// Custom properties (`--name`), computed. Inherited: an element that declares none shares
     /// its parent's. nil when there are none (`CustomProperties.swift`).
     var customProperties: CSSCustomProperties?
+    /// What the reader's text settings did to this style, nil when none is set
+    /// (`ReaderTextSettings`).
+    var textSettings: ReaderTextTrace?
+
+    /// The weight fonts are found for: `fontWeight`, or with Bold Text 200 heavier, to at most
+    /// 900, as iOS draws its own text a weight heavier (regular as semibold).
+    var usedFontWeight: Int { usesBoldText ? min(fontWeight + 200, 900) : fontWeight }
 
     /// Resolved line height in points for this style's font size; nil for `normal`.
     var lineHeightPoints: CGFloat? {

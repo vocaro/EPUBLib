@@ -48,16 +48,39 @@ extension PlatformTestWindow {
     var value = EPUBPageControls()
     /// The appearance the reader's host reports. Nil is the window's own, which is light.
     var colorScheme: ColorScheme?
+    /// What the reader does with a link outside the book (`epubReaderExternalLinks(_:)`).
+    var externalLinks = EPUBExternalLinks.ask
+    /// Every address the reader opened. A test window's `openURL` action records them and opens
+    /// nothing, so no test can open a link with the system.
+    var opened: [URL] = []
+    /// Increase Contrast and Bold Text as the reader's host reports them: off, whatever the
+    /// machine's own settings, unless a test turns them on, so the suite gives one result on
+    /// any machine. With `accessibilityFollowsWindow` the reader takes the window's, as an
+    /// app's does: on iPhone and iPad its traits.
+    var increasesContrast = false
+    var boldText = false
+    var accessibilityFollowsWindow = false
 }
 
 private struct ControlledTestReader: View {
     let session: any EPUBReaderSession
     let controls: TestPageControls
     @Environment(\.colorScheme) private var inheritedColorScheme
+    @Environment(\.colorSchemeContrast) private var inheritedContrast
+    @Environment(\.legibilityWeight) private var inheritedLegibilityWeight
     var body: some View {
         EPUBReaderView(session: session)
             .epubReaderPageControls(controls.value)
             .environment(\.colorScheme, controls.colorScheme ?? inheritedColorScheme)
+            .epubReaderExternalLinks(controls.externalLinks)
+            .environment(\.openURL, OpenURLAction { [controls] url in
+                MainActor.assumeIsolated { controls.opened.append(url) }
+                return .handled
+            })
+            .environment(\._colorSchemeContrast, controls.accessibilityFollowsWindow ? inheritedContrast
+                         : controls.increasesContrast ? .increased : .standard)
+            .environment(\.legibilityWeight, controls.accessibilityFollowsWindow ? inheritedLegibilityWeight
+                         : controls.boldText ? .bold : .regular)
     }
 }
 

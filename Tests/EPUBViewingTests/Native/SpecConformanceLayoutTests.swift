@@ -287,12 +287,13 @@ import UIKit
         XCTAssertTrue(reader.notices.isEmpty, "\(reader.notices)")
     }
 
-    /// RS 3.9 recommends asking before opening a link outside the publication;
-    /// doc/native-viewer.md (Security) decides: "External links are refused with a notice".
-    /// Activating one tells the host and moves nothing. A link that climbs past the container
-    /// root stops there (RS 4.1.1): it is a link into the book, here to a document it lacks,
-    /// and moves nothing either.
-    func testALinkOutsideTheBookIsRefusedWithANoticeAndThePositionStays() async throws {
+    /// RS 3.9: a reading system should have the reader's consent before it opens an `http` or
+    /// `https` link, and before it hands a link to the application of its scheme (`mailto`).
+    /// Activating one asks, naming the address, opens nothing until the reader answers, and
+    /// moves nothing (#683; `ExternalLinkTests` has the answers). A link that climbs past the
+    /// container root stops there (RS 4.1.1): it is a link into the book, here to a document it
+    /// lacks, and moves nothing either.
+    func testALinkOutsideTheBookIsAskedAboutAndThePositionStays() async throws {
         var book = Book()
         book.add("one", body: "<p>Visit <a href=\"https://example.org/\">the site</a>, <a href=\"mailto:someone@example.org\">write</a> "
             + "or follow <a href=\"../../outside.xhtml\">a leaking link</a>.</p>" + Book.prose(30))
@@ -302,13 +303,18 @@ import UIKit
         let session = reader.session, section = try XCTUnwrap(session.book.section(0))
         let before = session.visibleRange, located = reader.locations.count
         XCTAssertEqual(section.specLink("a leaking link"), .internal(href: "outside.xhtml"))
-        for phrase in ["the site", "write", "a leaking link"] {
+        for (phrase, asked) in [("the site", "https://example.org/"), ("write", "mailto:someone@example.org"), ("a leaking link", nil)] {
             let link = try XCTUnwrap(section.specLink(phrase))
             session.canvas(try XCTUnwrap(session.canvas), didActivate: link,
                            at: ReaderTextPosition(section: 0, offset: section.specLocation(phrase)), rect: .zero)
+            if let asked {
+                XCTAssertEqual(session.askedLink?.url.absoluteString, asked, phrase)
+                session.canvas?.withdrawLinkQuestion()
+            }
         }
         try await Task.sleep(for: .milliseconds(100))
-        XCTAssertEqual(reader.notices, Array(repeating: "This reader does not open links outside the book.", count: 2))
+        XCTAssertEqual(reader.notices, [])
+        XCTAssertEqual(reader.window.pageControls.opened, [], "nothing is opened without the reader's consent")
         XCTAssertEqual(session.visibleRange, before)
         XCTAssertEqual(reader.locations.count, located)
     }

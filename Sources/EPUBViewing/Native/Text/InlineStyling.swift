@@ -71,7 +71,9 @@ struct InlineContext {
 /// (thread-safe, unlike the platform string-drawing extensions).
 final class InlineStyling {
     let fonts: FontRegistry
-    let isDark: Bool
+    /// The colours text without a book colour of its own takes, and in a dark theme all text.
+    let theme: ReaderTheme
+    var isDark: Bool { theme.isDark }
     private(set) var dictionaries: [CFDictionary] = []
     private var indices: [Key: Int] = [:]
     private var paragraphStyles: [ParagraphStyleKey: NSParagraphStyle] = [:]
@@ -79,7 +81,7 @@ final class InlineStyling {
     private var markerWidths: [MarkerKey: (font: PlatformFont, width: CGFloat)] = [:]
     private struct MarkerKey: Hashable { let font: ObjectIdentifier; let text: String }
 
-    init(fonts: FontRegistry, isDark: Bool) { self.fonts = fonts; self.isDark = isDark }
+    init(fonts: FontRegistry, theme: ReaderTheme) { self.fonts = fonts; self.theme = theme }
 
     private enum ColorChoice: Hashable { case text, link, clear, book(ComputedStyle.Color) }
     private struct Key: Hashable {
@@ -131,8 +133,8 @@ final class InlineStyling {
         if let index = indices[key] { return index }
         var attributes: [NSAttributedString.Key: Any] = [.font: font]
         switch key.color {
-        case .text: attributes[.foregroundColor] = ReaderPalette.text(dark: isDark)
-        case .link: attributes[.foregroundColor] = ReaderPalette.link(dark: isDark)
+        case .text: attributes[.foregroundColor] = theme.text
+        case .link: attributes[.foregroundColor] = theme.link
         case .clear:
             attributes[.foregroundColor] = PlatformColor.clear
             attributes[.readerHidden] = true

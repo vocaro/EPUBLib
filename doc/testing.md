@@ -6,14 +6,15 @@ Use Xcode 27, a graphical macOS 27 login, the iOS 27 simulator runtime, XcodeGen
 Set `DEVELOPER_DIR` when more than one Xcode is installed. From the repository root:
 
 ```sh
-bash scripts/check-all.sh
+python3 scripts/eng run gate
 ```
 
-The gate checks the hosted-run and VoiceOver session scripts, verifies module boundaries,
-compares documentation snippets with compiled Swift sources, runs the Mac tests and the full
-test suite on dedicated iPhone 17 Pro and iPad Air 13-inch (M4) simulators, reads the objects
-those runs compiled, StaticSVG's among them, and the resvg library StaticSVG's release supplies,
-for any API that an app would have to
+`gate` is the `exclusive` lane in `engineering.json` that runs `scripts/check-all.sh`, which
+takes no arguments. The gate checks the hosted-run and VoiceOver session scripts, verifies
+module boundaries, compares documentation snippets with compiled Swift sources, runs the Mac
+tests and the full test suite on dedicated iPhone 17 Pro and iPad Air 13-inch (M4) simulators,
+reads the objects those runs compiled, StaticSVG's among them, and the resvg library
+StaticSVG's release supplies, for any API that an app would have to
 declare in a privacy manifest ([integration](integration.md#privacy-manifest)), and builds the
 VoiceOver verification host for Mac and iOS. Test devices are created by UUID and
 deleted on exit; existing devices are never selected or shut down. Agents working in the
@@ -52,10 +53,12 @@ another clone and comes first; the checks give the copies of the scripts they ru
 they find.
 
 Run one gate at a time on this shared Mac, with its Mac and iOS suites one after the other.
-Coordinate full test runs between worktrees and keep build and test worker counts bounded.
-Look for every run on the host first, as
+The `gate` lane waits for the host's
 [heavy-work admission](https://github.com/vocaro/apple-engineering/blob/main/guides/shared-host.md#heavy-work-admission)
-describes: on 2026-10-20 a check of the worktrees alone missed another session's Mac suite.
+to have no other heavy work running and holds every slot while it runs. Keep build and test
+worker counts bounded. Admission sees only admitted work, so look for every run on the host
+first, as that section describes: on 2026-10-20 a check of the worktrees alone missed another
+session's Mac suite.
 EPUBLib's runs are listed by
 `ps -Ao args | grep -E '[E]PUBLib.*\.xctest|[c]heck-all\.sh|[t]est-ios\.sh'`.
 Synchronous performance assertions use thread CPU time and asynchronous readiness waits
@@ -86,8 +89,11 @@ gate and before blaming a change for that failure.
 `scripts/test-ios.sh` runs its devices as
 [disposable simulators](https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#disposable-simulators).
 It reports `Passed` or `Failed` for each device, continues to the second after a creation, boot
-or test failure, and exits nonzero if either failed. Each first boot has a 600-second limit
-(`EPUB_SIM_BOOT_TIMEOUT` overrides it with a positive number of seconds). The device and last
+or test failure, and exits nonzero if either failed. A passed device reports the tests it ran:
+XCTest's total for each test bundle, which `xcodebuild` runs one at a time, and Swift Testing's
+for each run. A device that ran none fails. Arguments go to each device's `xcodebuild test`.
+Each first boot has a 600-second limit (`EPUB_SIM_BOOT_TIMEOUT` overrides it with a positive
+number of seconds). The device and last
 boot stage, including any migration plugin, are retained in
 `.build/validation/<device-kind>-boot.log`, the identifier creation printed in
 `<device-kind>-create.log`, and the test log in `<device-kind>.log`. Destination discovery gets
@@ -96,14 +102,30 @@ The failure, timeout and interruption paths can be checked without creating a si
 `python3 scripts/test-test-ios.py` substitutes fake `xcrun` and `xcodebuild` commands in a
 fresh temporary directory and checks that every created device is deleted.
 
-For narrower checks:
+The Mac and iOS suites are `heavy` lanes of their own, `swift-tests` and `ios-tests`, and the
+narrower checks are runs of them. Arguments after `--` go to the lane's command: a `swift test`
+filter, or `xcodebuild test` options such as `-only-testing:` for each simulator.
 
 ```sh
-swift test --filter PublicationSafetyTests
-swift test --filter NativeSessionTests
-swift test --filter CFI
-bash scripts/test-ios.sh
+python3 scripts/eng run swift-tests
+python3 scripts/eng run swift-tests -- --filter PublicationSafetyTests
+python3 scripts/eng run swift-tests -- --filter NativeSessionTests
+python3 scripts/eng run swift-tests -- --filter CFI
+python3 scripts/eng run ios-tests
+python3 scripts/eng run ios-tests -- -only-testing:EPUBViewingTests/NativeSessionTests
 ```
+
+A lane fails a run that reports fewer tests than its `minimumTests`, a whole run's count. A run
+with arguments must run at least one, and `--expect N` requires exactly N, so that a filter
+shows it selected the tests it was meant to:
+`python3 scripts/eng run swift-tests --expect N -- --filter X`. `eng` adds up what the log
+reports: each test bundle's total, each Swift Testing run and each unittest run. A filtered
+`ios-tests` run counts both simulators, so 12 tests on each is `--expect 24`. The floors are
+counts that a toolkit older than apple-engineering 18c01d4, which took the largest single count
+in place of the sum, accepts as well. Any other heavy command in this
+document, such as a probe's `swift test`, `xcodebuild` or `xcrun xctest`, goes through
+`python3 scripts/eng admit -- COMMAND`, with `--exclusive` for a whole-machine measurement. The
+plain commands are for a contributor's own machine.
 
 On the Mac, the harness calls `makeMacTestWindow`, which runs `prepareMacTestApplication`
 before constructing an `NSWindow` or starting `NSApplication`. It puts
@@ -148,7 +170,12 @@ suite gives one result by day and in the evening. A test that needs a dark host 
 `ReaderTestWindow.pageControls.colorScheme`.
 `NativeSessionTests.testATestWindowKeepsItsReaderLightUntilTheTestAsksForDark` holds the harness
 to that: on the Mac under a dark appearance for its own process, and on iOS, where a test process
-cannot make its device dark, by the window's own style. To run a Mac bundle as a machine in light
+cannot make its device dark, by the window's own style. The window keeps Increase Contrast and
+Bold Text off in the same way, whatever the machine's settings, and a test turns them on with
+`pageControls.increasesContrast` and `pageControls.boldText`; with
+`pageControls.accessibilityFollowsWindow` the reader takes them from the window instead, as an
+app's does, which on iPhone and iPad a test sets with the window's `traitOverrides`
+(`ReaderThemeTests.testTheWindowsTraitsReachTheReader`). To run a Mac bundle as a machine in light
 appearance would, whatever the system setting, pass the argument after `-XCTest`:
 
 ```sh
@@ -185,7 +212,8 @@ ended at that test's `started` line, and the sample had the test's frame on the 
 
 ## Coverage
 
-Parser tests cover EPUB 2/3 structure, navigation, landmarks and page lists, resource access, identity, limits,
+Parser tests cover EPUB 2/3 structure, navigation, landmarks and page lists, resource access, identity
+across copies of a book (#679), books unpacked into folders with their links, pipes and limits (#680), limits,
 duplicate ZIP entries, symlinks, path separators and dot segments beside every scalar that joins
 their `Character`, CRC corruption, malformed/deep/wide XML, UTF-16 entities, repeated,
 conflicting, absent, remote and differently cased manifest items, references that start at or climb past
@@ -580,6 +608,22 @@ The script fetches each corpus at a pinned commit into `~/Library/Caches/EPUBLib
 `EPUBLIB_EPUBCHECK_CLI`. The expected outcome of each W3C test is in
 `Tests/EPUBTestSupport/SpecConformanceCorpus.swift`; a new pin goes in the script together
 with that table.
+
+`PublicationFolderCorpusTests` reads each W3C test and each expanded EPUBCheck fixture as a
+folder and as the archive packed from it, and each archived EPUBCheck fixture and each book of
+the two [collections](#books) as an archive and as the folder unzipped from it, and requires the
+same publication or the same refusal ([#680](https://github.com/vocaro/EPUBLib/issues/680)); each
+book zipped again must keep its `persistentID`
+([#679](https://github.com/vocaro/EPUBLib/issues/679)). Each test is skipped without its
+variable. A folder that lacks `mimetype` is held to the archive packed with one. An archived
+fixture that is refused, or whose names a Mac's file system cannot hold as they stand (two that
+differ only in case, a name that is not UTF-8), has no folder to compare and is listed as
+skipped, with the reason, in the test's output:
+
+```sh
+eval "$(bash scripts/fetch-corpora.sh)"
+swift test --filter PublicationFolderCorpusTests
+```
 
 ### Books
 
@@ -1136,13 +1180,29 @@ keyboard's Search key, whose identifier is Search, in place of the search field'
 `tap=search` written for Return then now does nothing, and its line names `keyboard=search`.
 
 The probe's steps are documented where they are handled, in
-`Examples/ControlsQualification/UITests/ControlsProbe.swift`. Host arguments:
+`Examples/ControlsQualification/UITests/ControlsProbe.swift`. `key=` types a hardware key
+with `XCUIElement.typeKey`, through UIKit's own keyboard dispatch, after any of `shift+`,
+`command+`, `option+`, `control+` and `function+`. On 2026-10-22, on an iPad Air 13-inch (M4)
+simulator with iOS 27.0 (24A434) and Xcode 27.1 (27A9275), the reader received Right Arrow,
+Down Arrow and Space that way. It received no press at all for `key=home`, `key=end`,
+`key=pageup` or `key=pagedown`, with or without `function+`, so the probe cannot show those
+keys on iOS. The status line ends with the layout's page, counted from 1, as
+`layout page 2/22, section 1/5`, with `-` where a count is not known yet
+([#681](https://github.com/vocaro/EPUBLib/issues/681)). Host arguments:
 `-QualificationBook ltr|rtl|long`, `-QualificationHost toolbar|strip|navigator`,
 `-QualificationPlacement automatic|leading|bottom`, `-QualificationHostItems <count>`,
 `-QualificationFlow scrolled`, `-QualificationFontSize <points>`, `-QualificationTitle NO`,
 `-QualificationTouchTrace YES`, for the strip `-QualificationStripGroups <names>` (its groups
 in order, as `pages,contents,appearance,readingMode`) and `-QualificationStripRoom <points>`
 (the most height it is offered), and, on the Mac, `-QualificationWindowSize <width>x<height>`.
+`-QualificationHides YES` puts the host under `epubReaderHidesControls`, with Hide Controls in
+its toolbar, and `-QualificationHidesWhileReading NO` has the controls hide only when asked
+([hiding the controls](reader-controls.md#hiding-the-controls-while-reading)). The status line
+then ends in "controls hidden" or "controls shown", and states "contrast increased" and
+"transparency reduced" while those are on. A step `target=com.apple.Preferences` has the steps
+after it operate the simulator's own Settings, for a setting no simctl command makes, such as
+iOS 27's Liquid Glass under Appearance, and `target=host` comes back to the host, which kept
+running.
 UIKit's own `-UIPreferredContentSizeCategoryName`, with a category the guide above names,
 gives the host a text size without a change to the simulator; on the iPhone SE the strip's
 frames at the largest size were those `signal=content_size` gave. For the iPhone Duo set
@@ -1233,7 +1293,9 @@ The verifier checks:
 - The mounted session emits `.ready` exactly once.
 - Advertised commands can be submitted; unsupported commands return the matching capability error.
 - Href navigation changes sections and bookmark restoration returns to the saved section.
-- Locations carry the publication identity and a valid engine-tagged bookmark when supported.
+- Locations carry the publication's `persistentID` and a valid engine-tagged bookmark when
+  supported, and a location that carries the book's `id` instead, as one saved before
+  `persistentID` does, restores too ([#679](https://github.com/vocaro/EPUBLib/issues/679)).
 - Foreign publication, engine and bookmark format identities are rejected.
 - An engine with `.searchResults` lists the phrase's results before reporting completion, with
   indices in order and the publication's identity; steps, wraps back from the first result to
@@ -1251,6 +1313,7 @@ A minimal SwiftUI test engine runs the same checks with no renderer at all, as a
 search, one that only highlights, one that lists results, and one that lists them and reports a
 step's relocation and a clear's idle state 30 ms late, from a timer of its own. Deliberately broken
 engines demonstrate that missing/duplicate readiness, ignored cancellation, incompatible restoration,
+locations that carry the file's hash, a restore that refuses a location saved under it,
 late callbacks, results published after completion, steps that do not wrap, stale results that
 still navigate, results kept after a clear and a step of a cleared search that still moves the
 reader fail the verifier. Adapter-specific tests must additionally check actual rendering,
@@ -1436,8 +1499,8 @@ after the hidden ones." stand round them, and sixty numbered lines follow. It ha
 and no link, no word of it is one VoiceOver uses, and no shown word holds a hidden one, so
 "concealed", "Concealed" or "collapsed" in a transcript is a hidden word read. Open it with
 `--href OPS/veiled.xhtml` on a simulator and `"launch=-SampleHref OPS/veiled.xhtml"` in a
-hosted session. **Math readings** (`OPS/math.xhtml`) follows it, and then **Words kept from
-listeners** (`OPS/kept.xhtml`), which holds shown words the book keeps from
+hosted session. **Math readings** (`OPS/math.xhtml`) follows it, and after it
+**Words kept from listeners** (`OPS/kept.xhtml`) holds shown words the book keeps from
 assistive technology with `aria-hidden="true"`
 ([Text kept from assistive technology](native-viewer.md#text-kept-from-assistive-technology)):
 a paragraph of its own, "* Unheard stars *", after "Words before the kept ones."; "unheard
@@ -1449,7 +1512,17 @@ between "Shown words beside" and "the hidden square.". "Words after the kept one
 numbered lines follow. Every kept or hidden word begins "unheard" or "Unheard" and no shown
 word does, so either in a transcript is a kept word read, and no word of it is one VoiceOver
 uses for a heading, a link or a picture. Open it with `--href OPS/kept.xhtml` on a simulator
-and `"launch=-SampleHref OPS/kept.xhtml"` in a hosted session. The book's last section,
+and `"launch=-SampleHref OPS/kept.xhtml"` in a hosted session. After it,
+**Links out of the book** (`OPS/outside.xhtml`) holds links to places outside the book
+([#683](https://github.com/vocaro/EPUBLib/issues/683)), each in a line of its own between
+"Shown before" and "in the line.": "far site", a web page; "letter route", an email address;
+and "script route", a `javascript:` link, which the reader refuses with a notice. A table
+follows, "Left out cell" beside a cell that is the web page "cell far site", and then a note
+reference, "noted route", to a footnote whose link is the web page "noted far site". "Words
+before the routes out." opens it, and "Words after the routes out." and sixty numbered lines
+follow. Every address is under `example.invalid`, which nothing answers, and no word of it is
+one VoiceOver uses for a link, a table or a note. Open it with `--href OPS/outside.xhtml`;
+[Links out of the book](#links-out-of-the-book) has the sessions. The book's last section,
 **Folded notes** (`OPS/folded.xhtml`), holds two details
 ([Details and summary](native-viewer.md#details-and-summary)). The first, `folded`, is
 closed by the book, and its summary "Open the folded notes" opens it on a picture's long
@@ -1519,8 +1592,19 @@ workstation and counts as acceptance evidence: see [Hosted Mac sessions](#hosted
 A session on a workstation needs the owner's explicit authorization, and only for what a
 runner cannot do: someone listening, or stepping by hand
 ([where Mac sessions run](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#where-mac-sessions-run)
-has what such a session needs). Launch a fresh reader before each case; close previous
-verification instances first.
+has what such a session needs).
+
+With that authorization, the first step of the session is to reserve the owner's screen:
+`mac-foreground` in the host's device record, with the owner's approval window, as
+[attended Mac sessions](https://github.com/vocaro/apple-engineering/blob/main/guides/shared-host.md#attended-mac-sessions)
+shows, and `VOCARO_DEVICE_OWNER` set to the session named in the reservation. The runner checks
+it before its first key and again before each step, and refuses unless that session holds the
+entry, the entry is neither orphaned nor uncertain, and the approval has not ended. A refused
+session sends no more steps; the runner only closes a rotor or menu the steps left open and
+restores VoiceOver ([#818](https://github.com/vocaro/EPUBLib/issues/818)). Release the entry
+when the session ends. A hosted runner needs no reservation.
+
+Launch a fresh reader before each case; close previous verification instances first.
 
 ```sh
 open -na "$PWD/.build/voiceover/mac/Build/Products/Debug/VoiceOverVerificationMac.app" \
@@ -1976,6 +2060,34 @@ that page's first line is the heading, and the session cannot tell the two rules
 the heading's line from `ax:lines` before reading anything into it. The sessions are
 [on the issue](https://github.com/vocaro/EPUBLib/issues/594#issuecomment-6278967907).
 
+#### Links out of the book
+
+The reader asks before it opens a web or email link outside the book
+([Security](native-viewer.md#security), [#683](https://github.com/vocaro/EPUBLib/issues/683)).
+What VoiceOver reads of the question on iPhone and iPad, and where its cursor goes after it,
+is read on simulators, in the fixture's **Links out of the book**: links in the text, then one
+in a table's cell and one in a note's popover, each answered Cancel, so nothing is opened:
+
+```sh
+python3 scripts/run-voiceover-simulator.py --href OPS/outside.xhtml \
+  --steps 'touch=far site,activate=far site,listen=4,forward=2,activate=Cancel,listen=4,touch=letter route,activate=letter route,listen=4,activate=Cancel,listen=4,touch=script route,activate=script route,listen=3,find=This reader opens only,touch=Left out cell,choose=Follow Table Link: cell far site,doubletap=Left out cell,listen=4,activate=Cancel,listen=4,touch=noted route,activate=noted route,listen=3,touch=noted far site,activate=noted far site,listen=4,forward=2,activate=Cancel,listen=4'
+```
+
+`listen=4` after each activation records what VoiceOver says of the alert by itself, the
+question and the address, and `forward=2` its buttons; `listen=4` after Cancel records where
+the cursor went back to ([#793](https://github.com/vocaro/EPUBLib/issues/793)). VoiceOver's
+own log beside the transcript has everything it said in between, which a transcript can miss.
+`find=` says whether the notice for the `javascript:` link is on screen. A simulator's
+activation is not evidence that VoiceOver
+activates the link ([Simulators](#simulators)); that needs an iPhone or iPad. What VoiceOver
+on Mac says of the sheet needs a [hosted Mac session](#hosted-mac-sessions), such as one that
+presses the link with VoiceOver on the search field, `ax:follow` as under
+[A link's target in pages](#a-links-target-in-pages), and records what is said after it:
+
+```text
+width=600 text_size=17 "launch=-SampleHref OPS/outside.xhtml" ax:focus=search "ax:follow=far site" line
+```
+
 ### Details and summary
 
 The fixture's **Folded notes** (`OPS/folded.xhtml`) holds a details the book leaves closed
@@ -1995,11 +2107,20 @@ python3 scripts/run-voiceover-simulator.py --runtime com.apple.CoreSimulator.Sim
 
 The first reads the summaries as buttons, the closed one collapsed and the open one expanded,
 and no word that begins "Tucked"; the second reads the summary expanded, then the notes and
-their table cell by cell with its rows and columns. On a Mac the same section is read in a
-[hosted session](#hosted-mac-sessions) with `"launch=-SampleHref OPS/folded.xhtml"` or
-`"launch=-SampleHref OPS/folded.xhtml#folded-end"`: `ax:links` prints each summary as an
-`AXDisclosureTriangle` child with its `AXExpanded`, and `ax:tables` the table once the
-details is open.
+their table cell by cell with its rows and columns. On a Mac the same section is read in
+[hosted sessions](#hosted-mac-sessions), one closed, one opened by VoiceOver's own
+Control-Option-Space on the summary, and one opened by its target:
+
+```text
+width=600 text_size=17 "launch=-SampleHref OPS/folded.xhtml" ax:links ax:focus=search ax:focus=0 in line nextline nextline nextline nextline
+width=600 text_size=17 "launch=-SampleHref OPS/folded.xhtml" "ax:caret=Open the folded notes" ax:focus=search ax:focus=0 in line "activate=Open the folded notes" ax:links line nextline nextline nextline
+width=600 text_size=17 "launch=-SampleHref OPS/folded.xhtml#folded-end" ax:links ax:tables ax:focus=search ax:focus=0 in line nextline nextline nextline nextline
+```
+
+`ax:links` prints each summary as an `AXDisclosureTriangle` child with its `AXExpanded`, and
+`ax:tables` the table once the details is open. The first session reads no word that begins
+"Tucked"; the second says what VoiceOver says of a disclosure triangle and reads on into the
+notes; the third reads the notes and reaches the table's row.
 
 DAISY's own test of a details under a picture
 ([DAISY's extended description test](#daisys-extended-description-test)) is read the same
@@ -2544,6 +2665,10 @@ the same lines and new items for them, all but the one under VoiceOver's cursor.
 host does that hides them while a book is read: VoiceOver reading on by itself does
 differently after a page turn with and without them
 ([#554](https://github.com/vocaro/EPUBLib/issues/554)).
+`-SampleHides YES` puts the sample under `epubReaderHidesControls`, and `-SampleHideAfter 20`
+has it hide its controls by itself 20 seconds after the book opens, as VoiceOver's Magic Tap
+would with VoiceOver already on: what VoiceOver reads of hidden controls, which a simulator's
+VoiceOver cannot be made to hide with Magic Tap.
 `-SampleSearch word00` submits that search once the book is ready, as the strip's field does,
 so that its match row has 99 results to step through, and `-SampleSearchAfter 6` submits it
 that many seconds later: after the text built again for `-SampleFontSize`, which on a Mac
@@ -2574,8 +2699,9 @@ Its sessions are acceptance evidence for what VoiceOver reads and in what order,
 what VoiceOver activates ([Acceptance and evidence](#acceptance-and-evidence)). On the shared
 host its build and runs go through
 [heavy-work admission](https://github.com/vocaro/apple-engineering/blob/main/guides/shared-host.md#heavy-work-admission),
-as a configured lane (`python3 scripts/eng run LANE`) or through the resource CLI; the plain
-commands here are for contributors' own machines:
+as a configured lane (`python3 scripts/eng run LANE`) or with
+`python3 scripts/eng admit -- COMMAND`; the plain commands here are for contributors' own
+machines:
 
 ```sh
 python3 scripts/run-voiceover-simulator.py
