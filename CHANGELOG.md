@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Keep keyboard focus in the reader on Mac when a relayout or a page turn hides the column that has it, as a window narrowed from two columns to one does, by giving it to the column that holds the place entered or else the first column shown, where AppKit left it on the window and VoiceOver in no column ([#599](https://github.com/vocaro/EPUBLib/issues/599)).
 - Pass over a table row on Mac whose cells hold nothing but a formula or rule that `visibility: hidden` hides, or a formula marked `aria-hidden`, as a row of hidden words is passed over, where VoiceOver stopped on a group with no name ([#774](https://github.com/vocaro/EPUBLib/issues/774)).
 - Read a `CipherReference` URI in `META-INF/encryption.xml` as a URL from the container root, as EPUB 3.3 §4.2.6.2 has it, and else as the path it is written as, as a rootfile's path is read, so that `./`, `x/../`, a leading `/`, a query and a fragment name the font they resolve to and an escaped slash stays in its name, where the whole URI was decoded and looked up, which refused a book with such a URI as `unsupportedEncryption` and read `%2F` as a separator ([#753](https://github.com/vocaro/EPUBLib/issues/753)).
 - Leave a lost entry whose name the ZIP language-encoding flag declares UTF-8 and that is not out of `EPUBLostEntries.paths`, as its documentation has it, and count it in `count`, where its path was given as an empty string ([#779](https://github.com/vocaro/EPUBLib/issues/779)).

@@ -2315,7 +2315,14 @@ as they did.
   while its window settles, or while its text is built for its style, keeps it. A click,
   VoiceOver's moves by line, which move the insertion point, a selection, or focus taken to
   the column beside ends it, and a relayout after that keeps the first line, as a page turn
-  does ([#594](https://github.com/vocaro/EPUBLib/issues/594)). A move of VoiceOver's own cursor
+  does ([#594](https://github.com/vocaro/EPUBLib/issues/594)). A spread that hides the column
+  with keyboard focus, or with it in a table cell's text area, as a window narrowed from two
+  columns to one does and a turn to a spread of one page, gives the focus to the column that
+  holds the place it enters, and otherwise to its first column, as a page turn made in the
+  second column does (`ReaderCanvasView.keepFocus`). AppKit takes the focus from a view it
+  hides: it went to the window, which left the reader without keyboard focus and VoiceOver
+  with no column to stay in. What VoiceOver says at such a resize has not been heard
+  ([#599](https://github.com/vocaro/EPUBLib/issues/599)). A move of VoiceOver's own cursor
   that changes neither the insertion point nor focus goes unseen, and a relayout after one
   takes VoiceOver back to the place's line. A position with no character of its own, as a
   section's end, is on no line, and its page keeps the first. Nothing else reads the

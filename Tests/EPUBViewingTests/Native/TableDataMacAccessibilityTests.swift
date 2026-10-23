@@ -1391,5 +1391,24 @@ import XCTest
             XCTAssertTrue(window.firstResponder === canvas)
         }
     }
+
+    /// A window narrowed from two columns to one hides the second, and a cell's text area in it
+    /// with the keyboard focus: the column shown takes the focus, which the window had (#599).
+    func testKeyboardFocusInACellsTextAreaOfAColumnARelayoutHidesStaysInTheReader() async throws {
+        let (reader, canvas, view) = try await reader(try book(Self.longTables[0]), scrolled: false)
+        let window = try XCTUnwrap(view.window)
+        reader.window?.resize(to: CGSize(width: 1100, height: 700))
+        try await reader.wait("a spread of two columns") { canvas.textViews.count == 2 }
+        try await reader.settle()
+        let second = canvas.textViews[1]
+        try await reader.wait("the second column's cells") { second.tableInteraction?.cells.isEmpty == false }
+        let cell = try XCTUnwrap(second.tableInteraction?.accessibilityCellsInOrder.first?.cell)
+        XCTAssertTrue(window.makeFirstResponder(cell))
+        reader.window?.resize(to: CGSize(width: 600, height: 700))
+        try await reader.wait("a spread of one column") { canvas.textViews.count == 1 }
+        try await reader.settle()
+        XCTAssertEqual(canvas.columns.map(\.isHidden), [false, true])
+        XCTAssertTrue(window.firstResponder === canvas.textViews.first, "\(String(describing: window.firstResponder)) has the focus")
+    }
 }
 #endif
