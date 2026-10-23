@@ -115,10 +115,10 @@ import UIKit
         let section = try section("<details dir=\"rtl\"><summary>מבוא</summary><p>תוכן</p></details>")
         let disclosure = try XCTUnwrap(section.disclosures.first)
         XCTAssertTrue(disclosure.isRightToLeft)
-        XCTAssertEqual((section.string.string as NSString).substring(with: NSRange(location: try XCTUnwrap(disclosure.marker), length: 1)),
-                       "\u{25C2}")
+        let marker = try XCTUnwrap(disclosure.marker)
+        XCTAssertEqual((section.string.string as NSString).substring(with: NSRange(location: marker, length: 1)), "\u{25C2}")
         let opened = shown(section, open: true)
-        XCTAssertEqual((opened.string as NSString).substring(with: NSRange(location: disclosure.marker!, length: 1)), "\u{25BE}")
+        XCTAssertEqual((opened.string as NSString).substring(with: NSRange(location: marker, length: 1)), "\u{25BE}")
         XCTAssertEqual(shown(section, open: false).string, section.string.string, "closed as the book has it: the same triangle")
     }
 
@@ -169,6 +169,7 @@ import UIKit
             <details><summary>Inner</summary><p>Inner words.</p></details><p>Outer end.</p></details><p>After.</p>
             """)
         XCTAssertEqual(section.disclosures.count, 2)
+        guard section.disclosures.count == 2 else { return }
         let text = section.string.string as NSString
         let outer = section.disclosures[0], inner = section.disclosures[1]
         XCTAssertTrue(outer.hides(text.range(of: "Inner words.").location))

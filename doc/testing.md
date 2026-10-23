@@ -675,6 +675,30 @@ library, the startup canary, the assertion matrix and its stock negative control
 `--workflow`, `--font-size` and `--device` select a narrower repeat. Results belong on the
 issue, including the exact runtime build and whether the hook and canary confirmed it.
 
+### DAISY's extended description test
+
+[#708](https://github.com/vocaro/EPUBLib/issues/708) was checked against DAISY's
+extdescription-010, `content/epub30-test-0350` of
+[daisy/epub-accessibility-tests](https://github.com/daisy/epub-accessibility-tests) at commit
+`6ecadf3393083dd93fa79d8b62e0281957a7b05e`, whose `EPUB/Text/testDetailsUnderImage.xhtml`
+puts a chart's long description, a table among it, in a details under the chart. The
+repository states no license, so the book is fetched for a run and never committed: fetch the
+thirteen files under that directory at that commit from `raw.githubusercontent.com`, and zip
+them with `mimetype` first and stored. The issue records each file's SHA-256 and the book's.
+Read it on a simulator with the book given to the verification host:
+
+```sh
+python3 scripts/run-voiceover-simulator.py --runtime com.apple.CoreSimulator.SimRuntime.iOS-27-0 \
+  --launch '-SampleBook /absolute/path/epub30-test-0350.epub' \
+  --href 'EPUB/Text/testDetailsUnderImage.xhtml#image1-extended-desc' --vot-log --timeout 1200 \
+  --start-limit 600 --steps 'touch=Expand / collapse Extended Description,forward=4'
+```
+
+With `-SampleSearch "Qtr Total"` in `--launch` the host searches as the book opens, which
+shows the first result and so opens the details; the same steps then read it open and its
+table. The book is not one of the [standard corpora](#corpus-runs): admitting DAISY's tests
+as one is the owner's to decide.
+
 ### Corpus teardown
 
 The [reproduction on #589](https://github.com/vocaro/EPUBLib/issues/589#issuecomment-6283724393)
@@ -1951,6 +1975,35 @@ runner at 600 points, though, the size `ax:larger` gives starts a page with the 
 that page's first line is the heading, and the session cannot tell the two rules apart: take
 the heading's line from `ax:lines` before reading anything into it. The sessions are
 [on the issue](https://github.com/vocaro/EPUBLib/issues/594#issuecomment-6278967907).
+
+### Details and summary
+
+The fixture's **Folded notes** (`OPS/folded.xhtml`) holds a details the book leaves closed
+and one it opens ([Details and summary](native-viewer.md#details-and-summary)). On a
+simulator, read the page with it closed, and with it opened by a target inside it, which
+opens it without VoiceOver's own activation, which a stock simulator does not perform
+([Simulators](#simulators)):
+
+```sh
+python3 scripts/run-voiceover-simulator.py --runtime com.apple.CoreSimulator.SimRuntime.iOS-27-0 \
+  --href OPS/folded.xhtml --vot-log --timeout 1200 --start-limit 600 \
+  --steps 'touch=Words before the folded notes,forward=5'
+python3 scripts/run-voiceover-simulator.py --runtime com.apple.CoreSimulator.SimRuntime.iOS-27-0 \
+  --href OPS/folded.xhtml#folded-end --vot-log --timeout 1200 --start-limit 600 \
+  --steps 'touch=Open the folded notes,forward=12'
+```
+
+The first reads the summaries as buttons, the closed one collapsed and the open one expanded,
+and no word that begins "Tucked"; the second reads the summary expanded, then the notes and
+their table cell by cell with its rows and columns. On a Mac the same section is read in a
+[hosted session](#hosted-mac-sessions) with `"launch=-SampleHref OPS/folded.xhtml"` or
+`"launch=-SampleHref OPS/folded.xhtml#folded-end"`: `ax:links` prints each summary as an
+`AXDisclosureTriangle` child with its `AXExpanded`, and `ax:tables` the table once the
+details is open.
+
+DAISY's own test of a details under a picture
+([DAISY's extended description test](#daisys-extended-description-test)) is read the same
+way, from a book the runner is given with `-SampleBook`.
 
 ### Tables on Mac
 
