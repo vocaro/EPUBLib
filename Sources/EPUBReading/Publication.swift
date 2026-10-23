@@ -17,6 +17,8 @@ public struct EPUBPublication: Sendable {
     /// among it, is kept inside and at the ends of a value that holds anything else, and an
     /// element that holds nothing but white space of any kind has no value. An element inside the
     /// deprecated `dc-metadata` element, which EPUB 2 packages may have, is read where it stands.
+    /// Its accessibility metadata is read from the `meta` and `link` elements beside them, those
+    /// inside the deprecated `x-metadata` included (`EPUBAccessibilityMetadata`).
     public let metadata: EPUBMetadata
     /// The manifest's items whose files the archive holds. A remote item is never fetched and is
     /// left out, as is a font obfuscated with a key the package does not give.
@@ -442,9 +444,14 @@ public struct EPUBPublication: Sendable {
         let coverID = metadataElements.first {
             $0.name == "meta" && $0.attribute("name") == "cover"
         }?.identifier("content")
+        let accessibility = AccessibilityMetadataReader.read(metadataElements.filter { $0.name == "meta" || $0.name == "link" }.map {
+            AccessibilityMetadataReader.Element(isLink: $0.name == "link", id: $0.identifier("id"), refines: $0.attribute("refines"),
+                property: $0.attribute("property"), name: $0.attribute("name"), content: $0.attribute("content").map(XMLNode.collapsed),
+                rel: $0.attribute("rel"), href: $0.attribute("href"), text: $0.text)
+        }) { try? ResourceReference.resolve($0, relativeTo: opfPath) }
         return Self(id: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
             metadata: EPUBMetadata(title: values("title").first ?? "", authors: values("creator"),
-                                   languages: values("language"), identifiers: values("identifier")),
+                                   languages: values("language"), identifiers: values("identifier"), accessibility: accessibility),
             resources: resources, lostEntries: directory.lostEntries, spine: spine, tableOfContents: toc, landmarks: landmarks,
             pageList: pages.isEmpty ? nil : pages,
             cover: resources.first { $0.properties.contains("cover-image") } ?? coverID.flatMap { byID[$0] },

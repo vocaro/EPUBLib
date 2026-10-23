@@ -579,7 +579,11 @@ The script fetches each corpus at a pinned commit into `~/Library/Caches/EPUBLib
 `EPUBLIB_W3C_EPUB_TESTS`, `EPUBLIB_EPUBCHECK_FIXTURES` and, when `epubcheck` is installed,
 `EPUBLIB_EPUBCHECK_CLI`. The expected outcome of each W3C test is in
 `Tests/EPUBTestSupport/SpecConformanceCorpus.swift`; a new pin goes in the script together
-with that table.
+with that table. So does the accessibility metadata each EPUBCheck fixture declares, in
+`Tests/EPUBReadingTests/AccessibilityMetadataCorpusTests.swift`: the run fails when a package
+document that mentions `schema:access…`, `dcterms:conformsTo` or `a11y:` is missing from it,
+and when a W3C test's package mentions one, as none at the pinned commit does
+([#676](https://github.com/vocaro/EPUBLib/issues/676)).
 
 ### Books
 

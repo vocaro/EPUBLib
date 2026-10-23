@@ -283,6 +283,67 @@ and Adobe font obfuscation are decoded for resource access, including the viewer
 TTS and annotation persistence are outside the initial API. The headless publication model enumerates no
 search results; a reader session lists them as rendered (`EPUBSearchResults`, see [reader controls](reader-controls.md#search-results)).
 
+### Accessibility metadata
+
+`metadata.accessibility` (`EPUBAccessibilityMetadata`) holds the accessibility metadata the
+package declares ([#676](https://github.com/vocaro/EPUBLib/issues/676)): the discovery
+properties of [EPUB Accessibility 1.1](https://www.w3.org/TR/epub-a11y-11/) §2.2
+(`schema:accessMode`, `schema:accessModeSufficient`, `schema:accessibilityFeature`,
+`schema:accessibilityHazard`, `schema:accessibilitySummary`) and its conformance and evaluator
+properties of §3.5 (`dcterms:conformsTo`, `a11y:certifiedBy`, `a11y:certifierCredential`,
+`a11y:certifierReport`). These are what the
+[Accessibility Metadata Display Guide 2.0](https://w3c.github.io/cg-reports/publishingcg/CG-FINAL-a11y-display-guidelines-20250422/)'s
+[EPUB techniques](https://www.w3.org/community/reports/publishingcg/CG-FINAL-epub-techniques-20250422/)
+read, so a host can work out each of the guide's fields from them: "Appearance can be modified"
+from the feature `displayTransformability`, "Readable in read aloud or dynamic braille" from a
+lone `textual` access mode or sufficient set, the hazards, the summary, and "No information is
+available" where `isEmpty`. The guide's other input, whether the book is fixed layout, is the
+spine items' `layout`. The library words none of it; a view that does is
+[#808](https://github.com/vocaro/EPUBLib/issues/808).
+
+- **Forms.** A property is read from EPUB 3's `meta property=` and from EPUB 2's
+  `meta name= content=`, in a package of either version and in the `x-metadata` element OPF 2.0.1
+  deprecates, and a claim, a credential or a report also from a `link` whose `rel` names it
+  (EPUB Accessibility 1.1 §4 and §3.5.3.4; EPUBCheck allows a credential so). A text
+  property is not read from a link. A property the package writes in EPUB 3's form is read from
+  that form alone, so that a package repeating it as an EPUB 2 `meta` for older readers lists it
+  once; one written only in EPUB 2's form is read from that.
+- **Values.** Each is read as a Dublin Core value is, its ASCII whitespace stripped from its ends
+  and collapsed, and one left empty is not listed. Every value is kept as written: in document
+  order, in its own case, with its repeats, and whether or not the vocabulary defines it, such as
+  the techniques' own `noflashingHazard`. A `schema:accessModeSufficient` is a set of modes, its
+  value split at each comma and each mode without the spaces round it, so `textual, visual` is
+  `["textual", "visual"]`; an empty item, and a set with none, is left out. No other value is
+  split. A link's value (`EPUBMetadataValue.isLink`) is its URL: a remote one as written, without
+  the white space round it, and one to a file in the book the archive-relative reference it
+  resolves to from the package document, as a landmark's is, for a session to navigate to. A link
+  that names no path an entry can have is not read.
+- **Refinements.** The lists hold primary expressions, those without a `refines`. A claim holds
+  the certifiers that refine it, a certifier the credentials and reports that refine it, and each
+  of them the other properties that refine it as `refinements`, such as the `dcterms:date` of an
+  evaluation (§3.5.3.2), in document order whatever order the package writes them in. A `refines`
+  is read as a fragment, `#` and an ID, percent-decoded, and matches an element's `id` read as an
+  XML ID, by code unit. A certifier, credential or report that refines nothing, as in EPUB 2,
+  which has no `refines`, is listed on its own (`certifiers`, `certifierCredentials`,
+  `certifierReports`). An expression that refines anything else is a subexpression about what it
+  refines, not the book (EPUB 3.3 §5.5.4), and is not read: accessibility metadata about a manifest item, one that
+  refines an ID the package lacks or a claim that itself refines something.
+
+Its limits:
+
+- A property is known by its name as written with its reserved prefix, as the guide's techniques
+  match it; EPUB Reading Systems 3.3 §11 allows a reading system to read property values as plain
+  strings. The package's `prefix` attribute is not read, so a property written with another
+  prefix mapped to schema.org is not read, and one whose reserved prefix the package maps
+  elsewhere is read as the reserved vocabulary's.
+- Only these nine properties are read. `a11y:exemption`, which the guide's legal considerations
+  field reads (#808), `a11y:contactEmail`, and the deprecated `schema:accessibilityAPI` and
+  `schema:accessibilityControl` are not. Neither is a `collection`'s own metadata, nor a linked
+  record (§2.3).
+- A `meta` with a `property` is read by its text, not by a `content` attribute some books put on
+  it.
+- `EPUBWriting` does not write `accessibility` ([#809](https://github.com/vocaro/EPUBLib/issues/809)).
+
 ## Engine contract
 
 An engine constructs a session with a publication, optional selection action and event callback.

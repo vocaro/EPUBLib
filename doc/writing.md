@@ -41,6 +41,9 @@ requires, reads a metadata value or a label with each run of ASCII whitespace as
 none at its ends, so a title given with a tab, a line end, doubled spaces or a space at an end
 is written as given and does not read back as given. The caller chooses a stable identifier and
 modification date for reproducible output; package generation does not invent document facts.
+Of `EPUBMetadata`, the writer writes the title, creators, languages and identifiers; it does not
+write `accessibility`, the accessibility metadata a reader reads from a book
+([#809](https://github.com/vocaro/EPUBLib/issues/809)).
 
 No value is written empty. EPUB 3.3 requires each Dublin Core value and each navigation label to
 hold something once its ASCII whitespace is stripped, and a value is empty to the writer when,

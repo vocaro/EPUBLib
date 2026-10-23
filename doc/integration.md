@@ -29,6 +29,12 @@ without files the archive lacks, and `publication.lostEntries` gives how many th
 whichever of their paths can still be read. When it is not nil, tell the reader the book may be
 incomplete.
 
+`publication.metadata.accessibility` holds the accessibility metadata the book declares, as
+written: its access modes, features, hazards and summary, and what it claims to conform to and
+who evaluated it. It is `isEmpty` when the book declares none. A book information view shows it
+as the W3C display guide words it; [architecture](architecture.md#accessibility-metadata) says
+how each value is read and what it leaves out.
+
 ## Showing a book
 
 Create and retain a reading session on the main actor, then mount `EPUBReaderView(session:)`:

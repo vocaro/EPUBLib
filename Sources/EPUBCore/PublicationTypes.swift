@@ -24,8 +24,12 @@ public struct EPUBMetadata: Equatable, Sendable {
     public let authors: [String]
     public let languages: [String]
     public let identifiers: [String]
-    public init(title: String, authors: [String] = [], languages: [String] = [], identifiers: [String] = []) {
+    /// The EPUB Accessibility metadata the package declares, empty when it declares none.
+    public let accessibility: EPUBAccessibilityMetadata
+    public init(title: String, authors: [String] = [], languages: [String] = [], identifiers: [String] = [],
+                accessibility: EPUBAccessibilityMetadata = .init()) {
         self.title = title; self.authors = authors; self.languages = languages; self.identifiers = identifiers
+        self.accessibility = accessibility
     }
 }
 

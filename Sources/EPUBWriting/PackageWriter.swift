@@ -4,6 +4,8 @@ import libxml2
 
 /// Publication facts supplied by a producer. No PDF reconstruction or reader UI policy.
 public struct EPUBPackageMetadata: Sendable {
+    /// The title, creators, languages and identifiers to write. Its `accessibility` is not written
+    /// (https://github.com/vocaro/EPUBLib/issues/809).
     public var metadata: EPUBMetadata
     /// The package's unique identifier. The first byte-identical entry in `metadata.identifiers`
     /// carries its XML ID; if absent, this value is prepended. Other entries retain their order
