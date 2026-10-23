@@ -1506,10 +1506,15 @@ words in the line" between "Shown words before" and "shown words after."; the he
 "Harbour notes" with "unheard ornament" in it; a link of kept words alone, "unheard jump",
 between "Shown words around" and "the kept jump."; and a picture that `visibility: hidden`
 hides ([Hidden text](native-viewer.md#hidden-text)), described as "Unheard veiled square",
-between "Shown words beside" and "the hidden square.". "Words after the kept ones." and sixty
+between "Shown words beside" and "the hidden square.". Two tables follow
+([#551](https://github.com/vocaro/EPUBLib/issues/551)): one used for layout, whose row holds
+"unheard cell words" between "Left words" and "in the cell", and beside it a picture kept so,
+"Unheard kept square", between "Right words" and "next to it"; and one of data headed
+"Station" and "Remark", whose second row holds "unheard remark" between "Birch" and "grove"
+and a cell of "Unheard alone". "Words after the kept ones." and sixty
 numbered lines follow. Every kept or hidden word begins "unheard" or "Unheard" and no shown
 word does, so either in a transcript is a kept word read, and no word of it is one VoiceOver
-uses for a heading, a link or a picture. Open it with `--href OPS/kept.xhtml` on a simulator
+uses for a heading, a link, a picture or a table. Open it with `--href OPS/kept.xhtml` on a simulator
 and `"launch=-SampleHref OPS/kept.xhtml"` in a hosted session. The book's last section,
 **Links out of the book** (`OPS/outside.xhtml`), holds links to places outside the book
 ([#683](https://github.com/vocaro/EPUBLib/issues/683)), each in a line of its own between
