@@ -250,20 +250,22 @@ enum ContentSemantics {
 
     // MARK: Quotation marks
 
-    /// `<q>` marks by language, outer then inner: `quotes: auto` (CSS Generated Content 3
-    /// §2.4.1), the marks typographically appropriate to the language, for which the
-    /// specification points at CLDR. They are CLDR's delimiters for the language, its script and
-    /// its region (`pt` and `pt-PT`, `zh-Hans` and `zh-Hant`), as the platform's locale data has
-    /// them, and as Firefox's table, made from CLDR, has them too.
+    /// `<q>` marks by language, the outer pair then the inner: the used value of `quotes: auto`
+    /// (CSS Generated Content 3 §2.4.1), the marks typographically appropriate to the language,
+    /// for which the specification points at CLDR. They are CLDR's delimiters for the language,
+    /// its script and its region (`pt` and `pt-PT`, `zh-Hans` and `zh-Hant`), as the platform's
+    /// locale data has them, and as Firefox's table, made from CLDR, has them too. As in any
+    /// `quotes` list, the last pair, the inner one, stands for every deeper level.
     /// `language` is the one the content declares; with none the marks are the English ones,
     /// whatever the package's `dc:language` (EPUB Reading Systems 3.3 §3.7).
-    static func quotes(language: String?, depth: Int) -> (open: String, close: String) {
+    static func quotes(language: String?) -> [ComputedStyle.QuotePair] {
         let locale = Locale(identifier: language ?? "en")
         let marks = locale.language.languageCode.flatMap { platformDepartures[$0.identifier] }
             ?? QuotationMarks(open: locale.quotationBeginDelimiter ?? "“", close: locale.quotationEndDelimiter ?? "”",
                               innerOpen: locale.alternateQuotationBeginDelimiter ?? "‘",
                               innerClose: locale.alternateQuotationEndDelimiter ?? "’")
-        return depth % 2 == 0 ? (marks.open, marks.close) : (marks.innerOpen, marks.innerClose)
+        return [ComputedStyle.QuotePair(open: marks.open, close: marks.close),
+                ComputedStyle.QuotePair(open: marks.innerOpen, close: marks.innerClose)]
     }
 
     private struct QuotationMarks {
