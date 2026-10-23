@@ -10,10 +10,16 @@ import AppKit
     private let status = NSTextField(labelWithString: "")
     private var needsFit = true
     private var lastViewport = CGSize.zero
+    private var safeAreaObservation: NSKeyValueObservation?
     var onClose: (() -> Void)?
 
     init(bitmap: CGImage, label: String, theme: ReaderTheme) {
         super.init(frame: .zero)
+        // The bar keeps clear of a toolbar shown over the reader, as the pages do
+        // (`ReaderCanvasView.platformSetUp`).
+        safeAreaObservation = observe(\.safeAreaInsets) { inspector, _ in
+            MainActor.assumeIsolated { inspector.needsLayout = true }
+        }
         wantsLayer = true
         layer?.backgroundColor = theme.background.cgColor
         setAccessibilityRole(.group)

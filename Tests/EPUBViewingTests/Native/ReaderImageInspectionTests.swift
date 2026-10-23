@@ -151,6 +151,33 @@ import UIKit
         XCTAssertNil(inspector)
     }
 
+    #if os(macOS)
+    /// The inspector's bar keeps clear of a toolbar shown over a reader that runs under it, as
+    /// the pages do (#162): the image stands below the bar's controls, 52 points below the top
+    /// of the safe area, whatever covers the top.
+    func testInspectionKeepsClearOfAToolbarShownOverTheReader() async throws {
+        let image = try attachment(pixels(width: 120, height: 40))
+        let host = CanvasHost(FakeCanvasSource([CanvasText.body("Reader")]), size: CGSize(width: 800, height: 600), underBars: true)
+        defer { host.close() }
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        host.layOut()
+        host.canvas.inspectImage(image)
+        let inspector = try XCTUnwrap(host.canvas.imageInspector)
+        let titleBar = inspector.safeAreaInsets.top
+        XCTAssertGreaterThan(titleBar, 10, "the title bar covers the top of the inspector")
+        XCTAssertEqual(inspector.scrollView.frame.minY, titleBar + 52, accuracy: 0.01, "clear of the title bar to begin with")
+        for shown in [true, false, true] {
+            let label = shown ? "toolbar shown" : "toolbar hidden"
+            try await host.setBar(shown: shown)
+            let bar = inspector.safeAreaInsets.top
+            XCTAssertEqual(bar > titleBar, shown, "\(label): the bar covers the top \(bar) points down")
+            XCTAssertEqual(inspector.frame, host.canvas.bounds, "\(label): the inspector keeps the reader's size")
+            XCTAssertEqual(inspector.scrollView.frame, CGRect(x: 0, y: bar + 52, width: 800, height: 600 - bar - 52),
+                           "\(label): the image below the controls, under the \(bar)-point bar")
+        }
+    }
+    #endif
+
     func testTableCellImageHitUsesItsDrawnFrame() throws {
         let fixture = try RichFixture("<table id='t'><tr><th>Example</th><th>Label</th></tr><tr><td>Before <img src='image.png' alt='Formula'/> after</td><td>Formula example</td></tr></table>", files: ["image.png": pixels(width: 120, height: 40)])
         let row = try XCTUnwrap(RichFixture.attachments(in: fixture.table("t")).last as? TableRowAttachment)

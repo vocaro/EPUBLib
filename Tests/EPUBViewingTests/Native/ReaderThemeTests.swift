@@ -294,9 +294,97 @@ import UIKit
         }
     }
 
+    /// A live change of theme, as of appearance (#243), keeps the page's text and the canvas in
+    /// one theme while the section on screen is rebuilt: the canvas keeps the old theme, with the
+    /// old text, until the new build is in, then both change together. Light to Sepia, both light
+    /// themes, and Sepia to Sepia with Increase Contrast, in either flow.
+    func testALiveChangeOfThemeKeepsThePageAndCanvasInOneTheme() async throws {
+        for flow in [EPUBReadingFlow.paginated, .scrolled] {
+            let gate = ThemeBuildGate(holding: "OPS/one.xhtml")
+            defer { gate.release() }
+            let book = try SessionCoverageBook.epub([
+                .init("one", SessionCoverageBook.filler(40) + "<hr/>" + SessionCoverageBook.filler(40)),
+                .init("two", SessionCoverageBook.filler(10)),
+            ])
+            let session = try NativeSession(publication: try EPUBPublication.open(data: book), action: nil, rich: gate) { _ in }
+            let window = ReaderTestWindow(session: session)
+            defer { session.close(); window.close() }
+            try await waitOrFail("the Light reader") { session.isReady && session.book.isComplete }
+            var style = EPUBReaderStyle(fontSize: 17, appearance: .light, flow: flow)
+            try await session.send(.style(style))
+            try await waitOrFail("the whole book in continuous scroll") { flow == .paginated || session.canvas?.scrollBook != nil }
+            let canvas = try XCTUnwrap(session.canvas)
+            await settle(canvas)
+            XCTAssertEqual(canvas.configuration.theme, .light)
+            let steps: [(String, ReaderTheme)] = [
+                ("Sepia", ReaderTheme(.sepia)), ("Sepia with Increase Contrast", ReaderTheme(.sepia, increasesContrast: true)),
+            ]
+            var before = ReaderTheme.light
+            for (name, theme) in steps {
+                let held = expectation(description: "the shown section's \(name) build is held, \(flow)")
+                gate.hold(theme, held: held)
+                if theme.increasesContrast { window.pageControls.increasesContrast = true } else {
+                    style.appearance = .sepia
+                    try await session.send(.style(style))
+                }
+                let result = await XCTWaiter.fulfillment(of: [held], timeout: 20)
+                XCTAssertEqual(result, .completed, "\(name), \(flow)")
+                await settle(canvas)
+                XCTAssertEqual(canvas.configuration.theme, before, "\(name), \(flow): the canvas keeps the theme of the text it shows")
+                assertTextAgreesWithCanvas(canvas, "while the \(name) rebuild is held, \(flow)")
+                XCTAssertEqual(session.readerState?.status.effectiveColors, theme.colors, "\(name), \(flow): the status has the new theme at once")
+                gate.release()
+                try await waitOrFail("\(name), \(flow)") {
+                    session.book.isComplete && session.book.typography.theme == theme && canvas.configuration.theme == theme
+                }
+                await settle(canvas)
+                assertTextAgreesWithCanvas(canvas, "once the \(name) rebuild is in, \(flow)")
+                XCTAssertEqual(shownTextColors(canvas), [theme.text], "\(name), \(flow): the page shows the new theme's text")
+                before = theme
+            }
+        }
+    }
+
+    private func settle(_ canvas: ReaderCanvasView) async {
+        await withCheckedContinuation { done in DispatchQueue.main.async { done.resume() } }
+        #if os(macOS)
+        canvas.window?.contentView?.layoutSubtreeIfNeeded()
+        #else
+        canvas.window?.layoutIfNeeded()
+        #endif
+    }
+
+    /// The text colours of what the canvas shows (the book sets none of its own).
+    private func shownTextColors(_ canvas: ReaderCanvasView) -> Set<PlatformColor> {
+        var colors: Set<PlatformColor> = []
+        for view in canvas.textViews {
+            guard let storage = view.contentStorage.textStorage else { continue }
+            storage.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
+                if let color = value as? PlatformColor, color != .clear { colors.insert(color) }
+            }
+        }
+        return colors
+    }
+
+    private func assertTextAgreesWithCanvas(_ canvas: ReaderCanvasView, _ moment: String,
+                                            file: StaticString = #filePath, line: UInt = #line) {
+        let theme = canvas.configuration.theme
+        #if os(macOS)
+        XCTAssertEqual(canvas.layer?.backgroundColor, theme.background.cgColor,
+                       "\(moment): the canvas paints another theme than it has", file: file, line: line)
+        #else
+        XCTAssertEqual(canvas.backgroundColor, theme.background,
+                       "\(moment): the canvas paints another theme than it has", file: file, line: line)
+        #endif
+        let shown = shownTextColors(canvas)
+        XCTAssertFalse(shown.isEmpty, "\(moment): no text on screen", file: file, line: line)
+        XCTAssertTrue(shown.isSubset(of: [theme.text, theme.secondaryText]),
+                      "\(moment): text in \(shown) is shown on a canvas whose text is \(theme.text)", file: file, line: line)
+    }
+
     /// A note's popover is drawn on the page's colour.
     private func assertNote(on canvas: ReaderCanvasView, theme: ReaderTheme, label: String) throws {
-        canvas.presentNote(NSAttributedString(string: "A note."), from: CGRect(x: 100, y: 100, width: 20, height: 20))
+        canvas.presentNote(NSAttributedString(string: "A note."), theme: theme, from: CGRect(x: 100, y: 100, width: 20, height: 20))
         #if os(macOS)
         let popover = try XCTUnwrap(canvas.presentedNote as? NSPopover, label)
         defer { popover.close() }
@@ -472,4 +560,54 @@ import UIKit
         XCTAssertEqual(ours(), systemBold, "regular text drawn as the system draws body text with Bold Text")
     }
     #endif
+}
+
+/// Holds a build of some documents in one theme at their rules until released; every other
+/// build passes. `hold` arms it again for another theme.
+private final class ThemeBuildGate: RichContentFactory, @unchecked Sendable {
+    private let condition = NSCondition()
+    private let paths: Set<String>
+    private var theme: ReaderTheme?
+    private var held: XCTestExpectation?
+    private let content = NativeRichContent()
+
+    init(holding path: String) { paths = [path] }
+
+    func hold(_ theme: ReaderTheme, held: XCTestExpectation) {
+        condition.lock()
+        self.theme = theme
+        self.held = held
+        condition.unlock()
+    }
+
+    func release() {
+        condition.lock()
+        theme = nil
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    func horizontalRule(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString {
+        condition.lock()
+        if let theme, context.typography.theme == theme, paths.contains(context.document.path) {
+            held?.fulfill()
+            held = nil
+            while self.theme == theme { condition.wait() }
+        }
+        condition.unlock()
+        return content.horizontalRule(element, style: style, context: context)
+    }
+
+    func image(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
+        content.image(element, style: style, context: context)
+    }
+    func svg(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
+        content.svg(element, style: style, context: context)
+    }
+    func table(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
+        content.table(element, style: style, context: context)
+    }
+    func math(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
+        content.math(element, style: style, context: context)
+    }
 }

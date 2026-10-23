@@ -804,15 +804,15 @@ private final class BoxMarginFragments: NSObject, NSTextLayoutManagerDelegate {
     /// Books are untrusted, and a contents page or a gallery made of floats has hundreds of them
     /// with nothing between. Four times as many floats must not cost sixty-four times as long:
     /// while each collision rescanned the earlier boxes from the first, 1,000 took 12 seconds
-    /// and 3,000 over 4 minutes on the machine these tests were written on.
+    /// and 3,000 over 4 minutes on the machine these tests were written on. The paragraph after
+    /// them clears them, as after a gallery, so that the plan keeps the floats it times: beside
+    /// the first float it made the run one group, taller than a page, and every float was left
+    /// in flow (#209).
     func testResolvingConsecutiveFloatsDoesNotGrowCubically() throws {
         func seconds(_ count: Int) throws -> Double {
-            let section = try build((0..<count).map { "<figure>F\($0).</figure>" }.joined() + "<p>End.</p>", css: "figure { float:left; width:60px }")
-            return (0..<2).map { _ in
-                let start = threadSeconds()
-                XCTAssertEqual(ReaderBoxLayout.resolve(section.string, viewport: size).text.string, section.string.string)
-                return threadSeconds() - start
-            }.min() ?? 0
+            let section = try build((0..<count).map { "<figure>F\($0).</figure>" }.joined() + "<p style='clear:left'>End.</p>",
+                                    css: "figure { float:left; width:60px }")
+            return try cpuSeconds(resolving: section, regions: count)
         }
         let small = try seconds(150), large = try seconds(600)
         // Linear work is 4 times as long, quadratic 16, cubic 64.
@@ -822,6 +822,23 @@ private final class BoxMarginFragments: NSObject, NSTextLayoutManagerDelegate {
     /// CPU seconds of this thread: unlike a wall clock, unaffected by other work on the machine.
     private func threadSeconds() -> Double { Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1e9 }
 
+    /// The lesser CPU time of two layouts of `section`. A section whose boxes were left in flow
+    /// would time the fallback, not the boxes, so every box has to keep its region: `regions`
+    /// of them, `positioned` of those positioned by a vertical inset.
+    private func cpuSeconds(resolving section: SectionText, regions: Int, positioned: Int = 0,
+                            file: StaticString = #filePath, line: UInt = #line) throws -> Double {
+        try (0..<2).map { _ in
+            let start = threadSeconds()
+            let resolved = ReaderBoxLayout.resolve(section.string, viewport: size)
+            let elapsed = threadSeconds() - start
+            XCTAssertEqual(resolved.text.string, section.string.string, file: file, line: line)
+            let plan = try XCTUnwrap(resolved.geometry, "\(regions) boxes are planned", file: file, line: line)
+            XCTAssertEqual(plan.regions.filter { !$0.reserved }.count, regions, "every box keeps its region", file: file, line: line)
+            XCTAssertEqual(plan.regions.filter(\.wrapsEarlierText).count, positioned, file: file, line: line)
+            return elapsed
+        }.min() ?? 0
+    }
+
     /// Floats that drop past positioned boxes, which sit wherever their insets say and so in no
     /// particular order in the list. The asides are written from the largest `top` to the
     /// smallest. An inset is held to 1,000 points (`StyleLimits.offset`), so all but the last
@@ -830,17 +847,13 @@ private final class BoxMarginFragments: NSObject, NSTextLayoutManagerDelegate {
     /// then drops past the whole stack and the floats before it. Rescanning from the first box
     /// after every drop took 0.4 s of CPU for 150 of each and over 20 s for 600, and would have
     /// in any order: each drop cost one scan as far as the next collision, wherever in the list
-    /// that was.
+    /// that was. The paragraph after them clears the floats, as in the test above.
     func testResolvingFloatsBelowBoxesWrittenBottomFirstDoesNotGrowCubically() throws {
         func seconds(_ count: Int) throws -> Double {
             let section = try build((0..<count).map { "<aside style='top:\((count - 1 - $0) * 25)px'>A\($0).</aside>" }.joined()
-                                    + (0..<count).map { "<figure>F\($0).</figure>" }.joined() + "<p>End.</p>",
+                                    + (0..<count).map { "<figure>F\($0).</figure>" }.joined() + "<p style='clear:left'>End.</p>",
                                     css: "aside { position:absolute; left:0; width:60px; height:25px } figure { float:left; width:60px }")
-            return (0..<2).map { _ in
-                let start = threadSeconds()
-                XCTAssertEqual(ReaderBoxLayout.resolve(section.string, viewport: size).text.string, section.string.string)
-                return threadSeconds() - start
-            }.min() ?? 0
+            return try cpuSeconds(resolving: section, regions: 2 * count, positioned: count)
         }
         let small = try seconds(150), large = try seconds(600)
         // Linear work is 4 times as long, quadratic 16, cubic 64.
