@@ -211,6 +211,39 @@ import UIKit
         XCTAssertTrue(host.canvas.togglesControls(at: CGPoint(x: page.frame.midX, y: page.frame.maxY + 10)), "below the page")
     }
 
+    /// With a page-turn animation (#688) a turn slides a spread of pages in as any other, and a
+    /// swipe brings in the next spread, both its pages where the canvas shows them, never the
+    /// other page of the spread on screen.
+    func testASwipeBringsInTheNextSpreadOfPages() throws {
+        var configuration = ReaderCanvasConfiguration()
+        configuration.pageTurnAnimation = .slide
+        let host = host(pages: 6, configuration: configuration)
+        let canvas = host.canvas
+        XCTAssertEqual(shownSections(canvas), [0, 1])
+        let width = canvas.bounds.width
+        XCTAssertTrue(canvas.beginPageDrag())
+        canvas.dragPage(by: -0.3 * width)
+        let transition = try XCTUnwrap(canvas.pageTransition)
+        XCTAssertEqual(transition.dragForward, true)
+        XCTAssertEqual(transition.preview.map(\.placement.section), [2, 3], "the next spread's pages")
+        let frames = transition.preview.map(\.frame)
+        XCTAssertEqual(shownSections(canvas), [0, 1], "nothing is turned yet")
+        canvas.dragPage(by: -0.6 * width)
+        XCTAssertEqual(canvas.endPageDrag(turns: true, animated: true), .turned)
+        XCTAssertEqual(shownSections(canvas), [2, 3])
+        XCTAssertEqual(try columns(canvas, 2).map(\.frame), frames, "laid out where the canvas shows them")
+        canvas.endPageTransition()
+        XCTAssertTrue(canvas.beginPageDrag())
+        canvas.dragPage(by: 0.3 * width)
+        XCTAssertEqual(canvas.pageTransition?.preview.map(\.placement.section), [0, 1], "the spread before")
+        XCTAssertEqual(canvas.endPageDrag(turns: false, animated: false), nil)
+        canvas.endPageTransition()
+        XCTAssertEqual(canvas.turnPage(forward: true), .turned)
+        XCTAssertEqual(canvas.pageTransition?.motion, .slide, "a turn slides the spread in")
+        XCTAssertEqual(shownSections(canvas), [4, 5])
+        canvas.endPageTransition()
+    }
+
     /// Continuous scroll shows the pages one after another, each as large as the scroll's
     /// column and the visible height let it be.
     func testContinuousScrollShowsAScrollOfPages() throws {
