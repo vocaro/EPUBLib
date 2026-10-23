@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Rest the line kept in continuous scroll at the top when a bar is shown or hidden over the reader in a book with no box to resolve, as in one with boxes, where on iPhone and iPad a line shown stood 53.8 points below the top of the reading area from the first change of the bar on ([#370](https://github.com/vocaro/EPUBLib/issues/370)).
 - Leave the words and pictures a book keeps from assistive technology out of what VoiceOver reads of a table cell, on iPhone and iPad in a cell's element, a row's line and its actions and on Mac in what a row is called and a cell's selected text, while a selection and a copy of the row keep them ([#551](https://github.com/vocaro/EPUBLib/issues/551))
 - Name the language of a picture's words to VoiceOver, that of its `img`, `object`, `embed` or `svg` element, so that a heading or a cell whose picture's words outweigh its own is read in their language ([#548](https://github.com/vocaro/EPUBLib/issues/548))
 

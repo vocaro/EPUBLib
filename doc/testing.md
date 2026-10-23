@@ -1260,6 +1260,20 @@ What the probe saw, what was fixed and what is still unverified is on
 [#51](https://github.com/vocaro/EPUBLib/issues/51#issuecomment-6159295619) ([second
 part](https://github.com/vocaro/EPUBLib/issues/51#issuecomment-6159295950)).
 
+### Bar changes over the reader
+
+How continuous scroll moves while a bar is shown or hidden over it, animated, is watched with
+the probe patch and runner on
+[#370](https://github.com/vocaro/EPUBLib/issues/370#issuecomment-6370953916). The patch adds a
+test class that mounts `EPUBReaderView` in a `NavigationStack` three ways (under the host's own
+bar with `ignoresSafeArea()`, and under `epubReaderHidesControls` in and out of the safe area),
+changes the bar four times in a book with full-page boxes and in one with none, and logs where
+the line shown is drawn at every frame, from the scroll view's presentation layer. With
+`PROBE370_FRAMES` it draws every other frame from the window's presentation layers into PNGs.
+`simctl io recordVideo` records none of it: SwiftPM's iOS test host shows no window on the
+simulator's display. The runner creates and deletes its own iPhone 17 Pro and iPad Air
+13-inch (M4) simulators; run it with `python3 scripts/eng admit -- bash probe-370-run.sh`.
+
 ### VoiceOver's own code on Mac
 
 What VoiceOver does with an element can be read in its own code, without running it or

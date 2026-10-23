@@ -2201,8 +2201,29 @@ as they did.
   rested: the visible start cannot be read then, because UIKit has moved the view for the
   bar and the text under it is being laid out again. On an iPad a paragraph shown otherwise
   ended 38.6 points below the top once the bar had hidden twice. A book with no box to
-  resolve is left as UIKit leaves it: when a bar hides, its text stays where it is on
-  screen. On the Mac the reader is laid out when a toolbar changes its safe area (Pages,
+  resolve is not laid out again, and is rested the same: UIKit left its text where it was on
+  screen when a bar hid, so that a line shown stood 53.8 points below the top of the taller
+  area, and when the bar came back moved the text down with it, the line still 53.8 points
+  low and so through every later change, where every other shown position rests at the top
+  ([#370](https://github.com/vocaro/EPUBLib/issues/370)). The text is not kept where it was
+  on screen instead, as a reading app that hides its bars on a tap may keep it: that would be
+  a second rule for where a position ends up, and the reader rests it at the top everywhere
+  else. A reader in the safe area under `epubReaderHidesControls` keeps the room the bars took
+  ([reader controls](reader-controls.md#hiding-the-controls-while-reading)), so the library's
+  own hiding moves no text: in iPhone 17 Pro and iPad Air 13-inch (M4) simulators the line
+  shown stood still through every frame of the bars going and coming back. The rest is for a
+  reader that runs under bars that come and go. A place the person scrolled to is read as the
+  first line on screen once UIKit has moved the view for the bar, which can be a line or two
+  above it ([#164](https://github.com/vocaro/EPUBLib/issues/164)).
+  Watched frame by frame in those simulators, the rest is made inside the bar's animation, so
+  UIKit animates the scroll it makes: in a book with no box the line shown slides to the top
+  of the new area with the bar, 54 points on the iPhone and 64 on the iPad, in about 0.2 s. In
+  a book whose boxes take their height from the visible area their new layout is not
+  animated. Everything below them moves at once by as much as they changed, against the way
+  the bar goes, twice the bar's height below a title page and an epigraph, and then slides to
+  its rest; while it slides, a centered line in a box is drawn shifted towards the left edge
+  ([#370](https://github.com/vocaro/EPUBLib/issues/370#issuecomment-6370953916)).
+  On the Mac the reader is laid out when a toolbar changes its safe area (Pages,
   below), and its layout lays out the scroll view, whose automatic insets follow the toolbar
   then. AppKit moves the view for the new inset inside that layout, which is no scroll by the
   person. In the middle of the book it moves the view by as much as the inset changed: the
