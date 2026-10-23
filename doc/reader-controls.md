@@ -302,8 +302,21 @@ results as above; `EPUBEngineContract.verify` checks each of these.
 
 Commands submitted through one controls model execute in FIFO order. Style edits read the latest
 style when they execute, preserving fields changed by earlier queued edits or host commands.
-Appearance controls change font size two points at a time within 12–36 points, the sizes the
-bundled reader draws distinctly, and are disabled at either end; they choose System, Light, Dark,
+Appearance controls change font size within 12–96 points, the sizes the bundled reader draws:
+two points at a time up to 36, four up to 48 and eight up to 96, so that each step changes the
+page about as much to the eye and 96 is 22 steps from 12. A size a host set off those steps
+goes to the next one, and one outside the range steps from its nearer end. Each control is
+disabled where no step changes the size drawn
+([#675](https://github.com/vocaro/EPUBLib/issues/675)). Smaller Text and Larger Text carry the
+size drawn, "19 points", as a second line, which iOS puts in their names, "Larger Text, 19
+points", since a menu item's accessibility value is not exposed on iPhone and iPad. Once the reader has taken a new
+size, the size it reports drawing is announced, as a step through search results is, so that
+VoiceOver says the size at every step. On iPhone and iPad the menu stays open after either, to step again under the same finger
+or cursor; on the Mac it closes, as SwiftUI offers no other. Use System Text Size sets
+`followsDynamicType`: the chosen size is then scaled by the system text size, as body text is,
+and the controls step the chosen size and show and say the size drawn
+(`readerState.status.effectiveFontSize`); several chosen sizes can be drawn at one size at either
+end, and a step passes over them. Appearance controls also choose System, Light, Dark,
 Sepia or Black, and Custom once the style holds custom colours. System
 is the default and follows the mounted view's color scheme, including OS theme changes and
 host color-scheme overrides. Explicit appearances remain fixed until changed. Use
@@ -348,7 +361,10 @@ ownership of persistence, library/import management, selection actions and app-s
 
 Page-button help describes the configured native inputs. On Mac, default Next Page help
 lists Right Arrow, Page Down and Space, the right edge click, and wheel/trackpad directions;
-Previous Page lists Left Arrow, Page Up and Shift-Space with the opposite gestures. Keyboard
+Previous Page lists Left Arrow, Page Up and Shift-Space with the opposite gestures. Help for
+`EPUBPageAction.bookStart` and `.bookEnd` ("First Page" and "Last Page", or "Scroll to
+Beginning" and "Scroll to End" in continuous scroll) lists their keys alone, Home or End and
+on the Mac Command-Up or Command-Down Arrow: no gesture goes there. Keyboard
 hints say “With reader focus”: they do not apply while the search field or another host field
 has focus. On iPhone/iPad the help describes edge taps and horizontal touch swipes instead
 of mouse gestures, alongside any configured hardware keys. SwiftUI presents help on platforms
@@ -404,7 +420,7 @@ controls were operated; the Mac's tree agrees where noted.
 | Reading mode | Continuous Scroll, Paging | The current one selected. On the Mac a radio group named Reading Mode with two radio buttons of those names, the current one's value 1. |
 | Search, Contents, Appearance | The same | Contents and Appearance are menu buttons on the Mac |
 | Contents entries | The entry's title | The current ones selected; the unlinked entry disabled; a parent "Collapsed" to VoiceOver |
-| Appearance entries | Smaller Text, Larger Text, System, Light, Dark, Sepia, Black, and Custom once the style holds custom colours | The chosen appearance selected. On the Mac the appearances are in a submenu named Appearance. Sepia, Black and Custom were added in [#674](https://github.com/vocaro/EPUBLib/issues/674) to the same picker and have not been read from the tree. |
+| Appearance entries | Smaller Text, Larger Text, Use System Text Size, System, Light, Dark, Sepia, Black, and Custom once the style holds custom colours; on iOS the first two go on with the size drawn, their second line: "Larger Text, 19 points" | Smaller Text and Larger Text disabled where no step changes the size drawn. Use System Text Size selected while the style follows the system text size. The chosen appearance selected. On the Mac the appearances are in a submenu named Appearance. Sepia, Black and Custom were added in [#674](https://github.com/vocaro/EPUBLib/issues/674) to the same picker and have not been read from the tree. |
 | Search field | Search in book | The query |
 | Pane buttons | Search, Close Search, Clear Search; Search Results and Close Search Results in the strip's browser | |
 | Count | Search matches | "Match 2 of 14, Low tide"; "Match 1 of 14, first match, Before the road"; "Match 14 of 14, last match, Afterword"; "Match 1 of 1, only match, The market"; "Match 1 of at least 10,000, first match, Stage 1" |

@@ -198,7 +198,7 @@ import XCTest
             XCTAssertEqual(seen, Array(0...last))
             try await reader.session.send(.navigate(href: "OPS/bad.xhtml"))
             try await reader.wait("the withheld section") { reader.session.lastLocation?.href == "OPS/bad.xhtml" }
-            XCTAssertEqual(reader.session.lastLocation?.publicationID, reader.publication.id)
+            XCTAssertEqual(reader.session.lastLocation?.publicationID, reader.publication.persistentID)
             // Its refused text is not searchable; the rest of the book is.
             try await reader.session.send(.search(text: "withheldword"))
             XCTAssertEqual(reader.state.status.search, .completed(query: "withheldword", hasMatches: false))
@@ -402,11 +402,17 @@ import XCTest
 
     // MARK: Links and turns the view asks for
 
-    /// "`.notice` reports refused external links"; `doc/architecture.md`: "external links are
-    /// refused with a notice". Links inside the book navigate as `.navigate(href:)` does.
+    /// "`.notice` reports refused external links": with links outside the book turned off
+    /// (`EPUBExternalLinks.refuse`, #683) each gives the notice and does nothing else; the
+    /// reader asking before it opens one is `ExternalLinkTests`. Links inside the book navigate
+    /// as `.navigate(href:)` does.
     func testActivatedLinksNavigateInsideTheBookAndAreRefusedOutsideIt() async throws {
         let reader = try open(SessionCoverageBook.chapters())
         try await reader.settle()
+        reader.window?.pageControls.externalLinks = .refuse
+        try await reader.wait("links outside the book turned off") {
+            if case .refuse = reader.session.externalLinks.behavior { true } else { false }
+        }
         let canvas = try XCTUnwrap(reader.session.canvas)
         let origin = ReaderTextPosition(section: 0, offset: 0)
         func activate(_ link: ReaderLink) { reader.session.canvas(canvas, didActivate: link, at: origin, rect: CGRect(x: 10, y: 10, width: 40, height: 20)) }

@@ -284,7 +284,12 @@ import UIKit
         for stray: Character in ["\u{130}", "\u{DF}", "\u{FF11}", " ", "-", "\u{E9}"] {
             XCTAssertNil(controls.direction(for: .character(stray), modifiers: []), "\(stray)")
         }
-        XCTAssertEqual(EPUBPageKeyBinding.defaults.count, 6)
+        // Six turns, Home and End, and on the Mac Command-Up and Command-Down (#681).
+        #if os(macOS)
+        XCTAssertEqual(EPUBPageKeyBinding.defaults.count, 10)
+        #else
+        XCTAssertEqual(EPUBPageKeyBinding.defaults.count, 8)
+        #endif
         XCTAssertEqual(EPUBPageControls(), EPUBPageControls(keyboardBindings: EPUBPageKeyBinding.defaults))
         XCTAssertNotEqual(EPUBPageControls(), .hostOnly)
         XCTAssertEqual(EPUBPageControls.hostOnly.leftTapWidth, 56, "host-only input turns the zones off, it does not resize them")

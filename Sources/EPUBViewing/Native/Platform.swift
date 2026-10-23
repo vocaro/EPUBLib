@@ -37,6 +37,9 @@ struct NativeTypography: Equatable, Hashable, Sendable {
         self.theme = theme
         self.boldText = boldText
     }
+
+    /// The host's font, spacing, alignment and hyphenation (`ReaderTextSettings`).
+    var text = ReaderTextSettings()
 }
 
 /// The reader's own colors in Light and Dark (`ReaderTheme.light`, `ReaderTheme.dark`). Book

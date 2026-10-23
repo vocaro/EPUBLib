@@ -350,7 +350,8 @@ enum ReaderLink: Equatable, Sendable {
     case `internal`(href: String)
     /// An EPUB `noteref`: show the referenced note in place when its content is known.
     case note(href: String)
-    /// Anything outside the archive. Never opened.
+    /// Anything outside the archive. Only a web page or an email address is ever opened, and
+    /// only after the reader is asked (`NativeSession.activateExternalLink`).
     case external(String)
 
     private static let internalScheme = "epublib-internal:"

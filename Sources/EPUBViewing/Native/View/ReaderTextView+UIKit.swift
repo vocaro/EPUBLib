@@ -143,8 +143,8 @@ final class ReaderTextView: UITextView {
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(pageTurnKeyCommand(_:)), let command = sender as? UIKeyCommand {
             guard let canvas else { return false }
-            return Self.pageTurnDirection(input: command.input, flags: command.modifierFlags,
-                                          controls: canvas.configuration.pageControls) != nil
+            return Self.pageAction(input: command.input, flags: command.modifierFlags,
+                                   controls: canvas.configuration.pageControls) != nil
         }
         return super.canPerformAction(action, withSender: sender)
     }
@@ -155,6 +155,13 @@ final class ReaderTextView: UITextView {
                                   controls: EPUBPageControls = .init()) -> Bool? {
         guard let input, let key = EPUBPageKey(uiInput: input) else { return nil }
         return controls.direction(for: key, modifiers: EPUBPageKeyModifiers(uiFlags: flags))
+    }
+
+    /// The page action a key command is bound to, the book's start and end among them.
+    static func pageAction(input: String?, flags: UIKeyModifierFlags,
+                           controls: EPUBPageControls = .init()) -> EPUBPageAction? {
+        guard let input, let key = EPUBPageKey(uiInput: input) else { return nil }
+        return controls.action(for: key, modifiers: EPUBPageKeyModifiers(uiFlags: flags))
     }
 
     override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {

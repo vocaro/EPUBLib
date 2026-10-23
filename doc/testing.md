@@ -190,7 +190,8 @@ ended at that test's `started` line, and the sample had the test's frame on the 
 
 ## Coverage
 
-Parser tests cover EPUB 2/3 structure, navigation, landmarks and page lists, resource access, identity, limits,
+Parser tests cover EPUB 2/3 structure, navigation, landmarks and page lists, resource access, identity
+across copies of a book (#679), books unpacked into folders with their links, pipes and limits (#680), limits,
 duplicate ZIP entries, symlinks, path separators and dot segments beside every scalar that joins
 their `Character`, CRC corruption, malformed/deep/wide XML, UTF-16 entities, repeated,
 conflicting, absent, remote and differently cased manifest items, references that start at or climb past
@@ -585,6 +586,22 @@ The script fetches each corpus at a pinned commit into `~/Library/Caches/EPUBLib
 `EPUBLIB_EPUBCHECK_CLI`. The expected outcome of each W3C test is in
 `Tests/EPUBTestSupport/SpecConformanceCorpus.swift`; a new pin goes in the script together
 with that table.
+
+`PublicationFolderCorpusTests` reads each W3C test and each expanded EPUBCheck fixture as a
+folder and as the archive packed from it, and each archived EPUBCheck fixture and each book of
+the two [collections](#books) as an archive and as the folder unzipped from it, and requires the
+same publication or the same refusal ([#680](https://github.com/vocaro/EPUBLib/issues/680)); each
+book zipped again must keep its `persistentID`
+([#679](https://github.com/vocaro/EPUBLib/issues/679)). Each test is skipped without its
+variable. A folder that lacks `mimetype` is held to the archive packed with one. An archived
+fixture that is refused, or whose names a Mac's file system cannot hold as they stand (two that
+differ only in case, a name that is not UTF-8), has no folder to compare and is listed as
+skipped, with the reason, in the test's output:
+
+```sh
+eval "$(bash scripts/fetch-corpora.sh)"
+swift test --filter PublicationFolderCorpusTests
+```
 
 ### Books
 
@@ -1117,7 +1134,15 @@ keyboard's Search key, whose identifier is Search, in place of the search field'
 `tap=search` written for Return then now does nothing, and its line names `keyboard=search`.
 
 The probe's steps are documented where they are handled, in
-`Examples/ControlsQualification/UITests/ControlsProbe.swift`. Host arguments:
+`Examples/ControlsQualification/UITests/ControlsProbe.swift`. `key=` types a hardware key
+with `XCUIElement.typeKey`, through UIKit's own keyboard dispatch, after any of `shift+`,
+`command+`, `option+`, `control+` and `function+`. On 2026-10-22, on an iPad Air 13-inch (M4)
+simulator with iOS 27.0 (24A434) and Xcode 27.1 (27A9275), the reader received Right Arrow,
+Down Arrow and Space that way. It received no press at all for `key=home`, `key=end`,
+`key=pageup` or `key=pagedown`, with or without `function+`, so the probe cannot show those
+keys on iOS. The status line ends with the layout's page, counted from 1, as
+`layout page 2/22, section 1/5`, with `-` where a count is not known yet
+([#681](https://github.com/vocaro/EPUBLib/issues/681)). Host arguments:
 `-QualificationBook ltr|rtl|long`, `-QualificationHost toolbar|strip|navigator`,
 `-QualificationPlacement automatic|leading|bottom`, `-QualificationHostItems <count>`,
 `-QualificationFlow scrolled`, `-QualificationFontSize <points>`, `-QualificationTitle NO`,
@@ -1214,7 +1239,9 @@ The verifier checks:
 - The mounted session emits `.ready` exactly once.
 - Advertised commands can be submitted; unsupported commands return the matching capability error.
 - Href navigation changes sections and bookmark restoration returns to the saved section.
-- Locations carry the publication identity and a valid engine-tagged bookmark when supported.
+- Locations carry the publication's `persistentID` and a valid engine-tagged bookmark when
+  supported, and a location that carries the book's `id` instead, as one saved before
+  `persistentID` does, restores too ([#679](https://github.com/vocaro/EPUBLib/issues/679)).
 - Foreign publication, engine and bookmark format identities are rejected.
 - An engine with `.searchResults` lists the phrase's results before reporting completion, with
   indices in order and the publication's identity; steps, wraps back from the first result to
@@ -1232,6 +1259,7 @@ A minimal SwiftUI test engine runs the same checks with no renderer at all, as a
 search, one that only highlights, one that lists results, and one that lists them and reports a
 step's relocation and a clear's idle state 30 ms late, from a timer of its own. Deliberately broken
 engines demonstrate that missing/duplicate readiness, ignored cancellation, incompatible restoration,
+locations that carry the file's hash, a restore that refuses a location saved under it,
 late callbacks, results published after completion, steps that do not wrap, stale results that
 still navigate, results kept after a clear and a step of a cleared search that still moves the
 reader fail the verifier. Adapter-specific tests must additionally check actual rendering,
@@ -1417,8 +1445,8 @@ after the hidden ones." stand round them, and sixty numbered lines follow. It ha
 and no link, no word of it is one VoiceOver uses, and no shown word holds a hidden one, so
 "concealed", "Concealed" or "collapsed" in a transcript is a hidden word read. Open it with
 `--href OPS/veiled.xhtml` on a simulator and `"launch=-SampleHref OPS/veiled.xhtml"` in a
-hosted session. **Math readings** (`OPS/math.xhtml`) follows it, and the book's last section,
-**Words kept from listeners** (`OPS/kept.xhtml`), holds shown words the book keeps from
+hosted session. **Math readings** (`OPS/math.xhtml`) follows it, and after it
+**Words kept from listeners** (`OPS/kept.xhtml`) holds shown words the book keeps from
 assistive technology with `aria-hidden="true"`
 ([Text kept from assistive technology](native-viewer.md#text-kept-from-assistive-technology)):
 a paragraph of its own, "* Unheard stars *", after "Words before the kept ones."; "unheard
@@ -1430,7 +1458,17 @@ between "Shown words beside" and "the hidden square.". "Words after the kept one
 numbered lines follow. Every kept or hidden word begins "unheard" or "Unheard" and no shown
 word does, so either in a transcript is a kept word read, and no word of it is one VoiceOver
 uses for a heading, a link or a picture. Open it with `--href OPS/kept.xhtml` on a simulator
-and `"launch=-SampleHref OPS/kept.xhtml"` in a hosted session. A second bundled book, opened with
+and `"launch=-SampleHref OPS/kept.xhtml"` in a hosted session. The book's last section,
+**Links out of the book** (`OPS/outside.xhtml`), holds links to places outside the book
+([#683](https://github.com/vocaro/EPUBLib/issues/683)), each in a line of its own between
+"Shown before" and "in the line.": "far site", a web page; "letter route", an email address;
+and "script route", a `javascript:` link, which the reader refuses with a notice. A table
+follows, "Left out cell" beside a cell that is the web page "cell far site", and then a note
+reference, "noted route", to a footnote whose link is the web page "noted far site". "Words
+before the routes out." opens it, and "Words after the routes out." and sixty numbered lines
+follow. Every address is under `example.invalid`, which nothing answers, and no word of it is
+one VoiceOver uses for a link, a table or a note. Open it with `--href OPS/outside.xhtml`;
+[Links out of the book](#links-out-of-the-book) has the sessions. A second bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
 twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
@@ -1942,6 +1980,34 @@ runner at 600 points, though, the size `ax:larger` gives starts a page with the 
 that page's first line is the heading, and the session cannot tell the two rules apart: take
 the heading's line from `ax:lines` before reading anything into it. The sessions are
 [on the issue](https://github.com/vocaro/EPUBLib/issues/594#issuecomment-6278967907).
+
+#### Links out of the book
+
+The reader asks before it opens a web or email link outside the book
+([Security](native-viewer.md#security), [#683](https://github.com/vocaro/EPUBLib/issues/683)).
+What VoiceOver reads of the question on iPhone and iPad, and where its cursor goes after it,
+is read on simulators, in the fixture's **Links out of the book**: links in the text, then one
+in a table's cell and one in a note's popover, each answered Cancel, so nothing is opened:
+
+```sh
+python3 scripts/run-voiceover-simulator.py --href OPS/outside.xhtml \
+  --steps 'touch=far site,activate=far site,listen=4,forward=2,activate=Cancel,listen=4,touch=letter route,activate=letter route,listen=4,activate=Cancel,listen=4,touch=script route,activate=script route,listen=3,find=This reader opens only,touch=Left out cell,choose=Follow Table Link: cell far site,doubletap=Left out cell,listen=4,activate=Cancel,listen=4,touch=noted route,activate=noted route,listen=3,touch=noted far site,activate=noted far site,listen=4,forward=2,activate=Cancel,listen=4'
+```
+
+`listen=4` after each activation records what VoiceOver says of the alert by itself, the
+question and the address, and `forward=2` its buttons; `listen=4` after Cancel records where
+the cursor went back to ([#793](https://github.com/vocaro/EPUBLib/issues/793)). VoiceOver's
+own log beside the transcript has everything it said in between, which a transcript can miss.
+`find=` says whether the notice for the `javascript:` link is on screen. A simulator's
+activation is not evidence that VoiceOver
+activates the link ([Simulators](#simulators)); that needs an iPhone or iPad. What VoiceOver
+on Mac says of the sheet needs a [hosted Mac session](#hosted-mac-sessions), such as one that
+presses the link with VoiceOver on the search field, `ax:follow` as under
+[A link's target in pages](#a-links-target-in-pages), and records what is said after it:
+
+```text
+width=600 text_size=17 "launch=-SampleHref OPS/outside.xhtml" ax:focus=search "ax:follow=far site" line
+```
 
 ### Tables on Mac
 

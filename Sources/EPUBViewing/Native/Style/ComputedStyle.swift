@@ -218,6 +218,9 @@ struct ComputedStyle: Equatable, Sendable {
     /// Custom properties (`--name`), computed. Inherited: an element that declares none shares
     /// its parent's. nil when there are none (`CustomProperties.swift`).
     var customProperties: CSSCustomProperties?
+    /// What the reader's text settings did to this style, nil when none is set
+    /// (`ReaderTextSettings`).
+    var textSettings: ReaderTextTrace?
 
     /// The weight fonts are found for: `fontWeight`, or with Bold Text 200 heavier, to at most
     /// 900, as iOS draws its own text a weight heavier (regular as semibold).

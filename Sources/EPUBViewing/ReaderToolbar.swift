@@ -203,25 +203,15 @@ public struct EPUBReaderControl: View {
             else { EPUBContentsItems(controls: controls, items: controls.publication.tableOfContents) }
         }
     }
-    /// The supplied text sizes: what the bundled reader draws at distinct sizes, up to 36 points.
-    /// It draws nothing smaller than 12, so a step below that changed the style and not the page.
-    static let textSizes: ClosedRange<Double> = 12...36
-    static func textSize(_ size: Double, steppedBy points: Double) -> Double {
-        let drawn = min(max(size, textSizes.lowerBound), textSizes.upperBound)
-        return min(max(drawn + points, textSizes.lowerBound), textSizes.upperBound)
-    }
     private var appearance: some View {
         Menu("Appearance", systemImage: "textformat.size") {
             if controls.supports(.typography) {
-                let size = controls.status?.style.fontSize ?? EPUBReaderStyle().fontSize
-                Button("Smaller Text", systemImage: "textformat.size.smaller") {
-                    controls.changeStyle { $0.fontSize = Self.textSize($0.fontSize, steppedBy: -2) }
-                }
-                .disabled(size <= Self.textSizes.lowerBound)
-                Button("Larger Text", systemImage: "textformat.size.larger") {
-                    controls.changeStyle { $0.fontSize = Self.textSize($0.fontSize, steppedBy: 2) }
-                }
-                .disabled(size >= Self.textSizes.upperBound)
+                textSizeButton(larger: false)
+                textSizeButton(larger: true)
+                Toggle("Use System Text Size", isOn: Binding(
+                    get: { controls.status?.style.followsDynamicType ?? false },
+                    set: { follows in controls.changeStyle { $0.followsDynamicType = follows } }
+                ))
                 Picker("Appearance", selection: Binding(
                     get: { controls.status?.style.appearance ?? .system },
                     set: { appearance in controls.changeStyle { $0.appearance = appearance } }
@@ -240,6 +230,26 @@ public struct EPUBReaderControl: View {
             if controls.isBusy { Text("Applying commands…") }
             if let error = controls.commandError { Text(error) }
         }
+    }
+    /// Smaller Text or Larger Text, with the size drawn as its second line, which VoiceOver reads
+    /// after its name: a menu item's accessibility value is not exposed on iPhone and iPad. A text
+    /// after the label is the item's subtitle there; inside the label's title it was dropped. The
+    /// menu stays open, so the size can be stepped again under the same finger or cursor; a Mac's
+    /// menu closes, as SwiftUI offers no other. The new size drawn is announced once the reader
+    /// has taken the style (`stepTextSize`).
+    @ViewBuilder private func textSizeButton(larger: Bool) -> some View {
+        let button = Button {
+            controls.stepTextSize(larger: larger)
+        } label: {
+            Label(larger ? "Larger Text" : "Smaller Text" as LocalizedStringKey, systemImage: larger ? "textformat.size.larger" : "textformat.size.smaller")
+            Text(verbatim: Self.textSizeDescription(controls.drawnTextSize))
+        }
+        .disabled(!controls.canStepTextSize(larger: larger))
+        #if os(iOS)
+        button.menuActionDismissBehavior(.disabled)
+        #else
+        button
+        #endif
     }
     private var readingMode: some View {
         Picker("Reading Mode", selection: Binding(
