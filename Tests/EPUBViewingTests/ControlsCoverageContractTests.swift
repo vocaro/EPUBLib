@@ -30,6 +30,9 @@ import XCTest
     var capabilities = Self.everything
     var fault = Fault.none
     var publishesState = true
+    /// Whether a result gives only its publication and spine item: no href, quote, title or
+    /// context. Its first is then just like the verifier's own unlisted result.
+    var bareResults = false
     func makeSession(publication: EPUBPublication, selectionAction: EPUBSelectionAction?,
                      onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void) throws -> any EPUBReaderSession {
         ControlsCoverageContractSession(engine: self, book: publication, onEvent: onEvent)
@@ -41,6 +44,7 @@ import XCTest
     let readerState: EPUBReaderState?
     private let book: EPUBPublication
     private let fault: ControlsCoverageContractEngine.Fault
+    private let bareResults: Bool
     private var onEvent: (@MainActor (EPUBReaderEvent) -> Void)?
     private var closed = false, ready = false
     private var results: EPUBSearchResults?
@@ -48,6 +52,7 @@ import XCTest
     init(engine: ControlsCoverageContractEngine, book: EPUBPublication, onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void) {
         capabilities = engine.capabilities
         fault = engine.fault
+        bareResults = engine.bareResults
         self.book = book
         self.onEvent = onEvent
         readerState = engine.publishesState ? EPUBReaderState(status: EPUBReaderStatus(capabilities: engine.capabilities)) : nil
@@ -137,6 +142,11 @@ import XCTest
                                                                   href: item.resource.href, quote: text),
                              spineIndex: index, sectionTitle: "Section \(index + 1)", matchedText: text)
         }
+        if bareResults {
+            listed = listed.map {
+                EPUBSearchResult(index: $0.index, location: EPUBLocation(publicationID: book.id), spineIndex: $0.spineIndex, matchedText: text)
+            }
+        }
         if fault == .resultsOutOfOrder { listed.reverse() }
         var list = EPUBSearchResults(query: fault == .resultsOfAnotherQuery ? text + "!" : text, results: listed, currentIndex: opensFirst ? 0 : nil)
         if fault == .currentMatchOutsideTheList { list.currentIndex = listed.count + 4 }
@@ -221,7 +231,7 @@ import XCTest
 
     /// The verifier's failure for an engine, nil when the engine passes. An error the engine
     /// itself threw through the verifier counts as a failure and is described.
-    private func verdict(_ engine: Engine, text: String = "Opening words") async throws -> String? {
+    private func verdict(_ engine: Engine, text: String = "ordinary reading text") async throws -> String? {
         do {
             try await EPUBEngineContract.verify(engine: engine, publication: EPUBPublication.open(data: Fixture.epub()),
                 firstHref: "OPS/one.xhtml", secondHref: "OPS/two.xhtml", text: text, timeout: 0.3) { session in
@@ -257,6 +267,16 @@ import XCTest
         // An engine may publish no state at all.
         let found = try await verdict(Engine(publishesState: false))
         XCTAssertNil(found, "without published state")
+    }
+
+    /// A result need not name its section. An engine whose first result is just like the
+    /// verifier's own unlisted one passes, and one that checks only an index still does not.
+    func testTheVerifierSendsNoListedResultAsAnUnlistedOne() async throws {
+        let found = try await verdict(Engine(bareResults: true))
+        XCTAssertNil(found, "with results that give only their spine item")
+        let index = try await verdict(Engine(fault: .checksOnlyAResultsIndex, bareResults: true))
+        XCTAssertTrue(index?.contains("Accepted an unlisted search result with a listed index") == true,
+                      "checksOnlyAResultsIndex with bare results: found \(index ?? "a pass")")
     }
 
     /// "Close is idempotent; closed commands fail and later callbacks are suppressed."
@@ -334,17 +354,13 @@ import XCTest
     /// forward from the last result returns to the first, as one backward from the first
     /// returns to the last.
     func testTheVerifierRejectsAnEngineThatDoesNotWrapForwardFromTheLastResult() async throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/160")
-        let found = try await verdict(Engine(fault: .doesNotWrapForward))
-        XCTAssertNotNil(found, "an engine whose Next Match stops at the last result passed the verifier")
+        try await expectRejected(.doesNotWrapForward, "Timed out waiting for first search result after the last")
     }
 
     /// "refuses an unlisted result": `.showSearchResult` is for "one of the current
     /// `EPUBSearchResults.results`", so a result kept from a replaced search, whose index is
     /// still in range, is unlisted too.
     func testTheVerifierRejectsAnEngineThatChecksOnlyAResultsIndex() async throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/160")
-        let found = try await verdict(Engine(fault: .checksOnlyAResultsIndex))
-        XCTAssertNotNil(found, "an engine that shows any result whose index is in range passed the verifier")
+        try await expectRejected(.checksOnlyAResultsIndex, "Accepted an unlisted search result with a listed index")
     }
 }

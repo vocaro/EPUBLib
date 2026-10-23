@@ -270,8 +270,13 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// link, text is selected, or the touch was a long press (a selection beginning). The press
     /// is timed by the touch's own timestamps, from when it went down to when it lifted.
     @objc private func tapped(_ recognizer: ReaderEdgeTapRecognizer) {
-        guard let down = pointerDown, let lift = recognizer.liftTime, lift - down.time < 0.35,
-              let forward = edgeTurn(at: recognizer.location(in: self)) else { return }
+        edgeTap(at: recognizer.location(in: self), liftedAt: recognizer.liftTime)
+    }
+
+    /// The tap's own work, for a touch that lifted at `lift` at `location`: what an in-process
+    /// test delivers, as UIKit makes no touch there (`ReaderEdgeTapRecognizer`).
+    func edgeTap(at location: CGPoint, liftedAt lift: TimeInterval?) {
+        guard let down = pointerDown, let lift, lift - down.time < 0.35, let forward = edgeTurn(at: location) else { return }
         turnPageFromInput(forward: forward)
     }
 
@@ -532,12 +537,12 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     // MARK: Notes
 
     /// A popover from the nearest view controller; nothing without one.
-    func presentNote(_ text: NSAttributedString, from rect: CGRect) {
+    func presentNote(_ text: NSAttributedString, dark: Bool, from rect: CGRect) {
         var responder: UIResponder? = next
         while let current = responder, !(current is UIViewController) { responder = current.next }
         guard var presenter = responder as? UIViewController, window != nil else { return }
         while let presented = presenter.presentedViewController, !presented.isBeingDismissed { presenter = presented }
-        let controller = ReaderNoteViewController(text: text, dark: configuration.isDark,
+        let controller = ReaderNoteViewController(text: text, dark: dark,
                                                   width: min(360, max(200, bounds.width - 32)))
         controller.modalPresentationStyle = .popover
         if let popover = controller.popoverPresentationController {

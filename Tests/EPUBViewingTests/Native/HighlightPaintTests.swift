@@ -364,4 +364,74 @@ import XCTest
             XCTAssertGreaterThan(reader.inkPixels, 0, "\(flow)")
         }
     }
+
+    /// Where the page columns or the scroll view draw the line of a table nested in a cell that
+    /// reads `word`, in the canvas's coordinates from its top-left corner, as the recorder's
+    /// pictures are: found by the words each nested row's continuation reads, not by a mapped
+    /// position. nil when no text view shows one.
+    private func nestedLine(reading word: String, in canvas: ReaderCanvasView) -> CGRect? {
+        for view in canvas.textViews {
+            guard let storage = view.contentStorage.textStorage else { continue }
+            var found: CGRect?
+            storage.enumerateAttribute(.attachment, in: NSIntersectionRange(view.shownCharacters, NSRange(location: 0, length: storage.length))) { value, range, stop in
+                guard let row = value as? TableRowAttachment, let frame = view.segmentFrames(for: range).first else { return }
+                let layout = row.layout(width: frame.width, viewportHeight: view.readerContainer.viewportSize.height)
+                let slice = row.fragment ?? layout.fragments(ofRow: row.row, maximumHeight: .greatestFiniteMagnitude)[0]
+                let scale = layout.scale * slice.fitScale
+                for entry in slice.cells {
+                    let content = layout.contentFrames[entry.cell]
+                    for line in entry.lines.map({ layout.cellText[entry.cell].lines[$0] })
+                    where line.nestedRow?.textEquivalent.split(whereSeparator: \.isWhitespace).contains(Substring(word)) == true {
+                        found = CGRect(x: frame.minX + (layout.originX + content.minX + line.frame.minX) * scale,
+                                       y: frame.minY + (content.minY + line.frame.minY - slice.top) * scale,
+                                       width: line.frame.width * scale, height: line.frame.height * scale)
+                        stop.pointee = true
+                    }
+                }
+            }
+            guard let found else { continue }
+            var rect = view.convert(found.offsetBy(dx: view.containerOrigin.x, dy: view.containerOrigin.y), to: canvas)
+            #if os(macOS)
+            if !canvas.isFlipped { rect.origin.y = canvas.bounds.maxY - rect.maxY }
+            #endif
+            return rect
+        }
+        return nil
+    }
+
+    /// A match in a table nested in a cell is painted on its own word, within the nested row
+    /// that reads it, in pages and in continuous scroll, and leaves with the search. It was
+    /// painted over all of the nested table on screen: the outer cell's characters, where the
+    /// nested table is one unit (#718). The table is #544's of many inner rows.
+    func testAMatchInANestedTableIsPaintedOnItsOwnWord() async throws {
+        let words = ["Opening words"] + (0..<100).map { "Row \($0) words" } + ["Nestedneedle words and more words"]
+        let rows = words.map { "<tr><td>\($0)</td><td>y</td></tr>" }.joined()
+        let table = chapter("<h1>Second Chapter</h1><table><tr><td><table>\(rows)</table></td><td>x</td></tr></table>")
+        for flow in [EPUBReadingFlow.paginated, .scrolled] {
+            let reader = try await open(Fixture.epub(overrides: ["OPS/two.xhtml": table]), flow: flow)
+            defer { reader.close() }
+            try await reader.session.send(.searchHighlight(text: "Nestedneedle"))
+            let found = try XCTUnwrap(reader.session.readerState?.status.searchResults, "\(flow)")
+            XCTAssertEqual(found.count, 1, "\(flow)")
+            try await reader.session.send(.showSearchResult(found.results[0]))
+            var line: CGRect?
+            let painted = try await reader.paint(timeout: 10) {
+                line = self.nestedLine(reading: "Nestedneedle", in: reader.canvas)
+                return line != nil && reader.currentSearchPixels > 0
+            }
+            keep(reader, "\(flow) nested match")
+            XCTAssertTrue(painted, "\(flow): the match was not painted on a nested row on screen")
+            try await reader.quiesce()
+            let row = try XCTUnwrap(line, "\(flow)").insetBy(dx: -1, dy: -1)
+            let shown = reader.searchPixels + reader.currentSearchPixels
+            let onRow = reader.painted.count(of: ReaderPalette.searchHighlight(dark: false), over: reader.background, in: row)
+                + reader.painted.count(of: ReaderPalette.currentSearchHighlight(dark: false), over: reader.background, in: row)
+            XCTAssertGreaterThan(onRow, 0, "\(flow)")
+            XCTAssertEqual(onRow, shown, "\(flow): every highlighted pixel is on the nested row that reads the match")
+            XCTAssertLessThan(shown, Int(row.width * row.height) / 3, "\(flow): on the match's word, not the whole row")
+            try await reader.session.send(.clearSearch)
+            let cleared = try await reader.paint(timeout: 5) { reader.searchPixels + reader.currentSearchPixels == 0 }
+            XCTAssertTrue(cleared, "\(flow): \(reader.searchPixels + reader.currentSearchPixels) highlight pixels stayed painted")
+        }
+    }
 }

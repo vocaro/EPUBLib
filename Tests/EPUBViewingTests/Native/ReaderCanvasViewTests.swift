@@ -505,7 +505,7 @@ import UIKit
     func testNoteTextShowsInAPopover() throws {
         let host = host(sections(1))
         let note = CanvasText.body("A footnote.")
-        host.canvas.presentNote(note, from: CGRect(x: 100, y: 100, width: 20, height: 20))
+        host.canvas.presentNote(note, dark: false, from: CGRect(x: 100, y: 100, width: 20, height: 20))
         #if os(macOS)
         let popover = try XCTUnwrap(host.canvas.presentedNote as? NSPopover)
         XCTAssertTrue(popover.isShown)

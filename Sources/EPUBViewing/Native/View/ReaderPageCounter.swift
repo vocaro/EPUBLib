@@ -195,13 +195,15 @@ extension ReaderCanvasView {
 
     /// Shows the start of the first section page turns reach, or the end of the last: its first
     /// page or its last in paginated flow, the top or the bottom of continuous scroll. A section
-    /// that is not built is asked for (`canvas(_:needsSection:forward:)`), which shows the same.
+    /// that is not built, or that a page turn would wait to have built again for the appearance
+    /// on screen (`canShow`, #243), is asked for (`canvas(_:needsSection:forward:)`), which shows
+    /// the same once it is.
     @discardableResult func showBookBoundary(atEnd: Bool) -> PageTurnResult {
         guard let dataSource else { return .atBoundary }
         let sections = 0..<dataSource.sectionCount
         guard let section = atEnd ? sections.last(where: { dataSource.isLinear(section: $0) })
                 : sections.first(where: { dataSource.isLinear(section: $0) }) else { return .atBoundary }
-        guard let text = dataSource.text(forSection: section) else {
+        guard let text = dataSource.text(forSection: section), dataSource.canShow(section: section) else {
             delegate?.canvas(self, needsSection: section, forward: !atEnd)
             return .pending(section: section)
         }

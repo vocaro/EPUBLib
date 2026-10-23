@@ -235,6 +235,33 @@ import UIKit
         H.pages(section, size: size)
     }
 
+    /// The prose after a run goes on from the last box where its first word fits after it, and
+    /// otherwise starts the line below, as a word that does not fit at the end of a line does
+    /// (CSS Text 3, 5.2). It was set in the room left, broken inside the word (#152). The words
+    /// do not hyphenate here (`hyphens: manual`).
+    func testProseAfterARunStartsTheNextLineWhenItsFirstWordDoesNotFitAfterTheLastBox() throws {
+        for (opening, fits) in [("and", true), ("Extraordinarily", false)] {
+            let tail = "\(opening) the prose goes on after the marks."
+            let (section, view) = try layout("<p>\(marks(4)) \(tail)</p>", css: wide + "p { hyphens:manual }")
+            let gap = try space(at: tail, in: section)
+            let last = try XCTUnwrap(boxes(in: section, view: view).last)
+            // Four 80-point boxes and their spaces leave some 60 points: room for "and" only.
+            XCTAssertEqual(last.minY, 0, accuracy: 0.5, "the four boxes are one row: \(opening)")
+            XCTAssertGreaterThan(size.width - last.maxX - gap, 48, opening)
+            let first = try XCTUnwrap(H.lines(in: view, intersecting: H.range(tail, in: section)).first)
+            XCTAssertTrue((section.string.string as NSString).substring(with: first.range).hasPrefix(opening + " "), "the whole word: \(opening)")
+            if fits {
+                XCTAssertEqual(first.frame.minY, last.minY, accuracy: 0.5, "on the run's row: \(opening)")
+                XCTAssertEqual(first.frame.minX, last.maxX + gap, accuracy: 1, opening)
+            } else {
+                XCTAssertGreaterThanOrEqual(first.frame.minY, last.maxY - 0.5, "on the line below the run: \(opening)")
+                XCTAssertEqual(first.frame.minX, 0, accuracy: 0.5, opening)
+            }
+            XCTAssertEqual(view.visibleText, section.string.string, opening)
+            H.pages(section, size: size, opening)
+        }
+    }
+
     /// A point just inside the leading edge of `frame`, as the reader's views take them.
     private func offset(at frame: CGRect, in view: ReaderTextView) -> Int {
         view.characterOffset(at: CGPoint(x: view.containerOrigin.x + frame.minX + 2, y: view.containerOrigin.y + frame.midY))
