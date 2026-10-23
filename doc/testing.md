@@ -675,6 +675,50 @@ library, the startup canary, the assertion matrix and its stock negative control
 `--workflow`, `--font-size` and `--device` select a narrower repeat. Results belong on the
 issue, including the exact runtime build and whether the hook and canary confirmed it.
 
+### iPhone Duo poses
+
+`EPUBReaderView` finds iPhone Duo's fold from its `.division` reserved region
+([native viewer](native-viewer.md#layout), "iPhone Duo's fold"). The Mac and iOS 27.0 suites
+give it regions as the system reports them, through an internal environment value
+(`ReaderFoldTests`, and the fold tests of `SessionCoverageEventTests`, closing and opening
+included as resizes to the Duo's display sizes). `DuoFoldTests` reads the system's own on an
+iPhone Duo simulator (iOS 27.1): UIKit's region on the canvas, apart from the SwiftUI reading
+the reader makes, in a left-to-right and a right-to-left book. The host sets the pose before
+each run, confirms it from the active display, and names it in `TEST_RUNNER_EPUBLIB_DUO_POSE`
+as `closed`, `book`, `flat` or `upright`; without it the test skips, as it does in the gate.
+`HINGE` below is the hinge helper of
+[setting a pose](https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#setting-a-pose),
+a command taking the UDID and then degrees or `orientation NAME`, as the controls probe's
+`--hinge-script` does. Send a pose up to three times until the displays show it. Never send
+that simulator `simctl io screenConfig`.
+
+```sh
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer   # Xcode 27.1
+DEVICE=$(xcrun simctl create "duo-fold-$$" com.apple.CoreSimulator.SimDeviceType.iPhone-Duo \
+  com.apple.CoreSimulator.SimRuntime.iOS-27-1)
+xcrun simctl boot "$DEVICE" && xcrun simctl bootstatus "$DEVICE" -b
+for pose in "closed 0 portrait" "closed 0 landscape-left" "book 120 portrait" "flat 180 portrait" \
+            "upright 120 landscape-left" "upright 180 landscape-left"; do
+  set -- $pose
+  "$HINGE" "$DEVICE" "$2" && "$HINGE" "$DEVICE" orientation "$3"
+  xcrun devicectl device info displays -d "$DEVICE" --timeout 20
+  TEST_RUNNER_EPUBLIB_DUO_POSE=$1 xcodebuild -scheme EPUBLib-Package \
+    -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath .build/duo-fold \
+    -parallel-testing-enabled NO -collect-test-diagnostics never CODE_SIGNING_ALLOWED=NO \
+    -only-testing:EPUBViewingTests/DuoFoldTests test
+done
+xcrun simctl delete "$DEVICE"
+```
+
+Each run prints a `DUO-FOLD` line: the canvas and window, the display scale, the regions
+UIKit reported with their margins and whether each is active, the division the reader used,
+and its columns. Folding and unfolding with a book open, which no test can do from inside
+the simulator, go through the [reader controls probe](#reader-controls-probe): `signal=hinge 0`
+closes the phone and `signal=hinge 180` opens it, between `status`, `dump` and
+`signal=screens` steps, and the status line's location and the dump's lines say whether the
+first line stayed on screen. The lane was written on a Mac with no iOS 27.1 runtime;
+[#686](https://github.com/vocaro/EPUBLib/issues/686) records its runs.
+
 ### Corpus teardown
 
 The [reproduction on #589](https://github.com/vocaro/EPUBLib/issues/589#issuecomment-6283724393)

@@ -75,8 +75,9 @@ enum SessionCoverageBook {
     }
 
     /// Three chapters and a nonlinear note between the first two. Chapter two has a `mid` anchor
-    /// many pages in; the note and chapter three both hold the word "findword".
-    static func chapters() throws -> Data {
+    /// many pages in; the note and chapter three both hold the word "findword". `spine` is added
+    /// to the spine element's attributes.
+    static func chapters(spine: String = "") throws -> Data {
         try epub([
             Section("one", "<h1 id=\"start\">First Chapter</h1><p>Opening words are visible.</p>\(filler(40))", title: "First Chapter"),
             Section("note", "<p id=\"note\">A nonlinear note holding findword apart.</p>", linear: false, title: "Note"),
@@ -84,7 +85,7 @@ enum SessionCoverageBook {
                 + "<p id=\"mid\">A marked midpoint paragraph sits here.</p>\(filler(70))", title: "Second Chapter"),
             Section("three", "<h1>Third Chapter</h1><p>Closing words with findword at the end.</p>\(filler(30))", title: "Third Chapter"),
         ], toc: "<li><a href=\"one.xhtml\">First Chapter</a></li><li><a href=\"two.xhtml\">Second Chapter</a></li>"
-            + "<li><a href=\"three.xhtml\">Third Chapter</a></li>")
+            + "<li><a href=\"three.xhtml\">Third Chapter</a></li>", spine: spine)
     }
 }
 
@@ -180,10 +181,12 @@ enum SessionCoverageBook {
 }
 
 /// What a host observes and toggles around a mounted reader: whether the view is in the
-/// hierarchy, and the fold it reserves.
+/// hierarchy, the fold it reserves, and the reserved regions the reader is given in place of
+/// the system's.
 @MainActor @Observable final class SessionCoverageStage {
     var mounted = true
     var division: CGRect?
+    var foldRegions: [ReaderFold.Region]?
 }
 
 private struct SessionCoverageStageView: View {
@@ -191,7 +194,10 @@ private struct SessionCoverageStageView: View {
     let stage: SessionCoverageStage
     var body: some View {
         ZStack {
-            if stage.mounted { EPUBReaderView(session: session).epubReaderDivision(stage.division) }
+            if stage.mounted {
+                EPUBReaderView(session: session).epubReaderDivision(stage.division)
+                    .environment(\.epubReaderFoldRegions, stage.foldRegions)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -222,6 +228,14 @@ private struct SessionCoverageStageView: View {
         window.keepLightAppearance()
         window.rootViewController = UIHostingController(rootView: view)
         window.makeKeyAndVisible()
+        #endif
+    }
+
+    func resize(to size: CGSize) {
+        #if os(macOS)
+        window.setContentSize(size)
+        #else
+        window.frame = CGRect(origin: .zero, size: size)
         #endif
     }
 

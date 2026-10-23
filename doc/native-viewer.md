@@ -1838,7 +1838,10 @@ continues to describe the authored spine resource.
   NULs follow at the end of a file is not its last byte, and the screen and HTML read it as a
   character: `…<p>two <` and NULs reads `two <`, as text extraction reads the same bytes.
 - **Book pose.** New public `View.epubReaderDivision(_:)` reserves a vertical division in the
-  reader's own coordinates. Columns never depend on device idiom, orientation or screen.
+  reader's own coordinates. Columns never depend on device idiom, orientation or screen. From
+  iOS 27.1 `EPUBReaderView` finds iPhone Duo's fold itself, from its `.division` reserved
+  region, so a host need not, and a frame the host gives wins over it
+  ([#686](https://github.com/vocaro/EPUBLib/issues/686)).
 
 ## Layout
 
@@ -1863,6 +1866,23 @@ as they did.
   division band plus half a gap each side, and both columns have the narrower side's width,
   aligned towards the fold. When that would be under 200 wide, and in continuous scroll, a
   single column uses the wider side.
+- **iPhone Duo's fold.** Where the host gives no division, the division is the fold: the
+  vertical `.division` region that `GeometryProxy.reservedRegions(kind:options:layoutDirectionBehavior:)`
+  reports for the `EPUBReaderView` from iOS 27.1, unmirrored and with `.includeInactive`. Its
+  frame includes the margins the system keeps around the fold. The system reports the fold
+  active while the phone is partly folded and inactive while it lies flat; the reader takes
+  it either way, an active one first, so the open phone's spread already has its gutter on
+  the fold and folding the phone moves nothing on the page, as Apple asks of apps
+  ([iPhone Duo for developers](https://developer.apple.com/iphone-duo/)). A fold across the
+  reader, as on the inner display held upright or in the laptop pose, reserves nothing
+  ([#724](https://github.com/vocaro/EPUBLib/issues/724)). Closed, on the outer display, there
+  is no fold, and the page has the columns its size gives it, one. A frame from
+  `View.epubReaderDivision(_:)` wins over the fold, and `CGRect.null` there reserves nothing;
+  nil, the default, leaves the reader to find it. Opening and closing the phone are resizes
+  and keep the place as every relayout does: the first line of the page last turned to stays
+  on screen, and a phone opened again with no page turned shows the spread it was closed on.
+  Mac readers and iOS 27.0 find no fold. [#686](https://github.com/vocaro/EPUBLib/issues/686)
+  records what a Duo simulator has shown of this.
 - **Continuous scroll.** One column at most 720 wide, centred, with the same outer margin. On
   iOS the text view has `contentInsetAdjustmentBehavior = .automatic`, `contentInset` top 48
   and bottom 64 on top of the live safe area, `textContainerInset` only horizontal, and
