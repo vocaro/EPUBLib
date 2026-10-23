@@ -184,6 +184,8 @@ struct QualificationScreen: View {
                 "\(status.style.appearance.rawValue) shown \(status.effectiveAppearance.rawValue)",
                 search,
                 controls.searchResults.map { "\($0.currentIndex.map { String($0 + 1) } ?? "-")/\($0.count)" } ?? "no results",
+                "drawn \(status.effectiveFontSize.map { String(format: "%.1f", $0) } ?? "-") pt"
+                    + (status.style.followsDynamicType ? " following text size ×\(String(format: "%.3f", status.dynamicTypeScale))" : ""),
         ].joined(separator: " | ")
     }
 

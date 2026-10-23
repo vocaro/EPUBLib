@@ -63,6 +63,8 @@ func makeReader(publication: EPUBPublication,
 
 After `.ready`, send commands with `try await session.send(...)`: for example `.nextPage`,
 `.locate(text: "a passage", highlight: true)` or `.style(.init(fontSize: 20, appearance: .dark))`.
+A style whose `followsDynamicType` is set has its font size scaled by the system text size, as
+body text is, also while the book is open ([commands and events](native-viewer.md#commands-and-events)).
 Check `session.capabilities` before offering an optional feature. Navigate with a resource's
 encoded href, safely handling optional entries:
 

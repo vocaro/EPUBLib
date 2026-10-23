@@ -35,6 +35,12 @@ import SwiftUI
     private(set) var style = EPUBReaderStyle()
     @ObservationIgnored private(set) var systemIsDark = false
     private var effectiveIsDark: Bool { style.appearance == .system ? systemIsDark : style.appearance == .dark }
+    /// The mounted view's Dynamic Type size, kept while the style does not follow it.
+    @ObservationIgnored private(set) var systemTextSize: DynamicTypeSize = .large
+    /// What the style's font size is multiplied by before it is drawn (`followsDynamicType`).
+    private var dynamicTypeScale: CGFloat {
+        style.followsDynamicType ? NativeTypography.dynamicTypeScale(for: systemTextSize) : 1
+    }
     /// The host's reserved division, from `View.epubReaderDivision(_:)`.
     var division: CGRect? { didSet { if division != oldValue { applyConfiguration() } } }
 
@@ -88,6 +94,7 @@ import SwiftUI
         progress = NativeProgress(publication: publication)
         (initialSection, initialFragment) = Self.openingTarget(of: publication)
         book = NativeBook(publication: publication, typography: NativeTypography(), rich: rich)
+        readerState?.modify { $0.effectiveFontSize = Double(book.typography.fontSize) }
         book.onSectionBuilt = { [weak self] in self?.sectionBuilt($0) }
         book.onBookComplete = { [weak self] in self?.bookCompleted() }
         buildBook(from: initialSection)
@@ -606,13 +613,25 @@ import SwiftUI
         if style.appearance == .system { updatePresentation() }
     }
 
+    /// The host's Dynamic Type size, as `updateSystemAppearance` takes its appearance: remembered
+    /// whatever the style, so turning `followsDynamicType` on uses the latest.
+    func updateSystemTextSize(_ size: DynamicTypeSize) {
+        guard !closed, systemTextSize != size else { return }
+        systemTextSize = size
+        if style.followsDynamicType { updatePresentation() }
+    }
+
     private func updatePresentation() {
+        let scale = dynamicTypeScale
+        let typography = NativeTypography(fontSize: style.fontSize * scale, isDark: effectiveIsDark)
+            .with(text: ReaderTextSettings(style.typography))
         readerState?.modify {
             $0.style = style
             $0.effectiveAppearance = effectiveIsDark ? .dark : .light
+            $0.effectiveFontSize = Double(typography.fontSize)
+            $0.dynamicTypeScale = Double(scale)
         }
         applyConfiguration()
-        let typography = NativeTypography(fontSize: style.fontSize, isDark: effectiveIsDark).with(text: ReaderTextSettings(style.typography))
         if typography != book.typography {
             book.setTypography(typography)
             buildBook(from: visibleRange?.start.section ?? initialSection,
@@ -954,18 +973,21 @@ private struct NativeSurface: View {
     @Environment(\.epubReaderDivision) private var division
     @Environment(\.epubReaderPageControls) private var pageControls
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         if !session.closed {
             NativeCanvasHost(session: session)
                 .onAppear {
                     session.updateSystemAppearance(isDark: colorScheme == .dark)
+                    session.updateSystemTextSize(dynamicTypeSize)
                     session.division = division
                     session.pageControls = pageControls
                 }
                 .onChange(of: division) { session.division = division }
                 .onChange(of: pageControls) { session.pageControls = pageControls }
                 .onChange(of: colorScheme) { session.updateSystemAppearance(isDark: colorScheme == .dark) }
+                .onChange(of: dynamicTypeSize) { session.updateSystemTextSize(dynamicTypeSize) }
                 #if os(iOS)
                 .accessibilityScrollAction { edge in
                     if edge == .leading { submit(.previousPage) }
