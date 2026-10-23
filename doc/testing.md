@@ -2164,6 +2164,38 @@ in right right right right right in`. With four the `in` is sent on "layout.", w
 nothing, and the `out` meant for the row leaves the text, as in four sessions of runs
 38425341556 to 38427534348.
 
+### Highlights
+
+What VoiceOver says of a host highlight, and its move between highlights
+([native viewer](native-viewer.md#input-and-accessibility),
+[#682](https://github.com/vocaro/EPUBLib/issues/682)), is heard with `-SampleHighlights`
+(above). Four highlights in the first book cover a line's part on its first page, a phrase
+of the line above it, a pair of numbered words pages later, and a cell of the first table of
+data:
+
+```sh
+HIGHLIGHTS='-SampleHighlights yellow=word0003_word0004_word0005|blue+underline=next_page_must_resume|green+dottedUnderline=word0300_word0301|pink+doubleUnderline=1934'
+python3 scripts/run-voiceover-simulator.py --launch "$HIGHLIGHTS" \
+  --steps 'touch=Read the numbered,listen=3,forward=3,rotor=Highlights,flick=down,flick=down,flick=down,flick=up,flick=up,flick=up'
+```
+
+Each line or cell under a highlight says the highlight's style after its words, and the part
+it covers where it covers part: "…, Yellow highlight: word0003 word0004 word0005". The rotor's
+setting is "Highlights", and each flick goes to the next highlight's line or cell, turning the
+page or showing the section that holds it. On a Mac the same four are heard in a
+[hosted session](#hosted-mac-sessions), in a window 600 points wide at 17 points:
+
+```sh
+python3 scripts/hosted-run.py voiceover-mac.yml -f width=600 -f text_size=17 \
+  -f launch="$HIGHLIGHTS" \
+  -f steps='ax:focus=search ax:focus=0 in line nextline nextline attributes
+            rotor listright listright listright listright listdown listdown listdown "listchoose=Green highlight" line attributes'
+```
+
+`attributes` reads the text attributes where the cursor is, which says whether VoiceOver
+announces the highlighted text (`AXHighlight`) at all; the rotor's lists are VoiceOver's own,
+so the number of `listright` to reach Highlights is read off the transcript the first time.
+
 ### Safari on Mac
 
 A session of Safari records what VoiceOver says of a section of the fixture as a web page:
@@ -2486,6 +2518,15 @@ and on the Mac eleven `right` from `ax:focus=search` and `activate=Next\ Matc`, 
 them under VoiceOver. The Mac's VoiceOver reads the button's value before its name, and the
 runner checks the name in the phrase's first 64 characters, so the name is given cut short
 ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
+`-SampleHighlights 'yellow=word0003_word0004_word0005|blue+underline=next_page_must_resume'`
+highlights each passage in its style, a color and an optional mark by their raw values
+(`EPUBHighlightColor`, `EPUBHighlightMark`), with an underscore for each space of a passage,
+since the probes split launch arguments at spaces, once the book is ready: it locates and selects
+each passage, keeps the location the reader reports for it, as a host keeps a selection to
+highlight, then sets them all and restores the place the reader was, which leaves nothing
+selected. A passage that is not found is left out. The steps `rotor=Highlights` and then
+`flick=down` and `flick=up` move by highlight; what VoiceOver says of each is in
+[Highlights](#highlights) ([#682](https://github.com/vocaro/EPUBLib/issues/682)).
 `TEST_RUNNER_VOICEOVER_OFF=1`
 leaves VoiceOver off, so the same steps are plain touches: use it to tell a VoiceOver failure
 from one of the reader's own. The probe stops when the reader is no longer in the foreground.

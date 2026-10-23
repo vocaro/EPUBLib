@@ -18,6 +18,8 @@ final class BookReader {
     private(set) var disclosure: String?
     private(set) var notice: String?
     private(set) var selection: String?
+    /// Where the selection is: what to keep for a highlight of it.
+    private(set) var selectionLocation: EPUBLocation?
     private(set) var selectedText: String?
     private(set) var error: String?
     private var opening: Task<Void, Never>?
@@ -69,7 +71,7 @@ final class BookReader {
                 case .disclosure(let value): disclosure = value
                 case .notice(let value): notice = value
                 case .failed(let value): error = String(describing: value); ready = false
-                case .selectionChanged(let value): selection = value?.text
+                case .selectionChanged(let value): selection = value?.text; selectionLocation = value?.location
                 case .searchChanged, .searchResultsChanged: break
                 }
             })
@@ -116,7 +118,7 @@ final class BookReader {
         controls?.cancelPendingCommands(); controls = nil
         session?.close(); session = nil
         publication = nil; ready = false; loading = false
-        location = nil; disclosure = nil; notice = nil; selection = nil; selectedText = nil; error = nil
+        location = nil; disclosure = nil; notice = nil; selection = nil; selectionLocation = nil; selectedText = nil; error = nil
         savedPosition = nil
     }
 }

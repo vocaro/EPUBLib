@@ -318,6 +318,64 @@ import AppKit
         applyHighlights()
     }
 
+    // MARK: Host highlights for assistive technology
+
+    /// Whether any host highlight is drawn: only then do the text views give VoiceOver a
+    /// Highlights rotor.
+    var hasHostHighlights: Bool { highlights.contains { $0.kind == .annotation } }
+
+    /// The segments of the host highlights drawn, in drawing order.
+    var drawnHostHighlights: [ReaderHighlight] { highlights.filter { $0.kind == .annotation } }
+
+    /// Where each host highlight drawn begins, in reading order: its first segment, one stop for
+    /// a highlight in several documents. A highlight in a section not built yet has no stop
+    /// until it is drawn, which it is once all of its segments are built.
+    private var highlightStops: [ReaderHighlight] {
+        var seen: Set<String> = []
+        return highlights.filter { $0.kind == .annotation }.sorted { $0.range.start < $1.range.start }
+            .filter { seen.insert($0.id).inserted }
+    }
+
+    /// The host highlight after `range` or before it, where an assistive technology's move by
+    /// highlight goes: forward, the first that begins at or after the range's end, or after the
+    /// place an empty range stands at; back, the last that begins before the range's start. So
+    /// one that begins inside an item VoiceOver is on is that item's, and the move goes past it.
+    /// nil from no range is none in the direction asked, from the first or the last.
+    func highlightStop(from range: ReaderTextRange?, forward: Bool) -> ReaderHighlight? {
+        let stops = highlightStops
+        guard let range else { return forward ? stops.first : stops.last }
+        if forward { return stops.first { range.isEmpty ? $0.range.start > range.start : $0.range.start >= range.end } }
+        return stops.last { $0.range.start < range.start }
+    }
+
+    /// What an assistive technology is told of the host highlights over an item's characters,
+    /// `range`, which reads `words`: each highlight's style by name, "Yellow highlight", and
+    /// where it covers part of the item's words, those words, "Yellow highlight: best of
+    /// times". Highlights in the order they begin; nil where there are none.
+    func spokenHighlights(over range: ReaderTextRange, reading words: String,
+                          wordsOf: (ReaderTextRange) -> String?) -> String? {
+        func plain(_ text: String) -> String { text.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+        let whole = plain(words)
+        var seen: Set<String> = [], said: [String] = []
+        for highlight in highlights.filter({ $0.kind == .annotation }).sorted(by: { $0.range.start < $1.range.start })
+        where highlight.range.start < range.end && range.start < highlight.range.end && seen.insert(highlight.id).inserted {
+            let name = (highlight.style ?? EPUBHighlightStyle()).spokenName
+            let part = ReaderTextRange(start: max(highlight.range.start, range.start), end: min(highlight.range.end, range.end))
+            let covered = part.start == range.start && part.end == range.end ? whole : plain(wordsOf(part) ?? "")
+            said.append(covered.isEmpty || covered == whole ? name : "\(name): \(covered)")
+        }
+        return said.isEmpty ? nil : said.joined(separator: ", ")
+    }
+
+    /// What VoiceOver's list of highlights calls one: its style's name and its words, the first
+    /// twelve of them where it has more.
+    func highlightLabel(_ highlight: ReaderHighlight) -> String {
+        let name = (highlight.style ?? EPUBHighlightStyle()).spokenName
+        let words = (dataSource?.selectionText(in: highlight.range) ?? "").split(whereSeparator: \.isWhitespace)
+        guard !words.isEmpty else { return name }
+        return "\(name): " + words.prefix(12).joined(separator: " ") + (words.count > 12 ? "…" : "")
+    }
+
     // MARK: Layout
 
     /// Lays out for the current bounds and flow; cheap when nothing changed.
@@ -1636,8 +1694,7 @@ import AppKit
             view.setTableHighlights(ordered)
             view.setHighlights(ordered.compactMap { highlight in
                 guard let range = localRange(of: highlight.range, in: view) else { return nil }
-                let color = ReaderPalette.highlight(highlight.kind, dark: dark)
-                return (range, color)
+                return (range, ReaderPalette.paint(highlight, dark: dark))
             })
         }
     }

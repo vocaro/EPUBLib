@@ -1,6 +1,7 @@
 #if os(macOS)
 import Accessibility
 import AppKit
+import EPUBCore
 import SwiftUI
 
 /// A TextKit 2 `NSTextView` over its own content storage: a page column (one fixed slice that
@@ -47,6 +48,12 @@ final class ReaderTextView: NSTextView {
         let rotor = NSAccessibilityCustomRotor(rotorType: .heading, itemSearchDelegate: self)
         // A page column gives the headings of other pages as tokens, and loads them.
         if isPageColumn { rotor.itemLoadingDelegate = self }
+        return rotor
+    }()
+    /// VoiceOver's rotor of the book's host highlights (`ReaderCanvasView.highlightRotorResult`).
+    private lazy var highlightRotor = {
+        let rotor = NSAccessibilityCustomRotor(label: "Highlights", itemSearchDelegate: self)
+        rotor.itemLoadingDelegate = self
         return rotor
     }()
     /// The text column's left edge in continuous scroll, where a division can move it off centre.
@@ -453,9 +460,18 @@ final class ReaderTextView: NSTextView {
         let rules = rules(in: range)
         let headings = contentStorage.textStorage?.readerHeadings(in: range) ?? []
         let links = accessibilityLinks(in: range)
+        let highlighted = hostHighlights(in: range)
         guard !attachments.isEmpty || !images.isEmpty || !rules.isEmpty || !headings.isEmpty || !links.isEmpty || !tableRows.isEmpty
-                || !spaces.isEmpty || !mathSpaces.isEmpty || !hidden.isEmpty else { return base }
+                || !spaces.isEmpty || !mathSpaces.isEmpty || !hidden.isEmpty || !highlighted.isEmpty else { return base }
         let result = NSMutableAttributedString(attributedString: base)
+        // Characters a host highlight covers are highlighted text to an assistive client, as
+        // WebKit gives the text of a `mark` element, and its fill is their background.
+        for (run, fill) in highlighted {
+            let local = NSRange(location: run.location - range.location, length: run.length)
+            guard NSMaxRange(local) <= result.length else { continue }
+            result.addAttribute(.accessibilityHighlightedText, value: true, range: local)
+            result.addAttribute(.accessibilityTextBackground, value: fill.cgColor, range: local)
+        }
         for place in spaces + mathSpaces where place - range.location < result.length {
             let local = NSRange(location: place - range.location, length: 1)
             result.replaceCharacters(in: local, with: " ")
@@ -520,6 +536,20 @@ final class ReaderTextView: NSTextView {
         // After the rules: a rule that is all its link holds, or that opens one, is the link.
         addAccessibilityLinks(links, to: result, of: range)
         return result
+    }
+
+    /// The characters of `range` that host highlights cover, each with the fill drawn there
+    /// over the page, in drawing order: where highlights overlap, the later one's.
+    private func hostHighlights(in range: NSRange) -> [(range: NSRange, fill: PlatformColor)] {
+        guard let canvas, canvas.hasHostHighlights else { return [] }
+        let dark = canvas.configuration.isDark
+        return canvas.drawnHostHighlights.compactMap { highlight in
+            guard let local = canvas.localRange(of: highlight.range, in: self) else { return nil }
+            let run = NSIntersectionRange(local, range)
+            guard run.length > 0 else { return nil }
+            let fill = ReaderPalette.highlight((highlight.style ?? EPUBHighlightStyle()).color, dark: dark)
+            return (run, ReaderPalette.background(dark: dark).blended(withFraction: fill.alphaComponent, of: fill.withAlphaComponent(1)) ?? fill)
+        }
     }
 
     /// The rows in `range` of tables that hold data, each with its character.
@@ -809,7 +839,9 @@ final class ReaderTextView: NSTextView {
     // book's too, through the canvas: a heading on another page is one VoiceOver has the
     // reader load, which turns to its page (`ReaderCanvasView.headingRotorResult`).
     override func accessibilityCustomRotors() -> [NSAccessibilityCustomRotor] {
-        super.accessibilityCustomRotors() + [headingRotor]
+        // The book's host highlights too, while any is drawn: a list of them by their style
+        // and words, which moves to the one chosen, a page turned to it where it is not shown.
+        super.accessibilityCustomRotors() + [headingRotor] + (canvas?.hasHostHighlights == true ? [highlightRotor] : [])
     }
 
     /// The headings an assistive client can reach in this view, in order, each with its text's
@@ -848,6 +880,7 @@ extension ReaderTextView: @MainActor NSAccessibilityCustomRotorItemSearchDelegat
     /// cursor at rest stands at the top of its page (`ReaderCanvasView.headingRotorResult`).
     func rotor(_ rotor: NSAccessibilityCustomRotor,
                resultFor searchParameters: NSAccessibilityCustomRotor.SearchParameters) -> NSAccessibilityCustomRotor.ItemResult? {
+        if rotor === highlightRotor { return canvas?.highlightRotorResult(for: searchParameters, askedOf: self) }
         if isPageColumn, let canvas { return canvas.headingRotorResult(for: searchParameters, askedOf: self) }
         var headings = accessibilityHeadings
         let filter = searchParameters.filterString
@@ -868,15 +901,15 @@ extension ReaderTextView: @MainActor NSAccessibilityCustomRotorItemSearchDelegat
 }
 
 extension ReaderTextView: @MainActor NSAccessibilityElementLoading {
-    /// VoiceOver moves to a heading the rotor gave while it was on another page: the reader
-    /// turns to its page, and this is the column that then shows it.
+    /// VoiceOver moves to a heading or a host highlight a rotor gave while it was on another
+    /// page: the reader turns to its page, and this is the text view that then shows it.
     func accessibilityElement(withToken token: any NSAccessibilityLoadingToken) -> (any NSAccessibilityElementProtocol)? {
-        canvas?.loadHeading(token)
+        canvas?.loadHeading(token) ?? canvas?.loadHighlight(token)
     }
 
-    /// The heading's characters in that column.
+    /// The heading's or the highlight's characters in that text view.
     func accessibilityRangeInTargetElement(withToken token: any NSAccessibilityLoadingToken) -> NSRange {
-        canvas?.loadedHeadingRange(token) ?? NSRange(location: NSNotFound, length: 0)
+        canvas?.loadedHeadingRange(token) ?? canvas?.loadedHighlightRange(token) ?? NSRange(location: NSNotFound, length: 0)
     }
 }
 
@@ -884,6 +917,11 @@ extension NSAttributedString.Key {
     /// The heading level of text an assistive client reads, 1 to 6: the Accessibility
     /// framework's own attribute, which AppKit has no name for.
     static let accessibilityHeadingLevel = NSAttributedString.Key(AttributeScopes.AccessibilityAttributes.HeadingLevelAttribute.name)
+    /// Highlighted text, a Boolean: the attribute WebKit gives the text of a `mark` element,
+    /// which AppKit has no name for.
+    static let accessibilityHighlightedText = NSAttributedString.Key("AXHighlight")
+    /// The background of text an assistive client reads, a `CGColor`.
+    static let accessibilityTextBackground = NSAttributedString.Key("AXBackgroundColor")
 }
 
 extension ReaderTextView {

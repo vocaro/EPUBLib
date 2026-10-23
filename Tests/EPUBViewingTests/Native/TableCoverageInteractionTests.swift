@@ -188,14 +188,14 @@ import UIKit
         let cell = surface(text, showing: shown)
         let storage: NSTextStorage? = cell.textStorage
         func background(_ index: Int) -> PlatformColor? { storage?.attribute(.backgroundColor, at: index, effectiveRange: nil) as? PlatformColor }
-        cell.setCellHighlights([(NSRange(location: 4, length: shown.location + 5 - 4), PlatformColor.yellow)])
+        cell.setCellHighlights([(NSRange(location: 4, length: shown.location + 5 - 4), ReaderHighlightPaint(fill: .yellow))])
         XCTAssertNil(background(6), "the hidden part of a highlight is another continuation's to draw")
         XCTAssertEqual(background(shown.location), PlatformColor.yellow)
         XCTAssertEqual(background(shown.location + 4), PlatformColor.yellow)
         XCTAssertNil(background(shown.location + 5))
         XCTAssertNotEqual(storage?.attribute(.foregroundColor, at: shown.location, effectiveRange: nil) as? PlatformColor, PlatformColor.clear,
                           "highlighted characters get their ink back")
-        cell.setCellHighlights([(NSRange(location: shown.location + 8, length: 3), PlatformColor.green), (NSRange(location: 900, length: 5), PlatformColor.red)])
+        cell.setCellHighlights([(NSRange(location: shown.location + 8, length: 3), ReaderHighlightPaint(fill: .green)), (NSRange(location: 900, length: 5), ReaderHighlightPaint(fill: .red))])
         XCTAssertNil(background(shown.location), "the earlier highlight is gone")
         XCTAssertEqual(background(shown.location + 8), PlatformColor.green)
         XCTAssertEqual(storage?.attribute(.foregroundColor, at: shown.location, effectiveRange: nil) as? PlatformColor, PlatformColor.clear)

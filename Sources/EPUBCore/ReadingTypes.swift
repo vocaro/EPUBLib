@@ -90,7 +90,59 @@ public enum EPUBReaderCapability: String, Hashable, Sendable {
 public struct EPUBHighlight: Equatable, Sendable, Identifiable {
     public var id: String
     public var location: EPUBLocation
-    public init(id: String, location: EPUBLocation) { self.id = id; self.location = location }
+    /// How the passage is drawn, and what an assistive technology calls it.
+    public var style: EPUBHighlightStyle
+    public init(id: String, location: EPUBLocation, style: EPUBHighlightStyle = EPUBHighlightStyle()) {
+        self.id = id; self.location = location; self.style = style
+    }
+}
+
+/// How a highlight is drawn: a color, and a mark under its text that does not depend on color.
+/// The default is yellow with no mark, as every highlight was drawn before styles.
+public struct EPUBHighlightStyle: Hashable, Codable, Sendable {
+    public var color: EPUBHighlightColor
+    /// Drawn under the passage's text as well as its color, so that a reader who cannot tell
+    /// the colors apart can tell the highlights apart. nil draws the color alone.
+    public var mark: EPUBHighlightMark?
+    public init(color: EPUBHighlightColor = .yellow, mark: EPUBHighlightMark? = nil) {
+        self.color = color; self.mark = mark
+    }
+    /// What VoiceOver calls a passage in this style: its color's name and "highlight",
+    /// "Yellow highlight". The mark is not said: it stands for the color, which is said.
+    public var spokenName: String { "\(color.name) highlight" }
+}
+
+/// A highlight's color. Each is a category, not a value: the reader draws it in a shade of its
+/// own for each appearance, light enough under the text, or dark enough, that the text keeps
+/// its contrast. Hosts store the raw value.
+public enum EPUBHighlightColor: String, CaseIterable, Codable, Sendable {
+    case yellow, green, blue, pink, purple
+    /// The color's name in a host's controls and in what VoiceOver says: "Yellow".
+    public var name: String {
+        switch self {
+        case .yellow: "Yellow"
+        case .green: "Green"
+        case .blue: "Blue"
+        case .pink: "Pink"
+        case .purple: "Purple"
+        }
+    }
+}
+
+/// A line drawn under a highlight's text, in a darker or lighter shade of its color. Each is a
+/// different pattern, so the marks tell highlights apart where their colors cannot. Hosts
+/// store the raw value.
+public enum EPUBHighlightMark: String, CaseIterable, Codable, Sendable {
+    case underline, doubleUnderline, dottedUnderline, dashedUnderline
+    /// The mark's name in a host's controls: "Underline".
+    public var name: String {
+        switch self {
+        case .underline: "Underline"
+        case .doubleUnderline: "Double underline"
+        case .dottedUnderline: "Dotted underline"
+        case .dashedUnderline: "Dashed underline"
+        }
+    }
 }
 
 public enum EPUBReaderCommand: Equatable, Sendable {
@@ -114,7 +166,8 @@ public enum EPUBReaderCommand: Equatable, Sendable {
     /// A result of a search that has since been replaced or cleared is refused.
     case showSearchResult(EPUBSearchResult)
     case style(EPUBReaderStyle)
-    /// Replaces every drawn highlight. An empty array removes them.
+    /// Replaces every drawn highlight. An empty array removes them. Where highlights overlap,
+    /// the later in the array is drawn over the earlier.
     case setHighlights([EPUBHighlight])
 }
 
