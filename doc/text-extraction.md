@@ -182,8 +182,15 @@ quoted or not, or a DOCTYPE that never ends refuses the section (#293).
 Unsafe declarations, exceeded limits, cancellation and well-formed documents without the expected
 XHTML structure remain errors. A parser halt at its built-in nesting cap returns
 `limitExceeded("depth")` instead of partial text, even with a larger caller limit; both paths
-are capped at 257 levels. UTF-8 and detectable UTF-16/32 are supported; recovery does not
-guess other encodings. Recovery reads named references from the HTML Standard's table too, as the
+are capped at 257 levels. Recovery decodes a section as the strict path and the native reader's
+fallback do, with the reader's own code: UTF-16 or UTF-32 by a byte-order mark or the NUL
+pattern of its first characters, else the encoding its XML declaration names, by libxml2's
+decoder for it, else UTF-8 ([#247](https://github.com/vocaro/EPUBLib/issues/247)). An unclosed
+tag changes no character of a section in ISO-8859-1 or Shift_JIS, and UTF-8 bytes declared as
+`windows-1252` read as that encoding says on both paths (`cafÃ©`), as a conforming XML parser
+reads them. Bytes that the declared encoding cannot decode, and those of a section that names
+none, are read as UTF-8 and refused when they are not UTF-8, where the reader shows U+FFFD;
+recovery guesses no encoding and does not read an HTML `<meta charset>`. Recovery reads named references from the HTML Standard's table too, as the
 native reader does, not from libxml2's HTML 4 one. The parser never loads external resources. This
 option concerns headless text extraction; it does not change reader CFIs or navigation parsing.
 

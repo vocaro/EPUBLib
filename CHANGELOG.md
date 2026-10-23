@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Decode a section that text extraction recovers by the encoding its XML declaration names, with the reader's fallback's own code, as the strict path and the reader do, where an ISO-8859-1 section with an unclosed tag was refused and UTF-8 bytes declared as `windows-1252` read as UTF-8 only when recovered ([#247](https://github.com/vocaro/EPUBLib/issues/247)).
 - Leave the words and pictures a book keeps from assistive technology out of what VoiceOver reads of a table cell, on iPhone and iPad in a cell's element, a row's line and its actions and on Mac in what a row is called and a cell's selected text, while a selection and a copy of the row keep them ([#551](https://github.com/vocaro/EPUBLib/issues/551))
 - Name the language of a picture's words to VoiceOver, that of its `img`, `object`, `embed` or `svg` element, so that a heading or a cell whose picture's words outweigh its own is read in their language ([#548](https://github.com/vocaro/EPUBLib/issues/548))
 

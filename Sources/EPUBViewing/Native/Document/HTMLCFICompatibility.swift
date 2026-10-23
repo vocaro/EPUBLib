@@ -1,3 +1,4 @@
+import EPUBCore
 import Foundation
 
 /// A deliberately small, structurally checked subset whose XML tree can be converted to the
@@ -14,7 +15,7 @@ enum HTMLCFICompatibility {
 
     static func hasXHTMLDTD(_ data: Data) -> Bool {
         let source: String?
-        if let (encoding, mark) = HTMLSourceEncoding.wide(data) {
+        if let (encoding, mark) = XMLSafety.wideEncoding(data) {
             source = String(data: data.dropFirst(mark), encoding: encoding)
         } else { source = String(data: data, encoding: .utf8) }
         guard let source, let tags = tokens(source) else { return false }

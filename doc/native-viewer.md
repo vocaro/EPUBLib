@@ -48,7 +48,9 @@ continues to describe the authored spine resource.
    cannot decode is read as UTF-8, with U+FFFD for what is not. Bytes that only a NUL tells
    as UTF-16 or UTF-32, and that hold no markup once decoded, are not a document and are
    withheld. What was decoded by a declared encoding is screened again, and what the parser
-   is given is held to the byte limit.
+   is given is held to the byte limit. Text extraction's recovery decodes with the same code,
+   `HTMLSourceEncoding` in EPUBCore, but refuses what is not UTF-8 where this shows U+FFFD
+   ([#247](https://github.com/vocaro/EPUBLib/issues/247)).
    HTML recovery escapes content CDATA as literal text and moves the parser's actual trailing
    nodes into its body before bounded tree conversion. This keeps text after `</html>` and CDATA characters in recovered
    sections without making those sections eligible for CFIs
