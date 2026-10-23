@@ -30,6 +30,12 @@ import AppKit
     /// start after a page turn or scroll. Keeping the asked-for position rather than its page's
     /// start stops repeated resizes from drifting.
     private(set) var anchor: ReaderTextPosition?
+    /// The move the next report of the visible range is the first to show, which it gives as its
+    /// reason (`ReaderCanvasDelegate`): a place `show` was asked for, which can wait for a size,
+    /// its section's text or a layout, a turn while it turns (`moving`), or the person's
+    /// scrolling until it is reported. nil reports a relayout: what is shown changed and the
+    /// place kept did not.
+    private var pendingMove: EPUBRelocationReason?
     private var pendingSelection: ReaderTextRange?
     /// Intentional selection requests may span beyond a page or temporary section view.
     /// A carried native user selection must instead fit replacement scroll content in full.
@@ -257,11 +263,13 @@ import AppKit
         selectionMayHaveChanged()
     }
 
-    func show(_ position: ReaderTextPosition, selecting range: ReaderTextRange?, entry: ReaderPageEntry = .position) {
+    func show(_ position: ReaderTextPosition, selecting range: ReaderTextRange?, entry: ReaderPageEntry = .position,
+              reason: EPUBRelocationReason = .navigation) {
         settleLayout()
         clearSelection()
         anchor = position
         anchorFollowsScroll = false
+        pendingMove = reason
         pendingSelection = range.flatMap { $0.isEmpty ? nil : $0 }
         pendingSelectionPreservesFullRange = pendingSelection != nil
         #if os(macOS)
@@ -292,17 +300,31 @@ import AppKit
 
     func turnPage(forward: Bool) -> PageTurnResult {
         settleLayout()
-        return switch configuration.flow {
-        case .paginated: animatingTurn(forward: forward) { turnPaginatedPage(forward: forward) }
-        case .scrolled: turnScrolledPage(forward: forward)
+        return moving(.turn) {
+            switch configuration.flow {
+            case .paginated: return animatingTurn(forward: forward) { turnPaginatedPage(forward: forward) }
+            case .scrolled: return turnScrolledPage(forward: forward)
+            }
         }
     }
 
+    /// Makes a move whose report gives `reason` (`pendingMove`). A move that reports nothing, as
+    /// a turn at the book's end or one that waits for its section, leaves a move asked for
+    /// before it still waiting for its report.
+    private func moving(_ reason: EPUBRelocationReason, _ move: () -> PageTurnResult) -> PageTurnResult {
+        let waiting = pendingMove
+        pendingMove = reason
+        let result = move()
+        if pendingMove == reason { pendingMove = waiting }
+        return result
+    }
+
     /// Shows the start (`forward`) or end of a section a page turn waited for, as that turn,
-    /// animated as any other (`ReaderCanvasDelegate.canvas(_:needsSection:forward:)`).
-    func showTurned(_ position: ReaderTextPosition, forward: Bool) {
+    /// animated as any other (`ReaderCanvasDelegate.canvas(_:needsSection:forward:reason:)`), or
+    /// the book's start or end a key went to (`showBookBoundary`), whose `reason` it gives.
+    func showTurned(_ position: ReaderTextPosition, forward: Bool, reason: EPUBRelocationReason = .turn) {
         _ = animatingTurn(forward: forward) {
-            show(position, selecting: nil, entry: .firstLine)
+            show(position, selecting: nil, entry: .firstLine, reason: reason)
             return .turned
         }
     }
@@ -451,7 +473,11 @@ import AppKit
         #else
         if force, configuration.flow == .scrolled { accessibilityCursorFollowsTheScrollView(to: foundPlace ?? anchor) }
         #endif
-        if force || changed { delegate?.canvas(self, didShow: range, sectionProgress: progress(of: range.start)) }
+        if force || changed {
+            let reason = pendingMove ?? .relayout
+            pendingMove = nil
+            delegate?.canvas(self, didShow: range, sectionProgress: progress(of: range.start), reason: reason)
+        }
     }
 
     // MARK: Paginated flow
@@ -789,10 +815,10 @@ import AppKit
         while next >= 0, next < dataSource.sectionCount, !dataSource.isLinear(section: next) { next += step }
         guard next >= 0, next < dataSource.sectionCount else { return .atBoundary }
         guard let text = dataSource.text(forSection: next), dataSource.canShow(section: next) else {
-            delegate?.canvas(self, needsSection: next, forward: forward)
+            delegate?.canvas(self, needsSection: next, forward: forward, reason: .turn)
             return .pending(section: next)
         }
-        show(ReaderTextPosition(section: next, offset: forward ? 0 : text.length), selecting: nil, entry: .firstLine)
+        show(ReaderTextPosition(section: next, offset: forward ? 0 : text.length), selecting: nil, entry: .firstLine, reason: .turn)
         return .turned
     }
 
@@ -1279,6 +1305,7 @@ import AppKit
         if !isHoldingScrollPlace { refreshScrollTables() }
         guard !byReader, !isScrollingProgrammatically, !scrollViewStandsWhereRead else { return }
         anchorFollowsScroll = true
+        pendingMove = .scroll
         #if os(macOS)
         // Record the new first line before an accessibility query can replace estimated
         // geometry above it. Waiting for the throttled report leaves a 150 ms gap (#266).
@@ -1293,6 +1320,8 @@ import AppKit
             try? await Task.sleep(for: .milliseconds(150))
             guard let self else { return }
             self.scrollReportPending = false
+            // A scroll that shows no other range is no move for a later relayout to report.
+            defer { if self.pendingMove == .scroll { self.pendingMove = nil } }
             guard self.configuration.flow == .scrolled, self.scrollTextView != nil else { return }
             self.updateVisibleRange(force: false)
         }

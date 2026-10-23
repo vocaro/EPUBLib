@@ -3638,7 +3638,19 @@ entries it shows (see Decisions) and the visible range's CFIs. A nonlinear secti
 toward progression unless no section is linear (see Decisions). The pages of the layout on
 screen are not in the location: `EPUBReaderStatus.layoutPage` has them, set before the
 `.relocated` of the same pages and changed again, with no event, as counting goes on
-([Layout](#layout), "Page numbers"). A selection's `.selectionChanged`
+([Layout](#layout), "Page numbers"). Why each `.relocated` was sent is
+`EPUBReaderStatus.relocationReason`, set before it
+([#600](https://github.com/vocaro/EPUBLib/issues/600)): the canvas gives each report of what it
+shows the move that report is the first to show, and `.relayout` when there is none. A turn is
+every page turn and every scroll step, a key, tap, swipe, wheel or VoiceOver's own included; a
+scroll is a move of continuous scroll that the reader did not make itself; a place gone to is
+every other place shown, by command, link, Home and End, or VoiceOver's move to a heading or a
+link elsewhere; and the opening and a restore are the places the reader was put at. A place shown
+before the canvas has a size or its section's text keeps its reason until it is shown, so a
+restore in a window not yet laid out is reported as a restore when it comes. A relayout that
+shows a scroll not yet reported, 150 ms after the view moved, is reported as that scroll, and a
+scroll that showed no other range leaves no reason behind. A new view of a session already
+reading shows its place as a relayout. A selection's `.selectionChanged`
 event and host selection action carry the same complete passage: `text` omits nonlinear sections,
 and `location.rangeBookmarks` preserves all included documents. Its `page` names the entry in effect
 at its start and `pages` includes the entries it spans, omitting nonlinear pages. Save the entire

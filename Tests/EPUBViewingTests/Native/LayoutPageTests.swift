@@ -481,7 +481,7 @@ import UIKit
     #endif
 
     /// The book's end in a section not built yet is asked of the delegate, which shows its end
-    /// once it is (`NativeSession.canvas(_:needsSection:forward:)`).
+    /// once it is (`NativeSession.canvas(_:needsSection:forward:reason:)`).
     func testTheBooksEndInASectionNotBuiltIsAskedFor() throws {
         let host = keyHost(flow: .paginated, buildEnd: false)
         host.canvas.performPageActionFromInput(.bookEnd)

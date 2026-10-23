@@ -14,7 +14,8 @@ import Foundation
         public var errorDescription: String? { description }
     }
 
-    /// Tests lifecycle, advertised commands, cancellation, location identity and bookmark restoration.
+    /// Tests lifecycle, advertised commands, cancellation, location identity, bookmark restoration
+    /// and, from an engine with `readerState`, the reason given for each relocation.
     /// Rendering fidelity, input gestures and resource release require adapter-specific tests.
     /// The mount closure returns cleanup; it must retain its window until cleanup runs. Each wait
     /// for an event is a `TestDeadline` of `timeout`; one the host decided throws
@@ -26,7 +27,15 @@ import Foundation
         mount: (any EPUBReaderSession) throws -> (@MainActor () -> Void)
     ) async throws {
         var events: [EPUBReaderEvent] = []
-        let session = try engine.makeSession(publication: publication, selectionAction: nil) { events.append($0) }
+        /// The state's `relocationReason` as each `.relocated` was sent, by the event's index:
+        /// an engine sets it before it sends the event.
+        var reasons: [Int: EPUBRelocationReason] = [:]
+        var state: EPUBReaderState?
+        let session = try engine.makeSession(publication: publication, selectionAction: nil) { event in
+            if case .relocated = event, let reason = state?.status.relocationReason { reasons[events.count] = reason }
+            events.append(event)
+        }
+        state = session.readerState
         defer { session.close() }
         func require(_ condition: Bool, _ message: String) throws {
             if !condition { throw Failure(description: message) }
@@ -236,6 +245,9 @@ import Foundation
             try require(!events.contains { if case .searchResultsChanged = $0 { return true }; return false },
                         "Search results published without the capability")
         }
+        // What the engine still sends for the commands before is not taken for a relayout's.
+        if state != nil { try await settle() }
+        let relayouts = events.count
         if session.capabilities.contains(.typography) {
             try await session.send(.style(.init(fontSize: 21)))
         } else { try await expect(.style(.init(fontSize: 21)), error: .unsupported(.typography)) }
@@ -243,6 +255,18 @@ import Foundation
             try await session.send(.style(.init(flow: .scrolled)))
             try await session.send(.style(.init()))
         } else { try await expect(.style(.init(flow: .scrolled)), error: .unsupported(.scrolling)) }
+        if state != nil {
+            // A text size and a flow keep the place: what they show of it is a relayout.
+            try await settle()
+            for (index, event) in events.enumerated() {
+                guard case .relocated = event else { continue }
+                guard let reason = reasons[index] else {
+                    throw Failure(description: "A relocation was sent before readerState gave its reason")
+                }
+                try require(index < relayouts || reason == .relayout,
+                            "A relayout's relocation was given the reason \(reason), not relayout")
+            }
+        }
         try require(!events.contains { if case .failed = $0 { return true }; return false }, "Engine emitted a failure")
         try require(events.filter { $0 == .ready }.count == 1, "Ready must be emitted exactly once")
         let count = events.count

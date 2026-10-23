@@ -165,7 +165,7 @@ import SwiftUI
         if isReady {
             readerState?.modify { $0.lifecycle = .ready }
             // A new view for a session already reading: the same place, the same highlights.
-            canvas.show(visibleRange?.start ?? initialPosition, selecting: nil)
+            canvas.show(visibleRange?.start ?? initialPosition, selecting: nil, reason: visibleRange == nil ? .opening : .relayout)
             refreshHighlights()
         } else {
             // Never inside SwiftUI's view update, where a host's state change in `onEvent` is undefined.
@@ -259,7 +259,7 @@ import SwiftUI
         isReady = true
         emit(.ready)
         publishDisclosure()
-        canvas.show(visibleRange?.start ?? initialPosition, selecting: nil)
+        canvas.show(visibleRange?.start ?? initialPosition, selecting: nil, reason: .opening)
     }
 
     /// The opening position, once its section is built. A `.restore` after `.ready` replaces it.
@@ -434,7 +434,7 @@ import SwiftUI
             return
         }
         canvas?.clearSelection()
-        canvas?.show(range.start, selecting: nil)
+        canvas?.show(range.start, selecting: nil, reason: .restore)
     }
 
     private func range(of localPath: String, in text: SectionText) -> ReaderTextRange? {
@@ -957,25 +957,28 @@ extension NativeSession: ReaderCanvasDataSource {
 }
 
 extension NativeSession: ReaderCanvasDelegate {
-    func canvas(_ canvas: any ReaderCanvas, didShow range: ReaderTextRange, sectionProgress: Double) {
+    func canvas(_ canvas: any ReaderCanvas, didShow range: ReaderTextRange, sectionProgress: Double,
+                reason: EPUBRelocationReason) {
         if range != visibleRange { pageChanges += 1 }
         visibleRange = range
         // A page of text built for the theme asked for brings it to the canvas (`shownTheme`).
         applyConfiguration()
         guard isReady, !closed else { return }
-        readerState?.modify {
-            $0.canGoPrevious = self.canvas?.canTurnPage(forward: false)
-            $0.canGoNext = self.canvas?.canTurnPage(forward: true)
-            // Before the `.relocated` of the same pages, which a host may read it beside.
-            $0.layoutPage = self.canvas?.layoutPage
-        }
         // A page is read to its end, as foliate measured it: the last page of a book is 1.
         var fraction = sectionProgress
         if style.flow == .paginated, let length = book.section(range.start.section)?.string.length, length > 0 {
             fraction = range.end.section > range.start.section ? 1 : Double(range.end.offset) / Double(length)
         }
         let location = location(for: range, fraction: fraction)
-        guard location != lastLocation else { return }
+        let relocated = location != lastLocation
+        readerState?.modify {
+            $0.canGoPrevious = self.canvas?.canTurnPage(forward: false)
+            $0.canGoNext = self.canvas?.canTurnPage(forward: true)
+            // Before the `.relocated` of the same pages, which a host may read them beside.
+            $0.layoutPage = self.canvas?.layoutPage
+            if relocated { $0.relocationReason = reason; $0.location = location }
+        }
+        guard relocated else { return }
         lastLocation = location
         emit(.relocated(location))
     }
@@ -1081,13 +1084,13 @@ extension NativeSession: ReaderCanvasDelegate {
         readerState?.modify { $0.layoutPage = self.canvas?.layoutPage }
     }
 
-    func canvas(_ canvas: any ReaderCanvas, needsSection index: Int, forward: Bool) {
+    func canvas(_ canvas: any ReaderCanvas, needsSection index: Int, forward: Bool, reason: EPUBRelocationReason = .turn) {
         let ticket = beginNavigation(), changes = pageChanges
         tasks.append(Task { [weak self] in
             guard let text = await self?.book.build(index), let self, self.isCurrent(ticket),
                   self.pageChanges == changes else { return }
             self.canvas?.showTurned(ReaderTextPosition(section: index, offset: forward ? 0 : text.string.length),
-                                    forward: forward)
+                                    forward: forward, reason: reason)
         })
     }
 }
