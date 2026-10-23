@@ -88,10 +88,12 @@ final class TableRowAttachment: ReaderAttachment {
     }
 
     /// The row has nothing to say where it stands: its cells hold no words there, and nothing
-    /// but decoration besides, as a row that spaces out a table used for layout does, or images
-    /// and rules the book keeps from assistive technology. A link is something to follow
-    /// whatever it holds, and any other rule or a formula something to say, so a row that
-    /// holds one is not such a row.
+    /// besides but what assistive technology passes over (`NSAttributedString.passesOver`):
+    /// decoration, as in a row that spaces out a table used for layout, images, rules and
+    /// formulas the book keeps from assistive technology, and anything `visibility: hidden`
+    /// hides (`.readerHidden`), which nobody reads. A link is something to follow whatever it
+    /// holds, and any other rule or formula something to say, so a row that holds one is not
+    /// such a row.
     var saysNothing: Bool {
         guard cellWords.allSatisfy({ $0.allSatisfy(\.isWhitespace) }) else { return false }
         if let fragment, let layout = fragmentLayout {
@@ -108,11 +110,13 @@ final class TableRowAttachment: ReaderAttachment {
     private static func saysNothing(_ content: NSAttributedString, in range: NSRange) -> Bool {
         var silent = true
         content.enumerateAttributes(in: range) { attributes, _, stop in
+            let attachment = attributes[.attachment] as? NSTextAttachment
             if attributes[.link] != nil { silent = false }
-            else if let image = attributes[.attachment] as? ReaderImageAttachment { silent = image.isPassedOverByAssistiveTechnology }
-            else if let rule = attributes[.attachment] as? ReaderRuleAttachment { silent = rule.isHiddenFromAssistiveTechnology }
-            else if let row = attributes[.attachment] as? TableRowAttachment { silent = row.saysNothing }
-            else if attributes[.attachment] != nil { silent = false }
+            // A nested table is not hidden as a whole: each of its cells can be shown again.
+            else if let row = attachment as? TableRowAttachment { silent = row.saysNothing }
+            // Outside a link, which is something to follow, `passesOver` is this; what is
+            // hidden is no one's to read.
+            else if let attachment, attributes[.readerHidden] == nil { silent = NSAttributedString.isPassedOverAlone(attachment) }
             if !silent { stop.pointee = true }
         }
         return silent

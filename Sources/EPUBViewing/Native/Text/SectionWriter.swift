@@ -575,7 +575,10 @@ final class SectionWriter {
         if let type = type?.lowercased(), type.hasPrefix("image/") { return true }
         guard let reference, !reference.isEmpty else { return false }
         if let mediaType = state.mediaType(of: reference) { return mediaType.hasPrefix("image/") }
-        let path = reference.split(separator: "#").first.map(String.init) ?? reference
+        // The path ends at the first `#`, found as its byte: as a `Character`, one before a
+        // combining mark is another character, and the fragment would be read as the file name's.
+        let bytes = reference.utf8
+        let path = String(decoding: bytes[..<(bytes.firstIndex(of: 0x23) ?? bytes.endIndex)], as: UTF8.self) // #
         return ContentSemantics.imageExtensions.contains((path as NSString).pathExtension.lowercased())
     }
 

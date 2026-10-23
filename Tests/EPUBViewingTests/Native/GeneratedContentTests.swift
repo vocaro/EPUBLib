@@ -99,6 +99,19 @@ final class GeneratedContentTests: XCTestCase {
         S.assertTextMapContracts(text)
     }
 
+    /// `quotes: auto` is the language's two pairs (CSS Generated Content 3 §2.4.1), and past
+    /// the last pair the last is repeated (CSS 2.2 §12.3.2): the inner marks for every `q`
+    /// below the first, never the outer ones again (#776).
+    func testAutoQuotesRepeatTheInnerMarksPastTheSecondLevel() throws {
+        let text = try S.styled("""
+            <p lang='ru'><q>a<q>b<q>c</q></q></q></p>\
+            <p lang='en'><q>a<q>b<q>c<q>d</q></q></q></q></p>\
+            <p lang='de'><q>a<q>b<q>c</q></q></q> <q>e</q></p>
+            """)
+        XCTAssertEqual(S.paragraphs(text), ["«a„b„c““»", "“a‘b‘c‘d’’’”", "„a‚b‚c‘‘“ „e“"])
+        S.assertTextMapContracts(text)
+    }
+
     func testAResetStylesheetRemovesTheMarksOfQ() throws {
         // Eric Meyer's reset, which many books carry.
         let reset = try S.styled("<p>He said <q>hi</q>.</p>", css: "blockquote, q { quotes: none } q:before, q:after { content: ''; content: none; }")
