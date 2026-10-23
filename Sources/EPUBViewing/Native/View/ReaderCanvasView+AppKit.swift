@@ -501,16 +501,55 @@ extension ReaderCanvasView: NSTextViewDelegate {
         let popover = NSPopover()
         popover.behavior = .transient
         popover.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        popover.contentViewController = ReaderNoteViewController(
+        let controller = ReaderNoteViewController(
             text: text, dark: dark, width: min(360, max(200, bounds.width - 32)))
+        controller.onLink = { [weak self] url in self?.activateNoteLink(url) }
+        popover.contentViewController = controller
         popover.show(relativeTo: rect, of: self, preferredEdge: .maxY)
         presentedNote = popover
+        noteRect = rect
+    }
+
+    // MARK: Links outside the book
+
+    /// A sheet on the reader's window. Open is its first button, the sheet's default button,
+    /// which Return chooses while the sheet is the key window, and Cancel its second, whose key
+    /// equivalent is Escape. A note's popover is closed first: it is a window of its own, which
+    /// would stand over the sheet.
+    func askToOpen(_ question: ExternalLinkQuestion, from rect: CGRect, answer: @escaping @MainActor (Bool) -> Void) -> Bool {
+        withdrawLinkQuestion()
+        guard let window else { return false }
+        (presentedNote as? NSPopover)?.close()
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = question.title
+        alert.informativeText = question.message
+        alert.addButton(withTitle: ExternalLinkQuestion.open)
+        alert.addButton(withTitle: ExternalLinkQuestion.cancel)
+        linkQuestion = (alert, answer)
+        alert.beginSheetModal(for: window) { [weak self, weak alert] response in
+            if let alert { self?.answerLinkQuestion(response == .alertFirstButtonReturn, to: alert) }
+        }
+        return true
+    }
+
+    func withdrawLinkQuestion() {
+        guard let question = linkQuestion else { return }
+        linkQuestion = nil
+        if let alert = question.shown as? NSAlert, let parent = alert.window.sheetParent {
+            parent.endSheet(alert.window, returnCode: .cancel)
+        }
+        question.answer(false)
     }
 }
 
-/// A note shown in place: its text in a TextKit 2 view whose links do nothing.
+/// A note shown in place: its text in a TextKit 2 view. A link outside the book in it is
+/// handed to `onLink`, and so asked about as one in the text is; a link inside the book does
+/// nothing.
 final class ReaderNoteViewController: NSViewController, NSTextViewDelegate {
     let textView = ReaderTextView(pageColumn: false)
+    /// Where a link the note's text activates goes: the canvas that shows the note.
+    var onLink: ((URL) -> Void)?
     private let dark: Bool
     private let width: CGFloat
 
@@ -541,7 +580,11 @@ final class ReaderNoteViewController: NSViewController, NSTextViewDelegate {
         view = scrollView
     }
 
-    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool { true }
+    /// A click on a link, and VoiceOver's press of AppKit's own element for it.
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+        if let url = link as? URL ?? (link as? String).flatMap({ URL(string: $0) }) { onLink?(url) }
+        return true
+    }
 }
 #endif
 

@@ -533,12 +533,128 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         }
         presenter.present(controller, animated: true)
         presentedNote = controller
+        noteRect = rect
+        controller.onLink = { [weak self] url in self?.activateNoteLink(url) }
+    }
+
+    // MARK: Links outside the book
+
+    /// An alert from the view controller on top, the note's popover when one is shown, so it
+    /// stands over the note and the note is still there after it. Open is its preferred action,
+    /// which Return chooses on a keyboard, and Cancel its cancel action, which Escape chooses.
+    ///
+    /// The question and the address are the alert's title, on two lines, and it has no
+    /// message. UIKit gives an alert's title and message an element each, and VoiceOver reads
+    /// only the first as the alert comes up: with the address as the message it said "Open a
+    /// link outside the book?" and the address only on the next swipe (iOS 27.2 simulator, #793).
+    func askToOpen(_ question: ExternalLinkQuestion, from rect: CGRect, answer: @escaping @MainActor (Bool) -> Void) -> Bool {
+        // A question asked over another goes back, when cancelled, where the first began.
+        let cursor = linkQuestion == nil ? voiceOverCursor() : cursorBeforeLinkQuestion
+        withdrawLinkQuestion()
+        var responder: UIResponder? = next
+        while let current = responder, !(current is UIViewController) { responder = current.next }
+        guard var presenter = responder as? UIViewController, window != nil else { return false }
+        while let presented = presenter.presentedViewController, !presented.isBeingDismissed { presenter = presented }
+        let alert = UIAlertController(title: question.title + "\n" + question.message, message: nil, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: ExternalLinkQuestion.cancel, style: .cancel) { [weak self, weak alert] _ in
+            if let alert { self?.alertAnswered(false, to: alert) }
+        })
+        let open = UIAlertAction(title: ExternalLinkQuestion.open, style: .default) { [weak self, weak alert] _ in
+            if let alert { self?.alertAnswered(true, to: alert) }
+        }
+        alert.addAction(open)
+        alert.preferredAction = open
+        linkQuestion = (alert, answer)
+        cursorBeforeLinkQuestion = cursor
+        presenter.present(alert, animated: true)
+        return true
+    }
+
+    func withdrawLinkQuestion() {
+        guard let question = linkQuestion else { return }
+        linkQuestion = nil
+        cursorBeforeLinkQuestion = nil
+        if let alert = question.shown as? UIAlertController, alert.presentingViewController != nil {
+            alert.dismiss(animated: false)
+        }
+        question.answer(false)
+    }
+
+    /// One of the alert's buttons was chosen, and the alert has gone. After Cancel, VoiceOver's
+    /// cursor goes back to where it was; after Open, it is left to whatever was opened.
+    func alertAnswered(_ open: Bool, to alert: AnyObject) {
+        guard let question = linkQuestion, question.shown === alert else { return }
+        let cursor = cursorBeforeLinkQuestion
+        cursorBeforeLinkQuestion = nil
+        answerLinkQuestion(open, to: alert)
+        if !open, let cursor { returnCursorAfterLinkQuestion(to: cursor) }
+    }
+
+    /// Puts VoiceOver's cursor back on the item it was on when the question was asked: the link,
+    /// a table's row, or a note's text. As the alert went, VoiceOver took the first item of the
+    /// screen, the host's first control, though the link's element was still the one listed and
+    /// the reader had posted nothing (iOS 27.2 simulator, iPhone and iPad, #793). The alert is
+    /// presented by the view controller on top, in a SwiftUI host its hosting controller, and
+    /// the cursor was not given back to an element of the reader inside it. Over a note, which
+    /// UIKit presents, it came back to the note's text in one run on the iPhone and went to the
+    /// popover's first item in the others, of which no notification told. So the item is named
+    /// with the screen change as the answer comes, which took VoiceOver straight back to a link
+    /// or a row, and the first item VoiceOver then comes to is checked once: the cursor is put
+    /// back where it is anything else, or, with no item told of within a second, where the
+    /// cursor is elsewhere then. Over a note the iPhone said the popover's first item and was
+    /// back on the note's text a second later.
+    func returnCursorAfterLinkQuestion(to cursor: NSObject) {
+        guard isStillShown(cursor) else { return }
+        stopAwaitingCursorReturn()
+        cursorReturnWait += 1
+        let wait = cursorReturnWait
+        cursorToReturnTo = cursor
+        NotificationCenter.default.addObserver(self, selector: #selector(cursorMovedAfterLinkQuestion(_:)),
+                                               name: UIAccessibility.elementFocusedNotification, object: nil)
+        postAccessibilityNotification(.screenChanged, cursor)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            // VoiceOver came to no item it told of, as to a popover's own first item.
+            guard let self, self.cursorReturnWait == wait, let cursor = self.cursorToReturnTo else { return }
+            self.stopAwaitingCursorReturn()
+            if self.voiceOverCursor() !== cursor, self.isStillShown(cursor) { self.postAccessibilityNotification(.layoutChanged, cursor) }
+        }
+    }
+
+    @objc func cursorMovedAfterLinkQuestion(_ notification: Notification) {
+        // Each move posts two notifications, the first naming only the item left.
+        guard let cursor = cursorToReturnTo,
+              let focused = notification.userInfo?[UIAccessibility.focusedElementUserInfoKey] as AnyObject? else { return }
+        stopAwaitingCursorReturn()
+        if focused !== cursor, isStillShown(cursor) { postAccessibilityNotification(.layoutChanged, cursor) }
+    }
+
+    private func stopAwaitingCursorReturn() {
+        cursorToReturnTo = nil
+        NotificationCenter.default.removeObserver(self, name: UIAccessibility.elementFocusedNotification, object: nil)
+    }
+
+    /// Whether `item` is still on screen: a view in a window, or an element whose containers
+    /// lead to one.
+    private func isStillShown(_ item: NSObject) -> Bool {
+        var node: Any? = item
+        for _ in 0..<8 {
+            guard let current = node else { return false }
+            if let view = current as? UIView { return view.window != nil }
+            guard let element = current as? UIAccessibilityElement else { return true }
+            node = element.accessibilityContainer
+        }
+        return false
     }
 }
 
-/// A note shown in place: its text in a TextKit 2 view whose links do nothing.
+/// A note shown in place: its text in a TextKit 2 view. A link outside the book in it is
+/// handed to `onLink`, and so asked about as one in the text is; a link inside the book does
+/// nothing.
 final class ReaderNoteViewController: UIViewController, UIPopoverPresentationControllerDelegate, UITextViewDelegate {
     let textView = ReaderTextView(pageColumn: false)
+    /// Where a link the note's text activates goes: the canvas that shows the note.
+    var onLink: ((URL) -> Void)?
 
     init(text: NSAttributedString, dark: Bool, width: CGFloat) {
         super.init(nibName: nil, bundle: nil)
@@ -559,7 +675,12 @@ final class ReaderNoteViewController: UIViewController, UIPopoverPresentationCon
     func adaptivePresentationStyle(for controller: UIPresentationController,
                                    traitCollection: UITraitCollection) -> UIModalPresentationStyle { .none }
 
-    func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? { nil }
+    /// A tap on a link, and VoiceOver's or Full Keyboard Access's activation of UIKit's own
+    /// element for it. Only a link outside the book has an action.
+    func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
+        guard case .link(let url) = textItem.content, case .external? = ReaderLink(url: url) else { return nil }
+        return UIAction { [weak self] _ in self?.onLink?(url) }
+    }
 
     func textView(_ textView: UITextView, menuConfigurationFor textItem: UITextItem,
                   defaultMenu: UIMenu) -> UITextItem.MenuConfiguration? { nil }

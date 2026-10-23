@@ -184,10 +184,26 @@ import AppKit
     /// cursor goes to another: no other item turns the page meanwhile
     /// (`accessibilityPageTurnColumn`).
     weak var accessibilityCursorAtTurn: NSObject?
+    /// The item VoiceOver's cursor was on when a question about a link outside the book was
+    /// asked, until the question is answered (`returnCursorAfterLinkQuestion`).
+    weak var cursorBeforeLinkQuestion: NSObject?
+    /// The item VoiceOver's cursor is to go back to after a cancelled question, while the first
+    /// item VoiceOver comes to after it is awaited, and which wait that is.
+    weak var cursorToReturnTo: NSObject?
+    var cursorReturnWait = 0
+    /// The item VoiceOver's cursor is on; nil while VoiceOver is off. A test puts its own here.
+    var voiceOverCursor: @MainActor () -> NSObject? = {
+        UIAccessibility.isVoiceOverRunning ? UIAccessibility.focusedElement(using: .notificationVoiceOver) as? NSObject : nil
+    }
     #endif
 
     var wheelTurner = ReaderWheelPageTurner()
     var presentedNote: AnyObject?
+    /// The question shown about a link outside the book (`askToOpen`), an alert, and what to
+    /// call with its answer.
+    var linkQuestion: (shown: AnyObject, answer: @MainActor (Bool) -> Void)?
+    /// Where the note shown hangs from, for a link in it.
+    var noteRect = CGRect.zero
     var imageInspector: ReaderImageInspector?
     /// Where and when the last touch or click on the canvas began, for edge taps.
     var pointerDown: (location: CGPoint, time: TimeInterval)?
@@ -1649,6 +1665,21 @@ import AppKit
     func activateExternalLink(_ url: URL, position: ReaderTextPosition, rect: CGRect) {
         guard let link = ReaderLink(url: url) else { return }
         delegate?.canvas(self, didActivate: link, at: position, rect: rect)
+    }
+
+    /// A link in a note's popover was activated. One outside the book goes to the session as
+    /// one in the text does, from where the note hangs; one inside the book does nothing there.
+    func activateNoteLink(_ url: URL) {
+        guard case .external? = ReaderLink(url: url) else { return }
+        activateExternalLink(url, position: visibleRange?.start ?? ReaderTextPosition(section: 0, offset: 0), rect: noteRect)
+    }
+
+    /// The question about a link outside the book was answered, by one of its buttons: true for
+    /// Open. Nothing when `shown` is not the question shown, which was withdrawn or replaced.
+    func answerLinkQuestion(_ open: Bool, to shown: AnyObject) {
+        guard let question = linkQuestion, question.shown === shown else { return }
+        linkQuestion = nil
+        question.answer(open)
     }
 
     /// A link in a text view was activated: decode it and report where it is. Nothing is opened.

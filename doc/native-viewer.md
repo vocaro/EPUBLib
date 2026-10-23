@@ -499,8 +499,9 @@ continues to describe the authored spine resource.
   laid over its characters, or over the first of them, was not announced. A table row in a
   link stays the group of its cells.
   Not done: a list of links in VoiceOver's rotor, for the reasons in the same article and under
-  Headings in "Input and accessibility". A note's popover keeps AppKit's elements, and its links
-  do nothing.
+  Headings in "Input and accessibility". A note's popover keeps AppKit's elements. A link
+  inside the book does nothing there, and a press of one outside it is asked about
+  ([Security](#security)).
   A link below the screen. In continuous scroll the children were the links on screen, so
   from the last of them Find Next Link began again with the first, or said "Last link"
   and stayed, and from the text after it, once VoiceOver had been on that link, it said
@@ -716,8 +717,8 @@ continues to describe the authored spine resource.
   20,000th.
   Visible cells have
   native text interaction surfaces aligned to their drawn glyphs: select and Copy cell text,
-  invoke the host's selection action, follow internal links and open notes. External links retain
-  the reader's refusal notice. Cell selections, located passages and saved highlights use exact
+  invoke the host's selection action, follow internal links and open notes. A link outside the
+  book is asked about as one in the text is ([Security](#security)). Cell selections, located passages and saved highlights use exact
   DOM-based character ranges, including Unicode and inline markup. VoiceOver reads a table
   where it stands among the lines of its page, and each continuation by the
   words it shows, completing a word once if character wrapping splits it between pages. On
@@ -3335,7 +3336,7 @@ ordinary original-document CFIs
 remain unchanged ([#78](https://github.com/vocaro/EPUBLib/issues/78)).
 
 `.disclosure` text summarises the books' `SectionReport`s and is re-emitted when it changes. `.notice` reports
-refused external links, unresolved CFIs and quotes, and highlights that could not be drawn.
+refused links outside the book ([Security](#security)), unresolved CFIs and quotes, and highlights that could not be drawn.
 
 `EPUBReaderStyle.followsDynamicType`, off by default, scales the chosen font size by the system
 text size before it is drawn: by the body text style's size at the mounted view's
@@ -3363,10 +3364,58 @@ Books are untrusted. Nothing is executed: there is no JavaScript engine. Every r
 resolves inside the archive through `ResourceReference`, but for an image in a `data:` URL,
 which is read from the URL's own bytes (**Data URLs** under [Decisions](#decisions)); remote
 URLs are never fetched and are counted for disclosure. XML, CSS and font input is bounded, and
-the import limits in `EPUBReading` still apply. External links are refused with a notice.
+the import limits in `EPUBReading` still apply.
 What `var()` substitutes is bounded for one value and for a section, so that custom properties
 that expand at each reference cannot stall a build or exhaust its memory (**Custom
 properties** under [Decisions](#decisions)).
+
+**Links outside the book.** EPUB Reading Systems 3.3 §3.9 has a reading system get the
+reader's consent before it opens an `http` or `https` link, and before it hands a link to the
+application of its scheme. So a link outside the book that the reader activates, by pointer,
+keyboard or VoiceOver, in the text, in a table cell or in a note's popover, is asked about
+first ([#683](https://github.com/vocaro/EPUBLib/issues/683)): "Open a link outside the book?",
+with the address, and Open and Cancel. Only on Open is it opened, with the view's `openURL`
+action, the system's unless the host sets its own, so a web page opens in the browser, apart
+from the reader, and an email address in the mail app. Nothing is fetched to ask, and the
+position in the book does not move.
+
+- Only a web page, an `http` or `https` URL with a host, and an email address, a `mailto` URL
+  with one, are asked about. Anything else outside the book, `javascript:`, `file:`, `data:`,
+  `tel:`, an app's own scheme or an address with no scheme or no host, is never opened or
+  handed to a host, and the `.notice` "This reader opens only web and email links outside the
+  book." says so: such a link would run the book's own content, reach the device's files, or
+  have another app act on the book's behalf.
+- The address shown is the URL as the system will open it: percent-encoded, with an
+  international domain name in its ASCII form, so the characters a book puts in it cannot
+  reorder or disguise it. Past 1,000 characters it is cut short with "…"; the scheme and host
+  come first.
+- On iPhone and iPad the question is an alert from the view controller on top, over a note's
+  popover when one is shown, and the note is still there after it. Open is its preferred
+  action, which Return chooses on a keyboard, and Cancel its cancel action, which Escape
+  chooses. Its title is the question and the address on two lines, and it has no message:
+  UIKit gives a message an element of its own, and VoiceOver reads only an alert's first
+  element as it comes up, so with the address as the message it said the question alone and
+  the address on the next swipe ([#793](https://github.com/vocaro/EPUBLib/issues/793)). After
+  Cancel VoiceOver's cursor goes back to the item it was on, the link, the table's row or the
+  note's text: as the alert went, VoiceOver took the first item of the screen, a control of
+  the host, while the link's element was still listed. The reader names the item with a
+  screen change as the answer comes, and puts the cursor back if VoiceOver comes to another
+  item after it, or is still elsewhere a second later. On simulators that took VoiceOver
+  straight back to a link or a row; over a note the iPhone said the popover's first item and
+  was back on the note's text a second later. After Open the cursor is left to whatever was
+  opened. On Mac it is a sheet on the reader's window, Open its default button (Return) and
+  Cancel its second (Escape), and a note's popover is closed first: it is a window of its
+  own, which would stand over the sheet.
+- One question at a time: a second link activated while one is asked about replaces it, and
+  the first is answered no. Closing the session, or the view leaving the window, takes the
+  question away, and nothing is opened after it.
+- A host chooses with `epubReaderExternalLinks(_:)`
+  ([integration](integration.md#links-outside-the-book)): `.ask`, the default; `.refuse`,
+  where every link outside the book gives the `.notice` "This reader does not open links outside
+  the book.", as every one did before; or `.handle`, where the host is given each web or email
+  address and asks, if it wants to, itself. The view's setting is read each time SwiftUI
+  updates it, so a change reaches a reader already shown.
+- A link inside the book in a note's popover still does nothing there.
 
 Subsequent-sibling CSS searches (`~`) share a memo entry when their entire left-hand selector
 suffix is equal, across rule declarations, right-hand subjects and nested pseudo-classes.

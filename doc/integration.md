@@ -515,6 +515,58 @@ The rules and their limits are under "Reading adjustments" in the
 [native viewer's decisions](native-viewer.md#decisions). The supplied controls have no setting
 for these yet; a settings sheet is [#692](https://github.com/vocaro/EPUBLib/issues/692).
 
+## Links outside the book
+
+The bundled reader asks before it opens a link outside the book, and an app needs no code for
+it. A web page or an email address that the reader activates, in the text, a table cell or a
+note's popover, by pointer, keyboard or VoiceOver, brings up "Open a link outside the book?"
+with the address, and Open opens it with the view's `openURL` action: the system's, so a web
+page opens in the browser and an address in the mail app. Set your own `OpenURLAction` on the
+reader's view to show web pages in the app; the reader still asks first. Any other link outside
+the book, such as `javascript:`, `file:` or `data:`, is never opened or given to the app, and
+`.notice` says so. What the reader does and why is under
+[Security](native-viewer.md#security).
+
+`epubReaderExternalLinks(_:)` changes this on a mounted view, as `epubReaderPageControls(_:)`
+does input: `.ask` is the default, `.refuse` gives every such link the `.notice` "This reader
+does not open links outside the book.", and `.handle` gives the app each web or email address
+without asking, to ask and open in its own way.
+
+<!-- snippet:externalLinks -->
+```swift
+/// Links outside the book: asked about and opened with the system (the default), refused with
+/// the reader's notice, or handed to the app, which here shows the address it was given.
+struct ExternalLinksExample: View {
+    enum Choice: String, CaseIterable { case ask = "Ask", refuse = "Refuse", app = "In the app" }
+    let session: any EPUBReaderSession
+    @State private var choice = Choice.ask
+    @State private var given: URL?
+
+    var body: some View {
+        VStack {
+            Picker("Links outside the book", selection: $choice) {
+                ForEach(Choice.allCases, id: \.self) { Text($0.rawValue) }
+            }
+            EPUBReaderView(session: session)
+                .epubReaderExternalLinks(links)
+            if let given { Text("The book links to \(given.absoluteString)") }
+        }
+    }
+
+    private var links: EPUBExternalLinks {
+        switch choice {
+        case .ask: .ask
+        case .refuse: .refuse
+        case .app: .handle { url in given = url }
+        }
+    }
+}
+```
+<!-- /snippet -->
+
+The modifier is specific to the native reader. Remote images, fonts and style sheets are never
+fetched, whatever it says.
+
 ## Privacy manifest
 
 A host declares nothing for EPUBLib in its privacy manifest. Apple has an app give a reason for

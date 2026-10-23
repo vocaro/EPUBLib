@@ -355,7 +355,9 @@ never loaded, and depth and node counts are bounded. Markup that is not well-for
 libxml2's forgiving HTML parser rather than refused. CSS, fonts, MathML and images are parsed with
 their own bounds. Every reference resolves inside the archive snapshot, but for an image in a
 `data:` URL, which is read from the URL's own bytes; remote images, stylesheets,
-fonts and media are never fetched, external links are refused with a notice, and `script`
+fonts and media are never fetched, a web or email link outside the book is opened only after
+the reader agrees and any other is refused with a notice
+([links outside the book](native-viewer.md#security)), and `script`
 elements are counted and disclosed but never run. Sandboxed macOS hosts need no network entitlement.
 The general method is in
 [screening untrusted markup](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#screen-untrusted-markup-before-any-parser-sees-it).
