@@ -764,7 +764,7 @@ final class SectionWriter {
                            left: left, right: right, textIndent: resolve(style.textIndent),
                            lineHeightMultiple: multiple, lineHeight: cssLineHeight, hyphenate: style.hyphens == .auto,
                            characterWrap: style.whiteSpace == .pre,
-                           tabInterval: InlineStyling.tabInterval(font), preservesTabs: style.whiteSpace.preservesSpaces)
+                           tabInterval: InlineStyling.tabInterval(style, font: font), preservesTabs: style.whiteSpace.preservesSpaces)
     }
 
     private func resolve(_ length: ComputedStyle.Length) -> CGFloat {
@@ -949,6 +949,8 @@ final class SectionWriter {
             key.direction = paragraph.format.direction
             key.spacingBefore = max(0, paragraph.spacingBefore)
             key.maximumLineHeight = SpokenLabelAttachment.lineHeight
+            // It holds only labels, but has its box's interval as every paragraph does.
+            key.tabInterval = paragraph.format.tabInterval
             return styling.paragraphStyle(key)
         }
         let format = paragraph.format
@@ -1962,7 +1964,7 @@ private struct BlockFormat {
     var lineHeight: CGFloat?
     var hyphenate: Bool
     var characterWrap: Bool
-    /// `tab-size` in points: eight spaces of the box's font, and never zero.
+    /// `tab-size` in points (`InlineStyling.tabInterval`), and never zero.
     var tabInterval: CGFloat
     /// `white-space` keeps the box's own tabs (`pre`, `pre-wrap`, `break-spaces`).
     var preservesTabs: Bool

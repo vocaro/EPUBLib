@@ -331,8 +331,13 @@ continues to describe the authored spine resource.
   do, so `not (bogus)` and `not all and (min-orientation: portrait)` apply nowhere, while
   `(color) or (bogus)` applies; a query that comes to unknown is `not all`, and the others in
   its list still count ([#114](https://github.com/vocaro/EPUBLib/issues/114)). A feature's
-  value is a literal: `calc()` and the lengths other than `px`, `em`, `rem` and the absolute
-  units are unknown.
+  value may be a math function of its type, clamped to the range the feature takes (CSS
+  Values 4 §10), and a length in any unit. Relative units are those of the initial values
+  (Media Queries 4 §1.3): an `em`, `rem` or `ic` of 16 pixels, an `ex` or `ch` of 8, the half
+  em CSS Values 4 takes where no font's measure is read, a `cap` of 0.7 em and an `lh` or `rlh`
+  of 1.2, as the reader resolves them without a face, and viewport units of the nominal
+  viewport, so `(min-width: calc(100px + 1em))`, `(min-width: 10vw)` and
+  `(resolution: calc(6x / 2))` are known ([#756](https://github.com/vocaro/EPUBLib/issues/756)).
 - **Appearance media.** `prefers-color-scheme` follows the reader's appearance only for what
   paints: `color`, `background-color`, the border colours, `text-decoration-color` and `filter`
   (`CSSProperty.followsAppearance`). Every other property in a rule for one appearance, and
@@ -1708,19 +1713,35 @@ continues to describe the authored spine resource.
     element's own properties the same way, all but what paints.
   - **Disclosed.** What is not shown has the `.disclosure` that "some text or images this
     book's styling adds before or after its content are not shown": an image in `content`
-    (`url()`, `image-set()`, a gradient), `leader()`, `target-counter()`, `target-counters()`,
+    (`url()`, `image-set()`, `cross-fade()`, a gradient: one **Values the reader cannot read**
+    takes), `leader()`, `target-counter()`, `target-counters()`,
     `target-text()`, `contents`, and an `attr()` with a type or a fallback; the generated
     content of a table laid out as a grid and of its rows and row groups, where that of its
     cells and captions is shown; and what passes a bound of 1,048,576 UTF-16 units of
     generated text in one section, which only a hostile stylesheet reaches.
+- **Values the reader cannot read.** A declaration with a value the reader cannot read is
+  ignored, as CSS 2.2 §4.2 requires, and the one before it stays, though what the property
+  sets is not drawn. So every layer of `background` is read in full
+  ([#120](https://github.com/vocaro/EPUBLib/issues/120)), and an image in `background`,
+  `list-style` or `content` is one WebKit reads: `url()`, `image-set()`, `cross-fade()` and the
+  gradients, standard or prefixed `-webkit-`, with arguments their grammar takes, and neither a
+  gradient prefixed for another engine nor `image()` or `element()`. Every function of a
+  `filter` is read with its arguments, and `font-variant` takes only the functions of
+  `font-variant-alternates`, each once with the names it takes
+  ([#643](https://github.com/vocaro/EPUBLib/issues/643)).
 - **Calculations.** `calc()`, `min()`, `max()` and `clamp()` follow CSS Values 4 §10 for
-  numbers, lengths and percentages ([#122](https://github.com/vocaro/EPUBLib/issues/122)).
+  numbers, lengths, percentages, angles and resolutions
+  ([#122](https://github.com/vocaro/EPUBLib/issues/122),
+  [#760](https://github.com/vocaro/EPUBLib/issues/760),
+  [#756](https://github.com/vocaro/EPUBLib/issues/756)).
   - **Factors and divisors.** Any sub-expression that is a number can be a factor on either
     side of `*` or a divisor after `/`: a parenthesised sum, a nested function or a constant
     (`e`, `pi`, `infinity`, `-infinity`, `NaN`). A number depends on nothing, so it is worked
     out when the value is parsed.
   - **Typed arithmetic.** A product of two lengths, and a division by a length, are invalid
-    ([#761](https://github.com/vocaro/EPUBLib/issues/761)).
+    ([#761](https://github.com/vocaro/EPUBLib/issues/761)). The terms of a sum and the
+    arguments of `min()`, `max()` and `clamp()` are of one type, a percentage counting as a
+    length. An angle or a resolution depends on nothing, and is worked out as a number is.
   - **Infinity and NaN.** Division by zero gives an infinity, and zero by zero gives NaN, which
     `min()`, `max()` and `clamp()` return whatever their other arguments. At the top of a value,
     an infinity becomes the end of the range the property allows (`StyleLimits`) and NaN
@@ -1729,13 +1750,30 @@ continues to describe the authored spine resource.
     does:
     - `line-height`;
     - `font-weight`, in `font` and `@font-face` too;
-    - `filter: invert()`;
+    - the amounts of `filter`'s functions;
     - `order`, `flex-grow` and `flex`;
-    - `repeat()` counts and counter values.
+    - `repeat()` counts and counter values;
+    - `tab-size`;
+    - a color's channels, hue and alpha;
+    - a media feature's number, integer or ratio.
     
     Where an integer is wanted it is rounded to the nearest, a half upward. Out of range it is
-    clamped to the range rather than refused, as an out-of-range literal is. Colour channels
-    take literals only ([#760](https://github.com/vocaro/EPUBLib/issues/760)).
+    clamped to the range rather than refused, as an out-of-range literal is.
+  - **Where other types go.** One that comes to a percentage alone, such as `calc(50%)`,
+    stands where a percentage does with nothing to resolve it against: in a color's channels
+    and alpha, in the amounts of `filter`'s functions and in a conic gradient's stops. One that
+    comes to an angle stands in a hue, in `hue-rotate()` and in a gradient's angle, and one that
+    comes to a resolution in a media feature's `resolution`. A hue that comes to an infinity,
+    which no literal is, is taken as 0.
+- **Tabs.** A preserved tab advances to the next multiple of its block's `tab-size` (CSS Text 3
+  §4.2), which is inherited: a number of the block's spaces, each with the block's letter and
+  word spacing, or a length, which scales with the reader's size as a font size does, so that
+  tabbed columns keep their places in the text
+  ([#378](https://github.com/vocaro/EPUBLib/issues/378)). The interval is never under a point,
+  so a `tab-size` of 0 still leaves a tab somewhere to go, as layout needs (**Security**), and
+  one wider than the column is laid out too. TextKit keeps one interval for a
+  paragraph, so an inline box's own `tab-size` is not read; and in the paragraph an outside
+  list marker opens, the interval is the marker's width unless the item keeps its tabs.
 - **Custom properties.** Custom properties (`--name`) and `var()` follow CSS Custom
   Properties for Cascading Variables 1 ([#119](https://github.com/vocaro/EPUBLib/issues/119)).
   A custom property is declared on any element, `:root` and pseudo-elements included, in a
