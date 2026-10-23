@@ -49,6 +49,10 @@ import UIKit
     /// the `nonlinear` ones are `linear="no"`. It has no landmarks, so it opens at its first
     /// linear section.
     static func book(sections: Int, paragraphs: Int, words count: Int = 60, nonlinear: Set<Int> = []) throws -> Data {
+        try Fixture.archive(bookFiles(sections: sections, paragraphs: paragraphs, words: count, nonlinear: nonlinear))
+    }
+
+    private static func bookFiles(sections: Int, paragraphs: Int, words count: Int, nonlinear: Set<Int> = []) -> [String: String] {
         var manifest = "", spine = ""
         var files: [String: String] = [
             "mimetype": "application/epub+zip",
@@ -73,6 +77,32 @@ import UIKit
         files["OPS/book.opf"] = """
         <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Layout Pages</dc:title><dc:language>en</dc:language><dc:identifier id="uid">layout-pages-\(sections)-\(paragraphs)-\(count)</dc:identifier></metadata><manifest>\(manifest)<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/></manifest><spine>\(spine)</spine></package>
         """
+        return files
+    }
+
+    /// `book(sections:paragraphs:words:)` with a picture of its own before every fourth paragraph,
+    /// and one more that ends each section.
+    static func illustratedBook(sections: Int, paragraphs: Int, words count: Int = 60) throws -> Data {
+        var files = bookFiles(sections: sections, paragraphs: paragraphs, words: count).mapValues { Data($0.utf8) }
+        var manifest = ""
+        for index in 0..<sections {
+            let path = "OPS/s\(index).xhtml"
+            var document = String(decoding: try XCTUnwrap(files[path]), as: UTF8.self)
+            for paragraph in stride(from: 0, to: paragraphs, by: 4) {
+                let name = "figure-\(index)-\(paragraph).png"
+                files["OPS/" + name] = RichFixture.image(width: 240 + paragraph, height: 160)
+                manifest += "<item id=\"f\(index)-\(paragraph)\" href=\"\(name)\" media-type=\"image/png\"/>"
+                document = document.replacingOccurrences(of: "<p>S\(index)P\(paragraph) ",
+                                                         with: "<p><img src=\"\(name)\" alt=\"Figure \(index)-\(paragraph)\"/></p><p>S\(index)P\(paragraph) ")
+            }
+            let last = "figure-\(index)-end.png"
+            files["OPS/" + last] = RichFixture.image(width: 300, height: 120)
+            manifest += "<item id=\"f\(index)-end\" href=\"\(last)\" media-type=\"image/png\"/>"
+            document = document.replacingOccurrences(of: "</body>", with: "<p><img src=\"\(last)\" alt=\"Figure \(index) end\"/></p></body>")
+            files[path] = Data(document.utf8)
+        }
+        let package = String(decoding: try XCTUnwrap(files["OPS/book.opf"]), as: UTF8.self)
+        files["OPS/book.opf"] = Data(package.replacingOccurrences(of: "<item id=\"nav\"", with: manifest + "<item id=\"nav\"").utf8)
         return try Fixture.archive(files)
     }
 
@@ -192,6 +222,59 @@ import UIKit
         try await session.send(.style(.init(flow: .scrolled)))
         try await wait("continuous scroll") { state.status.style.flow == .scrolled && session.canvas?.scrollTextView != nil }
         XCTAssertNil(state.status.layoutPage, "continuous scroll has no pages")
+    }
+
+    /// Closing a reader lets go at once of every image in the sections it counted, while it
+    /// counts and once it has counted them all, as closing does of the reader's own pages
+    /// (`SVGRelayoutTests.testClosingAReaderReleasesItsImagesAtOnce`). On iOS, text that ends
+    /// with an image keeps that image alive after its layout is gone, until text that ends with
+    /// another is laid out. The counter lays out every section's last page, which here ends
+    /// with a picture, and an iPhone simulator kept one picture of a closed reader.
+    func testClosingReleasesTheImagesOfEverySectionCounted() async throws {
+        for whileCounting in [true, false] {
+            try await exerciseClosing(whileCounting: whileCounting)
+        }
+    }
+
+    private func exerciseClosing(whileCounting: Bool) async throws {
+        final class Tracked { weak var source: ReaderImageSource? }
+        let sections = whileCounting ? 30 : 6, label = whileCounting ? "while counting" : "counted"
+        let (session, window) = try open(Self.illustratedBook(sections: sections, paragraphs: 16, words: 110))
+        defer { session.close(); window.close() }
+        try await wait("\(label): the whole book", timeout: 180) { session.isReady && session.book.isComplete }
+        let canvas = try XCTUnwrap(session.canvas)
+        // A new size starts the count afresh.
+        window.resize(to: CGSize(width: 560, height: 760))
+        try await wait("\(label): the count under way") {
+            canvas.pendingSpread == nil && canvas.pageCounter.size == canvas.spread?.columnSize
+                && (canvas.pageCounter.holdsPartialCount || !whileCounting)
+        }
+        if whileCounting {
+            XCTAssertNil(session.readerState?.status.layoutPage?.count, "the count has only begun")
+        } else {
+            try await wait("the count") { session.readerState?.status.layoutPage?.count != nil && !canvas.pageCounter.isCounting }
+        }
+        // Read inside a pool of its own, so that nothing the test enumerated keeps an image alive.
+        let images: [Tracked] = autoreleasepool {
+            var images: [Tracked] = []
+            for index in 0..<session.book.count {
+                guard let text = session.book.section(index)?.string else { continue }
+                text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+                    guard let image = value as? ReaderImageAttachment else { return }
+                    let tracked = Tracked()
+                    tracked.source = image.source
+                    images.append(tracked)
+                }
+            }
+            return images
+        }
+        XCTAssertEqual(images.count, sections * 5, label)
+        session.close()
+        XCTAssertFalse(canvas.pageCounter.isCounting, label)
+        XCTAssertFalse(canvas.pageCounter.holdsPartialCount, label)
+        let deadline = Date().addingTimeInterval(10)
+        while images.contains(where: { $0.source != nil }), Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(images.filter { $0.source != nil }.count, 0, "\(label): a closed reader still holds images through its count")
     }
 
     // MARK: Progression

@@ -1,6 +1,11 @@
 import CoreGraphics
 import EPUBCore
 import Foundation
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 /// Counts the pages of every section page turns reach at the spread's column size, for
 /// `EPUBLayoutPage` (doc/native-viewer.md, "Page numbers").
@@ -41,9 +46,14 @@ import Foundation
     private var generation = 0
     /// Slices run since the counter was made, for tests.
     private(set) var slices = 0
+    /// The counter has laid text out since TextKit was last made to let go of what it keeps
+    /// from it (`releaseLayoutResidue`).
+    private var hasLaidOut = false
 
     /// Whether counting is under way or waiting for its next slice.
     var isCounting: Bool { task != nil }
+    /// Whether a section is partly counted with a pagination of the counter's own.
+    var holdsPartialCount: Bool { partial != nil }
 
     /// A section's pages at `size`, if it is counted for that text.
     func pages(inSection section: Int, text: NSAttributedString, size: CGSize) -> Int? {
@@ -69,6 +79,24 @@ import Foundation
     /// Memory is short: the layout of a section partly counted goes. Its count starts over.
     func trimCaches() {
         partial = nil
+    }
+
+    /// The reader is closed or its view is going away: after `stop`, makes TextKit let go of
+    /// what it keeps from the counter's layouts. On iOS, text that ends with an attachment keeps
+    /// that attachment alive after every object of its layout is gone, until text that ends with
+    /// another attachment is laid out. The counter lays out each section's last page, and a closed
+    /// reader kept the picture that ended the last section it counted, with its image source
+    /// and an SVG's renderer (`LayoutPageTests.testClosingReleasesTheImagesOfEverySectionCounted`,
+    /// #681). Laying out a text that ends with an empty attachment takes its place.
+    func releaseLayoutResidue() {
+        guard hasLaidOut else { return }
+        hasLaidOut = false
+        let storage = NSTextContentStorage(), manager = NSTextLayoutManager()
+        storage.addTextLayoutManager(manager)
+        manager.textContainer = NSTextContainer(size: CGSize(width: 100, height: 0))
+        storage.attributedString = NSAttributedString(attachment: NSTextAttachment())
+        manager.ensureLayout(for: storage.documentRange)
+        storage.removeTextLayoutManager(manager)
     }
 
     /// Starts counting, or goes on, if anything is left to count; harmless while it runs.
@@ -135,6 +163,7 @@ import Foundation
             partial = (section, paginator)
         }
         while !paginator.isComplete, clock.now < deadline {
+            hasLaidOut = true
             _ = paginator.advance(toward: .max, pages: 1)
         }
         guard paginator.isComplete else { return false }

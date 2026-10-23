@@ -613,6 +613,7 @@ import AppKit
         cancelPendingSpread()
         pageCounter.stop()
         for view in columns + [scrollTextView].compactMap({ $0 }) { empty(view) }
+        pageCounter.releaseLayoutResidue()
         scrollBook = nil
         paginators.removeAll()
         paginatorUse.removeAll()

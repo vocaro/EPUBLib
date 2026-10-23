@@ -2346,7 +2346,12 @@ as they did.
   section built for the current one is counted. While the page on screen shows a section's
   earlier build, as it does through a change of appearance until the sections in reach are
   rebuilt ([#243](https://github.com/vocaro/EPUBLib/issues/243)), the status has no page. In
-  continuous scroll it is nil.
+  continuous scroll it is nil. Closing the reader stops the count and drops what it holds. On
+  iOS, text that ends with an attachment keeps that attachment alive after its whole layout is
+  gone, until text ending with another attachment is laid out. The counter lays out each
+  section's last page, so close then lays out a text that ends with an empty attachment
+  (`releaseLayoutResidue`). Without it, an iPhone simulator kept the picture that ended the
+  last section counted, with its SVG renderer, after the reader was closed.
 - **Right to left.** `page-progression-direction="rtl"` mirrors spreads, swipes and tap zones.
   Within a page, a box's sides by flow (`margin-inline-start`, `padding-inline`,
   `border-inline-end`) are the sides the element's own `direction` maps them to, and cascade
