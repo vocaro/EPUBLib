@@ -3483,8 +3483,12 @@ navigation document or NCX, and a font obfuscated with a key the package gives. 
 is inflated when it is first asked for, held to its checksum and the limits then, and not kept:
 asked for again, it is inflated again and charged nothing more. An entry that would refuse the
 book read whole, by a checksum that does not match or more bytes than a resource may have, is
-then a resource that cannot be read, and the book still has its thumbnail. The reader's books
-are read whole as before; reading on demand is the package's own (`open(at:limits:onDemand:)`).
+then a resource that cannot be read, and the book still has its thumbnail. So that the book has
+the identities it has read whole (`persistentID`, `publicationIDs`), opening inflates each
+resource it does not keep twice, for its length and then into the hash a chunk at a time, and
+holds none of it; that reading counts toward no limit but a resource's. A book unpacked into a
+folder is read whole. The reader's books are read whole as before; reading on demand is the
+package's own (`open(at:limits:onDemand:)`).
 
 **Memory.** The archive is held in memory whole while either is made, as any book is: a
 thumbnail or a preview costs the file's size, the entries it reads and the pixels it draws.
@@ -3509,8 +3513,8 @@ page instead, two by three: its title, and each author on a line, in the system'
 the largest size that fits, on paper inside a ruled border. `draw(in:)` draws in Core Graphics
 coordinates, the origin at the lower left.
 
-**Preview.** `EPUBPreview` decodes the cover for 320 by 480 points at 2 pixels a point by
-default, and gives no title page for a book without one: its title and authors are text beside
+**Preview.** `EPUBPreview` decodes the cover for 240 by 360 points at 2 pixels a point by
+default, as large as the view shows it, and gives no title page for a book without one: its title and authors are text beside
 it. The opening is the spine's items from the first through its fourth linear item
 (`openingSections`), or through the linear item that brings the linear items' documents to 256
 KiB (`openingBytes`), whichever comes first, and at most 16 items whatever they are.

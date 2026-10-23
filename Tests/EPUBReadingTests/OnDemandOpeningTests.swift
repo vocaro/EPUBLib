@@ -151,13 +151,20 @@ final class OnDemandOpeningTests: XCTestCase {
         let book = try EPUBPublication.open(data: Fixture.archive(files()), onDemand: true)
         let paths = ["OPS/picture.bin", "OPS/one.xhtml", "OPS/two.xhtml", "OPS/style.css"]
         let expected = try paths.map { try EPUBPublication.open(data: Fixture.archive(files())).data(at: $0) }
-        let results = NSMutableArray(array: Array(repeating: NSNull(), count: 64))
-        let lock = NSLock()
+        let results = Reads(count: 64)
         DispatchQueue.concurrentPerform(iterations: 64) { index in
-            let data = try? book.data(at: paths[index % paths.count])
-            lock.withLock { results[index] = data ?? NSNull() }
+            results.set(index, try? book.data(at: paths[index % paths.count]))
         }
-        for index in 0..<64 { XCTAssertEqual(results[index] as? Data, expected[index % paths.count], "read \(index)") }
+        for index in 0..<64 { XCTAssertEqual(results.value(index), expected[index % paths.count], "read \(index)") }
+    }
+
+    /// What each of several threads read, kept under a lock.
+    private final class Reads: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [Data?]
+        init(count: Int) { values = Array(repeating: nil, count: count) }
+        func set(_ index: Int, _ value: Data?) { lock.withLock { values[index] = value } }
+        func value(_ index: Int) -> Data? { lock.withLock { values[index] } }
     }
 
     func testAPrefixOfTheSpineKeepsTheRestOfTheBook() throws {
