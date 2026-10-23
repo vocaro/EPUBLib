@@ -822,6 +822,59 @@ import XCTest
         }
     }
 
+    private static func formula(_ words: String, _ attributes: String = "") -> String {
+        "<math xmlns='http://www.w3.org/1998/Math/MathML' alttext='\(words)'\(attributes)><mi>y</mi></math>"
+    }
+
+    /// A formula or a rule that `visibility: hidden` hides is read by nobody, and a formula the
+    /// book keeps from assistive technology with `aria-hidden`, on it or round it, is passed
+    /// over as such a picture is (#549, #552). A row whose cells hold such a formula or rule
+    /// and nothing else has nothing to say, and is passed over as a row of hidden words is: no
+    /// element, a space for its character and for its break, and its line part of the line
+    /// after. It was a group with no name, which VoiceOver stopped on. A row that holds a
+    /// formula that is read is still a group called by the formula's words
+    /// ([#774](https://github.com/vocaro/EPUBLib/issues/774)).
+    func testARowOfAHiddenFormulaOrRuleOrOfAFormulaKeptFromAssistiveTechnologyIsPassedOver() async throws {
+        let hidden = "<table style='visibility: hidden'><tr><td>Hidden words</td><td></td></tr>"
+            + "<tr><td>\(Self.formula("Hidden formula"))</td><td><hr/></td></tr></table>"
+        let shown = "<table role='presentation'><tr><td>First words</td><td></td></tr>"
+            + "<tr><td>\(Self.formula("Veiled formula", " style='visibility: hidden'"))</td><td><hr style='visibility: hidden'/></td></tr>"
+            + "<tr><td>\(Self.formula("Kept formula", " aria-hidden='true'"))</td><td></td></tr>"
+            + "<tr><td><span aria-hidden='true'>\(Self.formula("Wrapped formula"))</span></td><td></td></tr>"
+            + "<tr><td>\(Self.formula("Read formula"))</td><td></td></tr>"
+            + "<tr><td>Last words</td><td></td></tr></table>"
+        let book = try book("<p>Words before.</p>" + hidden + "<p>Words between.</p>" + shown + "<p>Words after.</p>")
+        for scrolled in [false, true] {
+            let flow = scrolled ? "continuous scroll" : "pages"
+            let (_, _, view) = try await reader(book, scrolled: scrolled)
+            let (shown, places) = try text(of: view)
+            XCTAssertEqual(places.count, 8, flow)
+            let silent = [0, 1, 3, 4, 5].map { places[$0] }, worded = places.filter { !silent.contains($0) }
+
+            let given = try attachments(in: view)
+            XCTAssertEqual(given.map(\.location), worded, flow)
+            XCTAssertEqual(given.map { $0.element.accessibilityLabel() }, ["First words", "Read formula", "Last words"], flow)
+            XCTAssertTrue(given.allSatisfy { $0.element.accessibilityRole() == .group }, flow)
+
+            let rich = try XCTUnwrap(view.accessibilityAttributedString(for: shown))
+            for characters in [try XCTUnwrap(view.accessibilityValue()), rich.string].map({ $0 as NSString }) {
+                XCTAssertEqual(characters.length, shown.length, flow)
+                XCTAssertEqual(places.map { characters.character(at: $0 - shown.location) }, places.map { silent.contains($0) ? 0x20 : 0xFFFC }, flow)
+                XCTAssertEqual(places.map { characters.character(at: $0 + 1 - shown.location) }, places.map { silent.contains($0) ? 0x20 : 0x0A }, flow)
+            }
+            for place in silent {
+                XCTAssertNil(rich.attribute(.accessibilityAttachment, at: place - shown.location, effectiveRange: nil), flow)
+                let one = try XCTUnwrap(view.accessibilityAttributedString(for: NSRange(location: place, length: 1)))
+                XCTAssertEqual(one.string, " ", flow)
+                XCTAssertNil(one.attribute(.accessibilityAttachment, at: 0, effectiveRange: nil), flow)
+            }
+            // "Words before." is line 0, and the rows passed over are part of the line after them.
+            XCTAssertEqual(places.map { view.accessibilityLine(for: $0) }, [1, 1, 2, 3, 3, 3, 3, 4], flow)
+            let words = (try XCTUnwrap(view.contentStorage.textStorage).string as NSString).range(of: "Words between.").location
+            XCTAssertEqual(view.accessibilityLine(for: words), 1, flow)
+        }
+    }
+
     /// Such rows are part of the line after them however many they are, so those that open a
     /// text are part of its first line. Those that end one have no line after them and are
     /// one line of spaces together, as a text of such rows alone is.
