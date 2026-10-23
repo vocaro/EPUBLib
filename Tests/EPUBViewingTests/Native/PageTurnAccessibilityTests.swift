@@ -9,7 +9,11 @@ import XCTest
 /// iPad ("Input and accessibility" in `doc/native-viewer.md`). API level only: the cursor is
 /// put on a line as UIKit tells the reader of it, and no assistive technology is driven.
 /// `doc/testing.md#voiceover-testing` has what VoiceOver then did on a device.
-@MainActor final class PageTurnAccessibilityTests: XCTestCase {
+@MainActor class PageTurnAccessibilityTests: XCTestCase {
+    /// How every page here turns; `SlidingPageTurnAccessibilityTests` runs them all again with a
+    /// slide (#688).
+    class var pageTurnAnimation: EPUBPageTurnAnimation { .none }
+
     private var hosts: [CanvasHost] = []
     private var readers: [SessionCoverageReader] = []
     private var posts: [(notification: UIAccessibility.Notification, argument: Any?)] = []
@@ -39,7 +43,9 @@ import XCTest
 
     private func host(_ sections: [NSAttributedString], size: CGSize = CGSize(width: 420, height: 350),
                       linear: [Bool]? = nil) -> CanvasHost {
-        let host = CanvasHost(FakeCanvasSource(sections, linear: linear), size: size)
+        var configuration = ReaderCanvasConfiguration()
+        configuration.pageTurnAnimation = Self.pageTurnAnimation
+        let host = CanvasHost(FakeCanvasSource(sections, linear: linear), size: size, configuration: configuration)
         hosts.append(host)
         host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
         host.layOut()
@@ -670,6 +676,7 @@ import XCTest
     func testTheElementUnderTheCursorIsTheFirstItemOfEachPageInEveryAnswerAndKeepsNothingOfTheLast() async throws {
         let reader = try SessionCoverageReader(publication: try Self.kinds())
         readers.append(reader)
+        reader.window?.pageControls.pageTurnAnimation = Self.pageTurnAnimation
         reader.window?.resize(to: CGSize(width: 402, height: 874))
         try await reader.settle()
         let canvas = try XCTUnwrap(reader.session.canvas)
@@ -810,6 +817,7 @@ import XCTest
     func testTheElementUnderTheCursorIsALineOnOnePageAndACellOfADataTableOnAnother() async throws {
         let reader = try SessionCoverageReader(publication: try Self.cells())
         readers.append(reader)
+        reader.window?.pageControls.pageTurnAnimation = Self.pageTurnAnimation
         reader.window?.resize(to: CGSize(width: 402, height: 874))
         try await reader.settle()
         let canvas = try XCTUnwrap(reader.session.canvas)
@@ -967,6 +975,7 @@ import XCTest
     func testACellUnderTheCursorIsTheItemOfItsCellWhenItsPageIsShownAgain() async throws {
         let reader = try SessionCoverageReader(publication: try Self.cells())
         readers.append(reader)
+        reader.window?.pageControls.pageTurnAnimation = Self.pageTurnAnimation
         reader.window?.resize(to: CGSize(width: 402, height: 874))
         try await reader.settle()
         let canvas = try XCTUnwrap(reader.session.canvas)
@@ -1030,6 +1039,7 @@ import XCTest
     func testACellAndALineStandForEachOtherAcrossASpread() async throws {
         let reader = try SessionCoverageReader(publication: try Self.cells())
         readers.append(reader)
+        reader.window?.pageControls.pageTurnAnimation = Self.pageTurnAnimation
         reader.window?.resize(to: CGSize(width: 1100, height: 520))
         try await reader.settle()
         let canvas = try XCTUnwrap(reader.session.canvas)
@@ -1102,5 +1112,11 @@ import XCTest
         XCTAssertTrue(left[1].accessibilityLabel?.hasPrefix("Sum ") == true)
         for column in columns { XCTAssertFalse(column.accessibilityCursorHasLeftThePage) }
     }
+}
+
+/// Every test above again with each page turn sliding: what VoiceOver is told after a turn, and
+/// where its cursor goes, are what they are with none (#688).
+@MainActor final class SlidingPageTurnAccessibilityTests: PageTurnAccessibilityTests {
+    override class var pageTurnAnimation: EPUBPageTurnAnimation { .slide }
 }
 #endif
