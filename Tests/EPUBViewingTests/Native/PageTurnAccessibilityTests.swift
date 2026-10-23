@@ -617,6 +617,39 @@ import XCTest
         XCTAssertFalse(found.accessibilityTraits.contains(.header), "the first line of the page after the heading's is no heading")
     }
 
+    /// A move by block that turns the page does as a move by heading does: VoiceOver's cursor
+    /// goes to the item the rotor gives, and nothing is posted (#711).
+    func testAMoveByBlockTakesTheCursorItselfAndNothingIsPosted() throws {
+        let canvas = host([Self.lines(120)]).canvas
+        let view = try XCTUnwrap(canvas.textViews.first)
+        let shown = try elements(of: view)
+        let last = try XCTUnwrap(shown.last)
+        focus(last)
+        let rotor = try XCTUnwrap(view.accessibilityCustomRotors?.first { $0.name == "Paragraphs" })
+        let predicate = UIAccessibilityCustomRotorSearchPredicate()
+        predicate.searchDirection = .next
+        predicate.currentItem = UIAccessibilityCustomRotorItemResult(targetElement: last, targetRange: nil)
+        // Each line is a paragraph: the next is the first line of the page after.
+        let found = try XCTUnwrap(rotor.itemSearchBlock(predicate)?.targetElement as? UIAccessibilityElement)
+        XCTAssertTrue(rotor.itemSearchBlock(predicate)?.targetElement as? UIAccessibilityElement === found)
+        XCTAssertEqual(number(found), shown.count + 1)
+        XCTAssertTrue(try elements(of: view).first === found, "the page after was turned to")
+        XCTAssertTrue(posts.isEmpty, "the rotor's item is where the cursor goes")
+        // From there the element the cursor went to is the one that follows the page.
+        focus(found, from: last)
+        try perform("Next Page", on: found)
+        XCTAssertTrue(try cursorSent() === found)
+        XCTAssertTrue(try elements(of: view)[0] === found)
+        // And back by block, to the page before: the last line of the page the cursor came from.
+        let top = try elements(of: view)[0]
+        predicate.searchDirection = .previous
+        predicate.currentItem = UIAccessibilityCustomRotorItemResult(targetElement: top, targetRange: nil)
+        let back = try XCTUnwrap(rotor.itemSearchBlock(predicate)?.targetElement as? UIAccessibilityElement)
+        XCTAssertTrue(rotor.itemSearchBlock(predicate)?.targetElement as? UIAccessibilityElement === back)
+        XCTAssertEqual(number(back), 2 * shown.count)
+        XCTAssertTrue(posts.isEmpty)
+    }
+
     // MARK: What the element answers and offers on the page turned to
 
     private static let square = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\"><rect width=\"32\" height=\"32\" fill=\"#07c\"/></svg>"
