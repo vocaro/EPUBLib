@@ -1,6 +1,5 @@
 import EPUBCore
 import Foundation
-import ZIPFoundation
 
 /// The bytes of the file a book is opened from (`EPUBPublication.open(at:)`), read no further than
 /// opening them needs.
@@ -64,8 +63,8 @@ struct ArchiveFile {
                 return nil
             }
         }
-        // What ZIPFoundation says of bytes it finds no end record in, as `open(data:)` reports it.
-        return .invalidArchive(String(describing: Archive.ArchiveError.missingEndOfCentralDirectoryRecord))
+        // What `open(data:)` reports for bytes with no end record.
+        return .notArchive
     }
 
     /// `count` bytes from `offset`, read without moving the handle from the file's first byte;

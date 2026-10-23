@@ -1,0 +1,18 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "The text in this part of the book cannot be read because it contains errors." : {
+      "comment" : "The text of a part of the book was asked for, and that part is malformed."
+    },
+    "The text in this part of the book is in a format that cannot be read." : {
+      "comment" : "The text of a part of the book was asked for, and that part is in a format whose text is not read, such as a drawing."
+    },
+    "This part of the book does not exist." : {
+      "comment" : "The text of a part of the book was asked for, by its place in the reading order, and the book has no part there."
+    },
+    "This part of the book is too large to read as text." : {
+      "comment" : "The text of a part of the book was asked for, and that part is larger or more deeply nested than the limits allow."
+    }
+  },
+  "version" : "1.0"
+}

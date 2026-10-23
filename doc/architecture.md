@@ -136,7 +136,9 @@ that `open(at:)` opens is read no further to be refused: one longer than `archiv
 length, read not at all, and one with no end record by those last and first bytes. A pipe, a
 socket or a device, which gives no length, is read from its first byte, as far as
 `archiveBytes` and one more, and refused as its bytes are
-([#208](https://github.com/vocaro/EPUBLib/issues/208)).
+([#208](https://github.com/vocaro/EPUBLib/issues/208)). Bytes with no end record are refused as
+`notArchive`, a ZIP archive with no EPUB mimetype as `notEPUB`, and other damage to the archive as
+`invalidArchive` ([when something fails](integration.md#when-something-fails)).
 
 `open(at:)` also reads a book unpacked into a folder, an OCF abstract container (EPUB 3.3 §4.2)
 that the file system holds, as Apple Books keeps one on the Mac

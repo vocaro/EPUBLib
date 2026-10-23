@@ -131,13 +131,12 @@ public enum EPUBReaderError: Error, Equatable, Sendable {
 }
 
 public extension EPUBReaderError {
+    /// What the reader's controls show for a refused command or search: `localizedDescription`,
+    /// except that `invalidCommand` and `engineFailure` give the engine's own detail.
     var message: String {
         switch self {
-        case .unsupported: "This reader does not support this action."
-        case .incompatibleLocation: "This saved position belongs to a different book or reader."
+        case .unsupported, .incompatibleLocation, .notReady, .closed: plainMessage
         case .invalidCommand(let message), .engineFailure(let message): message
-        case .notReady: "The reader is not ready."
-        case .closed: "This book is closed."
         }
     }
 }

@@ -99,13 +99,13 @@ final class PublicationFolderTests: XCTestCase {
         files["mimetype"] = nil
         try assertSame(try EPUBPublication.open(at: folder(files)), zipped, "without mimetype")
         XCTAssertThrowsError(try EPUBPublication.open(data: Fixture.archive(files))) {
-            XCTAssertEqual($0 as? EPUBPublicationError, .invalidArchive("Missing EPUB mimetype"), "an archive needs one")
+            XCTAssertEqual($0 as? EPUBPublicationError, .notEPUB, "an archive needs one")
         }
         files["mimetype"] = Data("\u{FEFF} application/epub+zip\n".utf8)
         try assertSame(try EPUBPublication.open(at: folder(files)), zipped, "with mimetype as a text editor saves it")
         files["mimetype"] = Data("application/zip".utf8)
         XCTAssertThrowsError(try EPUBPublication.open(at: folder(files))) {
-            XCTAssertEqual($0 as? EPUBPublicationError, .invalidArchive("Missing EPUB mimetype"))
+            XCTAssertEqual($0 as? EPUBPublicationError, .notEPUB)
         }
     }
 
