@@ -83,6 +83,9 @@ struct NativeRichContent: RichContentFactory {
     }
 
     func svg(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
+        // Nothing to draw is no failure to draw: no picture, no words in its place and no notice
+        // (#136).
+        if SVGContent.drawsNothing(element) { return NSAttributedString() }
         // The content document's limits bound the element, so StaticSVG takes any it holds.
         guard let drawing = SVGContent.document(element) else {
             context.report.report.unsupportedElements["svg", default: 0] += 1
@@ -92,7 +95,9 @@ struct NativeRichContent: RichContentFactory {
         // Prefer authored title/description, then drawing labels, when it cannot be shown.
         let nothing = { Self.altText(drawing.fallbackText, style: style, context: context) ?? NSAttributedString() }
         SVGContent.disclose(drawing, report: context.report)
-        if let image = SVGContent.wrappedImage(element), let reference = SVGContent.href(image), !reference.hasPrefix("#") {
+        // A reference to a fragment of the drawing's own document names no file. Its `#` is
+        // found as its byte: as a `Character`, one before a combining mark is another character.
+        if let image = SVGContent.wrappedImage(element), let reference = SVGContent.href(image), reference.utf8.first != 0x23 { // #
             let found: (source: ReaderImageSource, intrinsic: CGSize, svg: SVGDocument?)?
             if let url = Self.imageDataURL(reference) {
                 found = decodedImage(url, heldBy: image, style: style, context: context)

@@ -283,14 +283,25 @@ continues to describe the authored spine resource.
   hides no delimiter ([#248](https://github.com/vocaro/EPUBLib/issues/248)). The serializer
   writes a tab or carriage return in an attribute value, and a carriage return in text, as a
   character reference, so the renderer reads a class list, text and the id an `href` names as
-  the book has them ([#249](https://github.com/vocaro/EPUBLib/issues/249)). An embedded font's
+  the book has them ([#249](https://github.com/vocaro/EPUBLib/issues/249)). A wrapper whose one
+  image names a fragment wraps no file and goes to the renderer, whatever follows its `#`, which
+  is found as its byte. StaticSVG 0.1.1's serializer still finds an `href`'s `#` by `Character`,
+  so it takes a reference such as `#&#x301;x` for a file's, leaves it out and discloses it as an
+  image ([#641](https://github.com/vocaro/EPUBLib/issues/641)). An embedded font's
   own family name, which comes from the book's font file, stands for the family a drawing names
   only when it holds nothing but letters, marks, digits, spaces and `-`, `_`, `.`, `&` and `+`.
   The renderer's direct entry point continues to refuse filters, including commented and
   escaped CSS property names; it only receives the prepared drawing. The original node, depth,
   local-reference expansion and cycle checks run before omission.
   Pattern fills and illustrations exceeding the rendering limits show their title, description or
-  drawing text instead. Title and description provide the image's accessible label. No WebKit.
+  drawing text instead. Title and description provide the image's accessible label. An inline SVG
+  that holds only what SVG 2 never renders (§3.2.1: `defs`, a `symbol` no `use` draws,
+  gradients, `title`, `desc`, `metadata`, `style` and the others) and elements of other
+  namespaces, such as a sprite sheet of symbols, shows nothing, as a browser draws nothing for
+  it: no picture, no words in its place and no `svg` disclosure. The room a browser keeps blank
+  for such a drawing is not kept, and an `<img>` or `<object>` whose SVG file is such a drawing
+  is still shown as one that cannot be drawn
+  ([#136](https://github.com/vocaro/EPUBLib/issues/136)). No WebKit.
   EPUBLib reads the archive, resolves references and picks manifest fallbacks and fonts for
   StaticSVG, which reads nothing else; it extracts inline SVG from the content document, lays out
   and inspects the attachment, and turns StaticSVG's diagnostics into the section's disclosures.
@@ -1337,12 +1348,16 @@ continues to describe the authored spine resource.
         start of the next row's paragraph, and Read All, which had said a phrase with
         nothing in it for the row's paragraph, says nothing of it.
       - **Which rows.** What a row has to hold to be passed over is nothing: no words,
-        and nothing besides but spaces and decoration, in the cells a page shows of it,
-        and in a table inside one of its cells likewise
-        (`TableRowAttachment.saysNothing`). A row that shows a picture nobody describes
-        is still its group, "text image text image group". A row that holds a link is
-        not passed over whatever the link holds, because a link has to be reachable, and
-        neither is one that holds a rule or a formula.
+        and nothing besides but spaces and what assistive technology passes over
+        (`NSAttributedString.passesOver`), in the cells a page shows of it, and in a
+        table inside one of its cells likewise (`TableRowAttachment.saysNothing`). That
+        is decoration, a picture, a rule or a formula the book keeps from assistive
+        technology, and anything `visibility: hidden` hides, which nobody reads
+        ([#774](https://github.com/vocaro/EPUBLib/issues/774)). A row that shows a
+        picture nobody describes is still its group, "text image text image group". A
+        row that holds a link is not passed over whatever the link holds, because a link
+        has to be reachable, and neither is one that holds a rule or a formula that is
+        read: a row of a formula is a group called by the formula's words.
       - **Inside a table of data** the row is still a row. VoiceOver goes into the table
         at a row of words, and its table navigation goes through this row's cells as
         through any others: "Tree empty cell", for a cell of decoration as for a cell
@@ -1684,7 +1699,10 @@ continues to describe the authored spine resource.
   data has them: “ ” in Brazilian Portuguese and Turkish, « » in European Portuguese,
   «bonjour «toi»» in French, with no space added inside them, as Firefox, whose table is made
   from CLDR, shows them. Arabic and Hebrew take CLDR's marks, where Apple's locale data has
-  the typewriter `"` and `'` ([#133](https://github.com/vocaro/EPUBLib/issues/133)).
+  the typewriter `"` and `'` ([#133](https://github.com/vocaro/EPUBLib/issues/133)). The
+  inner pair stands for every `q` below the first, as the last pair of any `quotes` list does
+  (CSS 2.2 §12.3.2): «a„b„c““» in Russian, where the outer marks came back at the third
+  level ([#776](https://github.com/vocaro/EPUBLib/issues/776)).
   - **Where it stands.** An inline box is written in its line, and white space collapses
     across it as across the book's text. A block box is a paragraph of its own. A box that
     floats or is positioned is written in its line, with the disclosure of the boxes left in
@@ -2316,7 +2334,14 @@ as they did.
   while its window settles, or while its text is built for its style, keeps it. A click,
   VoiceOver's moves by line, which move the insertion point, a selection, or focus taken to
   the column beside ends it, and a relayout after that keeps the first line, as a page turn
-  does ([#594](https://github.com/vocaro/EPUBLib/issues/594)). A move of VoiceOver's own cursor
+  does ([#594](https://github.com/vocaro/EPUBLib/issues/594)). A spread that hides the column
+  with keyboard focus, or with it in a table cell's text area, as a window narrowed from two
+  columns to one does and a turn to a spread of one page, gives the focus to the column that
+  holds the place it enters, and otherwise to its first column, as a page turn made in the
+  second column does (`ReaderCanvasView.keepFocus`). AppKit takes the focus from a view it
+  hides: it went to the window, which left the reader without keyboard focus and VoiceOver
+  with no column to stay in. What VoiceOver says at such a resize has not been heard
+  ([#599](https://github.com/vocaro/EPUBLib/issues/599)). A move of VoiceOver's own cursor
   that changes neither the insertion point nor focus goes unseen, and a relayout after one
   takes VoiceOver back to the place's line. A position with no character of its own, as a
   section's end, is on no line, and its page keeps the first. Nothing else reads the
@@ -2751,11 +2776,11 @@ row whose cells are all hidden reads nothing. A tap or a double click on a hidde
 room opens nothing, and the inspector does not open for it whatever asks. Two places still
 offer it, and do nothing when chosen: the Inspect Image of a text item's menu on iPhone and
 iPad, and of a table cell's menu ([#775](https://github.com/vocaro/EPUBLib/issues/775)). On
-the Mac a row of a table that is not data, whose cells hold a hidden formula or rule and
-nothing else, is a group with no name, where a row of hidden text or hidden pictures alone is
-passed over ([#774](https://github.com/vocaro/EPUBLib/issues/774)). A note's popover on
-iPhone and iPad gives VoiceOver UIKit's own text accessibility, which these changes do not
-reach ([#550](https://github.com/vocaro/EPUBLib/issues/550)).
+the Mac a row whose cells hold nothing but hidden text, pictures, formulas or rules, or
+formulas the book keeps from assistive technology, has nothing to say and is passed over, as
+a row of decoration is ([#774](https://github.com/vocaro/EPUBLib/issues/774)). A note's
+popover on iPhone and iPad gives VoiceOver UIKit's own text accessibility, which these changes
+do not reach ([#550](https://github.com/vocaro/EPUBLib/issues/550)).
 
 ### Text kept from assistive technology
 
@@ -3440,7 +3465,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
 | Command | Behaviour |
 | --- | --- |
 | `nextPage` / `previousPage` | Page turn (paginated) or one viewport (scrolled); stops at the book's ends; skips nonlinear sections as foliate-js did, unless no section is linear. |
-| `navigate(href:)` | An encoded spine or resource href with optional fragment; unknown or non-local hrefs throw `invalidCommand`. |
+| `navigate(href:)` | An encoded spine or resource href with optional fragment, split at its `#` and `/`s by byte before any part is decoded, so an escaped slash names no file; unknown or non-local hrefs throw `invalidCommand`. |
 | `restore(location)` | Same publication, engine ID and `epublib-cfi-v1` format or `incompatibleLocation`; validates/resolves every bookmark segment and shows the first segment's start. Does not select text or add a highlight. |
 | `locate(text, highlight)` | First match in reading order with foliate's matcher that renders and shows, as a search result does. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A passage found only in content that renders nothing (`display: none`, a hidden note) or that `visibility: hidden` hides is shown where its first match is, wherever that sits in its section, and is never selected. A miss emits `.notice("The passage could not be found in this book.")`. Clears search highlights. |
 | `searchHighlight` / `clearSearch` | Draws every match across the book and lists the rendered ones as `EPUBSearchResults` with no current match / removes and withdraws them. |

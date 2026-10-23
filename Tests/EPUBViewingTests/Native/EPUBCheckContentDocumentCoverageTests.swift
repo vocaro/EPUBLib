@@ -144,16 +144,38 @@ import XCTest
     }
 
     func testAnInlineSVGThatOnlyDefinesSymbolsShowsNoFailureNotice() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/136")
-        // A sprite sheet: definitions other drawings use. A browser draws nothing for it.
+        // A sprite sheet: definitions other drawings use. A browser draws nothing for it: SVG 2
+        // never renders what it holds (§3.2.1), nor an element of another namespace (§5.10).
         let section = build(try book(page("""
             <p>Before.</p>\
             <svg xmlns="http://www.w3.org/2000/svg" version="1.1"><defs><linearGradient id="fade"><stop offset="0" stop-color="#fff"/>\
             <stop offset="1" stop-color="#000"/></linearGradient></defs><symbol id="dot" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></symbol></svg>\
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:my="http://example.org/ns" width="20" height="20"><title>Sprites</title>\
+            <desc>Shapes for later drawings</desc><metadata><my:tool>editor</my:tool></metadata><style>circle { fill: red }</style>\
+            <my:view zoom="2">Not drawn</my:view><symbol id="ring"><circle cx="5" cy="5" r="4" fill="none" stroke="#000"/></symbol>\
+            <clipPath id="clip"><rect width="5" height="5"/></clipPath><mask id="hide"><rect width="5" height="5" fill="#fff"/></mask>\
+            <marker id="tip"><path d="M0 0L5 5"/></marker><filter id="blur"><feGaussianBlur stdDeviation="1"/></filter></svg>\
             <p>After.</p>
             """)))
         XCTAssertEqual(words(section), "Before. After.")
+        XCTAssertEqual(attachments(section), 0)
+        XCTAssertNil(section.report.unsupportedElements["svg"], "nothing to draw is no failure to draw")
         XCTAssertFalse(section.report.withheld)
+    }
+
+    func testAUseBesideTheSymbolsOfAnInlineSVGIsDrawn() throws {
+        // `use` draws the symbol it names (SVG 2 §5.5), so the drawing is no longer only definitions.
+        let section = build(try book(page("""
+            <p>Before.</p>\
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="20" height="20">\
+            <defs><linearGradient id="fade"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#000"/></linearGradient></defs>\
+            <symbol id="dot" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="url(#fade)"/></symbol>\
+            <use xlink:href="#dot" width="20" height="20"/></svg>\
+            <p>After.</p>
+            """)))
+        XCTAssertEqual(attachments(section), 1, "the drawing, as one attachment: \(section.string.string.debugDescription)")
+        XCTAssertEqual(words(section), "Before. After.")
+        XCTAssertNil(section.report.unsupportedElements["svg"])
     }
 
     func testAnSVGSpineItemIsDrawn() throws {
