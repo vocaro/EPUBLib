@@ -74,8 +74,8 @@ gate over ten branches, each of whose own Mac runs had passed, found three iOS-o
 in two of them: a test helper that drew images upside down under UIKit
 ([#664](https://github.com/vocaro/EPUBLib/pull/664#issuecomment-6309444868)), and a frozen iOS
 layout expectation that a change to float grouping moved
-([#666](https://github.com/vocaro/EPUBLib/pull/666)). Before opening a pull request that changes
-drawing, layout or pagination, run its classes on a simulator as well.
+([#666](https://github.com/vocaro/EPUBLib/pull/666)). Before pushing a change to drawing,
+layout or pagination, run its classes on a simulator as well.
 
 The Mac suites need the screen unlocked and the display awake
 ([lock screen and display sleep](https://github.com/vocaro/apple-engineering/blob/main/guides/background-mac-testing.md#lock-screen-and-display-sleep)
