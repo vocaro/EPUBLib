@@ -16,6 +16,13 @@ struct ReaderScreen: View {
     /// `-SampleControls none` shows the reader with none of the host's controls above it, as a
     /// host that hides them while a book is read: nothing between the open buttons and the page.
     private let showsControls = UserDefaults.standard.string(forKey: "SampleControls") != "none"
+    /// `-SamplePageTurn slide` or `dissolve` animates the reader's page turns; with neither, one
+    /// page replaces the other at once, as by default.
+    private let pageTurn: EPUBPageTurnAnimation = switch UserDefaults.standard.string(forKey: "SamplePageTurn") {
+    case "slide": .slide
+    case "dissolve": .dissolve
+    default: .none
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -42,6 +49,7 @@ struct ReaderScreen: View {
                     .padding(.horizontal).layoutPriority(1).id(reader.sessionID)
                 }
                 EPUBReaderView(session: session)
+                    .epubReaderPageTurnAnimation(pageTurn)
                     .id(reader.sessionID)
                 Text(book.metadata.title).font(.caption).padding(6)
                 if selectionLine {

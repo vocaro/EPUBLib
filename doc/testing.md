@@ -400,6 +400,28 @@ from each page's first, and to standing for its own line when its page is shown 
 VoiceOver reads the line for the layout change, draws its cursor there and keeps its rotor,
 is known only from [speech sessions](#voiceover-testing) on a device.
 
+Page turn animation tests (`PageTurnAnimationTests`, on both platforms) turn pages with a
+slide, a dissolve and Reduce Motion, both ways and right to left, in one column and a spread,
+within a section, into the next and into one that waits for its build, and read what the
+canvas draws: the Core Animation animations on its columns and on the picture of the page that
+goes, which way each moves and from where, and that the columns' frames, text, visible range
+and delegate reports are those of the same turn with none as soon as it returns. They make the
+turn every way it is made: an edge tap or click, a key, the wheel on Mac, VoiceOver's scroll
+and a line's Next Page on iPhone and iPad, a text area's Next Page on Mac, and the host's
+command. A swipe is driven through the canvas's own steps (`beginPageDrag`, `dragPage(by:)`,
+`endPageDrag(turns:animated:)`, and on Mac `followPageSwipe(amount:complete:)` as AppKit's
+tracking calls it), since XCTest makes no touch in process and no trackpad gesture: what it
+brings in, which way, that it turns nothing until it lets go past its turn, goes back short of
+it, gives way towards no page and is held back by a selection. Others hold the selection, the
+highlights and the selection reports to those with no animation, the swipe's page to its
+highlights, the picture of the page that goes on Mac to holding the page's words, what is drawn
+to being no accessibility element and taking no touch, and the modifier to reaching a mounted
+reader live. `SlidingPageTurnAccessibilityTests` on iPhone and iPad and
+`SlidingPageEntryAccessibilityTests` and `SlidingPageActionAccessibilityTests` on Mac run every
+test of the class they are named for again with each turn sliding, so that what VoiceOver is
+told after a turn and where its cursor goes stay those with none. What VoiceOver then reads is
+heard in the simulator lane ([Page turn animation](#page-turn-animation)).
+
 Table of data tests on AppKit (`TableDataMacAccessibilityTests`) read what a column and the
 scroll view give an assistive technology at each row of a table that holds data, on a reader
 built by the real pipeline, in pages and in continuous scroll: an `NSAccessibility` table of
@@ -1675,6 +1697,36 @@ soon as VoiceOver has named XCTest's **Automation Running** banner; only `--xcte
 `ax:` steps alone is exempt. Snapshots re-queried for each read matched the observer after
 every native page turn, text-size change and resize, with and without the reader's
 notifications.
+
+### Page turn animation
+
+The sample turns its pages with an animation when launched with `-SamplePageTurn slide` or
+`-SamplePageTurn dissolve` (`epubReaderPageTurnAnimation(_:)`,
+[native viewer](native-viewer.md#input-and-accessibility)), and at once without it. What
+VoiceOver reads after a turn must be the same either way, so run each session twice, once
+with `--launch '-SamplePageTurn slide'` and once without, and compare the `heard` lines. On a
+simulator, at 40 points, a page turned under VoiceOver's cursor and VoiceOver reading on by
+itself through the pages:
+
+```sh
+python3 scripts/eng admit -- python3 scripts/run-voiceover-simulator.py \
+  --runtime com.apple.CoreSimulator.SimRuntime.iOS-27-0 --font-size 40 --vot-log \
+  --timeout 1200 --start-limit 600 --launch '-SamplePageTurn slide' \
+  --steps 'touch=word,flick=down,doubletap=Next Page,listen=4,flick=down,touch=word,readall,listen=170,visible' \
+  --device-steps 'iPad-Air-13-inch-M4=touch=word,flick=down,doubletap=Next Page,listen=4,flick=down,rotate=landscape,visible,touch=word,readall,listen=200,visible,rotate=portrait'
+```
+
+The `doubletap` arrives as a plain touch on the control strip's Next Page, so the host turns
+the page under the cursor ([Simulators](#simulators)): `listen=4` hears the first line of the
+page turned to, and the `flick=down` after it "Previous Page", the rotor's place kept. Reading
+on, each line is read once and in order, and VoiceOver's log has "Element Scrolled by Page" at
+each turn, as under [Acceptance and evidence](#acceptance-and-evidence). A line left out, read
+twice, or read from a page other than the one on screen is the failure. A simulator's
+VoiceOver does not make its own Next Page there, and the swipe that follows the finger is
+VoiceOver's own one-finger gesture while it runs, so neither is heard. On a Mac the same
+comparison is a [hosted session](#hosted-mac-sessions) with `"launch=-SamplePageTurn slide"`
+among a session's own settings: a session of that setting alone is the page-boundary
+session, whose Next Page VoiceOver activates.
 
 ### Continuous scroll
 

@@ -186,6 +186,12 @@ import AppKit
     weak var accessibilityCursorAtTurn: NSObject?
     #endif
 
+    /// The page turn in motion, as the host chose to animate it (`pageMotion`): one made at once,
+    /// or one a swipe follows (`beginPageDrag`). nil while no page is turning.
+    private(set) var pageTransition: ReaderPageTransition?
+    /// A swipe is turning the page it brought in, under its own transition.
+    private var isTurningFromPageDrag = false
+
     var wheelTurner = ReaderWheelPageTurner()
     var presentedNote: AnyObject?
     var imageInspector: ReaderImageInspector?
@@ -264,8 +270,17 @@ import AppKit
     func turnPage(forward: Bool) -> PageTurnResult {
         settleLayout()
         return switch configuration.flow {
-        case .paginated: turnPaginatedPage(forward: forward)
+        case .paginated: animatingTurn(forward: forward) { turnPaginatedPage(forward: forward) }
         case .scrolled: turnScrolledPage(forward: forward)
+        }
+    }
+
+    /// Shows the start (`forward`) or end of a section a page turn waited for, as that turn,
+    /// animated as any other (`ReaderCanvasDelegate.canvas(_:needsSection:forward:)`).
+    func showTurned(_ position: ReaderTextPosition, forward: Bool) {
+        _ = animatingTurn(forward: forward) {
+            show(position, selecting: nil, entry: .firstLine)
+            return .turned
         }
     }
 
@@ -342,7 +357,10 @@ import AppKit
     }
 
     private func configurationDidChange(from old: ReaderCanvasConfiguration) {
-        if old.pageControls != configuration.pageControls || old.flow != configuration.flow {
+        let motion = ReaderPageMotion(old.pageTurnAnimation, reducesMotion: old.reducesMotion)
+            != ReaderPageMotion(configuration.pageTurnAnimation, reducesMotion: configuration.reducesMotion)
+        if motion || old.flow != configuration.flow || old.isDark != configuration.isDark { endPageTransition() }
+        if old.pageControls != configuration.pageControls || old.flow != configuration.flow || motion {
             pointerDown = nil
             wheelTurner = ReaderWheelPageTurner()
             updateInputHandlers()
@@ -504,6 +522,7 @@ import AppKit
     }
 
     private func tearDownPages() {
+        endPageTransition()
         cancelPendingSpread()
         for column in columns {
             discard(column)
@@ -587,6 +606,7 @@ import AppKit
     /// The reader is closed or this view is going away: nothing here is shown again, so the
     /// text and its paginations go now rather than with the views.
     func releaseContent() {
+        endPageTransition()
         cancelPendingSpread()
         for view in columns + [scrollTextView].compactMap({ $0 }) { empty(view) }
         scrollBook = nil
@@ -608,6 +628,9 @@ import AppKit
 
     private func display(section: Int, firstPage: Int) {
         guard let spread, let paginator = paginator(for: section) else { return }
+        // What a page turn draws over the columns is of the page they held: a relayout, a page
+        // shown or a turn made meanwhile ends it. A swipe's own turn shows its page under it.
+        if !isTurningFromPageDrag { endPageTransition() }
         let carriedSelection = programmaticSelection?.selection.range ?? (externalSelectionSource != nil ? currentSelection?.range : nil)
         let preservesFullRange = programmaticSelection?.preservesFullRange ?? false
         #if os(macOS)
@@ -623,25 +646,7 @@ import AppKit
         }
         isApplyingSelection = true
         for (slot, column) in columns.enumerated() {
-            guard slot < spread.columns.count, let page = paginator.page(at: firstPage + slot) else {
-                column.isHidden = true
-                column.placement = ReaderTextPlacement(section: section, offset: paginator.text.length)
-                column.setContent(NSAttributedString())
-                continue
-            }
-            let frame = spread.columns[slot]
-            let top = frame.minY + page.topSpacing
-            // A page with layout context is clipped right after its last line.
-            let clips = page.layoutEnd > page.range.upperBound
-            column.isHidden = false
-            column.frame = CGRect(x: frame.minX, y: top, width: frame.width,
-                                  height: clips ? page.height : max(page.height, frame.maxY - top))
-            column.readerContainer.size = CGSize(width: frame.width, height: 0)
-            column.readerContainer.viewportSize = spread.columnSize
-            column.placement = ReaderTextPlacement(section: section, offset: page.range.location,
-                                                   visibleLength: page.range.length)
-            column.setContent(paginator.text(for: page))
-            column.ensureFullLayout()
+            lay(column, slot: slot, of: spread, section: section, paginator: paginator, firstPage: firstPage)
         }
         isApplyingSelection = false
         #if os(macOS)
@@ -674,6 +679,31 @@ import AppKit
         }
         selectionMayHaveChanged()
         updateSelectionContinuation()
+    }
+
+    /// Puts page `firstPage + slot` of a section into `column`, in the place the spread gives
+    /// that slot, or hides the column where the spread or the section has no such page.
+    private func lay(_ column: ReaderTextView, slot: Int, of spread: ReaderCanvasGeometry.Spread, section: Int,
+                     paginator: ReaderPaginator, firstPage: Int) {
+        guard slot < spread.columns.count, let page = paginator.page(at: firstPage + slot) else {
+            column.isHidden = true
+            column.placement = ReaderTextPlacement(section: section, offset: paginator.text.length)
+            column.setContent(NSAttributedString())
+            return
+        }
+        let frame = spread.columns[slot]
+        let top = frame.minY + page.topSpacing
+        // A page with layout context is clipped right after its last line.
+        let clips = page.layoutEnd > page.range.upperBound
+        column.isHidden = false
+        column.frame = CGRect(x: frame.minX, y: top, width: frame.width,
+                              height: clips ? page.height : max(page.height, frame.maxY - top))
+        column.readerContainer.size = CGSize(width: frame.width, height: 0)
+        column.readerContainer.viewportSize = spread.columnSize
+        column.placement = ReaderTextPlacement(section: section, offset: page.range.location,
+                                               visibleLength: page.range.length)
+        column.setContent(paginator.text(for: page))
+        column.ensureFullLayout()
     }
 
     private func pagesVisibleRange() -> ReaderTextRange? {
@@ -712,6 +742,149 @@ import AppKit
         }
         show(ReaderTextPosition(section: next, offset: forward ? 0 : text.length), selecting: nil, entry: .firstLine)
         return .turned
+    }
+
+    // MARK: Page turn animation
+
+    /// How a page turn moves now: the animation the host chose, as Reduce Motion has it. nil in
+    /// continuous scroll, and where one page replaces the other at once.
+    var pageMotion: ReaderPageMotion? {
+        guard configuration.flow == .paginated else { return nil }
+        return ReaderPageMotion(configuration.pageTurnAnimation, reducesMotion: configuration.reducesMotion)
+    }
+
+    /// Makes a page turn and animates it as `pageMotion` says. The columns show the page turned
+    /// to as soon as it is turned, as they do with no animation, and so VoiceOver, the
+    /// selection, the highlights and the delegate find everything as they would: over them a
+    /// picture of the page that was shown goes, and they are drawn coming in
+    /// (`ReaderPageTransition`). A turn that turns nothing draws nothing.
+    private func animatingTurn(forward: Bool, _ turn: () -> PageTurnResult) -> PageTurnResult {
+        guard !isTurningFromPageDrag else { return turn() }
+        endPageTransition()
+        guard let motion = pageMotion, window != nil, let before = shownPage, canTurnPage(forward: forward) == true,
+              let picture = pageSnapshot() else { return turn() }
+        let result = turn()
+        guard result == .turned, let after = shownPage, after.section != before.section || after.page != before.page else {
+            return result
+        }
+        let shown = columns.filter { !$0.isHidden }
+        install(ReaderPageTransition(turn: motion, outgoing: picture, columns: shown, in: self, forward: forward,
+                                     isRightToLeft: configuration.isRightToLeft))
+        return result
+    }
+
+    /// The spread a page turn would show, without showing it: its section and first page, as
+    /// `turnPaginatedPage` and `turnSection` find them. nil at either end of the book, and where
+    /// the section it reaches is not built, or not to be shown as it is built.
+    private func spreadTurned(forward: Bool) -> (section: Int, firstPage: Int)? {
+        guard let shownPage, let spread, let paginator = paginator(for: shownPage.section), let dataSource else { return nil }
+        let count = spread.columns.count
+        let target = forward ? shownPage.page + count : max(0, shownPage.page - count)
+        if target != shownPage.page, paginator.page(at: target) != nil { return (shownPage.section, target) }
+        let step = forward ? 1 : -1
+        var next = shownPage.section + step
+        while next >= 0, next < dataSource.sectionCount, !dataSource.isLinear(section: next) { next += step }
+        guard next >= 0, next < dataSource.sectionCount, let text = dataSource.text(forSection: next),
+              dataSource.canShow(section: next), let reached = self.paginator(for: next) else { return nil }
+        let page = reached.pageIndex(containing: forward ? 0 : text.length)
+        return (next, page - page % count)
+    }
+
+    /// The columns of the spread a page turn towards `forward` would show, laid out where the
+    /// canvas would show them and with the highlights it would draw, for a swipe to bring in. They
+    /// are no columns of the canvas: nothing reads them, and nothing in them can be touched.
+    /// nil where no page lies that way, or its section is not built.
+    private func turnPreview(forward: Bool) -> [ReaderTextView]? {
+        guard let spread, let target = spreadTurned(forward: forward), let paginator = paginator(for: target.section)
+        else { return nil }
+        let views = spread.columns.indices.map { _ in makePreviewColumn() }
+        for (slot, view) in views.enumerated() {
+            lay(view, slot: slot, of: spread, section: target.section, paginator: paginator, firstPage: target.firstPage)
+        }
+        let shown = views.filter { !$0.isHidden }
+        applyHighlights(to: shown)
+        for view in views where view.isHidden { discard(view) }
+        return shown
+    }
+
+    private func install(_ transition: ReaderPageTransition) {
+        transition.onEnd = { [weak self, weak transition] preview in
+            guard let self else { return }
+            for view in preview { self.discardPreview(view) }
+            if self.pageTransition === transition { self.pageTransition = nil }
+        }
+        transition.onDiscard = { [weak self] preview in
+            for view in preview { self?.discardPreview(view) }
+        }
+        pageTransition = transition
+    }
+
+    private func discardPreview(_ view: ReaderTextView) {
+        view.removeFromSuperview()
+        discard(view)
+    }
+
+    /// Ends the page turn in motion now, where it would have ended.
+    func endPageTransition() {
+        let transition = pageTransition
+        transition?.end()
+    }
+
+    /// Begins a page turn that a swipe follows: a finger's on iPhone and iPad, a trackpad's on
+    /// Mac (`dragPage(by:)`, `endPageDrag(turns:animated:)`). The canvas's columns go on holding
+    /// the page shown, and nothing is turned until the swipe lets go past its turn. False where
+    /// none may begin: with no animation, in continuous scroll, and where a swipe turns nothing,
+    /// while an image is inspected or text is selected.
+    func beginPageDrag() -> Bool {
+        guard canBeginPageDrag, let motion = pageMotion else { return false }
+        settleLayout()
+        endPageTransition()
+        guard let picture = pageSnapshot() else { return false }
+        install(ReaderPageTransition(drag: motion, outgoing: picture, in: self,
+                                     background: ReaderPalette.background(dark: configuration.isDark)))
+        return true
+    }
+
+    /// Whether a swipe the page follows may begin now (`beginPageDrag`).
+    var canBeginPageDrag: Bool {
+        pageMotion != nil && window != nil && imageInspector == nil && !hasSelection && !isDraggingSelection && shownPage != nil
+    }
+
+    /// The swipe has the page `offset` points to the right of where it stands, or to the left
+    /// where negative. The page it moves towards comes in as a turn would show it. A selection
+    /// begun meanwhile puts the page back.
+    func dragPage(by offset: CGFloat) {
+        guard let transition = pageTransition, transition.isDrag, !transition.isSettling else { return }
+        guard imageInspector == nil, !hasSelection, !isDraggingSelection else {
+            return transition.settle(turned: false, animated: true)
+        }
+        if offset != 0 {
+            let forward = ReaderPageDrag.forward(offset: offset, isRightToLeft: configuration.isRightToLeft)
+            if transition.dragForward != forward { transition.setPreview(turnPreview(forward: forward) ?? [], forward: forward) }
+        }
+        transition.follow(offset: offset)
+    }
+
+    /// The swipe has let go of the page. Where `turns`, the page it brought in is turned to as by
+    /// any swipe (`turnPageFromInput`), and goes the rest of the way in; otherwise, or where the
+    /// turn waits for its section to be built, the page goes back. `animated` moves it, where a
+    /// trackpad's swipe has had AppKit move it already. The result is the turn's, nil where
+    /// nothing was turned.
+    @discardableResult func endPageDrag(turns: Bool, animated: Bool) -> PageTurnResult? {
+        guard let transition = pageTransition, transition.isDrag, !transition.isSettling else { return nil }
+        var result: PageTurnResult?
+        if turns, let forward = transition.dragForward {
+            // A section built since the drag began has a page to bring in now.
+            if transition.preview.isEmpty, let preview = turnPreview(forward: forward) {
+                transition.setPreview(preview, forward: forward)
+                transition.follow(offset: transition.offset)
+            }
+            isTurningFromPageDrag = true
+            result = turnPageFromInput(forward: forward)
+            isTurningFromPageDrag = false
+        }
+        transition.settle(turned: result == .turned, animated: animated)
+        return result
     }
 
     // MARK: Continuous scroll
@@ -1628,11 +1801,13 @@ import AppKit
         return upper > lower ? NSRange(location: lower - view.placement.offset, length: upper - lower) : nil
     }
 
-    private func applyHighlights() {
+    private func applyHighlights() { applyHighlights(to: textViews) }
+
+    private func applyHighlights(to views: [ReaderTextView]) {
         let dark = configuration.isDark
         // Search matches draw over host highlights, the current match over both.
         let ordered = ReaderHighlight.drawingOrder(highlights)
-        for view in textViews {
+        for view in views {
             view.setTableHighlights(ordered)
             view.setHighlights(ordered.compactMap { highlight in
                 guard let range = localRange(of: highlight.range, in: view) else { return nil }
@@ -1656,10 +1831,12 @@ import AppKit
         delegate?.canvas(self, didActivate: link, at: position, rect: view.convert(rect, to: self))
     }
 
-    /// A page-turn key, swipe, wheel tick or edge tap.
-    func turnPageFromInput(forward: Bool) {
-        guard imageInspector == nil, !hasSelection, !isDraggingSelection else { return }
-        if turnPage(forward: forward) != .atBoundary { pageDidTurnFromTheText() }
+    /// A page-turn key, swipe, wheel tick or edge tap. nil where something holds the turn back.
+    @discardableResult func turnPageFromInput(forward: Bool) -> PageTurnResult? {
+        guard imageInspector == nil, !hasSelection, !isDraggingSelection else { return nil }
+        let result = turnPage(forward: forward)
+        if result != .atBoundary { pageDidTurnFromTheText() }
+        return result
     }
 
     /// A page turn an assistive technology asks for by name, as a host's command is: nothing

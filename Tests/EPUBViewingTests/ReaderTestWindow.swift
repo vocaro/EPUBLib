@@ -46,6 +46,7 @@ extension PlatformTestWindow {
 
 @MainActor @Observable final class TestPageControls {
     var value = EPUBPageControls()
+    var pageTurnAnimation = EPUBPageTurnAnimation.none
     /// The appearance the reader's host reports. Nil is the window's own, which is light.
     var colorScheme: ColorScheme?
 }
@@ -57,6 +58,7 @@ private struct ControlledTestReader: View {
     var body: some View {
         EPUBReaderView(session: session)
             .epubReaderPageControls(controls.value)
+            .epubReaderPageTurnAnimation(controls.pageTurnAnimation)
             .environment(\.colorScheme, controls.colorScheme ?? inheritedColorScheme)
     }
 }
