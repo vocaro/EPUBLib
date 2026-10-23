@@ -69,21 +69,33 @@ final class ArchiveEntries: @unchecked Sendable {
     func remove(_ path: String) { lock.withLock { pending[path] = nil } }
 
     /// The entry at `path`, read now, and again each time it is asked for; nil when no entry not
-    /// yet read at opening is there. Read without `charging`, it is held to `resourceBytes` alone
-    /// and counts toward nothing, as opening reads an entry to hash it.
-    func data(at path: String, charging: Bool = true) throws -> Data? {
+    /// yet read at opening is there.
+    func data(at path: String) throws -> Data? {
         try lock.withLock {
             guard let (index, entry) = pending[path] else { return nil }
-            if charged.contains(path) || !charging {
-                // Read before within the limits, and from the same bytes, or read to be hashed:
-                // charged nothing.
-                var work = ArchiveInputWork(archiveBytes: bytes.count), sum = 0
-                return try Self.extract(entry, index: index, path: path, archive: archive, bytes: bytes, directory: directory,
-                                        limits: limits, inputWork: &work, total: &sum, onProgress: nil)
+            if charged.contains(path) {
+                // Read before within the limits, and from the same bytes: charged nothing again.
+                var work = ArchiveInputWork(archiveBytes: bytes.count), sum = 0, data = Data()
+                try Self.extract(entry, index: index, path: path, archive: archive, bytes: bytes, directory: directory,
+                                 limits: limits, inputWork: &work, total: &sum, onProgress: nil) { data.append($0) }
+                return data
             }
             let data = try charge(entry, index: index, path: path)
             charged.insert(path)
             return data
+        }
+    }
+
+    /// The bytes of the entry at `path`, not yet read at opening, given to `consumer` a chunk at a
+    /// time as they inflate and kept nowhere, as opening hashes an entry it does not read. Its
+    /// checksum is checked at its end; it is held to `resourceBytes` alone and charged nothing.
+    /// False when no such entry is there or it cannot be read, whatever `consumer` was given.
+    func stream(_ path: String, to consumer: (Data) -> Void) -> Bool {
+        lock.withLock {
+            guard let (index, entry) = pending[path] else { return false }
+            var work = ArchiveInputWork(archiveBytes: bytes.count), sum = 0
+            return (try? Self.extract(entry, index: index, path: path, archive: archive, bytes: bytes, directory: directory,
+                                      limits: limits, inputWork: &work, total: &sum, onProgress: nil, sink: consumer)) != nil
         }
     }
 
@@ -92,9 +104,9 @@ final class ArchiveEntries: @unchecked Sendable {
 
     /// Reads an entry against the limits, and charges it only when it is read whole.
     private func charge(_ entry: Entry, index: Int, path: String) throws -> Data {
-        var work = inputWork, sum = total
-        let data = try Self.extract(entry, index: index, path: path, archive: archive, bytes: bytes, directory: directory,
-                                    limits: limits, inputWork: &work, total: &sum, onProgress: onProgress)
+        var work = inputWork, sum = total, data = Data()
+        try Self.extract(entry, index: index, path: path, archive: archive, bytes: bytes, directory: directory,
+                         limits: limits, inputWork: &work, total: &sum, onProgress: onProgress) { data.append($0) }
         inputWork = work
         total = sum
         return data
@@ -103,7 +115,7 @@ final class ArchiveEntries: @unchecked Sendable {
     private static func extract(_ entry: Entry, index: Int, path: String, archive: Archive, bytes archiveBytes: Data,
                                 directory: ArchiveBounds.Directory, limits: EPUBImportLimits,
                                 inputWork: inout ArchiveInputWork, total: inout Int,
-                                onProgress: (@Sendable (Int) -> Void)?) throws -> Data {
+                                onProgress: (@Sendable (Int) -> Void)?, sink: (Data) -> Void) throws {
         // An entry that declares more than a limit allows is refused before it is read,
         // unless it is compressed. A compressed entry is not read by its declared size,
         // which may be wrong either way with its data whole: a deflated one is held to the
@@ -115,18 +127,19 @@ final class ArchiveEntries: @unchecked Sendable {
                                      && declared <= UInt64(limits.expandedBytes - total)) else {
             throw EPUBPublicationError.limitExceeded(path)
         }
-        var bytes = Data()
+        var produced = 0
         inputWork.beginEntry()
         let crc: CRC32
         do {
             func consume(_ chunk: Data) throws {
                 try Task.checkCancellation()
-                guard chunk.count <= limits.resourceBytes - bytes.count,
+                guard chunk.count <= limits.resourceBytes - produced,
                       chunk.count <= limits.expandedBytes - total else {
                     throw EPUBPublicationError.limitExceeded(path)
                 }
                 try inputWork.consume(outputBytes: chunk.count)
-                bytes.append(chunk)
+                sink(chunk)
+                produced += chunk.count
                 total += chunk.count
                 onProgress?(total)
                 try Task.checkCancellation()
@@ -149,6 +162,5 @@ final class ArchiveEntries: @unchecked Sendable {
         // trusted, and a limit is exceeded only by bytes it inflates to (#74).
         catch { throw EPUBPublicationError.invalidArchive("\(path): \(error)") }
         guard crc == entry.checksum else { throw EPUBPublicationError.invalidArchive("CRC: \(path)") }
-        return bytes
     }
 }

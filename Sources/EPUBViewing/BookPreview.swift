@@ -28,14 +28,14 @@ public struct EPUBPreview: Sendable {
 
     /// Opens the book at `url` on demand and reads its opening and its cover, decoded for at
     /// most `coverSize` points at `scale` pixels a point. Call it off the main actor.
-    public init(contentsOf url: URL, coverSize: CGSize = CGSize(width: 320, height: 480), scale: CGFloat = 2,
+    public init(contentsOf url: URL, coverSize: CGSize = CGSize(width: 240, height: 360), scale: CGFloat = 2,
                 limits: EPUBImportLimits = .quickLook) throws {
         let publication = try EPUBPublication.open(at: url, limits: limits, onDemand: true)
         self.init(publication: publication, coverSize: coverSize, scale: scale)
     }
 
     /// The preview of a book already open.
-    public init(publication: EPUBPublication, coverSize: CGSize = CGSize(width: 320, height: 480), scale: CGFloat = 2) {
+    public init(publication: EPUBPublication, coverSize: CGSize = CGSize(width: 240, height: 360), scale: CGFloat = 2) {
         title = publication.metadata.title
         authors = publication.metadata.authors
         let cover = EPUBThumbnail(publication: publication, maximumSize: coverSize, scale: scale)

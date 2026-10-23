@@ -31,6 +31,10 @@ final class OnDemandOpeningTests: XCTestCase {
         let whole = try EPUBPublication.open(data: data)
         let book = try EPUBPublication.open(data: data, onDemand: true)
         XCTAssertEqual(book.id, whole.id)
+        XCTAssertEqual(book.persistentID, whole.persistentID)
+        XCTAssertEqual(book.uniqueIdentifier, whole.uniqueIdentifier)
+        XCTAssertEqual(book.releaseIdentifier, whole.releaseIdentifier)
+        XCTAssertEqual(book.publicationIDs, whole.publicationIDs)
         XCTAssertEqual(book.metadata, whole.metadata)
         XCTAssertEqual(book.resources, whole.resources)
         XCTAssertEqual(book.spine, whole.spine)
@@ -46,6 +50,24 @@ final class OnDemandOpeningTests: XCTestCase {
         XCTAssertThrowsError(try book.data(at: "OPS/absent.xhtml")) {
             XCTAssertEqual($0 as? EPUBPublicationError, .missingResource("OPS/absent.xhtml"))
         }
+    }
+
+    func testABookWithoutAUniqueIdentifierHasTheContentIdentityOnDemand() throws {
+        // Its `persistentID` is the hash of every resource's bytes, which opening on demand reads
+        // to hash and does not keep or count.
+        var files = try files()
+        files["OPS/book.opf"] = Data(String(decoding: files["OPS/book.opf"]!, as: UTF8.self)
+            .replacingOccurrences(of: " unique-identifier=\"uid\"", with: "").utf8)
+        let data = try Fixture.archive(files)
+        let whole = try EPUBPublication.open(data: data)
+        let book = try EPUBPublication.open(data: data, onDemand: true)
+        XCTAssertNil(whole.uniqueIdentifier)
+        XCTAssertNotEqual(whole.persistentID, whole.id)
+        XCTAssertEqual(book.persistentID, whole.persistentID)
+        XCTAssertEqual(book.publicationIDs, whole.publicationIDs)
+        let described = ["mimetype", "META-INF/container.xml", "OPS/book.opf", "OPS/nav.xhtml", "OPS/toc.ncx"]
+            .reduce(0) { $0 + files[$1]!.count }
+        XCTAssertEqual(book.expandedBytesRead, described)
     }
 
     func testOpeningOnDemandReadsOnlyWhatDescribesTheBook() throws {

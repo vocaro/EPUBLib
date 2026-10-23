@@ -535,10 +535,20 @@ public struct EPUBPublication: Sendable {
         // name, gives the same.
         var resourcePaths: [String: String] = [:]
         for resource in resources { resourcePaths[resource.path.precomposedStringWithCanonicalMapping] = resource.path }
-        // A book opened on demand reads each resource it has not read to hash it, and keeps none.
-        let content = digest(paths: Array(resourcePaths.keys), data: { path in
+        // A book opened on demand inflates each resource it has not read twice to hash it, for its
+        // length and then its bytes, and holds none of it. One that cannot be read is hashed as a
+        // missing one is, empty.
+        let content = digest(paths: Array(resourcePaths.keys), file: { path, update in
             let original = resourcePaths[path] ?? path
-            return contents[original] ?? (try? entries?.data(at: original, charging: false)) ?? Data()
+            if let bytes = contents[original] { return update(bytes.count) { $0(bytes) } }
+            var length = 0
+            guard let entries, entries.stream(original, to: { length += $0.count }) else { return update(0) { _ in } }
+            update(length) { hash in
+                var hashed = 0
+                _ = entries.stream(original) { chunk in hashed += chunk.count; hash(chunk) }
+                // The same bytes inflate each time; were they to differ, the length still holds.
+                if hashed < length { hash(Data(count: length - hashed)) }
+            }
         }, spine: spine.map(\.resource.path.precomposedStringWithCanonicalMapping))
         let id = id()
         var publicationIDs: [String] = []
@@ -562,17 +572,34 @@ public struct EPUBPublication: Sendable {
     /// length, and each list by its count, so that no two inputs give the same bytes to hash.
     static func digest(_ files: [(path: String, data: Data)], spine: [String] = []) -> String {
         let data = Dictionary(files.map { ($0.path, $0.data) }) { first, _ in first }
-        return digest(paths: files.map(\.path), data: { data[$0] ?? Data() }, spine: spine)
+        return digest(paths: files.map(\.path), file: { path, update in
+            let bytes = data[path] ?? Data()
+            update(bytes.count) { $0(bytes) }
+        }, spine: spine)
     }
 
-    /// `digest(_:spine:)` of the files at `paths`, each read by `data` when it is hashed and let go.
-    static func digest(paths: [String], data: (String) -> Data, spine: [String] = []) -> String {
+    /// `digest(_:spine:)` of the files at `paths`. `file` gives `update` each file's length and a
+    /// function that gives its bytes, in as many pieces as it likes, so that none is held whole.
+    /// Bytes past the length it gave are not to be given.
+    static func digest(paths: [String], file: (String, (Int, ((Data) -> Void) -> Void) -> Void) -> Void,
+                       spine: [String] = []) -> String {
         var hash = SHA256()
         func add(_ count: Int) { withUnsafeBytes(of: UInt64(count).littleEndian) { hash.update(bufferPointer: $0) } }
         func add(_ bytes: Data) { add(bytes.count); hash.update(data: bytes) }
         let files = paths.map { (key: Data($0.utf8), path: $0) }.sorted { $0.key.lexicographicallyPrecedes($1.key) }
         add(files.count)
-        for file in files { add(file.key); add(data(file.path)) }
+        for entry in files {
+            add(entry.key)
+            file(entry.path) { length, bytes in
+                add(length)
+                var left = length
+                bytes { piece in
+                    let taken = piece.prefix(left)
+                    left -= taken.count
+                    hash.update(data: taken)
+                }
+            }
+        }
         add(spine.count)
         for path in spine { add(Data(path.utf8)) }
         return hash.finalize().map { String(format: "%02x", $0) }.joined()
