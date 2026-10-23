@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Apply the stylesheets an `xml-stylesheet` processing instruction associates, only the preferred set of titled stylesheets and no disabled link, and keep exactly the selectors, at-rules, `@import` and `@namespace` rules Chromium keeps ([#115](https://github.com/vocaro/EPUBLib/issues/115), [#116](https://github.com/vocaro/EPUBLib/issues/116), [#603](https://github.com/vocaro/EPUBLib/issues/603))
 - Ignore a `list-style`, `content`, `filter` or `font-variant` declaration with a function the reader does not know, such as a gradient prefixed for another engine, or with arguments its function does not take, so that the declaration before it stays, as for `background`, where `list-style` and `content` took any function whose name ended in `gradient` and `filter` and `font-variant` took any function ([#643](https://github.com/vocaro/EPUBLib/issues/643)).
 - Evaluate a math function in a media feature's value, and a length in any unit against the initial font and the nominal viewport, where `(min-width: calc(100px + 1em))`, `(resolution: calc(6x / 2))`, `(min-width: 10vw)`, `(max-width: 40ex)` and `(min-width: 30ch)` matched nothing, and neither did their negations ([#756](https://github.com/vocaro/EPUBLib/issues/756)).
 - Take a math function in a color's channels, hue and alpha, such as `rgb(calc(255 / 2) 0 0)`, `hsl(calc(120 + 60) 50% 50%)` and `rgb(calc(50%) 0 0)`, with angles and resolutions in `calc()`, where such a color was dropped ([#760](https://github.com/vocaro/EPUBLib/issues/760)).

@@ -399,7 +399,8 @@ enum CSSSupports {
         condition(components.significant, namespaces: namespaces) ?? false
     }
 
-    private static func condition(_ components: [CSSComponent], namespaces: CSSNamespaces) -> Bool? {
+    /// A `<supports-condition>` over whitespace-free components; nil when it does not parse.
+    static func condition(_ components: [CSSComponent], namespaces: CSSNamespaces) -> Bool? {
         guard let first = components.first else { return nil }
         if first.ident == "not" {
             guard components.count == 2 else { return nil }
