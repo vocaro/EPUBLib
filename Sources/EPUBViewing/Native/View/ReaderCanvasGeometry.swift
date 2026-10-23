@@ -25,10 +25,12 @@ enum ReaderCanvasGeometry {
     /// The columns for `page` (the canvas less its safe area). With a usable `division` the
     /// spread has two columns whose gutter is the division plus half a gap each side, unless the
     /// narrower side cannot hold a readable column; then one column on the wider side.
-    static func spread(in page: CGRect, division: CGRect?, isRightToLeft: Bool) -> Spread {
+    /// `margins` scales the outer margins (`EPUBReaderStyle.Typography.pageMargins`); the gap
+    /// between columns stays as it is with the reader's own.
+    static func spread(in page: CGRect, division: CGRect?, isRightToLeft: Bool, margins: CGFloat = 1) -> Spread {
         let top = page.minY + verticalMargin
         let height = max(0, page.height - 2 * verticalMargin)
-        let margin = outerMarginFraction * page.width
+        let margin = outerMarginFraction * margins * page.width
         let gap = gapFraction * contentWidth(page.width, columns: 2)
         var columns: [CGRect]
         if let division = usableDivision(division, in: page) {
@@ -39,32 +41,33 @@ enum ReaderCanvasGeometry {
                 columns = [CGRect(x: division.minX - gap / 2 - width, y: top, width: width, height: height),
                            CGRect(x: division.maxX + gap / 2, y: top, width: width, height: height)]
             } else {
-                let column = scrollColumn(in: page, division: division)
+                let column = scrollColumn(in: page, division: division, margins: margins)
                 columns = [CGRect(x: column.minX, y: top, width: column.width, height: height)]
             }
-        } else if columnCount(for: page.size) == 2 {
-            let area = contentWidth(page.width, columns: 2)
+        } else if columnCount(for: page.size, margins: margins) == 2 {
+            let area = contentWidth(page.width, columns: 2, margins: margins)
             let width = (area - gap) / 2
             let minX = page.midX - area / 2
             columns = [CGRect(x: minX, y: top, width: width, height: height),
                        CGRect(x: minX + width + gap, y: top, width: width, height: height)]
         } else {
-            let width = contentWidth(page.width, columns: 1)
+            let width = contentWidth(page.width, columns: 1, margins: margins)
             columns = [CGRect(x: page.midX - width / 2, y: top, width: width, height: height)]
         }
         if isRightToLeft { columns.reverse() }
         return Spread(columns: columns)
     }
 
-    /// Two columns on a landscape page whose content width (93% of its width) exceeds one column.
-    static func columnCount(for size: CGSize) -> Int {
-        size.width > size.height && size.width * (1 - 2 * outerMarginFraction) > maximumColumnWidth ? 2 : 1
+    /// Two columns on a landscape page whose content width (93% of its width with the reader's
+    /// own margins) exceeds one column.
+    static func columnCount(for size: CGSize, margins: CGFloat = 1) -> Int {
+        size.width > size.height && size.width * (1 - 2 * outerMarginFraction * margins) > maximumColumnWidth ? 2 : 1
     }
 
     /// The continuous-scroll column within `bounds`' horizontal extent: at most 720 wide and
     /// centred, or centred on the wider side of a division.
-    static func scrollColumn(in bounds: CGRect, division: CGRect?) -> (minX: CGFloat, width: CGFloat) {
-        let margin = outerMarginFraction * bounds.width
+    static func scrollColumn(in bounds: CGRect, division: CGRect?, margins: CGFloat = 1) -> (minX: CGFloat, width: CGFloat) {
+        let margin = outerMarginFraction * margins * bounds.width
         var minX = bounds.minX + margin, maxX = bounds.maxX - margin
         if let division = usableDivision(division, in: bounds) {
             let gap = gapFraction * contentWidth(bounds.width, columns: 2)
@@ -78,12 +81,12 @@ enum ReaderCanvasGeometry {
         return ((minX + maxX - width) / 2, width)
     }
 
-    /// The width the columns and gaps may use: 93% of the page, capped where the columns reach
-    /// their maximum width (the content area is then centred).
-    private static func contentWidth(_ width: CGFloat, columns: Int) -> CGFloat {
+    /// The width the columns and gaps may use: 93% of the page with the reader's own margins,
+    /// capped where the columns reach their maximum width (the content area is then centred).
+    private static func contentWidth(_ width: CGFloat, columns: Int, margins: CGFloat = 1) -> CGFloat {
         let count = CGFloat(columns)
         let cap = count * maximumColumnWidth / (1 - (count - 1) * gapFraction)
-        return max(0, min(width * (1 - 2 * outerMarginFraction), cap))
+        return max(0, min(width * (1 - 2 * outerMarginFraction * margins), cap))
     }
 
     /// A division that splits the page into two non-empty sides; nil otherwise.

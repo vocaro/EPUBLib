@@ -100,7 +100,8 @@ import XCTest
         defer { session.close(); window.close() }
         // `doc/architecture.md`: "sessions advertise every capability".
         XCTAssertEqual(session.capabilities, [.pagination, .scrolling, .typography, .selection, .bookmarks, .locateText,
-                                              .navigateHref, .searchHighlight, .highlights, .search, .searchResults])
+                                              .navigateHref, .searchHighlight, .highlights, .search, .searchResults,
+                                              .goToProgression])
         let state = try XCTUnwrap(session.readerState)
         XCTAssertEqual(state.status.capabilities, session.capabilities)
         func wait(_ label: String, until condition: () -> Bool) async throws {
@@ -114,7 +115,7 @@ import XCTest
         try await wait("the first location") { !locations().isEmpty }
         XCTAssertEqual(events.first, .ready, "readiness comes before anything else")
         let first = try XCTUnwrap(locations().first)
-        XCTAssertEqual(first.publicationID, publication.id)
+        XCTAssertEqual(first.publicationID, publication.persistentID)
         XCTAssertEqual(first.href, "OPS/one.xhtml")
         XCTAssertEqual(first.title, "First Chapter")
         XCTAssertEqual(first.bookmark?.engineID, EPUBReader.identifier)
@@ -614,7 +615,7 @@ import XCTest
         XCTAssertEqual(reader.section, 3)
         XCTAssertEqual(selection.location.href, "OPS/three.xhtml")
         XCTAssertEqual(selection.location.quote, "Closing words with findword")
-        XCTAssertEqual(selection.location.publicationID, reader.publication.id)
+        XCTAssertEqual(selection.location.publicationID, reader.publication.persistentID)
         XCTAssertNil(selection.location.progression, "a selection is a passage, not a reading position")
         XCTAssertNil(selection.location.title)
         // Locating again without highlight drops the selection and says so.

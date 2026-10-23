@@ -16,9 +16,9 @@ final class ArchiveEndRecordTests: XCTestCase {
     /// its first byte.
     private let localHeader: [UInt8] = [0x50, 0x4B, 0x03, 0x04]
     /// What ZIPFoundation says of bytes it finds no end record in.
-    private let noEndRecord = EPUBPublicationError.invalidArchive("missingEndOfCentralDirectoryRecord")
+    private let noEndRecord = EPUBPublicationError.notArchive
     /// What opening says of an archive of no entries.
-    private let noEntries = EPUBPublicationError.invalidArchive("Missing EPUB mimetype")
+    private let noEntries = EPUBPublicationError.notEPUB
 
     private func le<T: FixedWidthInteger>(_ value: T) -> Data { withUnsafeBytes(of: value.littleEndian) { Data($0) } }
 

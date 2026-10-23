@@ -22,19 +22,36 @@ import SwiftUI
     static let passageNotFound = "the cited passage could not be found in this book"
     static let maximumQuoteLength = 4_096
     static let maximumSearchLength = 512
+    /// What a link outside the book says when the host has turned links outside it off.
+    static let externalLinkRefused = "This reader does not open links outside the book."
+    /// What a link outside the book says that is not to a web page or an email address.
+    static let externalSchemeRefused = "This reader opens only web and email links outside the book."
     /// Matches read from one section. A section holding more draws and lists only these.
     nonisolated static let maximumSectionMatches = 10_000
 
     let capabilities: Set<EPUBReaderCapability> = [
         .navigateHref, .pagination, .scrolling, .typography, .selection, .bookmarks, .locateText,
         .search, .searchHighlight, .searchResults, .highlights,
+        .goToProgression,
     ]
     let publication: EPUBPublication
     let readerState: EPUBReaderState?
     private(set) var closed = false
     private(set) var style = EPUBReaderStyle()
     @ObservationIgnored private(set) var systemIsDark = false
-    private var effectiveIsDark: Bool { style.appearance == .system ? systemIsDark : style.appearance == .dark }
+    /// The mounted view's Dynamic Type size, kept while the style does not follow it.
+    @ObservationIgnored private(set) var systemTextSize: DynamicTypeSize = .large
+    /// What the style's font size is multiplied by before it is drawn (`followsDynamicType`).
+    private var dynamicTypeScale: CGFloat {
+        style.followsDynamicType ? NativeTypography.dynamicTypeScale(for: systemTextSize) : 1
+    }
+    /// The system's Increase Contrast and Bold Text, as the mounted view's environment has them.
+    @ObservationIgnored private(set) var systemIncreasesContrast = false
+    @ObservationIgnored private(set) var systemBoldText = false
+    /// The colours the reader draws with: the style's theme, as Increase Contrast leaves it.
+    private var effectiveTheme: ReaderTheme {
+        ReaderTheme(style.colors(systemIsDark: systemIsDark), increasesContrast: systemIncreasesContrast)
+    }
     /// The host's reserved division, from `View.epubReaderDivision(_:)`.
     var division: CGRect? { didSet { if division != oldValue { applyConfiguration() } } }
 
@@ -80,6 +97,14 @@ import SwiftUI
     /// What the canvas was last asked to draw.
     @ObservationIgnored private(set) var drawnHighlights: [ReaderHighlight] = []
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
+    /// What an activated link outside the book does: the mounted view's
+    /// `epubReaderExternalLinks(_:)` (`takeLinkSettings`).
+    @ObservationIgnored var externalLinks = EPUBExternalLinks.ask
+    /// Opens a link outside the book once the reader has said to: the mounted view's `openURL`
+    /// action. nil until a view is mounted, and then a link is refused rather than asked about.
+    @ObservationIgnored var openURL: (@MainActor (URL) -> Void)?
+    /// The link outside the book the reader is being asked about, until it answers.
+    @ObservationIgnored private(set) var askedLink: ExternalLinkAddress?
 
     init(publication: EPUBPublication, action: EPUBSelectionAction?, rich: any RichContentFactory,
          onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void) throws {
@@ -90,6 +115,7 @@ import SwiftUI
         progress = NativeProgress(publication: publication)
         (initialSection, initialFragment) = Self.openingTarget(of: publication)
         book = NativeBook(publication: publication, typography: NativeTypography(), rich: rich)
+        readerState?.modify { $0.effectiveFontSize = Double(book.typography.fontSize) }
         book.onSectionBuilt = { [weak self] in self?.sectionBuilt($0) }
         book.onBookComplete = { [weak self] in self?.bookCompleted() }
         buildBook(from: initialSection)
@@ -107,6 +133,7 @@ import SwiftUI
         for task in tasks { task.cancel() }
         tasks.removeAll()
         book.close()
+        canvas?.withdrawLinkQuestion()
         canvas?.delegate = nil
         canvas?.dataSource = nil
         canvas?.releaseContent()
@@ -134,19 +161,21 @@ import SwiftUI
 
     func detach(_ canvas: ReaderCanvasView) {
         guard self.canvas === canvas else { return }
+        canvas.withdrawLinkQuestion()
         canvas.delegate = nil
         canvas.dataSource = nil
         canvas.releaseContent()
         self.canvas = nil
-        if !closed { readerState?.modify { $0.lifecycle = .loading } }
+        if !closed { readerState?.modify { $0.lifecycle = .loading; $0.layoutPage = nil } }
     }
 
     private var configuration: ReaderCanvasConfiguration {
         var configuration = ReaderCanvasConfiguration()
         configuration.flow = style.flow
-        configuration.isDark = shownIsDark
+        configuration.theme = shownTheme
         configuration.isRightToLeft = publication.pageProgression == .rtl
         configuration.division = division
+        configuration.pageMargins = style.typography.pageMargins.map { $0.isFinite ? min(max(CGFloat($0), 0), 4) : 1 } ?? 1
         configuration.pageControls = pageControls
         configuration.selectionActionTitle = action?.title
         configuration.selectionActionImage = action?.systemImage ?? "text.quote"
@@ -154,32 +183,33 @@ import SwiftUI
         return configuration
     }
 
-    /// The appearance of the text on screen, which the canvas draws in, so a page's text and its
-    /// background never disagree (#243). After a change of appearance the canvas keeps the old
-    /// one until it shows text built for the new (`showNewAppearanceIfReady`), and from then
-    /// on shows no text built for the old (`canShow`). An empty canvas takes the one asked for.
-    private var shownIsDark: Bool {
-        guard isReady, let canvas else { return effectiveIsDark }
+    /// The theme of the text on screen, which the canvas draws in, so a page's text and its
+    /// background never disagree (#243): Light and Dark, and as much Sepia, Black, custom colours
+    /// and Increase Contrast (#674). After a change of theme the canvas keeps the old one until
+    /// it shows text built for the new (`showNewAppearanceIfReady`), and from then on shows no
+    /// text built for the old (`canShow`). An empty canvas takes the one asked for.
+    private var shownTheme: ReaderTheme {
+        guard isReady, let canvas else { return effectiveTheme }
         guard let shown = canvas.shownText else {
             // The section about to be shown, as its newest build has it.
-            return book.typography(ofSection: visibleRange?.start.section ?? initialSection)?.isDark ?? effectiveIsDark
+            return book.typography(ofSection: visibleRange?.start.section ?? initialSection)?.theme ?? effectiveTheme
         }
-        // Text a newer build has replaced stays on screen, in the canvas's appearance, until the
+        // Text a newer build has replaced stays on screen, in the canvas's theme, until the
         // canvas is given the newer: a section's, or continuous scroll's whole book.
         if let section = shown.section {
             guard shown.text === book.section(section)?.string, let built = book.typography(ofSection: section) else {
-                return canvas.configuration.isDark
+                return canvas.configuration.theme
             }
-            return built.isDark
+            return built.theme
         }
-        return shown.text === book.bookText?.string ? book.typography.isDark : canvas.configuration.isDark
+        return shown.text === book.bookText?.string ? book.typography.theme : canvas.configuration.theme
     }
 
-    /// After a change of appearance the canvas keeps the old one until the sections on screen,
-    /// and those one page turn reaches from it, are built for the new. The page and the canvas
-    /// then change together, once, and the next turns need not wait for a build.
+    /// After a change of appearance or theme the canvas keeps the old one until the sections on
+    /// screen, and those one page turn reaches from it, are built for the new. The page and the
+    /// canvas then change together, once, and the next turns need not wait for a build.
     private func showNewAppearanceIfReady() {
-        guard isReady, let canvas, let range = visibleRange, shownIsDark != book.typography.isDark,
+        guard isReady, let canvas, let range = visibleRange, shownTheme != book.typography.theme,
               sections(inReachOf: range).allSatisfy(book.isCurrent) else { return }
         canvas.reloadContent(keeping: nil)
         applyConfiguration()
@@ -269,7 +299,23 @@ import SwiftUI
         case .showSearchResult(let result): try await showSearchResult(result)
         case .style(let newStyle): try applyStyle(newStyle)
         case .setHighlights(let list): setHighlights(list)
+        case .goToProgression(let progression): try await go(toProgression: progression)
         }
+    }
+
+    /// Shows the place `progression` of the way through the book, as `EPUBLocation.progression`
+    /// measures it (`NativeProgress.target(progression:isShown:)`). The page is entered at its
+    /// first line, as after a page turn: the place asked for is a fraction, not a passage.
+    private func go(toProgression progression: Double) async throws {
+        guard progression.isFinite else { throw EPUBReaderError.invalidCommand("The progression is not a finite number") }
+        guard let target = progress.target(progression: progression, isShown: { [book] in !book.isOmitted($0) }) else { return }
+        let ticket = beginNavigation()
+        let text = await book.build(target.section)
+        guard isCurrent(ticket) else { return }
+        let length = text.string.length
+        let offset = target.fraction >= 1 ? length : min(length, Int((Double(length) * target.fraction).rounded(.down)))
+        canvas?.clearSelection()
+        canvas?.show(ReaderTextPosition(section: target.section, offset: offset), selecting: nil, entry: .firstLine)
     }
 
     private func turn(_ canvas: ReaderCanvasView, forward: Bool) {
@@ -316,9 +362,11 @@ import SwiftUI
     }
 
     /// The legacy bookmark remains the first segment. Reject contradictory or foreign ranges
-    /// rather than silently restoring only part of a saved selection.
+    /// rather than silently restoring only part of a saved selection. A location saved in this
+    /// book carries one of its `publicationIDs`: its `persistentID`, which a copy downloaded or
+    /// zipped again, edited in its metadata or unpacked into a folder shares, or its `id` (#679).
     private func isCompatible(_ location: EPUBLocation) -> Bool {
-        guard location.publicationID == publication.id, let bookmark = location.bookmark else { return false }
+        guard publication.publicationIDs.contains(location.publicationID), let bookmark = location.bookmark else { return false }
         let bookmarks = location.rangeBookmarks ?? [bookmark]
         guard !bookmarks.isEmpty, bookmarks.first == bookmark else { return false }
         return bookmarks.allSatisfy {
@@ -513,7 +561,7 @@ import SwiftUI
             try Task.checkCancellation()
             guard !closed, ticket == searchGeneration else { return nil }
             let section = SearchResultBuilder.Section(
-                text: text, publicationID: publication.id, engineID: NativeEngine.identifier,
+                text: text, publicationID: publication.persistentID, engineID: NativeEngine.identifier,
                 bookmarkFormat: NativeEngine.bookmarkFormat, spine: spine, progress: progress)
             let firstIndex = results.count, limit = maximumSearchResults - results.count
             let batch = await Task.detached(priority: .userInitiated) {
@@ -589,6 +637,11 @@ import SwiftUI
 
     private func applyStyle(_ newStyle: EPUBReaderStyle) throws {
         guard newStyle.fontSize.isFinite else { throw EPUBReaderError.invalidCommand("Nonfinite font size") }
+        let typography = newStyle.typography
+        guard [typography.lineHeight, typography.paragraphSpacing, typography.letterSpacing, typography.wordSpacing,
+               typography.pageMargins].allSatisfy({ $0?.isFinite ?? true }) else {
+            throw EPUBReaderError.invalidCommand("A typography setting is not a finite number")
+        }
         style = newStyle
         updatePresentation()
     }
@@ -601,13 +654,36 @@ import SwiftUI
         if style.appearance == .system { updatePresentation() }
     }
 
+    /// The host's Dynamic Type size, as `updateSystemAppearance` takes its appearance: remembered
+    /// whatever the style, so turning `followsDynamicType` on uses the latest.
+    func updateSystemTextSize(_ size: DynamicTypeSize) {
+        guard !closed, systemTextSize != size else { return }
+        systemTextSize = size
+        if style.followsDynamicType { updatePresentation() }
+    }
+
+    /// Increase Contrast and Bold Text apply in every appearance, so either changes an open
+    /// book's text whatever it is.
+    func updateSystemAccessibility(increasesContrast: Bool, boldText: Bool) {
+        guard !closed, systemIncreasesContrast != increasesContrast || systemBoldText != boldText else { return }
+        systemIncreasesContrast = increasesContrast
+        systemBoldText = boldText
+        updatePresentation()
+    }
+
     private func updatePresentation() {
+        let theme = effectiveTheme
+        let scale = dynamicTypeScale
+        let typography = NativeTypography(fontSize: style.fontSize * scale, theme: theme, boldText: systemBoldText)
+            .with(text: ReaderTextSettings(style.typography))
         readerState?.modify {
             $0.style = style
-            $0.effectiveAppearance = effectiveIsDark ? .dark : .light
+            $0.effectiveAppearance = theme.isDark ? .dark : .light
+            $0.effectiveColors = theme.colors
+            $0.effectiveFontSize = Double(typography.fontSize)
+            $0.dynamicTypeScale = Double(scale)
         }
         applyConfiguration()
-        let typography = NativeTypography(fontSize: style.fontSize, isDark: effectiveIsDark)
         if typography != book.typography {
             book.setTypography(typography)
             buildBook(from: visibleRange?.start.section ?? initialSection,
@@ -707,11 +783,12 @@ import SwiftUI
         }
         if !isReady { becomeReadyIfPossible(); return }
         publishDisclosure()
-        if shownIsDark != book.typography.isDark { showNewAppearanceIfReady() }
+        if shownTheme != book.typography.theme { showNewAppearanceIfReady() }
         else if visibleRange?.start.section == index || visibleRange?.end.section == index, book.isCurrent(index) {
             canvas?.reloadContent(keeping: nil)
         }
         if !searchMatches.isEmpty || !highlights.isEmpty { refreshHighlights() }
+        canvas?.sectionsDidChange()
     }
 
     private func bookCompleted() {
@@ -719,6 +796,7 @@ import SwiftUI
         publishDisclosure()
         if style.flow == .scrolled { canvas?.reloadContent(keeping: nil) }
         if !searchMatches.isEmpty || !highlights.isEmpty { refreshHighlights() }
+        canvas?.sectionsDidChange()
     }
 
     private func publishDisclosure() {
@@ -790,7 +868,7 @@ import SwiftUI
         // Only continuous scroll over the whole book shows a range across sections.
         let pages = progress.pages(in: range, isShown: { [book] in !book.isOmitted($0) }, anchor: anchor)
         return EPUBLocation(
-            publicationID: publication.id, href: publication.spine[index].resource.href,
+            publicationID: publication.persistentID, href: publication.spine[index].resource.href,
             progression: fraction.flatMap { progress.progression(section: index, fraction: $0) },
             title: fraction == nil ? nil : progress.title(at: titlePosition(of: range), anchor: anchor),
             quote: quote,
@@ -833,25 +911,28 @@ extension NativeSession: ReaderCanvasDataSource {
     /// section; this departs from it on purpose, so the book reads through in either flow.
     func isLinear(section index: Int) -> Bool { !book.isOmitted(index) }
     var bookText: ReaderBookText? { book.bookText }
-    /// A section whose newest build is for another appearance than the canvas draws in is built
-    /// again before a turn shows it, unless that build is for the appearance asked for: showing
-    /// it is then the canvas's change of appearance (#243).
+    /// A section whose newest build is for another theme than the canvas draws in is built
+    /// again before a turn shows it, unless that build is for the theme asked for: showing it is
+    /// then the canvas's change of theme (#243).
     func canShow(section index: Int) -> Bool {
         guard let built = book.typography(ofSection: index), let canvas else { return true }
-        return built.isDark == canvas.configuration.isDark || book.isCurrent(index)
+        return built.theme == canvas.configuration.theme || book.isCurrent(index)
     }
+    func isCurrent(section index: Int) -> Bool { book.isCurrent(index) }
 }
 
 extension NativeSession: ReaderCanvasDelegate {
     func canvas(_ canvas: any ReaderCanvas, didShow range: ReaderTextRange, sectionProgress: Double) {
         if range != visibleRange { pageChanges += 1 }
         visibleRange = range
-        // A page of text built for the appearance asked for brings it to the canvas (`shownIsDark`).
+        // A page of text built for the theme asked for brings it to the canvas (`shownTheme`).
         applyConfiguration()
         guard isReady, !closed else { return }
         readerState?.modify {
             $0.canGoPrevious = self.canvas?.canTurnPage(forward: false)
             $0.canGoNext = self.canvas?.canTurnPage(forward: true)
+            // Before the `.relocated` of the same pages, which a host may read it beside.
+            $0.layoutPage = self.canvas?.layoutPage
         }
         // A page is read to its end, as foliate measured it: the last page of a book is 1.
         var fraction = sectionProgress
@@ -891,8 +972,8 @@ extension NativeSession: ReaderCanvasDelegate {
     func activateLink(_ link: ReaderLink, from rect: CGRect) -> Task<Void, Never>? {
         guard isReady, !closed else { return nil }
         switch link {
-        case .external:
-            emit(.notice("This reader does not open links outside the book."))
+        case .external(let href):
+            activateExternalLink(href, from: rect)
             return nil
         case .internal(let href), .note(let href):
             guard let target = try? Self.target(of: href, in: publication) else { return nil }
@@ -905,7 +986,7 @@ extension NativeSession: ReaderCanvasDelegate {
                 guard self.isReady, self.isCurrent(ticket) else { return }
                 if let fragment = target.fragment, let note = text.notes[fragment] {
                     // The note is built with its section, for an appearance the page may not show yet.
-                    self.canvas?.presentNote(note, dark: self.book.typography.isDark, from: rect)
+                    self.canvas?.presentNote(note, theme: self.book.typography.theme, from: rect)
                 } else {
                     self.showNavigationTarget(text, fragment: target.fragment)
                 }
@@ -915,11 +996,54 @@ extension NativeSession: ReaderCanvasDelegate {
         }
     }
 
+    /// EPUB Reading Systems 3.3 §3.9: a reading system should have the reader's consent before
+    /// it opens an `http` or `https` link, and before it hands a link to the application of its
+    /// scheme, as `mailto` goes to the mail app. So the reader asks, naming the address, and
+    /// nothing is opened before it answers (`answerExternalLink`). A host may refuse such links
+    /// or take them itself (`EPUBExternalLinks`). Every other scheme is refused, whatever the
+    /// host chose: `javascript:` and `data:` would run or show the book's own content outside
+    /// the reader, `file:` reaches the device, and an app's own scheme does what that app does.
+    private func activateExternalLink(_ href: String, from rect: CGRect) {
+        if case .refuse = externalLinks.behavior { return emit(.notice(Self.externalLinkRefused)) }
+        guard let address = ExternalLinkAddress(href) else { return emit(.notice(Self.externalSchemeRefused)) }
+        switch externalLinks.behavior {
+        case .refuse: break
+        case .handle(let open): open(address.url)
+        case .ask:
+            guard openURL != nil, let canvas,
+                  canvas.askToOpen(ExternalLinkQuestion(address: address), from: rect, answer: { [weak self] open in
+                      self?.answerExternalLink(address, open: open)
+                  }) else { return emit(.notice(Self.externalLinkRefused)) }
+            askedLink = address
+        }
+    }
+
+    /// The reader's answer to the question about `address`: Open, or not. A question asked
+    /// again, withdrawn or answered already is answered no.
+    func answerExternalLink(_ address: ExternalLinkAddress, open: Bool) {
+        guard askedLink == address else { return }
+        askedLink = nil
+        guard open, !closed, let openURL else { return }
+        openURL(address.url)
+    }
+
+    /// The mounted view's settings for links outside the book, read each time SwiftUI updates it.
+    fileprivate func takeLinkSettings(from environment: EnvironmentValues) {
+        externalLinks = environment.epubReaderExternalLinks
+        let open = environment.openURL
+        openURL = { open($0) }
+    }
+
     /// Ahead of the background rebuild, which goes nearest first, at a person's priority: the
     /// next move by heading finds what the section holds within one build (#243).
     func canvas(_ canvas: any ReaderCanvas, wantsSection index: Int) {
         guard !closed, !book.isCurrent(index) else { return }
         tasks.append(Task { [weak self] in _ = await self?.book.build(index) })
+    }
+
+    func canvasDidChangeLayoutPage(_ canvas: any ReaderCanvas) {
+        guard isReady, !closed, canvas === self.canvas else { return }
+        readerState?.modify { $0.layoutPage = self.canvas?.layoutPage }
     }
 
     func canvas(_ canvas: any ReaderCanvas, needsSection index: Int, forward: Bool) {
@@ -950,12 +1074,19 @@ private struct NativeSurface: View {
     @Environment(\.epubReaderPageControls) private var pageControls
     @Environment(\.epubReaderControlsHiding) private var controlsHiding
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// Increase Contrast, on iPhone, iPad and Mac.
+    @Environment(\.colorSchemeContrast) private var contrast
+    /// Bold Text, on iPhone and iPad.
+    @Environment(\.legibilityWeight) private var legibilityWeight
 
     var body: some View {
         if !session.closed {
             NativeCanvasHost(session: session)
                 .onAppear {
                     session.updateSystemAppearance(isDark: colorScheme == .dark)
+                    session.updateSystemTextSize(dynamicTypeSize)
+                    updateSystemAccessibility()
                     session.division = division
                     session.pageControls = pageControls
                     session.controlsHiding = controlsHiding
@@ -964,6 +1095,9 @@ private struct NativeSurface: View {
                 .onChange(of: pageControls) { session.pageControls = pageControls }
                 .onChange(of: controlsHiding) { session.controlsHiding = controlsHiding }
                 .onChange(of: colorScheme) { session.updateSystemAppearance(isDark: colorScheme == .dark) }
+                .onChange(of: dynamicTypeSize) { session.updateSystemTextSize(dynamicTypeSize) }
+                .onChange(of: contrast) { updateSystemAccessibility() }
+                .onChange(of: legibilityWeight) { updateSystemAccessibility() }
                 #if os(iOS)
                 .accessibilityScrollAction { edge in
                     if edge == .leading { submit(.previousPage) }
@@ -971,6 +1105,10 @@ private struct NativeSurface: View {
                 }
                 #endif
         }
+    }
+
+    private func updateSystemAccessibility() {
+        session.updateSystemAccessibility(increasesContrast: contrast == .increased, boldText: legibilityWeight == .bold)
     }
 
     #if os(iOS)
@@ -985,10 +1123,11 @@ private struct NativeCanvasHost: UIViewRepresentable {
     let session: NativeSession
     func makeUIView(context: Context) -> ReaderCanvasView {
         let canvas = ReaderCanvasView(frame: .zero)
+        session.takeLinkSettings(from: context.environment)
         session.attach(canvas)
         return canvas
     }
-    func updateUIView(_ canvas: ReaderCanvasView, context: Context) {}
+    func updateUIView(_ canvas: ReaderCanvasView, context: Context) { session.takeLinkSettings(from: context.environment) }
     static func dismantleUIView(_ canvas: ReaderCanvasView, coordinator: ()) {
         (canvas.dataSource as? NativeSession)?.detach(canvas)
     }
@@ -998,10 +1137,11 @@ private struct NativeCanvasHost: NSViewRepresentable {
     let session: NativeSession
     func makeNSView(context: Context) -> ReaderCanvasView {
         let canvas = ReaderCanvasView(frame: .zero)
+        session.takeLinkSettings(from: context.environment)
         session.attach(canvas)
         return canvas
     }
-    func updateNSView(_ canvas: ReaderCanvasView, context: Context) {}
+    func updateNSView(_ canvas: ReaderCanvasView, context: Context) { session.takeLinkSettings(from: context.environment) }
     static func dismantleNSView(_ canvas: ReaderCanvasView, coordinator: ()) {
         (canvas.dataSource as? NativeSession)?.detach(canvas)
     }

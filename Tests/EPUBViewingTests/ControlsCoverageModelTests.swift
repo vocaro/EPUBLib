@@ -111,11 +111,12 @@ import UIKit
 
     func testFlowsAppearancesAndStylesKeepTheSpellingAHostStores() throws {
         XCTAssertEqual([EPUBReadingFlow.paginated, .scrolled].map(\.rawValue), ["paginated", "scrolled"])
-        XCTAssertEqual(EPUBReaderAppearance.allCases.map(\.rawValue), ["system", "light", "dark"])
+        XCTAssertEqual(EPUBReaderAppearance.allCases.map(\.rawValue), ["system", "light", "dark", "sepia", "black", "custom"])
         XCTAssertEqual(try JSONDecoder().decode([EPUBReadingFlow].self, from: Data(#"["scrolled","paginated"]"#.utf8)), [.scrolled, .paginated])
-        XCTAssertEqual(String(decoding: try JSONEncoder().encode(EPUBReaderAppearance.allCases), as: UTF8.self), #"["system","light","dark"]"#)
+        XCTAssertEqual(String(decoding: try JSONEncoder().encode(EPUBReaderAppearance.allCases), as: UTF8.self),
+                       #"["system","light","dark","sepia","black","custom"]"#)
         XCTAssertThrowsError(try JSONDecoder().decode([EPUBReadingFlow].self, from: Data(#"["Paginated"]"#.utf8)))
-        XCTAssertThrowsError(try JSONDecoder().decode([EPUBReaderAppearance].self, from: Data(#"["sepia"]"#.utf8)))
+        XCTAssertThrowsError(try JSONDecoder().decode([EPUBReaderAppearance].self, from: Data(#"["purple"]"#.utf8)))
 
         let style = EPUBReaderStyle()
         XCTAssertEqual(style, EPUBReaderStyle(fontSize: 17, appearance: .system, flow: .paginated))
@@ -283,7 +284,12 @@ import UIKit
         for stray: Character in ["\u{130}", "\u{DF}", "\u{FF11}", " ", "-", "\u{E9}"] {
             XCTAssertNil(controls.direction(for: .character(stray), modifiers: []), "\(stray)")
         }
-        XCTAssertEqual(EPUBPageKeyBinding.defaults.count, 6)
+        // Six turns, Home and End, and on the Mac Command-Up and Command-Down (#681).
+        #if os(macOS)
+        XCTAssertEqual(EPUBPageKeyBinding.defaults.count, 10)
+        #else
+        XCTAssertEqual(EPUBPageKeyBinding.defaults.count, 8)
+        #endif
         XCTAssertEqual(EPUBPageControls(), EPUBPageControls(keyboardBindings: EPUBPageKeyBinding.defaults))
         XCTAssertNotEqual(EPUBPageControls(), .hostOnly)
         XCTAssertEqual(EPUBPageControls.hostOnly.leftTapWidth, 56, "host-only input turns the zones off, it does not resize them")
