@@ -167,7 +167,7 @@ import XCTest
                         reportsLate: Bool = false) async throws {
         try await EPUBEngineContract.verify(engine: ContractNativeEngine(fault: fault, search: search, reportsLate: reportsLate),
             publication: EPUBPublication.open(data: Fixture.epub()), firstHref: "OPS/one.xhtml",
-            secondHref: "OPS/two.xhtml", text: "Opening words", timeout: 0.2) { session in
+            secondHref: "OPS/two.xhtml", text: "ordinary reading text", timeout: 0.2) { session in
                 _ = session.makeView()
                 return {}
             }
@@ -209,7 +209,7 @@ import XCTest
         // What a correct engine sends from a timer of its own is not taken for a stale step's effect.
         try await verify(.none, search: .results, reportsLate: true)
         for (fault, expected) in [(ContractNativeEngine.Fault.resultsAfterCompletion, "before search completion"),
-                                 (.noWrap, "previous search result"), (.acceptsStaleResult, "search result"),
+                                 (.noWrap, "previous search result"), (.acceptsStaleResult, "Accepted a search result with no search"),
                                  (.keepsResultsAfterClear, "withdrawn search results"),
                                  (.stepsAfterClear, "cleared search"), (.timedStepsAfterClear, "still had an effect")] {
             do { try await verify(fault, search: .results); XCTFail("Broken search results passed: \(fault)") }
