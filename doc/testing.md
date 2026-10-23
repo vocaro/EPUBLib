@@ -6,14 +6,15 @@ Use Xcode 27, a graphical macOS 27 login, the iOS 27 simulator runtime, XcodeGen
 Set `DEVELOPER_DIR` when more than one Xcode is installed. From the repository root:
 
 ```sh
-bash scripts/check-all.sh
+python3 scripts/eng run gate
 ```
 
-The gate checks the hosted-run and VoiceOver session scripts, verifies module boundaries,
-compares documentation snippets with compiled Swift sources, runs the Mac tests and the full
-test suite on dedicated iPhone 17 Pro and iPad Air 13-inch (M4) simulators, reads the objects
-those runs compiled, StaticSVG's among them, and the resvg library StaticSVG's release supplies,
-for any API that an app would have to
+`gate` is the `exclusive` lane in `engineering.json` that runs `scripts/check-all.sh`, which
+takes no arguments. The gate checks the hosted-run and VoiceOver session scripts, verifies
+module boundaries, compares documentation snippets with compiled Swift sources, runs the Mac
+tests and the full test suite on dedicated iPhone 17 Pro and iPad Air 13-inch (M4) simulators,
+reads the objects those runs compiled, StaticSVG's among them, and the resvg library
+StaticSVG's release supplies, for any API that an app would have to
 declare in a privacy manifest ([integration](integration.md#privacy-manifest)), and builds the
 VoiceOver verification host for Mac and iOS. Test devices are created by UUID and
 deleted on exit; existing devices are never selected or shut down. Agents working in the
@@ -52,10 +53,12 @@ another clone and comes first; the checks give the copies of the scripts they ru
 they find.
 
 Run one gate at a time on this shared Mac, with its Mac and iOS suites one after the other.
-Coordinate full test runs between worktrees and keep build and test worker counts bounded.
-Look for every run on the host first, as
+The `gate` lane waits for the host's
 [heavy-work admission](https://github.com/vocaro/apple-engineering/blob/main/guides/shared-host.md#heavy-work-admission)
-describes: on 2026-10-20 a check of the worktrees alone missed another session's Mac suite.
+to have no other heavy work running and holds every slot while it runs. Keep build and test
+worker counts bounded. Admission sees only admitted work, so look for every run on the host
+first, as that section describes: on 2026-10-20 a check of the worktrees alone missed another
+session's Mac suite.
 EPUBLib's runs are listed by
 `ps -Ao args | grep -E '[E]PUBLib.*\.xctest|[c]heck-all\.sh|[t]est-ios\.sh'`.
 Synchronous performance assertions use thread CPU time and asynchronous readiness waits
@@ -86,8 +89,11 @@ gate and before blaming a change for that failure.
 `scripts/test-ios.sh` runs its devices as
 [disposable simulators](https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#disposable-simulators).
 It reports `Passed` or `Failed` for each device, continues to the second after a creation, boot
-or test failure, and exits nonzero if either failed. Each first boot has a 600-second limit
-(`EPUB_SIM_BOOT_TIMEOUT` overrides it with a positive number of seconds). The device and last
+or test failure, and exits nonzero if either failed. A passed device reports the tests it ran:
+XCTest's total for each test bundle, which `xcodebuild` runs one at a time, and Swift Testing's
+for each run. A device that ran none fails. Arguments go to each device's `xcodebuild test`.
+Each first boot has a 600-second limit (`EPUB_SIM_BOOT_TIMEOUT` overrides it with a positive
+number of seconds). The device and last
 boot stage, including any migration plugin, are retained in
 `.build/validation/<device-kind>-boot.log`, the identifier creation printed in
 `<device-kind>-create.log`, and the test log in `<device-kind>.log`. Destination discovery gets
@@ -96,14 +102,30 @@ The failure, timeout and interruption paths can be checked without creating a si
 `python3 scripts/test-test-ios.py` substitutes fake `xcrun` and `xcodebuild` commands in a
 fresh temporary directory and checks that every created device is deleted.
 
-For narrower checks:
+The Mac and iOS suites are `heavy` lanes of their own, `swift-tests` and `ios-tests`, and the
+narrower checks are runs of them. Arguments after `--` go to the lane's command: a `swift test`
+filter, or `xcodebuild test` options such as `-only-testing:` for each simulator.
 
 ```sh
-swift test --filter PublicationSafetyTests
-swift test --filter NativeSessionTests
-swift test --filter CFI
-bash scripts/test-ios.sh
+python3 scripts/eng run swift-tests
+python3 scripts/eng run swift-tests -- --filter PublicationSafetyTests
+python3 scripts/eng run swift-tests -- --filter NativeSessionTests
+python3 scripts/eng run swift-tests -- --filter CFI
+python3 scripts/eng run ios-tests
+python3 scripts/eng run ios-tests -- -only-testing:EPUBViewingTests/NativeSessionTests
 ```
+
+A lane fails a run that reports fewer tests than its `minimumTests`, a whole run's count. A run
+with arguments must run at least one, and `--expect N` requires exactly N, so that a filter
+shows it selected the tests it was meant to:
+`python3 scripts/eng run swift-tests --expect N -- --filter X`. `eng` adds up what the log
+reports: each test bundle's total, each Swift Testing run and each unittest run. A filtered
+`ios-tests` run counts both simulators, so 12 tests on each is `--expect 24`. The floors are
+counts that a toolkit older than apple-engineering 18c01d4, which took the largest single count
+in place of the sum, accepts as well. Any other heavy command in this
+document, such as a probe's `swift test`, `xcodebuild` or `xcrun xctest`, goes through
+`python3 scripts/eng admit -- COMMAND`, with `--exclusive` for a whole-machine measurement. The
+plain commands are for a contributor's own machine.
 
 On the Mac, the harness calls `makeMacTestWindow`, which runs `prepareMacTestApplication`
 before constructing an `NSWindow` or starting `NSApplication`. It puts
@@ -1532,8 +1554,19 @@ workstation and counts as acceptance evidence: see [Hosted Mac sessions](#hosted
 A session on a workstation needs the owner's explicit authorization, and only for what a
 runner cannot do: someone listening, or stepping by hand
 ([where Mac sessions run](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#where-mac-sessions-run)
-has what such a session needs). Launch a fresh reader before each case; close previous
-verification instances first.
+has what such a session needs).
+
+With that authorization, the first step of the session is to reserve the owner's screen:
+`mac-foreground` in the host's device record, with the owner's approval window, as
+[attended Mac sessions](https://github.com/vocaro/apple-engineering/blob/main/guides/shared-host.md#attended-mac-sessions)
+shows, and `VOCARO_DEVICE_OWNER` set to the session named in the reservation. The runner checks
+it before its first key and again before each step, and refuses unless that session holds the
+entry, the entry is neither orphaned nor uncertain, and the approval has not ended. A refused
+session sends no more steps; the runner only closes a rotor or menu the steps left open and
+restores VoiceOver ([#818](https://github.com/vocaro/EPUBLib/issues/818)). Release the entry
+when the session ends. A hosted runner needs no reservation.
+
+Launch a fresh reader before each case; close previous verification instances first.
 
 ```sh
 open -na "$PWD/.build/voiceover/mac/Build/Products/Debug/VoiceOverVerificationMac.app" \
@@ -2590,8 +2623,9 @@ Its sessions are acceptance evidence for what VoiceOver reads and in what order,
 what VoiceOver activates ([Acceptance and evidence](#acceptance-and-evidence)). On the shared
 host its build and runs go through
 [heavy-work admission](https://github.com/vocaro/apple-engineering/blob/main/guides/shared-host.md#heavy-work-admission),
-as a configured lane (`python3 scripts/eng run LANE`) or through the resource CLI; the plain
-commands here are for contributors' own machines:
+as a configured lane (`python3 scripts/eng run LANE`) or with
+`python3 scripts/eng admit -- COMMAND`; the plain commands here are for contributors' own
+machines:
 
 ```sh
 python3 scripts/run-voiceover-simulator.py
