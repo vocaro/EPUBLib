@@ -1316,6 +1316,39 @@ each stub's selector or function and each string's characters beside the line th
 Read so on macOS 27.0, the code is what made a departed table of data say "empty" on 27.0.1
 ([the native viewer](native-viewer.md), "Data tables", "Pages").
 
+### Contention for a test's waits
+
+To see how a test's waits hold up when its process waits for a core, run it clamped to
+background QoS beside busy processes. Other sessions' default-QoS work keeps the cores
+([#859](https://github.com/vocaro/EPUBLib/issues/859)). By default the spinners are at
+background QoS too. With `CONTEND_SPINNERS=nice` they run at default QoS and nice 20, which
+ranks them above the command and below everyone else's work. Admit the run as heavy work, and
+keep it to minutes: the spinners raise the load average that admission reads.
+
+```python
+#!/usr/bin/env python3
+"""contend.py SPINNERS -- COMMAND...: COMMAND at background QoS beside SPINNERS busy processes."""
+import os, subprocess, sys, time
+
+spinners, command = int(sys.argv[1]), sys.argv[3:]
+spinner = ["nice", "-n", "20"] if os.environ.get("CONTEND_SPINNERS") == "nice" else ["taskpolicy", "-c", "background"]
+busy = [subprocess.Popen([*spinner, "perl", "-e", "1 while 1"]) for _ in range(spinners)]
+try:
+    time.sleep(1)
+    status = subprocess.call(["taskpolicy", "-c", "background", *command])
+finally:
+    for process in busy:
+        process.kill()
+sys.exit(status)
+```
+
+```sh
+python3 scripts/eng admit -- python3 contend.py 36 -- swift test --skip-build --filter EngineContractTests
+```
+
+On 2026-10-23, neither kind of spinner made the 0.2–0.3 s contract waits that `main` had before
+#859 fail ([the runs](https://github.com/vocaro/EPUBLib/issues/859#issuecomment-6375657021)).
+
 ## Adapter contract tests
 
 The **EPUBViewingTestSupport** target exercises engine contracts with `EPUBEngineContract.verify`.
