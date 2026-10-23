@@ -31,3 +31,19 @@ struct PageControlsExample: View {
     }
 }
 // snippet:end pageControls
+
+// snippet:start pageTurnAnimation
+/// Let the reader choose how a page turns. Under Reduce Motion a slide dissolves by itself.
+struct PageTurnAnimationExample: View {
+    let session: any EPUBReaderSession
+    @State private var slides = true
+
+    var body: some View {
+        VStack {
+            Toggle("Slide pages", isOn: $slides)
+            EPUBReaderView(session: session)
+                .epubReaderPageTurnAnimation(slides ? .slide : .none)
+        }
+    }
+}
+// snippet:end pageTurnAnimation

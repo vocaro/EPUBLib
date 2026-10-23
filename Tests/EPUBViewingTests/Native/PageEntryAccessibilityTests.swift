@@ -10,7 +10,11 @@ import XCTest
 /// start or end of a section a turn reaches keep every column's first line (#383). A relayout
 /// enters the place again until something moves from it, and the first line after that. What
 /// VoiceOver does with it is heard only in a speech session (doc/testing.md#voiceover-testing).
-@MainActor final class PageEntryAccessibilityTests: XCTestCase {
+@MainActor class PageEntryAccessibilityTests: XCTestCase {
+    /// How every page here turns; `SlidingPageEntryAccessibilityTests` runs them all again with a
+    /// slide (#688).
+    class var pageTurnAnimation: EPUBPageTurnAnimation { .none }
+
     private var windows: [NSWindow] = []
 
     override func tearDown() async throws {
@@ -32,6 +36,7 @@ import XCTest
     /// session on this Mac hears nothing of it. 1100 points wide is a spread of two columns.
     private func reader(width: CGFloat, sections: [NSAttributedString?] = [numbered], shown: Bool = true) -> Reader {
         let canvas = ReaderCanvasView(frame: .zero), source = FakeCanvasSource(sections), recorder = CanvasRecorder()
+        canvas.configuration.pageTurnAnimation = Self.pageTurnAnimation
         canvas.dataSource = source
         canvas.delegate = recorder
         let window = makeMacTestWindow(contentRect: CGRect(x: 0, y: 0, width: width, height: 500),
@@ -551,5 +556,11 @@ extension ReaderCanvasView {
         }
         return nil
     }
+}
+
+/// Every test above again with each page turn sliding: where VoiceOver on Mac enters a page, and
+/// what it is told, are what they are with none (#688).
+@MainActor final class SlidingPageEntryAccessibilityTests: PageEntryAccessibilityTests {
+    override class var pageTurnAnimation: EPUBPageTurnAnimation { .slide }
 }
 #endif
