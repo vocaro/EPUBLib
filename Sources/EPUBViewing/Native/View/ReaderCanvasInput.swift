@@ -35,6 +35,13 @@ struct ReaderWheelPageTurner {
     private var gestureTurned = false
     private var gestureDelta = CGVector.zero
 
+    /// The trackpad gesture under way has turned its page, or been taken for a swipe the page
+    /// follows (`takeGesture`): the rest of it turns nothing.
+    var gestureHasTurned: Bool { gestureTurned }
+
+    /// The trackpad gesture under way is a swipe the page follows, which turns the page itself.
+    mutating func takeGesture() { gestureTurned = true }
+
     /// `deltaX`/`deltaY` follow the web's sign convention: positive scrolls right or down,
     /// towards the book's end. Returns the direction to turn, or nil.
     mutating func direction(deltaX: CGFloat, deltaY: CGFloat, phase: Phase = .none, isRightToLeft: Bool,
