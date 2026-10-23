@@ -391,9 +391,13 @@ final class CSSCascadeHintCoverageTests: XCTestCase {
         XCTAssertEqual(rule.border, .init(Border(width: 1, style: .inset, color: nil)))
         XCTAssertEqual(rule.color, CSSCascadeSupport.hex(0x808080))
         for id in ["p", "blockquote", "pre", "address", "dl", "dt", "dd", "figure", "figcaption", "hr", "section", "article", "aside", "nav",
-                   "header", "footer", "main", "hgroup", "details", "summary", "div", "center"] {
+                   "header", "footer", "main", "hgroup", "details", "div", "center"] {
             XCTAssertEqual(result.style(id).display, .block, id)
         }
+        // HTML §15.3.10: a details' summary is a list item with a disclosure triangle inside it.
+        XCTAssertEqual(result.style("summary").display, .listItem)
+        XCTAssertEqual(result.style("summary").listStyleType, .disclosureClosed)
+        XCTAssertEqual(result.style("summary").listStylePosition, .inside)
         for id in ["address", "dt", "section", "article", "aside", "nav", "header", "footer", "main", "hgroup", "details", "summary", "div", "center"] {
             XCTAssertEqual(result.style(id).margin, .init(.points(0)), id)
         }
