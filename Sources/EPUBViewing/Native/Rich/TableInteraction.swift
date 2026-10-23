@@ -6,7 +6,8 @@ import AppKit
 import UIKit
 #endif
 
-/// One thing an assistive technology can do with what a table's cell shows.
+/// One thing an assistive technology can do with what a table's cell shows, or a line of
+/// the text outside a table (`ReaderTextView.lineSelectionActions`).
 struct ReaderTableAction {
     var name: String
     /// Performing it changes what the cell's item says of itself and offers. VoiceOver holds

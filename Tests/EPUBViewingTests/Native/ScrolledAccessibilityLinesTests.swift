@@ -214,8 +214,9 @@ import XCTest
         try await reader.settle()
         XCTAssertEqual(canvas.visibleRange?.start.section, place.section)
         try assertTheListIsTheScreenAndTheLinesAfterIt("at a larger text size", subject)
-        // Paging lists a page's lines with its page actions; a scroll view's lines have none.
-        XCTAssertTrue(try elements(of: view).allSatisfy { ($0.accessibilityCustomActions ?? []).isEmpty })
+        // Paging lists a page's lines with its page actions; a scroll view's lines have none,
+        // and each offers to select itself alone.
+        XCTAssertTrue(try elements(of: view).allSatisfy { ($0.accessibilityCustomActions ?? []).map(\.name) == ["Select Line"] })
     }
 
     /// The area UIKit keeps the line under the cursor in: the view less its insets.
@@ -1342,7 +1343,8 @@ import XCTest
                 let rest = Array(own.dropFirst(pageActions.count))
                 if text == "Blue square" {
                     pictures += 1
-                    XCTAssertEqual(rest, ["Inspect Image: Blue square"], "\(label): the picture is inspected from its own line", file: file, line: line)
+                    XCTAssertEqual(rest, ["Inspect Image: Blue square", "Select Line"], "\(label): the picture is inspected from its own line",
+                                   file: file, line: line)
                 } else if text.contains("First cell") {
                     rows += 1
                     XCTAssertTrue(rest.contains { $0.hasPrefix("Select Table Text: First cell") },
@@ -1350,7 +1352,7 @@ import XCTest
                     XCTAssertTrue(rest.allSatisfy { $0.contains("Table") }, "\(label): \(rest)", file: file, line: line)
                 } else {
                     if element.accessibilityTraits.contains(.link) { links += 1 }
-                    XCTAssertEqual(rest, [], "\(label): \"\(text)\" has nothing in it to act on", file: file, line: line)
+                    XCTAssertEqual(rest, ["Select Line"], "\(label): \"\(text)\" has nothing in it to act on but its words", file: file, line: line)
                 }
                 XCTAssertEqual(offered(on: element), own, "\(label): \"\(text)\" is offered what something that holds it offers",
                                file: file, line: line)
@@ -1365,18 +1367,19 @@ import XCTest
         let pageActions = ["Next Page", "Previous Page"]
         try assertEachLineIsOfferedItsOwn("in pages", in: try XCTUnwrap(canvas.textViews.first), pageActions: pageActions)
 
-        // Continuous scroll has no page to turn: a plain line is offered nothing at all, and
-        // VoiceOver has no "Actions available" to say after it.
+        // Continuous scroll has no page to turn: a plain line is offered its selection alone,
+        // as every line is, so VoiceOver says "Actions available" after the first line it reads
+        // and not after the lines after it, which offer the same.
         try await reader.session.send(.style(EPUBReaderStyle(flow: .scrolled)))
         try await reader.wait("the whole book in the scroll view") { canvas.scrollBook != nil }
         try await reader.settle()
         let view = try XCTUnwrap(canvas.scrollTextView)
         try assertEachLineIsOfferedItsOwn("in continuous scroll", in: view, pageActions: [])
         let plain = try XCTUnwrap(try elements(of: view).first { $0.accessibilityLabel == "Plain words before.\n" })
-        XCTAssertEqual(offered(on: plain), [])
+        XCTAssertEqual(offered(on: plain), ["Select Line"])
         let link = try XCTUnwrap(try elements(of: view).first { $0.accessibilityTraits.contains(.link) })
         XCTAssertEqual(link.accessibilityLabel, "jump")
-        XCTAssertEqual(offered(on: link), [], "a link is followed by activating it")
+        XCTAssertEqual(offered(on: link), ["Select Line"], "a link is followed by activating it, and selects its line")
         // With VoiceOver's cursor in the text, when lines past the screen are listed as well.
         focus(plain, from: nil, in: view)
         try assertEachLineIsOfferedItsOwn("with the cursor in the text", in: view, pageActions: [])

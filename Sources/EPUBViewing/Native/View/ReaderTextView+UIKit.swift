@@ -1152,13 +1152,20 @@ private struct ReaderAccessibilityList {
         view?.accessibilityCursorMoved(to: self)
     }
 
-    /// Words of a table's cell that this item reads are selected: of the cell itself, in any
-    /// of the rows it continues into, or of any cell of a row read whole.
+    /// Words that this item reads are selected: of a table's cell itself, in any of the rows
+    /// it continues into, or of any cell of a row read whole; and of a line, however the
+    /// selection was made.
     var holdsSelection: Bool {
         if isCell { return ([range.location] + continuations).contains { view?.tableInteraction?.holdsSelection(at: $0, cell: cell) == true } }
-        guard let view, let storage = view.contentStorage.textStorage, range.location < storage.length,
-              storage.attribute(.attachment, at: range.location, effectiveRange: nil) is TableRowAttachment else { return false }
+        guard let view, let storage = view.contentStorage.textStorage, range.location < storage.length else { return false }
+        guard isRow else { return view.holdsLineSelection(range) }
         return view.tableInteraction?.holdsSelection(at: range.location) ?? false
+    }
+
+    /// The item is a row of a table that is not data, read whole.
+    private var isRow: Bool {
+        guard let storage = view?.contentStorage.textStorage, range.location < storage.length else { return false }
+        return storage.attribute(.attachment, at: range.location, effectiveRange: nil) is TableRowAttachment
     }
 
     // VoiceOver says "Selected" of such an item whenever it comes to it, in its own language.
@@ -1197,6 +1204,25 @@ private struct ReaderAccessibilityList {
         }
     }
 
+    /// An action on a line's text as VoiceOver is given it. Whether it changes what the item
+    /// says of itself and offers depends on where the selection stands, so the item is
+    /// compared before and after: VoiceOver is told that it changed when it became selected
+    /// or no longer is, or now offers other actions, and reads it again then. Anything the
+    /// action says itself, as the word a move took, is said first.
+    private func lineAction(_ action: ReaderTableAction) -> UIAccessibilityCustomAction {
+        UIAccessibilityCustomAction(name: action.name) { [weak self] _ in
+            let before = self?.selectionState
+            guard action.perform() else { return false }
+            if let self, selectionState != before { view?.canvas?.postToAccessibility(.layoutChanged, self) }
+            return true
+        }
+    }
+
+    /// Whether the item says it is selected, and what it offers.
+    private var selectionState: [String] {
+        [holdsSelection ? "selected" : ""] + (accessibilityCustomActions ?? []).map(\.name)
+    }
+
     /// A page's elements turn the page. Continuous scroll scrolls natively, by VoiceOver's own
     /// gesture.
     func pageActions(of view: ReaderTextView) -> [UIAccessibilityCustomAction] {
@@ -1225,8 +1251,10 @@ private struct ReaderAccessibilityList {
                 let found = interactions
                 actions += found.selection.map { customAction($0) }
                 actions += found.links.map { customAction($0, named: "Follow Link: " + $0.name) }
-            } else if view.contentStorage.textStorage?.attribute(.attachment, at: range.location, effectiveRange: nil) is TableRowAttachment {
+            } else if isRow {
                 actions += (view.tableInteraction?.accessibilityActions(at: range.location) ?? []).map { customAction($0) }
+            } else {
+                actions += view.lineSelectionActions { [weak self] in self?.range }.map(lineAction)
             }
             return actions.isEmpty ? nil : actions
         }

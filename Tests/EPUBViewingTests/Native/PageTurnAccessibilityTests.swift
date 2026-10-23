@@ -371,7 +371,7 @@ import XCTest
         XCTAssertEqual(number(last), count)
         XCTAssertEqual(last.accessibilityTraits, [.staticText, .header, .causesPageTurn])
         XCTAssertEqual(answers(last).headingLevel, 2)
-        XCTAssertEqual((last.accessibilityCustomActions ?? []).map(\.name), ["Next Page", "Previous Page"])
+        XCTAssertEqual((last.accessibilityCustomActions ?? []).map(\.name), ["Next Page", "Previous Page", "Select Line"])
         for element in listed.dropLast() { XCTAssertEqual(element.accessibilityTraits, .staticText, "line \(number(element) ?? 0)") }
         // VoiceOver's cursor is on the line it is reading, and once it has read it VoiceOver
         // scrolls from it: the page turns and is announced, and the cursor's item is the next
@@ -692,10 +692,10 @@ import XCTest
         XCTAssertEqual(fresh.map { $0[0].label?.trimmingCharacters(in: .newlines) }, [
             "Plain opening words.", "Left cell\tRight cell jump", "Square with words", "Lone jump", "Heading words",
             "Sum stated", "Separator", "Plain closing words."])
-        let turns = ["Next Page", "Previous Page"]
+        let turns = ["Next Page", "Previous Page"], line = turns + ["Select Line"]
         XCTAssertEqual(fresh.map { $0[0].actions }, [
-            turns, turns + ["Select Table Text: Left cell", "Select Table Text: Right cell jump", "Follow Table Link: Right cell jump"],
-            turns + ["Inspect Image: Square with words"], turns, turns, turns, turns, turns])
+            line, turns + ["Select Table Text: Left cell", "Select Table Text: Right cell jump", "Follow Table Link: Right cell jump"],
+            turns + ["Inspect Image: Square with words", "Select Line"], line, line, line, turns, line])
         // The closing page's one line is its last too, and turns the page to the notes for
         // VoiceOver reading on by itself.
         XCTAssertEqual(fresh.map { $0[0].traits }, [
@@ -850,7 +850,7 @@ import XCTest
         XCTAssertEqual(opens.last?.label, "Plain closing words.\n")
         let turns = ["Next Page", "Previous Page"]
         XCTAssertEqual(opens.prefix(5).map(\.actions), [
-            turns, turns + ["Select Cell Text"], turns + ["Select Cell Text", "Follow Link: Jump cell"], turns + ["Inspect Image"],
+            turns + ["Select Line"], turns + ["Select Cell Text"], turns + ["Select Cell Text", "Follow Link: Jump cell"], turns + ["Inspect Image"],
             turns + ["Select Cell Text"]])
         XCTAssertEqual(opens.prefix(4).map(\.traits), [.staticText, .staticText, .link, [.staticText, .image]])
         for (index, place) in ledger.enumerated().dropFirst() {
@@ -947,7 +947,8 @@ import XCTest
         XCTAssertEqual(cursor.accessibilityLabel?.trimmingCharacters(in: .newlines), "Notes")
         XCTAssertEqual(cursor.accessibilityTraits, [.staticText, .header])
         XCTAssertEqual(answersAsCell(cursor), [false, false, false])
-        XCTAssertEqual(cursor.accessibilityCustomActions?.map(\.name), turns, "a heading that was a link's cell a page ago offers the turns alone")
+        XCTAssertEqual(cursor.accessibilityCustomActions?.map(\.name), turns + ["Select Line"],
+                       "a heading that was a link's cell a page ago offers what a line offers alone")
         XCTAssertFalse(cursor.accessibilityActivate(), "and follows nothing")
         XCTAssertEqual(canvas.visibleRange?.start.section, 6)
         XCTAssertTrue(posts.isEmpty)

@@ -2,6 +2,9 @@ import EPUBCore
 import EPUBReading
 import EPUBViewing
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 import UniformTypeIdentifiers
 
 struct ReaderScreen: View {
@@ -16,6 +19,15 @@ struct ReaderScreen: View {
     /// `-SampleControls none` shows the reader with none of the host's controls above it, as a
     /// host that hides them while a book is read: nothing between the open buttons and the page.
     private let showsControls = UserDefaults.standard.string(forKey: "SampleControls") != "none"
+    #if os(iOS)
+    /// `-SampleCopiedLine YES` keeps a line under the selection line that says what the general
+    /// pasteboard holds since the app last wrote to it, for an automated check of Copy.
+    private let copiedLine = UserDefaults.standard.bool(forKey: "SampleCopiedLine")
+    @State private var copied: String?
+    /// `-SampleActions PLAN` performs items' accessibility actions with nothing activated, and
+    /// keeps a line that says what became of each (`SampleActions`).
+    @State private var actions = SampleActions()
+    #endif
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,6 +60,21 @@ struct ReaderScreen: View {
                     Text("Selected: \(reader.selection ?? "nothing"). Used: \(reader.selectedText ?? "nothing").")
                         .font(.caption).lineLimit(1).padding(.bottom, 6).accessibilityIdentifier("sample.selection")
                 }
+                #if os(iOS)
+                if copiedLine {
+                    Text("Copied: \(copied ?? "nothing").")
+                        .font(.caption).lineLimit(1).padding(.bottom, 6).accessibilityIdentifier("sample.copied")
+                        .task {
+                            for await _ in NotificationCenter.default.notifications(named: UIPasteboard.changedNotification) {
+                                copied = UIPasteboard.general.string
+                            }
+                        }
+                }
+                if let actions {
+                    Text("Actions: \(actions.done.isEmpty ? "none" : actions.done.joined(separator: ", ")).")
+                        .font(.caption).lineLimit(1).padding(.bottom, 6).accessibilityIdentifier("sample.actions")
+                }
+                #endif
             } else {
                 ContentUnavailableView("Open a book", systemImage: "book", description: Text("Choose an EPUB file or explore the included sample."))
             }

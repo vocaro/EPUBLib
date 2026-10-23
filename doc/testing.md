@@ -1412,8 +1412,8 @@ after the hidden ones." stand round them, and sixty numbered lines follow. It ha
 and no link, no word of it is one VoiceOver uses, and no shown word holds a hidden one, so
 "concealed", "Concealed" or "collapsed" in a transcript is a hidden word read. Open it with
 `--href OPS/veiled.xhtml` on a simulator and `"launch=-SampleHref OPS/veiled.xhtml"` in a
-hosted session. **Math readings** (`OPS/math.xhtml`) follows it, and the book's last section,
-**Words kept from listeners** (`OPS/kept.xhtml`), holds shown words the book keeps from
+hosted session. **Math readings** (`OPS/math.xhtml`) follows it, and then
+**Words kept from listeners** (`OPS/kept.xhtml`), which holds shown words the book keeps from
 assistive technology with `aria-hidden="true"`
 ([Text kept from assistive technology](native-viewer.md#text-kept-from-assistive-technology)):
 a paragraph of its own, "* Unheard stars *", after "Words before the kept ones."; "unheard
@@ -1425,7 +1425,15 @@ between "Shown words beside" and "the hidden square.". "Words after the kept one
 numbered lines follow. Every kept or hidden word begins "unheard" or "Unheard" and no shown
 word does, so either in a transcript is a kept word read, and no word of it is one VoiceOver
 uses for a heading, a link or a picture. Open it with `--href OPS/kept.xhtml` on a simulator
-and `"launch=-SampleHref OPS/kept.xhtml"` in a hosted session. A second bundled book, opened with
+and `"launch=-SampleHref OPS/kept.xhtml"` in a hosted session. The book's last section, **A
+passage to copy** (`OPS/passage.xhtml`), holds the paragraphs of DAISY's Non-visual Reading
+test reading-1310 (epub30-test-0302), which asks for the 399 characters, spaces aside,
+between "Begin" and "End" to be copied with assistive technology: "Begin" opens the
+passage's paragraph, whose words are Melville's, from Moby-Dick, in the public domain, and
+"End" is a paragraph of its own. The line break and spaces inside the paragraph and the
+space before its end are the test's. A line of the fixture's own stands before it, and
+sixty numbered lines after it; it has no heading and no link, and no word of it is one
+VoiceOver uses for a selection or an action. A second bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
 twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
@@ -1470,7 +1478,8 @@ xcodebuild -project Examples/VoiceOverVerification/VoiceOverVerification.xcodepr
   DEVELOPMENT_TEAM="$VOICEOVER_TEAM_ID" build-for-testing
 ```
 
-The fixture is deterministic and original to this repository. Generated Xcode projects,
+The fixture is deterministic and original to this repository, but for DAISY's passage, which
+is in the public domain. Generated Xcode projects,
 build products, logs and result bundles are ignored by Git. Keep configuration changes in
 `project.yml`.
 
@@ -2712,6 +2721,31 @@ To separate a navigation announcement from activation, the sample's existing
 href instead of turning one page. For example, launch at `OPS/body.xhtml#activation-link`
 with `-SampleStepAfter 120 -SampleStepHref OPS/body.xhtml#link-target`, focus
 `Verification link`, then `listen=125`. This does not activate an accessibility item.
+
+An action VoiceOver performs from its rotor is made the same way by `-SampleActions PLAN`:
+when VoiceOver's cursor first comes to an item whose label begins with a stop's words, or
+holds them after a `*`, the sample performs that stop's actions of the item under the cursor
+one by one, `-SampleActionsEvery SECONDS` apart (6 by default), as VoiceOver performs an
+action, and a line under the reader says what became of each (`SampleActions.swift`). Stops
+are separated by `;`, actions by `+`, and `_` stands for a space, since launch arguments are
+separated by spaces. `-SampleCopiedLine YES` adds a line that says what the pasteboard holds
+since the sample last wrote to it, and the probe's `state` step records both lines with the
+selection line. The selection of DAISY's passage
+([Text selected with VoiceOver](native-viewer.md#decisions)) is heard so, in pages and with
+`--flow scrolled`:
+
+```sh
+python3 scripts/run-voiceover-simulator.py --runtime com.apple.CoreSimulator.SimRuntime.iOS-27-0 \
+  --href OPS/passage.xhtml --vot-log --timeout 1200 --start-limit 600 \
+  --launch '-SampleSelectionLine YES -SampleCopiedLine YES -SampleControls none -SampleActionsEvery 12 -SampleActions Begin_Consider=Select_Line+Unselect_First_Word;*world_began=Extend_Selection_to_Line+Copy+Use_passage' \
+  --steps 'touch=The passage runs,rotor=Text Selection,rotor=Actions,flick=down*3,touch=Begin Consider,listen=30,state,flick=down*8,touch=End,flick=left,listen=45,state,flick=left*3'
+```
+
+The transcript has the rotor's settings on a line, the actions a line offers before and
+after it is selected, what VoiceOver says as the sample performs each, and the passage as the
+reader reports it, as the host's action was given it and as the pasteboard holds it. It does
+not establish that VoiceOver performs the action chosen in its rotor, which a device shows
+([acceptance rule](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#acceptance-rule)).
 The verification host also accepts positive `-VerificationWidth POINTS` and
 `-VerificationHeight POINTS` together to constrain the reader's content size for a
 layout comparison. A constrained iPad remains an iPad; it does not establish native

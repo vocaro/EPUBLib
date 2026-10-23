@@ -379,7 +379,7 @@ files['OPS/package.opf'] = files['OPS/package.opf'].replace('</manifest>',
     '<item id="math" href="math.xhtml" media-type="application/xhtml+xml" properties="mathml"/></manifest>').replace(
     '</spine>', '<itemref idref="math"/></spine>')
 files['OPS/nav.xhtml'] = files['OPS/nav.xhtml'].replace('</ol>', '<li><a href="math.xhtml">Math readings</a></li></ol>')
-# Words kept from listeners, the book's last section: shown words the book keeps from
+# Words kept from listeners: shown words the book keeps from
 # assistive technology with aria-hidden="true", which are drawn, copied and found as any
 # words are and given to no assistive technology (#552), and a picture `visibility: hidden`
 # hides, which keeps its room and is read by nobody (#549). A row of stars between scenes is
@@ -402,6 +402,28 @@ files["OPS/package.opf"] = files["OPS/package.opf"].replace(
     "</spine>", '<itemref idref="kept"/></spine>')
 files["OPS/nav.xhtml"] = files["OPS/nav.xhtml"].replace(
     "</ol></nav>", '<li><a href="kept.xhtml">Words kept from listeners</a></li></ol></nav>')
+# A passage to select and copy, the book's last section: the paragraphs of DAISY's
+# Non-visual Reading test reading-1310 (epub30-test-0302), which asks for the 399 characters,
+# spaces aside, between "Begin" and "End" to be copied with assistive technology. The words
+# are Melville's, from Moby-Dick (1851), in the public domain; the line break and the spaces
+# inside the paragraph, and the space before its end, are the test's. "Begin" opens the
+# passage's own paragraph, so a selection of its first line takes one word too many, and
+# "End" is a paragraph of its own. Sixty numbered lines follow. It has no heading and no
+# link, and no word of it is one VoiceOver uses for a selection or an action.
+files["OPS/passage.xhtml"] = (
+    '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>A passage '
+    'to copy</title></head><body><p>The passage runs from the word after Begin to the word before End.</p>'
+    "<p>Begin Consider the subtleness of the sea; how its most dreaded creatures glide under water, unapparent for "
+    "the most part, and treacherously hidden beneath the loveliest tints of azure. Consider also the devilish "
+    "brilliance and beauty of many\n      of its most remorseless tribes, as the dainty embellished shape of many "
+    "species of sharks. Consider, once more, the universal cannibalism of the sea; all whose creatures prey upon "
+    "each other, carrying on eternal war since the world began. </p><p>End</p>"
+    + "".join(f"<p>Line {i:02d} after the passage.</p>" for i in range(1, 61)) + "</body></html>")
+files["OPS/package.opf"] = files["OPS/package.opf"].replace(
+    "</manifest>", '<item id="passage" href="passage.xhtml" media-type="application/xhtml+xml"/></manifest>').replace(
+    "</spine>", '<itemref idref="passage"/></spine>')
+files["OPS/nav.xhtml"] = files["OPS/nav.xhtml"].replace(
+    "</ol></nav>", '<li><a href="passage.xhtml">A passage to copy</a></li></ol></nav>')
 # Declare the embedded content of the fixture's existing picture and entry sections too.
 for name, property in [('pictures.xhtml', 'svg'), ('entries.xhtml', 'mathml')]:
     item = f'href="{name}" media-type="application/xhtml+xml"'
@@ -416,7 +438,7 @@ chapters = {"one": range(1, 41), "two": range(41, 81), "three": range(81, 87)}
 paragraphs = dict(files)
 for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "scenes.xhtml", "offers.xhtml",
              "entries.xhtml", "cells.xhtml", "grids.xhtml", "ledger.xhtml", "tallrow.xhtml", "edges.xhtml", "parts.xhtml",
-             "squares.xhtml", "gaps.xhtml", "veiled.xhtml", "math.xhtml", "kept.xhtml", "square.svg", "titled.svg"]:
+             "squares.xhtml", "gaps.xhtml", "veiled.xhtml", "math.xhtml", "kept.xhtml", "passage.xhtml", "square.svg", "titled.svg"]:
     del paragraphs["OPS/" + name]
 paragraphs["OPS/package.opf"] = (
     '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '

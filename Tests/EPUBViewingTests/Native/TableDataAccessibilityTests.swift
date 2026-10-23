@@ -164,7 +164,7 @@ import XCTest
             XCTAssertEqual(actions(cells[8]), turns, "\(flow): an empty cell has no words to select")
             XCTAssertEqual(actions(cells[10]), turns + ["Select Cell Text", "Follow Link: Reopened 1978"], flow)
             XCTAssertEqual(actions(cells[11]), turns + ["Select Cell Text", "Follow Link: metres"], flow)
-            XCTAssertEqual(actions(all[0]), turns, "\(flow): a line beside the table repeats none of it")
+            XCTAssertEqual(actions(all[0]), turns + ["Select Line"], "\(flow): a line beside the table repeats none of it")
             XCTAssertEqual((view.accessibilityCustomActions ?? []).map(\.name), [], "\(flow): nothing for every element to repeat")
             for inside in view.subviews where Bundle(for: type(of: inside)) == Bundle(for: ReaderTextView.self) {
                 XCTAssertTrue(inside.accessibilityElementsHidden, "\(flow): \(type(of: inside)) is for touch")
@@ -380,7 +380,7 @@ import XCTest
         XCTAssertEqual(words(lower), "Words before the ledger.")
         XCTAssertFalse(lower.conforms(to: UIAccessibilityContainerDataTableCell.self), "a line is no cell of a table to one who asks it")
         XCTAssertNil(try listed(view).first as? Cell)
-        XCTAssertEqual(actions(lower), ["Next Page", "Previous Page"], "and offers no cell's action")
+        XCTAssertEqual(actions(lower), ["Next Page", "Previous Page", "Select Line"], "and offers no cell's action")
         XCTAssertEqual(try cells(of: try XCTUnwrap(tables(in: view).first)).map { $0.accessibilityLabel }, first.map { $0.accessibilityLabel },
                        "the table under it lists its own cells")
     }

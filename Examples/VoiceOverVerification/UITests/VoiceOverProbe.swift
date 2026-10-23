@@ -581,6 +581,12 @@ import UIKit
                 // nothing: it is XCTest's snapshot, not a touch.
                 let line = app.staticTexts["sample.selection"].firstMatch
                 note(step, line.exists ? line.label : "MISSING")
+                // What the pasteboard holds (`-SampleCopiedLine YES`) and what became of the
+                // actions the sample performs itself (`-SampleActions`), where it shows them.
+                for identifier in ["sample.copied", "sample.actions"] {
+                    let more = app.staticTexts[identifier].firstMatch
+                    if more.exists { note(step, more.label) }
+                }
             case "find":
                 // Whether anything on screen is named so, and what it is: an edit menu's Copy,
                 // which is in no item's list of actions. Nothing is touched.

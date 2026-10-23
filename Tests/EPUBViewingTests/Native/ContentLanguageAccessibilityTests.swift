@@ -101,29 +101,33 @@ import XCTest
         }
     }
 
+    /// What a line of words offers besides: to select itself (doc/native-viewer.md, "Text
+    /// selected with VoiceOver"). A rule, a row and a cell have no line of their own to select.
+    private static let line = ["Select Line"]
+
     /// The first section's items, with the actions `page` adds to each.
     private static func languages(page: [String]) -> [Spoken] {
         [
-            Spoken(label: "Chapitre premier", language: "fr", level: 1, traits: [.staticText, .header], actions: page),
-            Spoken(label: "Ein deutscher Satz.", language: "de", actions: page),
-            Spoken(label: "Une phrase française.", language: "fr", actions: page),
+            Spoken(label: "Chapitre premier", language: "fr", level: 1, traits: [.staticText, .header], actions: page + line),
+            Spoken(label: "Ein deutscher Satz.", language: "de", actions: page + line),
+            Spoken(label: "Une phrase française.", language: "fr", actions: page + line),
             // A heading in two languages: its level and each part's language, over the same words.
             Spoken(label: "Notes on la vie", language: "en", parts: ["en:Notes on ", "fr:la vie"], level: 2,
-                   traits: [.staticText, .header], actions: page),
-            Spoken(label: "An English link", language: "en", traits: .link, actions: page),
-            Spoken(label: " and ", language: "en", actions: page),
-            Spoken(label: "un lien", language: "fr", traits: .link, actions: page),
-            Spoken(label: ".", language: "en", actions: page),
-            Spoken(label: "Soit ", language: "fr", actions: page),
+                   traits: [.staticText, .header], actions: page + line),
+            Spoken(label: "An English link", language: "en", traits: .link, actions: page + line),
+            Spoken(label: " and ", language: "en", actions: page + line),
+            Spoken(label: "un lien", language: "fr", traits: .link, actions: page + line),
+            Spoken(label: ".", language: "en", actions: page + line),
+            Spoken(label: "Soit ", language: "fr", actions: page + line),
             // An authored reading is in the language of the text around the formula.
-            Spoken(label: "x plus deux", language: "fr", traits: [.staticText, .image], actions: page),
-            Spoken(label: " ici.", language: "fr", actions: page),
+            Spoken(label: "x plus deux", language: "fr", traits: [.staticText, .image], actions: page + line),
+            Spoken(label: " ici.", language: "fr", actions: page + line),
             // A picture's words are not given a language (#548).
             Spoken(label: "Ein blaues Quadrat", language: nil, traits: [.staticText, .image],
-                   actions: page + ["Inspect Image: Ein blaues Quadrat"]),
-            Spoken(label: " steht hier.", language: "de", actions: page),
-            Spoken(label: "Words of no determined language.", language: nil, actions: page),
-            Spoken(label: "Words of a language unknown.", language: nil, actions: page),
+                   actions: page + ["Inspect Image: Ein blaues Quadrat"] + line),
+            Spoken(label: " steht hier.", language: "de", actions: page + line),
+            Spoken(label: "Words of no determined language.", language: nil, actions: page + line),
+            Spoken(label: "Words of a language unknown.", language: nil, actions: page + line),
         ]
     }
 
@@ -131,7 +135,7 @@ import XCTest
     private static func tables(page: [String]) -> [Spoken] {
         [
             Spoken(label: "He said bonjour and left.", language: "en",
-                   parts: ["en:He said ", "fr:bonjour", "en: and left."], actions: page),
+                   parts: ["en:He said ", "fr:bonjour", "en: and left."], actions: page + line),
             // The reader's own word for a rule is in no language of the book's.
             Spoken(label: "Separator", language: nil, traits: [], actions: page),
             // A row read whole: each cell's words in the language of that cell.
@@ -142,7 +146,7 @@ import XCTest
             Spoken(label: "Ville", language: "fr", actions: page + ["Select Cell Text"]),
             Spoken(label: "Anna", language: "de", actions: page + ["Select Cell Text"]),
             Spoken(label: "Lyon", language: "fr", actions: page + ["Select Cell Text"]),
-            Spoken(label: "Letzte Worte.", language: "de", actions: page),
+            Spoken(label: "Letzte Worte.", language: "de", actions: page + line),
         ]
     }
 
@@ -150,8 +154,8 @@ import XCTest
     /// that are not read, and those decide no language.
     private static func unread(page: [String]) -> [Spoken] {
         [
-            Spoken(label: "Oui non.", language: "fr", actions: page),
-            Spoken(label: "Titre  caché", language: "fr", level: 2, traits: [.staticText, .header], actions: page),
+            Spoken(label: "Oui non.", language: "fr", actions: page + line),
+            Spoken(label: "Titre  caché", language: "fr", level: 2, traits: [.staticText, .header], actions: page + line),
             // A rule kept from assistive technology that is all its link holds is the link, in
             // the reader's word, which is in no language of the book's.
             Spoken(label: "Separator", language: nil, traits: .link, actions: page),
@@ -159,7 +163,7 @@ import XCTest
             Spoken(label: "Mot", language: "fr", actions: page + ["Select Cell Text"]),
             Spoken(label: "Satz", language: "de", actions: page + ["Select Cell Text"]),
             Spoken(label: "Oui", language: "fr", actions: page + ["Select Cell Text"]),
-            Spoken(label: "Ende.", language: "de", actions: page),
+            Spoken(label: "Ende.", language: "de", actions: page + line),
         ]
     }
 
