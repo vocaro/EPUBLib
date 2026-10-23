@@ -2013,9 +2013,10 @@ as they did.
   page not built yet leaves its slot empty and is asked for (`wantsSection`), and the spread
   is shown again once it is. A pre-paginated section is taken for a page until it is built;
   one that then flows makes the spreads after it pair anew. The edge zones turn the page over
-  a page's image as they do over text (a tap or click elsewhere on it opens the image
-  inspector, as on any image), and VoiceOver on iPhone and iPad says "Page N" for a page turn
-  it makes, N the first page's place among the book's linear sections.
+  a page's image as they do over text. A tap or click elsewhere on a page opens the image
+  inspector, as on any picture, and a tap on the margin around the pages shows or hides the
+  host's controls ([reader controls](reader-controls.md)). VoiceOver on iPhone and iPad says
+  "Page N" for a page turn it makes, N the first page's place among the book's linear sections.
 - **Continuous scroll.** One column at most 720 wide, centred, with the same outer margin. On
   iOS the text view has `contentInsetAdjustmentBehavior = .automatic`, `contentInset` top 48
   and bottom 64 on top of the live safe area, `textContainerInset` only horizontal, and
@@ -2484,7 +2485,9 @@ as they did.
   counts, and how many pages the spread shows
   ([#681](https://github.com/vocaro/EPUBLib/issues/681)). A page is one column of a spread. A
   section starts on a spread's first column, so a spread that ends a section with an odd
-  number of pages shows one, and its empty column is no page. The book's pages are those of
+  number of pages shows one, and its empty column is no page. A fixed-layout page is one page,
+  counted as soon as its section is built, and a spread of two of them shows two, the first
+  one's index its section's first ([#5](https://github.com/vocaro/EPUBLib/issues/5)). The book's pages are those of
   the sections page turns reach (not a nonlinear one, unless no section is linear); a
   nonlinear section shown by a link has its own index and count but no index in the book.
   `ReaderPageCounter` paginates every section at the spread's column size with the paginator

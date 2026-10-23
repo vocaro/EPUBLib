@@ -79,10 +79,13 @@ import UIKit
         XCTAssertEqual(host.recorder.shown.last?.range, canvas.visibleRange)
         XCTAssertEqual(canvas.canTurnPage(forward: true), true)
         XCTAssertEqual(canvas.canTurnPage(forward: false), false)
+        XCTAssertEqual(canvas.layoutPage, EPUBLayoutPage(index: 0, count: 5, sectionIndex: 0, sectionCount: 1, shownCount: 2))
         XCTAssertEqual(canvas.turnPage(forward: true), .turned)
         XCTAssertEqual(shownSections(canvas), [2, 3])
+        XCTAssertEqual(canvas.layoutPage?.index, 2, "a page each")
         XCTAssertEqual(canvas.turnPage(forward: true), .turned)
         XCTAssertEqual(shownSections(canvas), [4], "the last page, its partner's slot empty")
+        XCTAssertEqual(canvas.layoutPage?.shownCount, 1)
         XCTAssertEqual(try columns(canvas, 1)[0].frame, left, "in the first slot's half, against the middle")
         XCTAssertEqual(canvas.canTurnPage(forward: true), false)
         XCTAssertEqual(canvas.turnPage(forward: true), .atBoundary)
@@ -191,10 +194,12 @@ import UIKit
     }
 
     /// A page is its image: a tap or click in an edge zone over it turns the page, where over an
-    /// image in flowing text it is the image's.
+    /// image in flowing text it is the image's. A tap in the middle is the image's too, and one
+    /// on the margin around the page shows or hides the host's controls.
     func testAnEdgeOfAPageTurnsIt() throws {
         var configuration = ReaderCanvasConfiguration()
         configuration.pageControls = EPUBPageControls(leftTapWidth: 200, rightTapWidth: 200)
+        configuration.togglesControls = true
         let host = host(pages: 2, spread: .none, size: CGSize(width: 600, height: 700), configuration: configuration,
                         pageSize: CGSize(width: 1000, height: 600))
         let page = try XCTUnwrap(host.canvas.textViews.first)
@@ -202,6 +207,8 @@ import UIKit
         XCTAssertNotNil(page.image(at: host.canvas.convert(left, to: page)), "the point is on the page's image")
         XCTAssertEqual(host.canvas.edgeTurn(at: left), false)
         XCTAssertEqual(host.canvas.edgeTurn(at: right), true)
+        XCTAssertFalse(host.canvas.togglesControls(at: CGPoint(x: page.frame.midX, y: page.frame.midY)))
+        XCTAssertTrue(host.canvas.togglesControls(at: CGPoint(x: page.frame.midX, y: page.frame.maxY + 10)), "below the page")
     }
 
     /// Continuous scroll shows the pages one after another, each as large as the scroll's
