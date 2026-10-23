@@ -665,5 +665,4 @@ contain it.
 The list is the same whichever products an app links. An app without EPUBViewing contains
 neither the foliate-js port, MathMLLayout nor StaticSVG, only EPUBLib and, with EPUBReading,
 EPUBText or EPUBWriting, ZIPFoundation. Xcode embeds the bundle as `EPUBLib_EPUBCore.bundle`,
-which holds the texts, in `Licenses`, and EPUBCore's compiled string catalog: no code and no
-privacy manifest.
+with the texts in its `Licenses` folder; it holds no code and no privacy manifest.
