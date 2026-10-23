@@ -281,6 +281,24 @@ extension ReaderCanvasView: NSTextViewDelegate {
         focus(first)
     }
 
+    /// The page column that has keyboard focus, itself or in a table cell's text area it holds.
+    var focusedColumn: ReaderTextView? {
+        guard let responder = window?.firstResponder as? NSView else { return nil }
+        return columns.first { responder === $0 || responder.isDescendant(of: $0) }
+    }
+
+    /// Keeps keyboard focus in the reader when the spread just installed hides `column`, which
+    /// had it (`focusedColumn`): a relayout to fewer columns, as a window narrowed from two
+    /// columns to one, or a turn to a spread of one page. AppKit takes the focus from a view it
+    /// hides, and the window had it then, so VoiceOver, which stays in the column that has the
+    /// focus, had no column to stay in (#599). The first column shown takes it, as after a
+    /// turn (`focusFirstColumnAfterTurn`), and a place entered takes it on to its own column
+    /// (`enterPage`). Focus that was anywhere else is left where it is.
+    func keepFocus(from column: ReaderTextView?) {
+        guard let column, column.isHidden else { return }
+        focus(textViews.first)
+    }
+
     // MARK: Text view delegate
 
     func textViewDidChangeSelection(_ notification: Notification) {

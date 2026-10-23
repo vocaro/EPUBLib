@@ -292,17 +292,18 @@ extension CSSPropertyParser {
         length(component, percent: true, negative: true, auto: false) != nil
     }
 
-    /// An angle; a unitless zero counts, as CSS Images 4 allows in gradients.
-    private static func isAngle(_ component: CSSComponent) -> Bool {
+    /// An angle, a literal or a math function that comes to one; a unitless zero counts, as
+    /// CSS Images 4 allows in gradients and Filter Effects 1 in `hue-rotate()`.
+    static func isAngle(_ component: CSSComponent) -> Bool {
         switch component {
-        case .token(.dimension(_, let unit, _, _)): ["deg", "rad", "grad", "turn"].contains(unit.lowercased())
+        case .token(.dimension(let value, let unit, _, _)): degrees(value, unit: unit) != nil
         case .token(.number(let value, _, _)): value == 0
-        default: false
+        default: calcAngle(component) != nil
         }
     }
 
     private static func isAnglePercentage(_ component: CSSComponent) -> Bool {
         if case .token(.percentage) = component { return true }
-        return isAngle(component)
+        return isAngle(component) || calcPercentage(component) != nil
     }
 }

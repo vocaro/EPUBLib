@@ -21,7 +21,11 @@ final class TableCellLayout: @unchecked Sendable {
     let lines: [Line]
     let height: CGFloat
     let interactionText: NSAttributedString
-    private let spokenTokens: [(range: NSRange, text: String, attachmentText: NSAttributedString?)]
+    /// Each word of the cell: its characters, what VoiceOver reads of it, and the word itself
+    /// where a selection reads more of it, an attachment's words or text the book keeps from
+    /// assistive technology.
+    private let spokenTokens: [Token]
+    private typealias Token = (range: NSRange, text: String, source: NSAttributedString?)
     private let storage: NSTextStorage
     private let manager: NSLayoutManager
     private let lock = NSLock()
@@ -36,18 +40,20 @@ final class TableCellLayout: @unchecked Sendable {
         interactionText = text
         let source = text.string as NSString
         let whitespace = CharacterSet.whitespacesAndNewlines
-        var tokens: [(NSRange, String, NSAttributedString?)] = [], start = 0
+        var tokens: [Token] = [], start = 0
         for offset in 0...source.length {
             let isSpace = offset == source.length || UnicodeScalar(source.character(at: offset)).map { whitespace.contains($0) } == true
             if isSpace {
                 if offset > start {
                     let range = NSRange(location: start, length: offset - start)
                     let token = text.attributedSubstring(from: range)
-                    var holdsAttachment = false
-                    token.enumerateAttribute(.attachment, in: NSRange(location: 0, length: token.length)) { value, _, stop in
-                        if value is ReaderTextualAttachment { holdsAttachment = true; stop.pointee = true }
+                    var readsMore = false
+                    token.enumerateAttributes(in: NSRange(location: 0, length: token.length)) { attributes, _, stop in
+                        if attributes[.attachment] is ReaderTextualAttachment || attributes[.readerUnspoken] != nil {
+                            readsMore = true; stop.pointee = true
+                        }
                     }
-                    tokens.append((range, TableMeasure.spokenText(token), holdsAttachment ? token : nil))
+                    tokens.append((range, TableMeasure.spokenText(token), readsMore ? token : nil))
                 }
                 start = offset + 1
             }
@@ -111,9 +117,22 @@ final class TableCellLayout: @unchecked Sendable {
                 if refreshingAttachments {
                     words.append(row.spokenCells(size: line.frame.size, viewportHeight: viewportHeight,
                         refreshingAttachments: true).map(\.text).joined(separator: "\t"))
-                } else { words.append(row.textEquivalent) }
+                } else { words.append(row.spokenEquivalent) }
             }
             else { words.append(spokenText(in: line.characters, refreshingAttachments: refreshingAttachments)) }
+        }
+        return words.filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// `spokenText(inLines:)` as a selection reads it: with the words of attachments and the
+    /// text that the book keeps from assistive technology (#551).
+    func shownText(inLines indices: Range<Int>) -> String {
+        var words: [String] = []
+        for index in indices {
+            let line = lines[index]
+            if let row = line.nestedRow { words.append(row.textEquivalent); continue }
+            words.append(tokens(in: line.characters).map { token in token.source.map { TableMeasure.text($0, spoken: false) } ?? token.text }
+                .filter { !$0.isEmpty }.joined(separator: " "))
         }
         return words.filter { !$0.isEmpty }.joined(separator: " ")
     }
@@ -121,6 +140,14 @@ final class TableCellLayout: @unchecked Sendable {
     /// Only the slice containing a word's first character speaks it. Complete words are
     /// cached once, so narrow character wrapping and huge unbroken words cost linear work.
     func spokenText(in range: NSRange, refreshingAttachments: Bool = false) -> String {
+        tokens(in: range).map { token in
+            if refreshingAttachments, let text = token.source { return TableMeasure.spokenText(text) }
+            return token.text
+        }.filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// The words whose first characters are in `range`.
+    private func tokens(in range: NSRange) -> ArraySlice<Token> {
         func firstToken(at offset: Int) -> Int {
             var low = 0, high = spokenTokens.count
             while low < high {
@@ -130,10 +157,6 @@ final class TableCellLayout: @unchecked Sendable {
             return low
         }
         return spokenTokens[firstToken(at: range.location)..<firstToken(at: range.upperBound)]
-            .map { token in
-                if refreshingAttachments, let text = token.attachmentText { return TableMeasure.spokenText(text) }
-                return token.text
-            }.filter { !$0.isEmpty }.joined(separator: " ")
     }
 
     /// Image hit regions use the same glyph layout and complete-line ownership as drawing.

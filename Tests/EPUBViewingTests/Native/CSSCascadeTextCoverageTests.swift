@@ -119,6 +119,30 @@ final class CSSCascadeTextCoverageTests: XCTestCase {
         XCTAssertEqual(result.style("d").wordSpacing, 2)
     }
 
+    /// CSS Text 3 §4.2: `tab-size` is `<number [0,∞]> | <length [0,∞]>`, initially 8 and
+    /// inherited, a length computed to points; a math function out of the range is clamped to
+    /// it, and any other value leaves the earlier one (#378).
+    func testTabSizeIsANumberOfSpacesOrALengthThatInherits() throws {
+        let valid: [(String, ComputedStyle.TabSize)] = [
+            ("4", .spaces(4)), ("0", .spaces(0)), ("2.5", .spaces(2.5)), ("calc(2 * 3)", .spaces(6)), ("calc(-1)", .spaces(0)),
+            ("40px", .points(40)), ("0px", .points(0)), ("1in", .points(96)), ("2em", .points(32)), ("calc(10px + 1em)", .points(26)),
+            ("max(1px, -1px)", .points(1)), ("initial", .spaces(8)), ("inherit", .spaces(3)), ("unset", .spaces(3)),
+        ]
+        for (item, style) in zip(valid, try paragraphs(valid.map { "tab-size: \($0.0)" }, parent: "tab-size: 3")) {
+            XCTAssertEqual(style.tabSize, item.1, item.0)
+        }
+        let invalid = ["-1", "-1px", "10%", "auto", "normal", "4 4", "red", "calc(1deg)", "calc(10%)", "1x", "4px 2"]
+        for (value, style) in zip(invalid, try paragraphs(invalid.map { "tab-size: 5; tab-size: \($0)" })) {
+            XCTAssertEqual(style.tabSize, .spaces(5), "\(value) is invalid, so the earlier one stays")
+        }
+        let result = try styled(#"<div id="d"><pre id="pre">x<span id="s">y</span></pre><p id="p">z</p></div><p id="o">o</p>"#,
+                                css: "#d { tab-size: 2em; font-size: 10px } #pre { font-size: 20px }")
+        XCTAssertEqual(result.style("pre").tabSize, .points(20), "a length is inherited as computed")
+        XCTAssertEqual(result.style("s").tabSize, .points(20))
+        XCTAssertEqual(result.style("p").tabSize, .points(20))
+        XCTAssertEqual(result.style("o").tabSize, .spaces(8), "eight spaces initially")
+    }
+
     func testTextTransformWhiteSpaceAndWritingModeKeywords() throws {
         let transforms: [(String, ComputedStyle.TextTransform)] = [("uppercase", .uppercase), ("LOWERCASE", .lowercase), ("capitalize", .capitalize),
                                                                    ("none", .none), ("full-width", .none)]
@@ -291,6 +315,33 @@ final class CSSCascadeTextCoverageTests: XCTestCase {
             XCTAssertEqual(result.style("l\(index)").listStyleType, item.1, item.0)
             XCTAssertEqual(result.style("l\(index)").listStylePosition, item.2, item.0)
             XCTAssertEqual(result.style("i\(index)").listStylePosition, item.2, "\(item.0): the position is inherited")
+        }
+    }
+
+    /// A `list-style` image is read as a background's is (`CSSPropertyParser.isImage`), though
+    /// it is not drawn: one the reader does not know, such as a gradient prefixed for another
+    /// engine, makes the declaration invalid, and the earlier one stays (CSS 2.2 §4.2; #643).
+    func testAListStyleWithAnImageTheReaderDoesNotKnowLeavesTheEarlierOne() throws {
+        let valid: [(String, ComputedStyle.ListStyleType)] = [
+            ("linear-gradient(red, blue)", .disc), ("-webkit-linear-gradient(top, #fff, #000) circle", .circle),
+            ("repeating-radial-gradient(circle, red, blue 10%)", .disc), ("url(dot.png)", .disc), (#"url("dot.png") inside"#, .disc),
+            (#"-webkit-image-set(url(a.png) 1x, "b.png" 2x)"#, .disc), ("none linear-gradient(red, blue)", .none),
+        ]
+        let invalid = ["-moz-linear-gradient(top, #fff, #000)", "-o-linear-gradient(top, #fff, #000)", "-ms-radial-gradient(red, blue)",
+                       "bogus-gradient(red, blue)", "linear-gradient(top, #fff, #000)", "image(url(dot.png))", "element(#a)",
+                       "bogus(1)", "url(a.png) url(b.png)", "circle -moz-linear-gradient(top, #fff, #000)"]
+        let fallback = "list-style: square inside url(dot.png)"
+        let values = valid.map(\.0) + invalid
+        let body = values.indices.map { "<ul id=\"l\($0)\"><li>x</li></ul>" }.joined()
+        let result = try styled(body, css: values.enumerated().map { "#l\($0.offset) { \(fallback); list-style: \($0.element) }" }
+            .joined(separator: "\n"))
+        for (index, item) in valid.enumerated() {
+            XCTAssertEqual(result.style("l\(index)").listStyleType, item.1, item.0)
+            XCTAssertEqual(result.style("l\(index)").listStylePosition, item.0.hasSuffix("inside") ? .inside : .outside, item.0)
+        }
+        for (offset, value) in invalid.enumerated() {
+            XCTAssertEqual(result.style("l\(valid.count + offset)").listStyleType, .square, "\(value) is invalid, so the earlier one stays")
+            XCTAssertEqual(result.style("l\(valid.count + offset)").listStylePosition, .inside, value)
         }
     }
 

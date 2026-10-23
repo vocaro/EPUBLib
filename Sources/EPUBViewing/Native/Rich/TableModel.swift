@@ -547,18 +547,26 @@ enum TableMeasure {
 
     /// The text VoiceOver reads for cell content: attachments by their spoken equivalent,
     /// whitespace collapsed, and nothing of what `visibility: hidden` hides
-    /// (`NSAttributedString.readerHiddenText(_:)`), which parts the words around it.
-    static func spokenText(_ text: NSAttributedString) -> String {
-        var spoken = ""
+    /// (`NSAttributedString.readerHiddenText(_:)`) or `aria-hidden` keeps from assistive
+    /// technology (`.readerUnspoken`), either of which parts the words around it (#551).
+    static func spokenText(_ text: NSAttributedString) -> String { Self.text(text, spoken: true) }
+
+    /// The text of cell content: `spoken`, what VoiceOver reads (`spokenText(_:)`), and
+    /// otherwise what a selection reads, with each attachment's text equivalent and the words
+    /// the book keeps from assistive technology, and still nothing that `visibility: hidden`
+    /// hides.
+    static func text(_ text: NSAttributedString, spoken: Bool) -> String {
+        var words = ""
         let string = text.string as NSString
-        text.enumerateAttribute(.readerHidden, in: NSRange(location: 0, length: text.length)) { hidden, part, _ in
-            if hidden != nil { spoken += " "; return }
+        text.enumerateReaderLeftOut(in: NSRange(location: 0, length: text.length), spoken: spoken) { leftOut, part in
+            if leftOut { words += " "; return }
             text.enumerateAttribute(.attachment, in: part) { value, range, _ in
-                if let attachment = value as? ReaderTextualAttachment { spoken += " \(attachment.spokenEquivalent) " }
-                else if value != nil { spoken += " " }
-                else { spoken += string.substring(with: range) }
+                if let attachment = value as? ReaderTextualAttachment {
+                    words += " \(spoken ? attachment.spokenEquivalent : attachment.textEquivalent) "
+                } else if value != nil { words += " " }
+                else { words += string.substring(with: range) }
             }
         }
-        return spoken.split(whereSeparator: { $0.isWhitespace || $0 == "\u{FFFC}" }).joined(separator: " ")
+        return words.split(whereSeparator: { $0.isWhitespace || $0 == "\u{FFFC}" }).joined(separator: " ")
     }
 }

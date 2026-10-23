@@ -79,8 +79,9 @@ struct ReaderTableAction {
     /// `label` names the cell where a row holds several, and `uses` is false for a row's
     /// later cells: a passage selected through several is one selection, to copy once.
     private func selectionActions(of cell: TableCellTextView, named label: String?, uses: Bool = true) -> [ReaderTableAction] {
-        let words = cell.cellText.readerPlainText(in: cell.shownCharacters)
-        // A cell without words, a picture alone, has none to select or to name the action by.
+        let words = cell.cellText.readerPlainText(in: cell.shownCharacters, spoken: true)
+        // A cell without words, a picture alone, has none to select or to name the action by,
+        // and nor has one of words the book keeps from assistive technology alone (#551).
         guard !words.allSatisfy(\.isWhitespace) else { return [] }
         let subject = label.map { "Table Text: " + $0 } ?? "Cell Text"
         guard cell.cellSelection.length > 0 else {
@@ -121,7 +122,7 @@ struct ReaderTableAction {
         var result: [ReaderTableAction] = []
         cell.cellText.enumerateAttribute(.link, in: cell.shownCharacters) { value, range, _ in
             guard let url = value as? URL ?? (value as? String).flatMap(URL.init(string:)) else { return }
-            result.append(ReaderTableAction(name: prefix + cell.cellText.readerPlainText(in: range)) { [weak cell] in
+            result.append(ReaderTableAction(name: prefix + cell.cellText.readerPlainText(in: range, spoken: true)) { [weak cell] in
                 cell?.onLink?(url, range); return cell != nil
             })
         }
@@ -138,11 +139,13 @@ struct ReaderTableAction {
         shown(at: location, cell: index).contains { $0.cellSelection.length > 0 }
     }
 
-    /// What an assistive technology can do with the cells shown of the row at `location`.
+    /// What an assistive technology can do with the cells shown of the row at `location`, each
+    /// named by the words VoiceOver is given of its cell.
     func accessibilityActions(at location: Int) -> [ReaderTableAction] {
         var result: [ReaderTableAction] = [], selected = false
         for cell in shown(at: location) {
-            result += selectionActions(of: cell, named: String(cell.cellText.readerPlainText(in: cell.shownCharacters).prefix(60)), uses: !selected)
+            let words = cell.cellText.readerPlainText(in: cell.shownCharacters, spoken: true)
+            result += selectionActions(of: cell, named: String(words.prefix(60)), uses: !selected)
             selected = selected || cell.cellSelection.length > 0
             result += links(of: cell, prefix: "Follow Table Link: ")
         }

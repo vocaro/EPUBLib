@@ -74,8 +74,8 @@ gate over ten branches, each of whose own Mac runs had passed, found three iOS-o
 in two of them: a test helper that drew images upside down under UIKit
 ([#664](https://github.com/vocaro/EPUBLib/pull/664#issuecomment-6309444868)), and a frozen iOS
 layout expectation that a change to float grouping moved
-([#666](https://github.com/vocaro/EPUBLib/pull/666)). Before opening a pull request that changes
-drawing, layout or pagination, run its classes on a simulator as well.
+([#666](https://github.com/vocaro/EPUBLib/pull/666)). Before pushing a change to drawing,
+layout or pagination, run its classes on a simulator as well.
 
 The Mac suites need the screen unlocked and the display awake
 ([lock screen and display sleep](https://github.com/vocaro/apple-engineering/blob/main/guides/background-mac-testing.md#lock-screen-and-display-sleep)
@@ -1506,10 +1506,15 @@ words in the line" between "Shown words before" and "shown words after."; the he
 "Harbour notes" with "unheard ornament" in it; a link of kept words alone, "unheard jump",
 between "Shown words around" and "the kept jump."; and a picture that `visibility: hidden`
 hides ([Hidden text](native-viewer.md#hidden-text)), described as "Unheard veiled square",
-between "Shown words beside" and "the hidden square.". "Words after the kept ones." and sixty
+between "Shown words beside" and "the hidden square.". Two tables follow
+([#551](https://github.com/vocaro/EPUBLib/issues/551)): one used for layout, whose row holds
+"unheard cell words" between "Left words" and "in the cell", and beside it a picture kept so,
+"Unheard kept square", between "Right words" and "next to it"; and one of data headed
+"Station" and "Remark", whose second row holds "unheard remark" between "Birch" and "grove"
+and a cell of "Unheard alone". "Words after the kept ones." and sixty
 numbered lines follow. Every kept or hidden word begins "unheard" or "Unheard" and no shown
 word does, so either in a transcript is a kept word read, and no word of it is one VoiceOver
-uses for a heading, a link or a picture. Open it with `--href OPS/kept.xhtml` on a simulator
+uses for a heading, a link, a picture or a table. Open it with `--href OPS/kept.xhtml` on a simulator
 and `"launch=-SampleHref OPS/kept.xhtml"` in a hosted session. The book's last section,
 **Links out of the book** (`OPS/outside.xhtml`), holds links to places outside the book
 ([#683](https://github.com/vocaro/EPUBLib/issues/683)), each in a line of its own between
@@ -1807,10 +1812,25 @@ on, each line is read once and in order, and VoiceOver's log has "Element Scroll
 each turn, as under [Acceptance and evidence](#acceptance-and-evidence). A line left out, read
 twice, or read from a page other than the one on screen is the failure. A simulator's
 VoiceOver does not make its own Next Page there, and the swipe that follows the finger is
-VoiceOver's own one-finger gesture while it runs, so neither is heard. On a Mac the same
-comparison is a [hosted session](#hosted-mac-sessions) with `"launch=-SamplePageTurn slide"`
-among a session's own settings: a session of that setting alone is the page-boundary
-session, whose Next Page VoiceOver activates.
+VoiceOver's own one-finger gesture while it runs, so neither is heard. On the iPad, on
+2026-10-23:
+
+- `listen=4` heard the first line of the page turned to in only some runs, on `main` as well
+  as with the animation, so compare it across several runs.
+- Without an animation, reading on stopped a line or two in, at "Keyboard hidden" and
+  "Keyboard visible", in every run, `main`'s included. So no iPad baseline reads through
+  ([#832](https://github.com/vocaro/EPUBLib/issues/832)).
+
+On a Mac the same comparison is a [hosted session](#hosted-mac-sessions) with
+`"launch=-SamplePageTurn slide"` among a session's own settings. A session of that setting
+alone is the page-boundary session, whose Next Page VoiceOver activates. Before that, its
+`ax:next` turns the page with VoiceOver's cursor wherever it came to rest after the window was
+sized, which varies from run to run (on Clear Search in one run, on the text in another), and
+what VoiceOver says at that turn varies with it. To compare a host's turn, bring the cursor
+into the text first:
+`width=600 text_size=17 ax:focus=search ax:focus=0 in line nextline ax:next ax:lines line nextline`,
+with and without the setting. In four such sessions (run 39933961481), two of each,
+VoiceOver said the same at every step, and read the new page's first line at the turn.
 
 ### Continuous scroll
 

@@ -192,12 +192,13 @@ import XCTest
         XCTAssertEqual(NativeDisclosure.text(for: report), "One part of this document, such as a video or a form, cannot be shown by this reader.")
         report.unsupportedElements = ["video": 1, "form": 2]
         XCTAssertEqual(NativeDisclosure.text(for: report), "3 parts of this document, such as videos or forms, cannot be shown by this reader.")
-        // A table counted there has cells its grid has no slot for, and they are shown.
+        // A table counted there has cells its grid has no slot for, and what they hold is shown
+        // after it: one cell or many.
         report.unsupportedElements = ["table": 1]
-        XCTAssertEqual(NativeDisclosure.text(for: report), "One table has cells that are shown after it, out of place.")
+        XCTAssertEqual(NativeDisclosure.text(for: report), "Part of one table is shown after it, out of place.")
         report.unsupportedElements = ["table": 2, "video": 1]
         XCTAssertEqual(NativeDisclosure.text(for: report), "One part of this document, such as a video or a form, cannot be shown by this reader. "
-                       + "2 tables have cells that are shown after them, out of place.")
+                       + "Parts of 2 tables are shown after them, out of place.")
         report = SectionReport()
         report.unreadableResources = 1
         XCTAssertEqual(NativeDisclosure.text(for: report), "One image could not be shown.")

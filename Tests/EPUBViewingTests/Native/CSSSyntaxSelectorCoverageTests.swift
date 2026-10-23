@@ -45,13 +45,31 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
     }
 
     func testAMisplacedOrUnknownCombinatorInvalidatesTheSelector() {
-        for selector in ["> p", "+ p", "~ p", "p >", "p +", "p ~", "p > > p", "p + ~ p", "p >> q", "p || q", "p ! q", "p & q", "p / q",
+        for selector in ["> p", "+ p", "~ p", "p >", "p +", "p ~", "p > > p", "p + ~ p", "p >> q", "p || q", "p ! q", "p&q", "p / q",
                          "p,", ", p", "p,,q", ",", "", " ", "p/**/q", "p q/**/i", "p (q)", "p {q}"] {
             XCTAssertFalse(isValid(selector), selector)
         }
         for selector in ["p>q", "p > q", "p\n\n>\n\nq", "p+q~i>b u", "*>*", "p/**/>/**/q", "p /**/ q", " p , q "] {
             XCTAssertTrue(isValid(selector), selector)
         }
+    }
+
+    func testTheNestingSelectorOutsideANestedRuleIsTheRootWithNoSpecificity() throws {
+        // CSS Nesting 1 §3.1 and §3.2: outside a nested rule `&` is `:scope`, which in a
+        // document's own sheet is its root, with no specificity; it may stand even before a
+        // type selector. Chromium keeps such rules (#603), so `p & q` is a descendant of a
+        // descendant of `p` and the root, which matches nothing.
+        XCTAssertEqual(try matched("& > body > div > h2", in: family), ["h"])
+        XCTAssertEqual(try matched("&html > body > div > #p1, &.none", in: family), ["p1"])
+        XCTAssertEqual(try matched(":is(&) > body > div > h2, :not(&) > #p2", in: family), ["h", "p2"])
+        XCTAssertEqual(try matched("p & q, & p", in: family), ["p1", "p2", "p3"])
+        XCTAssertEqual(try matched("&&#d > h2", in: family), [], "Both stand for the root, which is no div")
+        XCTAssertEqual(CSSSyntaxSupport.specificity("&"), [0, 0, 0])
+        XCTAssertEqual(CSSSyntaxSupport.specificity("&p.a"), [0, 1, 1])
+        for selector in ["& &&", "& > & + &", "*&", "p:not(&)"] { XCTAssertTrue(isValid(selector), selector) }
+        for selector in ["p&q", "&p&q", "::before&"] { XCTAssertFalse(isValid(selector), selector) }
+        let many = String(repeating: "&", count: CSSSelectorParser.maximumSimpleSelectors + 1)
+        XCTAssertTrue(CSSSyntaxSupport.sheet("\(many) { clear: both }").truncated, "A compound of too many is a bound, as for any simple selector")
     }
 
     // MARK: Type, class and id
@@ -108,7 +126,6 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
     }
 
     func testClassNamesAreSeparatedByASCIIWhitespaceOnly() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
         // Selectors 4 §6.6: `.x` is `[class~=x]`, a whitespace-separated list, and CSS and HTML
         // whitespace is space, tab, line feed, carriage return and form feed.
         let body = #"<p id="ascii" class="a&#9;b&#10;c&#13;d">x</p><p id="nbsp" class="x&#160;y">y</p>"#
@@ -275,7 +292,6 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
     }
 
     func testADefaultNamespaceDoesNotReachInsideNotAndIsWithoutAnExplicitTypeOrUniversal() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
         // Selectors 4 §4.2 and §4.3: "Default namespace declarations do not affect the compound
         // selector representing the subject of any selector within a :is() [:not()] pseudo-class,
         // unless that compound selector contains an explicit universal selector or type selector."
@@ -287,6 +303,14 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
         XCTAssertEqual(try matched("svg|circle:is(.keep)", in: body, prelude: prelude), ["keep"])
         XCTAssertEqual(try matched("*|*:is(.keep)", in: body, prelude: prelude), ["keep", "p"])
         XCTAssertEqual(try matched("*|*:is(*.keep)", in: body, prelude: prelude), ["p"], "An explicit universal selector takes the default namespace")
+        XCTAssertEqual(try matched("*|*:where(.keep)", in: body, prelude: prelude), ["keep", "p"])
+        XCTAssertEqual(try matched("*|*:is(:not(.keep))", in: body, prelude: prelude), ["other"], "Nested, each subject resists it")
+        XCTAssertEqual(try matched("*|*:is(.keep:not(*))", in: body, prelude: prelude), ["keep"],
+                       "An explicit universal selector inside :not() takes it")
+        XCTAssertEqual(try matched("*|*:is(:first-child + .keep)", in: body, prelude: prelude), [],
+                       "A compound that is not the subject's takes it: the svg element is no XHTML first child")
+        XCTAssertEqual(try matched("*|*:nth-child(1 of .keep)", in: body, prelude: prelude), ["p"],
+                       "The rule names :is(), :where() and :not() alone; in :nth-child(… of S) the default applies")
     }
 
     func testNamespaceRuleFormsRedeclarationAndPlacement() throws {
@@ -310,7 +334,6 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
     }
 
     func testANamespaceRuleAfterAStyleRuleIsIgnored() {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
         // CSS Namespaces §3: "Any @namespace rules must follow all @charset and @import rules and
         // precede all other non-ignored at-rules and style rules in a style sheet."
         let sheet = CSSSyntaxSupport.sheet(#"p { clear: both } @namespace svg "http://www.w3.org/2000/svg"; svg|a { clear: both }"#)
@@ -425,11 +448,28 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
     }
 
     func testAPseudoElementInsideIsNeverMatchesTheElementItself() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
         // Selectors 4 §4.2: "Pseudo-elements cannot be represented by the matches-any pseudo-class;
         // they are not valid within :is()." The forgiving list drops that argument.
         XCTAssertEqual(try matched("li:is(.x, li::before)", in: list), ["l1", "l3", "l4"])
         XCTAssertEqual(try matched("li:is(*::before, *::after)", in: list), [])
+    }
+
+    func testAPseudoElementIsInvalidInsideEveryPseudoClassThatTakesSelectors() throws {
+        // A pseudo-class's selector argument is a `<complex-real-selector-list>`, which holds no
+        // pseudo-element (Selectors 4 §4.2-§4.4, §14.4), written alone (§3.7) or not. Where the
+        // list forgives (`:is()`, `:where()`) the argument is dropped; elsewhere the selector is
+        // invalid, and so is its list (#116).
+        for selector in ["li:not(li::before)", "#l1, li:not(li::before)", "li:nth-child(1 of li::before)", "#l1, li:nth-child(1 of li::marker)",
+                         "#l1, :not(::before)", "li:nth-last-child(1 of :after)", "li:not(:first-line)"] {
+            XCTAssertEqual(try matched(selector, in: list), [], selector)
+            XCTAssertFalse(isValid(selector), selector)
+        }
+        for selector in ["li:is(::before)", "li:where(::after)", "li:is(:before)", "li:where(li::first-letter, ::selection)"] {
+            XCTAssertEqual(try matched(selector, in: list), [], selector)
+            XCTAssertTrue(isValid(selector), "\(selector): the forgiving list drops the argument")
+        }
+        XCTAssertEqual(try matched("li:where(::before, #l2), #l5", in: list), ["l2", "l5"])
+        XCTAssertEqual(try matched("li:not(.x)::before, #l1", in: list), ["l1"], "A pseudo-element after the pseudo-class is the subject's")
     }
 
     func testSpecificityOfEachSelectorForm() {
@@ -486,11 +526,22 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
         XCTAssertEqual(CSSSyntaxSupport.specificity("::before"), [0, 0, 1])
     }
 
-    func testAnUnknownPseudoElementInvalidatesItsSelectorList() {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
+    func testAnUnknownPseudoElementInvalidatesItsSelectorList() throws {
         // Selectors 4 §3.9: UAs must treat as invalid any pseudo-elements "for which they have no
         // usable level of support", and "a selector list containing an invalid selector is invalid".
         XCTAssertEqual(CSSSyntaxSupport.subjects(CSSSyntaxSupport.sheet("p, i::no-such-pseudo-element { clear: both } q { clear: both }")), ["q"])
+        for selector in ["p::-moz-selection", "p::bogus()", "p::before::bogus", "::-internal-x", "p::part", "p:first-line::bogus", "p::selection()"] {
+            XCTAssertFalse(isValid(selector), selector)
+        }
+        // Those Chromium knows stay valid, though only ::before and ::after are rendered, and so
+        // does any ::-webkit- one, which Chromium keeps as valid.
+        for selector in ["p::marker", "p::placeholder", "dialog::backdrop", "input::file-selector-button", "::target-text", "::spelling-error",
+                         "::grammar-error", "details::details-content", "::view-transition", "::view-transition-old(root)", "::part(label)",
+                         "::slotted(p)", "::highlight(found)", "::cue", "::cue(b)", "input::-webkit-inner-spin-button", "::-WEBKIT-scrollbar",
+                         "p::before::marker", "::scroll-marker", "::scroll-button(left)", "::column", "select::picker(select)", "::checkmark"] {
+            XCTAssertTrue(isValid(selector), selector)
+            XCTAssertEqual(try matched("\(selector), #p", in: #"<p id="p">x</p>"#), ["p"], selector)
+        }
     }
 
     // MARK: State, link, root, empty, language and direction
@@ -507,9 +558,15 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
         XCTAssertEqual(try matched("a:not(:link)", in: body), ["anchor"])
         XCTAssertEqual(try matched("a:link:not(:visited)", in: body), ["link"])
         XCTAssertEqual(try matched("a:LINK, a:Hover", in: body), ["link"], "Pseudo-class names are case-insensitive")
-        for selector in ["a:bogus", "a:", "a:1", "a: link", "a:link(", "a:hover()", "a:lang", "a:-moz-any-link", ":"] {
+        for selector in ["a:bogus", "a:", "a:1", "a: link", "a:link(", "a:hover()", "a:lang", "a:-moz-any-link", ":", "a:-webkit-bogus"] {
             XCTAssertFalse(isValid(selector), selector)
         }
+        // Chromium's own states, which leave a rule valid there (#603).
+        for state in ["-webkit-full-screen", "-webkit-full-screen-ancestor", "-webkit-full-page-media", "-webkit-drag", "-webkit-any-link",
+                      "muted", "seeking", "stalled", "buffering", "volume-locked", "picture-in-picture", "target-current", "has-slotted"] {
+            XCTAssertEqual(try matched("a:\(state):not(:link), #p", in: body), ["p"], state)
+        }
+        XCTAssertEqual(try matched(":active-view-transition-type(slide), #p", in: body), ["p"])
     }
 
     func testEmptyIgnoresCommentsAndProcessingInstructionsButNotWhitespaceOrElements() throws {

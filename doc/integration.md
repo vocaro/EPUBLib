@@ -307,6 +307,11 @@ it carries ZIPFoundation's. A translation added to a catalog reaches every host
 Use `EPUBResource.path` for `publication.data(at:)` and `EPUBResource.href` for navigation.
 Navigation items and emitted locations also carry encoded hrefs. Decode neither before sending
 `.navigate`; a literal `#`, `%` or `?` in a filename has different meaning in a URL reference.
+The reader splits an href as URL parsing does, at its first `#` and at each `/`, each found as
+its byte, before it decodes any part. A `#` followed by a combining mark still begins the
+fragment, and an escaped slash is a character of its name: `OPS%2Fone.xhtml` names a file called
+`OPS/one.xhtml` in the container root, which no entry can be, and is refused
+([#754](https://github.com/vocaro/EPUBLib/issues/754)).
 
 A host that writes a resource to disk may join its `path` to a directory of its own. The `path` of
 every resource of an opened publication is relative; its names are separated by single `/`, none
