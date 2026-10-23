@@ -410,7 +410,8 @@ final class RichMediaImageCoverageTests: XCTestCase {
         XCTAssertEqual(try size("style='max-width:50%'", source: "w.png"), CGSize(width: 200, height: 100))
         XCTAssertEqual(try size("style='max-height:10vh'", source: "w.png"), CGSize(width: 120, height: 60), "max-height in vh keeps the ratio")
         XCTAssertEqual(try size("style='min-width:200px'"), CGSize(width: 200, height: 100), "min-width scales up keeping the ratio")
-        XCTAssertEqual(try size("style='width:auto;height:auto' width='100'"), CGSize(width: 100, height: 50), "CSS auto lets the width attribute through")
+        XCTAssertEqual(try size("style='width:auto;height:auto' width='100'"), CGSize(width: 40, height: 20),
+                       "CSS auto beats the width attribute, a presentational hint (#763)")
     }
 
     func testAnImageNeverExceedsTheLineOrPageAndTinySpacersSurvive() throws {
