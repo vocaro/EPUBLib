@@ -140,8 +140,9 @@ extension CSSStyleSheet {
             do { selectors = try CSSSelectorParser(namespaces: namespaces).parseList(prelude.trimmingWhitespace) }
             catch .tooComplex { sheet.truncated = true; return true }
             catch { return false }
-            // Of the pseudo-elements only `::before` and `::after` are rendered.
-            let matching = selectors.filter { $0.pseudoElement == nil || $0.pseudoElement == .before || $0.pseudoElement == .after }
+            // Of the pseudo-elements `::before`, `::after` and `::first-letter` are rendered, and a
+            // `::first-line` that matches is disclosed (`CSSRuleIndex`).
+            let matching = selectors.filter { $0.pseudoElement != .other }
             guard !matching.isEmpty else { return true }
             let parsed = CSSPropertyParser.block(CSSParser.declarations(block), isRuleValue: true)
             let declarations = parsed.declarations

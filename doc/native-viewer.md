@@ -1777,6 +1777,46 @@ continues to describe the authored spine resource.
     content of a table laid out as a grid and of its rows and row groups, where that of its
     cells and captions is shown; and what passes a bound of 1,048,576 UTF-16 units of
     generated text in one section, which only a hostile stylesheet reaches.
+- **First letter and first line.** A `::first-letter` (or `:first-letter`) rule styles its
+  element's first letter (CSS Pseudo-Elements 4 §2.2,
+  [#567](https://github.com/vocaro/EPUBLib/issues/567)): the first letter, number or symbol on
+  the element's first line, as one grapheme cluster, with the punctuation before it, the
+  punctuation after it other than opening punctuation and dashes, and the typographic spaces
+  between them, those after it not word separators (§2.2.1). A `::before`'s characters are on
+  the line, so with `content: "Note: "` the first letter is the N, and the first line may be
+  that of the element's first block. An image, an inline block, a table, a `br` or a character
+  that cannot begin the letter before it on the line, or a first line with no letter, leaves the
+  element without one; a float or a positioned box is not on the line and leaves it its letter.
+  A block container has one: a block, a list item, a table cell or caption, an inline block
+  and a float, not an inline element, a table or a flex or grid container. The pseudo-element
+  inherits from the box that holds its letter, an `em` around it included (§2.2.3), and of
+  nested blocks' rules the outermost apply first. Only what applies to it is taken from its
+  rules (CSS 2 §5.12.2, Pseudo-Elements 4 §2.2.4): the font properties, `color`, the
+  background color, text decoration, `text-transform`, letter and word spacing,
+  `line-height`, `float`, `vertical-align` without a float, margins, padding and borders.
+  - **In line or floated.** Without a float the letter is styled where it stands: only its
+    characters' attributes change. Floated, as a drop cap is, it is written as a floated `span`
+    around it would be, in a paragraph of its own that the float layout sets beside the lines
+    it spans ([Floats and positioned boxes](#floats-and-positioned-boxes)), with the disclosure
+    of those boxes. Either way the characters are the book's, mapped as any, so positions,
+    CFIs and search are those of the section without the rule, and the float's paragraph break
+    is a layout separator, so the passage text and Copy keep its word whole. In a rule for one
+    appearance, `float`, the sizes and all but what paints are resolved as in the light
+    appearance ([#130](https://github.com/vocaro/EPUBLib/issues/130)), so the characters and the map are the same
+    in light and dark.
+  - **One run of text.** The letter and the punctuation taken with it are those of one run: a
+    text node, or one `::before`'s or `::after`'s characters. Punctuation in an earlier run, as
+    a `q`'s opening mark is, takes the letter's style where it stands, and a floated letter is
+    then set in line, since the mark before it cannot float with it; punctuation after the
+    letter in a later run is not taken (Pseudo-Elements 4 §2.2.3 lets a letter whose characters
+    span elements take those of one).
+  - **First line.** A `::first-line` (or `:first-line`) rule is not applied: which characters a
+    first line holds depends on where the live column breaks it, and a section's characters and
+    attributes are built once for every column and rotation. One that matches a block shown has
+    the `.disclosure` "Styling this book gives the first line of some paragraphs, such as small
+    capitals, is not shown.", once however many blocks it matches. A rule for one appearance
+    counts in either, so the disclosure is the same in light and dark. `@supports
+    selector(::first-letter)` is true and `selector(::first-line)` false.
 - **Values the reader cannot read.** A declaration with a value the reader cannot read is
   ignored, as CSS 2.2 §4.2 requires, and the one before it stays, though what the property
   sets is not drawn. So every layer of `background` is read in full
@@ -4013,6 +4053,16 @@ Go: the native viewer is the bundled engine.
   the characters shown; generated content inside a box hidden from the page and kept for
   VoiceOver is not read with it; `counter-reset`, `counter-increment` and `counter-set` of
   `list-item` do not change a list's numbering; and a counter style that `list-style-type`
-  lacks (`@counter-style`, `symbols()`, `hiragana`…) is decimal. `::first-letter`,
-  `::first-line`, `::marker` and the other pseudo-elements are not rendered: their rules are
-  dropped, and that is not disclosed.
+  lacks (`@counter-style`, `symbols()`, `hiragana`…) is decimal. `::marker` and the
+  pseudo-elements other than these and the typographic ones below are not rendered: their
+  rules are dropped, and that is not disclosed.
+- `::first-line` is not applied, with a disclosure ([Decisions](#decisions)). Of
+  `::first-letter` ([#567](https://github.com/vocaro/EPUBLib/issues/567)): `initial-letter`
+  (and `-webkit-initial-letter`) is not read, so a drop cap written with it alone is set as
+  the text around it; a floated letter's background and an inline one's margins, padding and
+  borders are not drawn, as they are not for a floated or an inline element; a letter whose
+  opening punctuation is in an earlier run, as a `q`'s mark is, is set in line though it
+  floats, and punctuation after the letter in a later run is not taken; a ruby base's first
+  letter and that of an inline block without a size, which is written in its line, are not
+  styled; and a letter a language writes with two characters, such as Dutch "IJ", takes only
+  the first.

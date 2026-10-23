@@ -215,9 +215,9 @@ struct ComputedStyle: Equatable, Sendable {
     var borderSpacing: CGSize = CGSize(width: 2, height: 2)
     var captionSide: CaptionSide = .top
 
-    /// Generated content's properties (`quotes`, `content`, the counters) and the element's
-    /// `::before` and `::after`, behind one reference, nil when all are their initial values
-    /// (`GeneratedContentStyle.swift`). A computed style is copied on every nesting level of a
+    /// Generated content's properties (`quotes`, `content`, the counters), the element's
+    /// `::before` and `::after` and its `::first-letter` and `::first-line` rules, behind one
+    /// reference, nil when all are their initial values (`GeneratedContentStyle.swift`). A computed style is copied on every nesting level of a
     /// table built on a small stack, so what most elements lack takes no room in it.
     var generatedContent: GeneratedContentStorage?
     /// Custom properties (`--name`), computed. Inherited: an element that declares none shares

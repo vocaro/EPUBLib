@@ -315,7 +315,7 @@ final class GeneratedContentTests: XCTestCase {
         let text = try S.styled("<p>a</p>", css: """
             p::before:hover { content: 'hover ' } p::first-line { color: red } p::marker { content: 'm' } p:after { content: '!' }
             @supports selector(p::before) { p::before { content: '1 ' } }
-            @supports not selector(p::first-letter) { p::after { content: '?' } }
+            @supports not selector(p::first-line) { p::after { content: '?' } }
             """)
         XCTAssertEqual(text.string.string, "1 a?")
     }

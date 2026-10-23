@@ -432,8 +432,9 @@ enum CSSSupports {
             }
             return condition(inner, namespaces: namespaces) ?? false
         case .function("selector", let arguments):
+            // Supported when it parses and any pseudo-element it has is one the reader renders.
             let selectors = try? CSSSelectorParser(namespaces: namespaces).parseList(arguments)
-            return selectors?.allSatisfy { $0.pseudoElement == nil || $0.pseudoElement == .before || $0.pseudoElement == .after } ?? false
+            return selectors?.allSatisfy { $0.pseudoElement != .firstLine && $0.pseudoElement != .other } ?? false
         case .function:
             return false
         default:
