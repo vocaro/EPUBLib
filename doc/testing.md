@@ -1305,6 +1305,12 @@ The verifier checks:
   steps: with one, every step would show that result, and no step or wrap could move the
   current match. An engine without `.searchResults` refuses the three result commands with
   `.unsupported(.searchResults)` and publishes no results.
+- An engine with `readerState` gives each `.relocated` a reason there,
+  `EPUBReaderStatus.relocationReason`, before it sends the event, and every relocation that a
+  text size or a change of flow brings gives `.relayout`
+  ([#600](https://github.com/vocaro/EPUBLib/issues/600)). The verifier reads the state as each
+  relocation arrives. It waits as after close before the style commands, so that a relocation
+  still to come for the commands before is not taken for a relayout's, and again after them.
 - Close is idempotent; closed commands fail and later callbacks are suppressed.
 
 A minimal SwiftUI test engine runs the same checks with no renderer at all, as an engine with no
@@ -1314,7 +1320,8 @@ engines demonstrate that missing/duplicate readiness, ignored cancellation, inco
 locations that carry the file's hash, a restore that refuses a location saved under it,
 late callbacks, results published after completion, steps that do not wrap, stale results that
 still navigate, results kept after a clear and a step of a cleared search that still moves the
-reader fail the verifier. Adapter-specific tests must additionally check actual rendering,
+reader fail the verifier, and in `ControlsCoverageContractTests` so do a relocation with no
+reason, one whose reason is given only after the event and a relayout reported as a move. Adapter-specific tests must additionally check actual rendering,
 selection gestures, precise bookmark semantics and resource release.
 
 A bounded quiet period after close detects late callbacks; it cannot prove that an engine will

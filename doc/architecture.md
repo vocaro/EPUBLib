@@ -353,7 +353,11 @@ conversion. The package does not promise cross-engine page, search or selection 
 
 The pages of an engine's own layout are status, not location: an engine that counts them sets
 `EPUBReaderStatus.layoutPage` in paginated flow, before the `.relocated` of the same pages, and
-leaves it nil while it counts. `.goToProgression` takes the measure of `EPUBLocation.progression`,
+leaves it nil while it counts. So is why a location was reported: an engine with `readerState`
+sets `EPUBReaderStatus.relocationReason` before each `.relocated`, a move (a turn, the person's
+scrolling, a place gone to), the place restored or opened at, or `.relayout` for the same place
+laid out again, so `.relocated`'s payload stays a location
+([#600](https://github.com/vocaro/EPUBLib/issues/600)). `.goToProgression` takes the measure of `EPUBLocation.progression`,
 so a host can send back a progression it was given; an engine without it refuses the command
 with `.unsupported(.goToProgression)`, which the [contract checks](testing.md#adapter-contract-tests)
 hold every adapter to ([#681](https://github.com/vocaro/EPUBLib/issues/681)).

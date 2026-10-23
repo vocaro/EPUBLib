@@ -125,9 +125,15 @@ final class TextualTestAttachment: NSTextAttachment, ReaderTextualAttachment {
     var actions = 0
     var links: [(link: ReaderLink, position: ReaderTextPosition, rect: CGRect)] = []
     var needed: [(section: Int, forward: Bool)] = []
+    /// The reason each report in `shown` gave.
+    var reasons: [EPUBRelocationReason] = []
+    /// The reason each request in `needed` gave.
+    var neededReasons: [EPUBRelocationReason] = []
 
-    func canvas(_ canvas: any ReaderCanvas, didShow range: ReaderTextRange, sectionProgress: Double) {
+    func canvas(_ canvas: any ReaderCanvas, didShow range: ReaderTextRange, sectionProgress: Double,
+                reason: EPUBRelocationReason) {
         shown.append((range, sectionProgress))
+        reasons.append(reason)
     }
     func canvas(_ canvas: any ReaderCanvas, didChangeSelection selection: ReaderSelection?) {
         guard selectionReportDelay != .zero else { selections.append(selection); return }
@@ -141,7 +147,10 @@ final class TextualTestAttachment: NSTextAttachment, ReaderTextualAttachment {
     func canvas(_ canvas: any ReaderCanvas, didActivate link: ReaderLink, at position: ReaderTextPosition, rect: CGRect) {
         links.append((link, position, rect))
     }
-    func canvas(_ canvas: any ReaderCanvas, needsSection index: Int, forward: Bool) { needed.append((index, forward)) }
+    func canvas(_ canvas: any ReaderCanvas, needsSection index: Int, forward: Bool, reason: EPUBRelocationReason) {
+        needed.append((index, forward))
+        neededReasons.append(reason)
+    }
 }
 
 /// The scroll bars of a continuous scroll view. A Mac shows overlay ones with a trackpad and

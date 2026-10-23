@@ -181,16 +181,20 @@ extension ReaderCanvasDataSource {
 
 @MainActor protocol ReaderCanvasDelegate: AnyObject {
     /// The visible range changed (page turn, scroll, resize, reload). `sectionProgress` is the
-    /// fraction of the section before the visible start, 0–1.
-    func canvas(_ canvas: any ReaderCanvas, didShow range: ReaderTextRange, sectionProgress: Double)
+    /// fraction of the section before the visible start, 0–1. `reason` is the move this report is
+    /// the first to show, if any: the canvas's own turn or scroll, or the reason a `show` gave;
+    /// with none it is `.relayout`.
+    func canvas(_ canvas: any ReaderCanvas, didShow range: ReaderTextRange, sectionProgress: Double,
+                reason: EPUBRelocationReason)
     func canvas(_ canvas: any ReaderCanvas, didChangeSelection selection: ReaderSelection?)
     /// The person chose the host's selection action from the selection menu.
     func canvasDidRequestSelectionAction(_ canvas: any ReaderCanvas)
     /// A link was activated. `rect` is the link's frame in canvas coordinates.
     func canvas(_ canvas: any ReaderCanvas, didActivate link: ReaderLink, at position: ReaderTextPosition, rect: CGRect)
     /// A page turn or scroll needs a section that is not built. When it is, the session shows
-    /// its start (`forward`) or end.
-    func canvas(_ canvas: any ReaderCanvas, needsSection index: Int, forward: Bool)
+    /// its start (`forward`) or end, for the move `reason` names: a turn, or a key's go to the
+    /// book's start or end (`ReaderCanvasView.showTurned`).
+    func canvas(_ canvas: any ReaderCanvas, needsSection index: Int, forward: Bool, reason: EPUBRelocationReason)
     /// A search that shows what it finds, as VoiceOver's move by heading, stopped at a section
     /// that must be built again before it is shown (`ReaderCanvasDataSource.canShow`): build it
     /// now, showing nothing, so that the next search finds what it holds.
@@ -231,11 +235,13 @@ extension ReaderCanvasDelegate {
     /// reported through `canvas(_:didChangeSelection:)` with exactly that range once it settles,
     /// even where the native selection stops at the page's end. Before the canvas has a size or
     /// the section's text, both wait for the first layout or `reloadContent`. `entry` says
-    /// where VoiceOver on Mac enters the page shown.
-    func show(_ position: ReaderTextPosition, selecting range: ReaderTextRange?, entry: ReaderPageEntry)
+    /// where VoiceOver on Mac enters the page shown, and `reason` why it is shown: the first
+    /// report of it gives that reason (`ReaderCanvasDelegate`).
+    func show(_ position: ReaderTextPosition, selecting range: ReaderTextRange?, entry: ReaderPageEntry,
+              reason: EPUBRelocationReason)
     /// Paginated: the next or previous spread, crossing into the adjacent linear section at a
     /// section's end. Continuous scroll: one viewport less a line, crossing sections only while
-    /// the whole book is not built. Reports `canvas(_:didShow:sectionProgress:)` when it turns.
+    /// the whole book is not built. Reports `canvas(_:didShow:sectionProgress:reason:)` when it turns.
     func turnPage(forward: Bool) -> PageTurnResult
     /// What is on screen; nil before the first layout.
     var visibleRange: ReaderTextRange? { get }
