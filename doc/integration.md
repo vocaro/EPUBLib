@@ -259,13 +259,28 @@ already. `CancellationError` is the host's own cancellation, not a failure to sh
 A session's errors say that the reader does not support an action, that a saved position belongs
 to another book or reader, that it cannot carry out a request (`invalidCommand`), that it is not
 ready (try again in a moment), that the book is closed, or that it cannot show the book
-(`engineFailure`). The reader's controls show `message` beside a refused command or search: the
-same text, except that for `invalidCommand` and `engineFailure` it is the engine's own detail.
+(`engineFailure`). The text these two cases carry is the engine's detail, for a developer, as
+`String(describing:)` gives it. The reader's controls show `message` beside a refused command or
+search, and a host's own controls can show it as it is: a plain sentence too, which for a request
+the bundled reader refuses says why, and is otherwise `localizedDescription`. A failed search's
+accessibility value in the controls is "Search failed." followed by it.
+
+| The request | Message |
+| --- | --- |
+| `.navigate(href:)`, as from a contents entry, to nothing in the book: an empty href, a fragment alone, a file the book does not have or an address outside it | That part of the book cannot be found. |
+| `.navigate(href:)` to a file of the book that is not a section and has none to fall back on, such as an image or a style sheet | That part of the book cannot be shown. |
+| `.goToProgression` with a number that is not finite | That place in the book cannot be found. |
+| `.locate` with a passage that is empty or longer than 4,096 characters | The passage to find is empty or longer than 4,096 characters. |
+| `.search` or `.searchHighlight` with text that is empty or longer than 512 characters | The search is empty or longer than 512 characters. |
+| `.showSearchResult` with a result of a search since replaced or cleared | That search result is no longer available. |
+| `.style` with a font size that is not finite | That text size cannot be used. |
+| `.style` with a spacing or page margin that is not finite | That spacing or margin cannot be used. |
 
 The messages are in English, in the string catalog of the module that throws them
-(`Localizable.xcstrings` in `EPUBCore`, `EPUBText` and `EPUBWriting`), each with a comment for its
-translator, and each is looked up in that module's resource bundle, which an app built with the
-package carries as it carries ZIPFoundation's. A translation added to a catalog reaches every host
+(`Localizable.xcstrings` in `EPUBCore`, `EPUBText` and `EPUBWriting`, and in `EPUBViewing` for the
+sentences above), each with a comment for its translator, and each is looked up in that module's
+resource bundle, which an app built with the package carries as it carries ZIPFoundation's. A
+translation added to a catalog reaches every host
 ([#684](https://github.com/vocaro/EPUBLib/issues/684)).
 
 ## Resource paths

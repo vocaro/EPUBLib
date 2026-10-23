@@ -230,6 +230,8 @@ public extension EPUBReaderCommand {
     static let goToEnd = Self.goToProgression(1)
 }
 
+/// A reader's refusal or failure. The text of `invalidCommand` and `engineFailure` is the engine's
+/// detail, for a developer; `localizedDescription`, and EPUBViewing's `message`, are for a reader.
 public enum EPUBReaderError: Error, Equatable, Sendable {
     case unsupported(EPUBReaderCapability)
     case incompatibleLocation
@@ -237,17 +239,6 @@ public enum EPUBReaderError: Error, Equatable, Sendable {
     case notReady
     case closed
     case engineFailure(String)
-}
-
-public extension EPUBReaderError {
-    /// What the reader's controls show for a refused command or search: `localizedDescription`,
-    /// except that `invalidCommand` and `engineFailure` give the engine's own detail.
-    var message: String {
-        switch self {
-        case .unsupported, .incompatibleLocation, .notReady, .closed: plainMessage
-        case .invalidCommand(let message), .engineFailure(let message): message
-        }
-    }
 }
 
 /// Search feedback, independent of relocation. Completion means the whole book has been
