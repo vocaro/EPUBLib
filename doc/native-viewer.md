@@ -2588,7 +2588,11 @@ a line may end at a hyphenation point, so a word counts by its widest part and t
 after it, and a float wide enough for those keeps its width and hyphenates, as WebKit sets it. A
 verse number in a float sized in pixels stays whole at a larger reader font. Only words count:
 an image with no size of its own still shrinks to the float
-([#152](https://github.com/vocaro/EPUBLib/issues/152)). Horizontal margins and padding reserve
+([#152](https://github.com/vocaro/EPUBLib/issues/152)). A sized `inline-block`, and an
+absolutely positioned box, narrower than a word it holds by its `width` or `max-width`, or by
+its `left` and `right` together, is as wide as the word in the same way, where the word was
+broken between characters; an initial in a box of fixed width that its letter fits keeps that
+width ([#742](https://github.com/vocaro/EPUBLib/issues/742)). Horizontal margins and padding reserve
 space around the native glyph column. `clear: left`, `right` and `both` on a block start it
 below the earlier floats of the requested side, with all it holds, a float it opens with
 included; inside it nothing clears again, so its later lines wrap beside its own floats. An
@@ -2625,9 +2629,13 @@ right. A run of such boxes is therefore a row that wraps as words do: the rows o
 that mark an omission, an initial in a box of fixed width before the rest of its word. The
 text after the run goes on from its last box, on the same line where what is left of that line
 holds its first word, as beside a float, and the block that follows starts below the run's last
-row. A box's own horizontal margins, borders and padding stand between it and its neighbours.
-Each box is still a paragraph of its own in the text, so characters, offsets and CFIs are what
-they were.
+row. A box's own horizontal margins, borders and padding stand between it and its neighbors,
+and between it and the content edges of its block, so that a box whose width and margins
+together are wider than its block's line is as wide as the room between its margins, where it
+ran past the column's edge. Those edges are its block's, not the indents of the box's first
+paragraph, which hold those of any block inside the box
+([#720](https://github.com/vocaro/EPUBLib/issues/720)). Each box is still a paragraph of its
+own in the text, so characters, offsets and CFIs are what they were.
 
 Three things about a row differ from a browser. Its boxes are aligned by their tops, not
 their baselines, and prose beside a box taller than a line wraps beside it as beside a float.
@@ -2669,12 +2677,19 @@ Oversized groups and nested complex boxes instead continue as native
 blocks in reading order; fallback widths expand when necessary to leave readable lines, and
 long box text can continue across pages. A box taller than a page continues so a paragraph at
 a time, and from each of its paragraphs the rest of the box is tried as a box again, so that
-the rest that fits a page is set as one. Its end and the max-content width of each of its
-paragraphs are found once, and an attempt that the layout of the attempt before it shows to be
-more than a quarter of a page too tall is not made. A play that sets each scene as one inline
-block of hundreds of verse lines is then paginated in time in proportion to its length, not
-its square ([#573](https://github.com/vocaro/EPUBLib/issues/573)). Up to eight nested width
-constraints resolve within the enclosing box in this fallback.
+the rest that fits a page is set as one. That rest is in the box's place, on a line of its own
+below the part in flow: at the box's own edge, not at the indent of the verse line or paragraph
+it starts with, and no wider than the column. The rest of a scene set as the Cambridge
+Shakespeare sets it ran from 101 to 430 points in a phone's column 363 points wide
+([#720](https://github.com/vocaro/EPUBLib/issues/720)). Inside the rest, as inside any box, the
+blocks it holds are set without their own margins and padding, so a verse line that a block in
+the box indents keeps that indent on the pages in flow and starts at the box's edge in the
+rest. The box's end and the max-content width of each of its paragraphs are found once, and
+an attempt that the layout of the attempt before it shows to be more than a quarter of a page
+too tall is not made. A play that sets each scene as one inline block of hundreds of verse
+lines is then paginated in time in proportion to its length, not its square
+([#573](https://github.com/vocaro/EPUBLib/issues/573)). Up to eight nested width constraints
+resolve within the enclosing box in this fallback.
 
 A text that holds any of these boxes has every one of its lines placed by the reader's text
 container: one section in pages, the whole book in continuous scroll. TextKit then
