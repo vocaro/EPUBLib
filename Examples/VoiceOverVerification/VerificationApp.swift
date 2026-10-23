@@ -1,3 +1,4 @@
+import EPUBViewing
 import SwiftUI
 
 /// Isolates the synthetic book and preferences from the normal reader sample.
@@ -33,6 +34,7 @@ import SwiftUI
             }
             #endif
         }
+        .commands { EPUBReaderMenuCommands() }
         #if os(macOS)
         .defaultSize(width: 1100, height: 850)
         #endif
