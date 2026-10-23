@@ -103,6 +103,10 @@ extension ReaderHighlight {
 
 struct ReaderCanvasConfiguration: Equatable, Sendable {
     var pageControls = EPUBPageControls()
+    /// How a page turns in paginated flow, from `View.epubReaderPageTurnAnimation(_:)`.
+    var pageTurnAnimation = EPUBPageTurnAnimation.none
+    /// The person's Reduce Motion setting: a page turn then never slides (`ReaderPageMotion`).
+    var reducesMotion = false
     var flow: EPUBReadingFlow = .paginated
     /// The colours the page, its highlights, its selection and its popovers are drawn in.
     var theme = ReaderTheme.light
