@@ -321,9 +321,12 @@ public struct EPUBPublication: Sendable {
             // UTF-8 byte, which is part of no other scalar, so a mark after a space is kept.
             let idpfIdentifier = (unique?.content ?? "").utf8.filter { $0 != 0x20 && $0 != 0x09 && $0 != 0x0D && $0 != 0x0A }
             for encrypted in encryption.descendants("EncryptedData") {
+                // The file a URI names, as a URL from the container root or else as the path it
+                // is written as (`containerPath`), a font already left out among them. One that
+                // names no file is encryption of something this package cannot find.
                 guard let algorithm = encrypted.descendants("EncryptionMethod").first?.attribute("Algorithm"),
                       let uri = encrypted.descendants("CipherReference").first?.attribute("URI"),
-                      let path = uri.removingPercentEncoding, ResourceReference.isReadablePath(path) else {
+                      let path = ResourceReference.containerPath(uri, isEntry: { holds($0) || undecoded.contains($0) }) else {
                     throw EPUBPublicationError.unsupportedEncryption
                 }
                 // A font already left out stays out, however often it is listed as obfuscated.

@@ -186,7 +186,13 @@ disclosed:
   `a//../b` names `a/b`; an empty segment that remains names no entry and is read past, so `a//b`
   names `a/b` too ([#605](https://github.com/vocaro/EPUBLib/issues/605)). A query is dropped.
   The container's rootfile path is the exception: it names the package document or nothing, and
-  is refused in these forms.
+  is refused in these forms. An encrypted file's `CipherReference` URI, a URL from the container
+  root as the rootfile path is (EPUB 3.3 §4.2.6.2), is resolved as other references are, its
+  fragment dropped as its query is: an escaped slash (`%2F`) names no entry, and `./a.ttf`,
+  `x/../a.ttf` and `a.ttf?v=1` name `a.ttf`. Where that names no entry, the URI names the file it
+  is written as, if one has that path: EPUBCheck before version 5 decoded the whole URI and looked
+  that up, so a name's own `#` or `?` passed unescaped
+  ([#753](https://github.com/vocaro/EPUBLib/issues/753)).
 - **Manifest.** An item repeated verbatim counts once. An item whose file the archive lacks and a
   remote item, which is never fetched, are left out of `resources`; the spine still needs every
   document it names. An href that matches no entry names the one entry that differs only in case,
@@ -241,8 +247,11 @@ disclosed:
   cuts short, one whose local header offset names no local header, or an encrypted entry,
   through the last the end record counts, and any records after the last it counts. The
   publication's `lostEntries` gives how many were lost and the paths of those whose records
-  can still be read; it is nil when none was. The entries after a damaged record are not
-  recovered. An end record that counts more records than the directory holds loses none.
+  can still be read; it is nil when none was. A lost entry whose name the language-encoding flag
+  declares UTF-8 and that is not, which refuses an entry that is read, is counted and has no
+  path among them ([#779](https://github.com/vocaro/EPUBLib/issues/779)). The entries after a
+  damaged record are not recovered. An end record that counts more records than the directory
+  holds loses none.
   Directory entries have no extracted payload: misstated directory sizes do not refuse the
   book or count toward expanded-byte limits. ZIPFoundation's entry classification, read from the
   entry's directory record with its closing `/` found by byte (#207), decides that exemption

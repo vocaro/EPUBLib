@@ -82,8 +82,9 @@ final class TableStrayContentTests: XCTestCase {
                 }
             }
         }
-        XCTAssertGreaterThan(grids, 1_300)
-        XCTAssertGreaterThan(locatedInCells, 9_000)
+        // Exact, so that words no longer in any cell are told from words in a cell not located.
+        XCTAssertEqual(grids, 1_408)
+        XCTAssertEqual(locatedInCells, 10_199)
     }
 
     // MARK: Anonymous rows and cells
@@ -365,9 +366,35 @@ final class TableStrayContentTests: XCTestCase {
         XCTAssertEqual(TableCoverage.grid(table), [["Next@0"], ["A@0", "B@1"]], "the cells that had a slot keep it")
         XCTAssertEqual(section.string.string, "Before\n\u{FFFC}\n\u{FFFC}\nWide one\nWide two\nBelow\nAfter")
         XCTAssertEqual(section.report.unsupportedElements["table"], 1)
-        XCTAssertEqual(NativeDisclosure.text(for: section.report), "One table has cells that are shown after it, out of place.")
+        XCTAssertEqual(NativeDisclosure.text(for: section.report), "Part of one table is shown after it, out of place.")
         XCTAssertEqual(section.anchors["after"], section.string.length - 5)
         BuilderHarness.assertMapRoundTrips(section)
+    }
+
+    /// A cell the grid has no slot for that shows nothing puts nothing after the table, and so
+    /// there is nothing to disclose: a cell that is empty, holds white space alone or only what is
+    /// not shown, empty cells past the 200th column, and empty rows past the 20,000th cell (#272).
+    func testACellLeftOutThatShowsNothingIsNotDisclosed() throws {
+        for cell in ["<td colspan=\"300\"></td>", "<td colspan=\"300\"> \n </td>", "<td colspan=\"300\"><span style=\"display: none\">gone</span></td>"] {
+            let section = try TableCoverage.section("<table><tr>\(cell)<td>a</td><td>b</td></tr></table>")
+            let table = try XCTUnwrap(TableCoverage.tables(in: section.string).first, cell)
+            XCTAssertEqual(TableCoverage.grid(table), [["a@0", "b@1"]], cell)
+            XCTAssertEqual(section.string.string, "\u{FFFC}", cell)
+            XCTAssertEqual(section.string.readerPlainText(), "a\tb", cell)
+            XCTAssertNil(section.report.unsupportedElements["table"], cell)
+            XCTAssertNil(NativeDisclosure.text(for: section.report), cell)
+        }
+        let cells = (0..<(TableModel.maximumColumns + 40)).map { $0 < TableModel.maximumColumns ? "<td>c\($0)</td>" : "<td></td>" }.joined()
+        let wide = try TableCoverage.section("<table><tr>\(cells)</tr></table><p>After the table</p>")
+        XCTAssertEqual(TableCoverage.tables(in: wide.string).first?.cells.count, TableModel.maximumColumns)
+        XCTAssertEqual(wide.string.string, "\u{FFFC}\nAfter the table")
+        XCTAssertNil(wide.report.unsupportedElements["table"], "empty cells past the column bound")
+        let columns = 100, rows = TableModel.maximumCells / columns + 3
+        let markup = (0..<rows).map { row in "<tr>" + String(repeating: row < rows - 3 ? "<td>x</td>" : "<td/>", count: columns) + "</tr>" }.joined()
+        let long = try TableCoverage.section("<table>\(markup)</table><p>After the table</p>")
+        XCTAssertEqual(TableCoverage.tables(in: long.string).first?.cells.count, TableModel.maximumCells)
+        XCTAssertTrue(long.string.string.hasSuffix("\u{FFFC}\nAfter the table"))
+        XCTAssertNil(long.report.unsupportedElements["table"], "empty rows past the cell bound")
     }
 
     func testCellsPastTheColumnBoundFollowTheTable() throws {

@@ -60,7 +60,7 @@
     }
   },
   "exceptions": [],
-  "integration": "pull-request",
+  "integration": "direct-main",
   "hostedRepositories": [
     "vocaro/EPUBLib",
     "vocaro/MathMLLayout"

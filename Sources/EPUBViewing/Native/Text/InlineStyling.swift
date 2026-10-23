@@ -226,6 +226,16 @@ final class InlineStyling {
     /// spaces.
     static func tabInterval(_ font: PlatformFont) -> CGFloat { tabInterval(8 * spaceAdvance(font)) }
 
+    /// The default tab interval of a paragraph whose box has `style`, set in `font`: its
+    /// `tab-size` (CSS Text 3 §4.2), a number of spaces each as wide as the box's own with its
+    /// letter and word spacing, or a length.
+    static func tabInterval(_ style: ComputedStyle, font: PlatformFont) -> CGFloat {
+        switch style.tabSize {
+        case .spaces(let count): tabInterval(count * (spaceAdvance(font) + style.letterSpacing + style.wordSpacing))
+        case .points(let points): tabInterval(points)
+        }
+    }
+
     /// `interval` as a default tab interval: at least a point, whatever a font's space or a
     /// marker measures. No paragraph style the builder makes is without one. TextKit cannot
     /// place a tab that has neither a stop after it nor an interval: in a plain container it

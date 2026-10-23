@@ -129,7 +129,9 @@ public struct EPUBLostEntries: Equatable, Sendable {
     /// records found beyond its count. Directory entries are among them.
     public let count: Int
     /// The archive paths of the lost entries whose names can still be read, in directory order,
-    /// decoded as the paths of entries that are read are: all of them, some or none.
+    /// decoded as the paths of entries that are read are: all of them, some or none. A name that
+    /// the ZIP language-encoding flag (general-purpose bit 11) declares UTF-8 and that is not,
+    /// which refuses an entry that is read, has no path: its entry is in `count` and not here.
     public let paths: [String]
     public init(count: Int, paths: [String] = []) { self.count = count; self.paths = paths }
 }
