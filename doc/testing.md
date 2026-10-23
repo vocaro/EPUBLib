@@ -185,7 +185,8 @@ ended at that test's `started` line, and the sample had the test's frame on the 
 
 ## Coverage
 
-Parser tests cover EPUB 2/3 structure, navigation, landmarks and page lists, resource access, identity, limits,
+Parser tests cover EPUB 2/3 structure, navigation, landmarks and page lists, resource access, identity
+across copies of a book (#679), books unpacked into folders with their links, pipes and limits (#680), limits,
 duplicate ZIP entries, symlinks, path separators and dot segments beside every scalar that joins
 their `Character`, CRC corruption, malformed/deep/wide XML, UTF-16 entities, repeated,
 conflicting, absent, remote and differently cased manifest items, references that start at or climb past
@@ -268,12 +269,17 @@ Bar tests hold continuous scroll to its place when a bar shows or hides over a r
 under it, which changes the height of the visible area and not the reader's size.
 `CanvasHost(…, underBars: true)` puts the canvas under a navigation bar on iOS and under the
 title bar of a full-size content view on the Mac, and `setBar(shown:)` hides the one and gives
-the window a toolbar on the other. On the Mac the harness waits for the scroll view's insets
-after the toolbar changes them and then asks for the layout
+the window a toolbar on the other. On the Mac the harness waits for the canvas's safe area to
+follow the toolbar and lays out as display cycles do; it asks for no layout of its own, so a
+reader that is not laid out for its new safe area fails
 ([#162](https://github.com/vocaro/EPUBLib/issues/162)). The session test uses the public reader with
 `ignoresSafeArea()`: under a `NavigationStack` whose bar it hides on iOS, and on the Mac in a
-window whose toolbar it shows and hides, each followed by a change of appearance, which lays the
-reader out. The bars are the system's own, in a test host; nothing is looked at on a screen.
+window whose toolbar it shows and hides. `ViewCoverageCanvasTests` holds pages and continuous
+scroll on the Mac to a toolbar shown, hidden and shown again over a canvas that fills a
+full-size content view, and `ReaderImageInspectionTests` holds the image inspector's controls
+to it. `BoxAlignmentCanvasTests` also hides the toolbar with the view at the end of the book,
+where AppKit cannot move the view by the whole change in the inset. The bars are the system's
+own, in a test host; nothing is looked at on a screen.
 Each window's toolbar has an identifier of its own, for the reasons
 [offscreen AppKit hosting](https://github.com/vocaro/apple-engineering/blob/main/guides/background-mac-testing.md#offscreen-appkit-hosting)
 gives.
@@ -575,6 +581,22 @@ The script fetches each corpus at a pinned commit into `~/Library/Caches/EPUBLib
 `EPUBLIB_EPUBCHECK_CLI`. The expected outcome of each W3C test is in
 `Tests/EPUBTestSupport/SpecConformanceCorpus.swift`; a new pin goes in the script together
 with that table.
+
+`PublicationFolderCorpusTests` reads each W3C test and each expanded EPUBCheck fixture as a
+folder and as the archive packed from it, and each archived EPUBCheck fixture and each book of
+the two [collections](#books) as an archive and as the folder unzipped from it, and requires the
+same publication or the same refusal ([#680](https://github.com/vocaro/EPUBLib/issues/680)); each
+book zipped again must keep its `persistentID`
+([#679](https://github.com/vocaro/EPUBLib/issues/679)). Each test is skipped without its
+variable. A folder that lacks `mimetype` is held to the archive packed with one. An archived
+fixture that is refused, or whose names a Mac's file system cannot hold as they stand (two that
+differ only in case, a name that is not UTF-8), has no folder to compare and is listed as
+skipped, with the reason, in the test's output:
+
+```sh
+eval "$(bash scripts/fetch-corpora.sh)"
+swift test --filter PublicationFolderCorpusTests
+```
 
 ### Books
 
@@ -1189,11 +1211,13 @@ Read so on macOS 27.0, the code is what made a departed table of data say "empty
 
 ## Adapter contract tests
 
-The internal **EPUBViewingTestSupport** target exercises adapter contracts with
-`EPUBEngineContract.verify`. It uses no XCTest or renderer types, so adapters can call it from
-XCTest, Swift Testing or another async test runner. Provide a validated two-section publication,
-two distinct encoded resource hrefs, a phrase present in the first section, and a `mount` closure
-that places the session in a visible test window and returns a cleanup closure retaining that window.
+The **EPUBViewingTestSupport** target exercises engine contracts with `EPUBEngineContract.verify`.
+It is internal: `Package.swift` ships no product for it, so only this package's tests link it
+([#748](https://github.com/vocaro/EPUBLib/issues/748)). It uses no XCTest or renderer types, so a
+test can call it from XCTest, Swift Testing or another async test runner. Provide a validated
+two-section publication, two distinct encoded resource hrefs, a phrase present in the first section
+with two or more search results in the publication, and a `mount` closure that places the session in
+a visible test window and returns a cleanup closure retaining that window.
 `NativeSessionTests.testReusableEngineContract` is a complete call-site example.
 
 The verifier checks:
@@ -1202,20 +1226,27 @@ The verifier checks:
 - The mounted session emits `.ready` exactly once.
 - Advertised commands can be submitted; unsupported commands return the matching capability error.
 - Href navigation changes sections and bookmark restoration returns to the saved section.
-- Locations carry the publication identity and a valid engine-tagged bookmark when supported.
+- Locations carry the publication's `persistentID` and a valid engine-tagged bookmark when
+  supported, and a location that carries the book's `id` instead, as one saved before
+  `persistentID` does, restores too ([#679](https://github.com/vocaro/EPUBLib/issues/679)).
 - Foreign publication, engine and bookmark format identities are rejected.
 - An engine with `.searchResults` lists the phrase's results before reporting completion, with
-  indices in order and the publication's identity; steps, wraps and selects as
+  indices in order and the publication's identity; steps, wraps back from the first result to
+  the last and on from the last to the first, and selects as
   `EPUBSearchResults.steppedIndex(forward:)` says; mirrors the list in `readerState` when it has
-  one; refuses an unlisted result; and withdraws the list on clear, after which a kept result is
-  refused and no step has any effect. An engine without it refuses the three result commands
-  with `.unsupported(.searchResults)` and publishes no results.
+  one; refuses an unlisted result, whether its index is out of range or names a listed one; and
+  withdraws the list on clear, after which a kept result is refused and no step has any effect.
+  The engine must list two or more results for the phrase, or the verifier fails before it
+  steps: with one, every step would show that result, and no step or wrap could move the
+  current match. An engine without `.searchResults` refuses the three result commands with
+  `.unsupported(.searchResults)` and publishes no results.
 - Close is idempotent; closed commands fail and later callbacks are suppressed.
 
 A minimal SwiftUI test engine runs the same checks with no renderer at all, as an engine with no
 search, one that only highlights, one that lists results, and one that lists them and reports a
 step's relocation and a clear's idle state 30 ms late, from a timer of its own. Deliberately broken
 engines demonstrate that missing/duplicate readiness, ignored cancellation, incompatible restoration,
+locations that carry the file's hash, a restore that refuses a location saved under it,
 late callbacks, results published after completion, steps that do not wrap, stale results that
 still navigate, results kept after a clear and a step of a cleared search that still moves the
 reader fail the verifier. Adapter-specific tests must additionally check actual rendering,

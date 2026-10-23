@@ -25,7 +25,7 @@ import XCTest
         try Task.checkCancellation()
         guard let onEvent else { throw EPUBReaderError.closed }
         guard command == .nextPage else { throw EPUBReaderError.unsupported(.bookmarks) }
-        onEvent(.relocated(EPUBLocation(publicationID: book.id, href: book.spine[1].resource.path)))
+        onEvent(.relocated(EPUBLocation(publicationID: book.persistentID, href: book.spine[1].resource.path)))
     }
     func close() { onEvent = nil }
 }
@@ -37,7 +37,7 @@ import XCTest
         let session = try engine.makeSession(publication: book, selectionAction: nil) { events.append($0) }
         _ = EPUBReaderView(session: session)
         try await session.send(.nextPage)
-        XCTAssertEqual(events, [.relocated(EPUBLocation(publicationID: book.id, href: "OPS/two.xhtml"))])
+        XCTAssertEqual(events, [.relocated(EPUBLocation(publicationID: book.persistentID, href: "OPS/two.xhtml"))])
         session.close()
         session.close()
         do { try await session.send(.nextPage); XCTFail("Closed session accepted command") }

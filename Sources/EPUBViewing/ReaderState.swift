@@ -11,7 +11,8 @@ public struct EPUBReaderStatus: Equatable, Sendable {
     public var lifecycle: EPUBReaderLifecycle = .loading
     public var capabilities: Set<EPUBReaderCapability>
     public var style = EPUBReaderStyle()
-    /// The resolved appearance of the mounted viewer: always Light or Dark.
+    /// The appearance the style resolves to: always Light or Dark. The mounted viewer's page
+    /// takes it once text built for it is on screen, after a change when its section is rebuilt.
     public var effectiveAppearance: EPUBReaderAppearance = .light
     public var location: EPUBLocation?
     public var canGoPrevious: Bool?

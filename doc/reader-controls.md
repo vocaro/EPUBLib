@@ -141,7 +141,10 @@ direct `.searchHighlight(text:)` calls also preserve position. Completion never 
 Clear reports `.idle`; `.locate`
 also clears search. A newer direct search/clear suppresses an older completion and navigation;
 newer page navigation prevents a pending search from moving the reader back. Task cancellation
-ends pending search feedback and close suppresses all subsequent callbacks. Hosts switching on
+ends pending search feedback: a search still reading the book or building its results reports
+`.idle` with no results, and `send` throws `CancellationError`. A cancellation that arrives
+after the results are published comes too late, whatever callback or observer makes it, and
+the search completes. Close suppresses all subsequent callbacks. Hosts switching on
 `EPUBReaderEvent` must add the new `.searchChanged` case.
 
 The field shows pending/queued, no matches or an error. Its queued line counts searches only:
@@ -169,8 +172,10 @@ contents `title`, `quote`, page-list `page` and, in the bundled reader, a `bookm
 exactly the occurrence. Pass that location to `.restore` or keep it as an `EPUBHighlight`.
 
 Results exist only while `status.search` is `.completed`. Another query, Clear Search, a
-rejected or cancelled search, `.locate` and close withdraw them: the value becomes nil,
-reported by `.searchResultsChanged(nil)` except after close. No matches is a completed search
+rejected search, `.locate` and close withdraw them: the value becomes nil, reported by
+`.searchResultsChanged(nil)` except after close. A search cancelled before its results are
+published ends with none; a cancellation that arrives after they are published withdraws
+nothing, and the search completes with them. No matches is a completed search
 with an empty list. `.search` and `.searchHighlight` both list results; only `.search` opens
 the first one and makes it current.
 

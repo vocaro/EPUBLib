@@ -85,9 +85,12 @@ final class StyleResolver: @unchecked Sendable {
         if let text = element.attribute("style") {
             inline = CSSStyleSheet.block(String(decoding: text.utf8.prefix(Self.maximumInlineStyleBytes), as: UTF8.self))
         }
-        func cascade(_ direction: ComputedStyle.Direction) -> Cascade {
+        func cascade(_ direction: ComputedStyle.Direction, user: [CSSDeclaration]) -> Cascade {
             var cascade = Cascade(direction: direction, separatesAppearance: author.hasAppearanceCustomProperties)
             for entry in userAgent { cascade.apply(UserAgentStyleSheet.index.entries[entry].declarations, important: false) }
+            // The reader's text settings, as a user style sheet (`ReaderTextSettings`), to which
+            // the book's `revert` rolls back (CSS Cascade 4 §7.3.4).
+            cascade.apply(user, important: false)
             cascade.userAgent = cascade.winners
             cascade.apply(hints, important: false)
             for entry in matched { cascade.apply(author.entries[entry], at: entry, important: false) }
@@ -101,10 +104,13 @@ final class StyleResolver: @unchecked Sendable {
             }
             return cascade
         }
-        let (result, custom) = resolvingSides(cascade, parent: parent)
-
         let isRoot = element === document.root
         let rem = isRoot ? typography.fontSize : rootFontSize
+        if !typography.text.isEmpty {
+            return style(for: element, settings: typography.text, parent: parent, rem: rem, isRoot: isRoot,
+                         generated: generatedRules(for: element, matcher: matcher), cascade: cascade)
+        }
+        let (result, custom) = resolvingSides({ cascade($0, user: []) }, parent: parent)
         guard let generated = generatedRules(for: element, matcher: matcher) else {
             return compute(winners: result.winners, userAgent: result.userAgent, custom: custom, parent: parent, rem: rem, isRoot: isRoot)
         }
@@ -204,8 +210,9 @@ extension StyleResolver {
     @inline(never)
     private func style(for element: ContentNode, generating rules: [(userAgent: [Int], author: [Int])], winners: [CSSValue?],
                        userAgent: [CSSValue?], custom: CSSCustomProperties?, parent: ComputedStyle, rem: CGFloat,
-                       isRoot: Bool) -> ComputedStyle {
+                       isRoot: Bool, adjust: ((inout ComputedStyle) -> Void)? = nil) -> ComputedStyle {
         var style = compute(winners: winners, userAgent: userAgent, custom: custom, parent: parent, rem: rem, isRoot: isRoot)
+        adjust?(&style)
         let before = generatedStyle(of: element, userAgent: rules[0].userAgent, matched: rules[0].author, style: style)
         let after = generatedStyle(of: element, userAgent: rules[1].userAgent, matched: rules[1].author, style: style)
         if before != nil || after != nil { style.generated = GeneratedBoxes(before: before, after: after) }
@@ -238,6 +245,55 @@ extension StyleResolver {
             return .string(value ?? "")
         }
         return generated
+    }
+}
+
+// MARK: - Text settings
+
+extension StyleResolver {
+    /// The computed style of `element` under the host's text settings (`ReaderTextSettings`).
+    /// An element the settings leave alone, and all it holds, is styled from the book's styles
+    /// alone, as with no settings: each other style keeps those inherited values as the book
+    /// alone gives them (`ReaderTextTrace`), for what it holds. The book's styles are computed
+    /// for every element, which takes a second cascade and computation of each, only while a
+    /// setting is set.
+    @inline(never)
+    private func style(for element: ContentNode, settings: ReaderTextSettings, parent: ComputedStyle, rem: CGFloat,
+                       isRoot: Bool, generated: [(userAgent: [Int], author: [Int])]?,
+                       cascade: (ComputedStyle.Direction, [CSSDeclaration]) -> Cascade) -> ComputedStyle {
+        func styled(_ user: [CSSDeclaration], parent: ComputedStyle,
+                    adjust: ((inout ComputedStyle) -> Void)? = nil) -> ComputedStyle {
+            let (result, custom) = resolvingSides({ cascade($0, user) }, parent: parent)
+            guard let generated else {
+                var style = compute(winners: result.winners, userAgent: result.userAgent, custom: custom, parent: parent,
+                                    rem: rem, isRoot: isRoot)
+                adjust?(&style)
+                return style
+            }
+            return self.style(for: element, generating: generated, winners: result.winners, userAgent: result.userAgent,
+                              custom: custom, parent: parent, rem: rem, isRoot: isRoot, adjust: adjust)
+        }
+        if parent.textSettings === ReaderTextTrace.leftAlone {
+            var style = styled([], parent: parent)
+            style.textSettings = .leftAlone
+            return style
+        }
+        let bookParent = parent.textSettings?.book?.applied(to: parent) ?? parent
+        var book = styled([], parent: bookParent)
+        if ReaderTextSettings.leavesAlone(element, style: book, parent: bookParent, document: document) {
+            book.textSettings = .leftAlone
+            return book
+        }
+        let isParagraph = element.isHTML("p")
+        var set = if settings.overrides {
+            styled([], parent: parent) { settings.override(&$0, isParagraph: isParagraph) }
+        } else {
+            styled(isRoot ? settings.rootDeclarations : isParagraph ? settings.paragraphDeclarations : [], parent: parent)
+        }
+        let bookText = ReaderTextTrace.BookText(book)
+        // Most elements inherit all of these, and share their parent's record of them.
+        set.textSettings = parent.textSettings?.book == bookText ? parent.textSettings : ReaderTextTrace(book: bookText)
+        return set
     }
 }
 

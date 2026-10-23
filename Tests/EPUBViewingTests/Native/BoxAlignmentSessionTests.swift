@@ -130,9 +130,9 @@ private struct ReaderUnderABar: View {
     /// A host that runs the reader under its bars changes the height of the reading area, and
     /// not the reader's size, when a bar comes or goes: the navigation bar of a
     /// `NavigationStack` on iOS, and on the Mac a window's toolbar over a full-size content
-    /// view. There nothing lays the reader out for the bar (#162), and its next change of
-    /// appearance does. The epigraph stood 81 points low on an iPhone while the bar was hidden,
-    /// and on the Mac the reader showed and reported the dedication, then the chapter (#338).
+    /// view, where the reader is laid out when its safe area changes (#162). The epigraph stood
+    /// 81 points low on an iPhone while the bar was hidden, and on the Mac the reader showed and
+    /// reported the dedication, then the chapter (#338).
     func testABarOverTheReaderKeepsTheEpigraphShownAndReportedInContinuousScroll() async throws {
         let publication = try EPUBPublication.open(data: Fixture.alignment())
         let session = try XCTUnwrap(try NativeEngine().makeSession(publication: publication, selectionAction: nil) { _ in } as? NativeSession)
@@ -155,8 +155,7 @@ private struct ReaderUnderABar: View {
         defer { session.close(); window.isHidden = true; window.rootViewController = nil }
         #endif
         try await wait("the whole book") { session.readerState?.status.lifecycle == .ready && session.book.isComplete }
-        var style = EPUBReaderStyle(fontSize: 17, appearance: .light, flow: .scrolled)
-        try await session.send(.style(style))
+        try await session.send(.style(EPUBReaderStyle(fontSize: 17, appearance: .light, flow: .scrolled)))
         try await wait("continuous scroll") { session.book.isComplete && session.canvas?.scrollBook != nil }
         // The title page first, so that the text above the epigraph is laid out.
         try await session.send(.navigate(href: "OPS/titlepage.xhtml"))
@@ -181,10 +180,8 @@ private struct ReaderUnderABar: View {
                 window.toolbar = NSToolbar(identifier: "org.epublib.tests.alignment-session.\(UUID().uuidString)")
             } else { window.toolbar?.isVisible.toggle() }
             try await wait("the insets after change \(change)") { abs(canvas.scrollVisibleContainerRect.height - before) > 20 }
-            style.appearance = style.appearance == .dark ? .light : .dark
-            try await session.send(.style(style))
-            try await wait("the appearance after change \(change)") {
-                guard session.book.isComplete, let view = canvas.scrollTextView else { return false }
+            try await wait("the layout after change \(change)") {
+                guard let view = canvas.scrollTextView else { return false }
                 return abs(view.readerContainer.viewportSize.height - canvas.scrollVisibleContainerRect.height) < 0.5
             }
             #else
