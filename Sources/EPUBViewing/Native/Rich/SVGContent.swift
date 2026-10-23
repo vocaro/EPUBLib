@@ -15,13 +15,22 @@ enum SVGContent {
     /// Content that may be drawn where it stands, for `wrappedImage`.
     private static let graphics: Set<String> = ["rect", "circle", "ellipse", "line", "polyline", "polygon", "path",
                                                 "text", "use", "image", "foreignObject", "switch"]
-    /// Content that is never drawn where it stands.
+    /// Content that is never drawn where it stands: SVG 2's never-rendered elements (§3.2.1),
+    /// among them a `symbol` until a `use` draws it, and `filter` (Filter Effects 1 §7).
     private static let unrendered: Set<String> = ["defs", "title", "desc", "metadata", "style", "script", "symbol",
                                                   "clipPath", "mask", "pattern", "linearGradient", "radialGradient",
                                                   "filter", "marker"]
 
     static func isSVG(_ node: ContentNode, root: ContentNode) -> Bool {
         node.isElement && (node.namespace == ContentNamespace.svg || (node.namespace.isEmpty && root.namespace.isEmpty))
+    }
+
+    /// Whether a drawing has nothing to draw: every element it holds is one SVG never renders,
+    /// or one of another namespace, which it leaves out of rendering (SVG 2 §5.10). A sprite
+    /// sheet, `<defs>` and `<symbol>`s that other drawings use, is one; a browser draws nothing
+    /// for it. A `use` beside them draws, so a drawing that holds one is drawn.
+    static func drawsNothing(_ svg: ContentNode) -> Bool {
+        svg.children.allSatisfy { !isSVG($0, root: svg) || unrendered.contains($0.name) }
     }
 
     /// The subtree as StaticSVG's own tree, names, namespaces, attributes and text as they are.

@@ -287,7 +287,14 @@ continues to describe the authored spine resource.
   escaped CSS property names; it only receives the prepared drawing. The original node, depth,
   local-reference expansion and cycle checks run before omission.
   Pattern fills and illustrations exceeding the rendering limits show their title, description or
-  drawing text instead. Title and description provide the image's accessible label. No WebKit.
+  drawing text instead. Title and description provide the image's accessible label. An inline SVG
+  that holds only what SVG 2 never renders (§3.2.1: `defs`, a `symbol` no `use` draws,
+  gradients, `title`, `desc`, `metadata`, `style` and the others) and elements of other
+  namespaces, such as a sprite sheet of symbols, shows nothing, as a browser draws nothing for
+  it: no picture, no words in its place and no `svg` disclosure. The room a browser keeps blank
+  for such a drawing is not kept, and an `<img>` or `<object>` whose SVG file is such a drawing
+  is still shown as one that cannot be drawn
+  ([#136](https://github.com/vocaro/EPUBLib/issues/136)). No WebKit.
   EPUBLib reads the archive, resolves references and picks manifest fallbacks and fonts for
   StaticSVG, which reads nothing else; it extracts inline SVG from the content document, lays out
   and inspects the attachment, and turns StaticSVG's diagnostics into the section's disclosures.
@@ -1669,7 +1676,10 @@ continues to describe the authored spine resource.
   data has them: “ ” in Brazilian Portuguese and Turkish, « » in European Portuguese,
   «bonjour «toi»» in French, with no space added inside them, as Firefox, whose table is made
   from CLDR, shows them. Arabic and Hebrew take CLDR's marks, where Apple's locale data has
-  the typewriter `"` and `'` ([#133](https://github.com/vocaro/EPUBLib/issues/133)).
+  the typewriter `"` and `'` ([#133](https://github.com/vocaro/EPUBLib/issues/133)). The
+  inner pair stands for every `q` below the first, as the last pair of any `quotes` list does
+  (CSS 2.2 §12.3.2): «a„b„c““» in Russian, where the outer marks came back at the third
+  level ([#776](https://github.com/vocaro/EPUBLib/issues/776)).
   - **Where it stands.** An inline box is written in its line, and white space collapses
     across it as across the book's text. A block box is a paragraph of its own. A box that
     floats or is positioned is written in its line, with the disclosure of the boxes left in
