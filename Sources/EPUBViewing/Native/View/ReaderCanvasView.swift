@@ -111,6 +111,8 @@ import AppKit
         }
     }
     private var sectionHeadings: [Int: SectionHeadings] = [:]
+    /// The book's pages at the spread's column size (`layoutPage`).
+    let pageCounter = ReaderPageCounter()
 
     // Continuous scroll.
     private(set) var scrollContainer: PlatformView?
@@ -195,10 +197,26 @@ import AppKit
     /// cursor goes to another: no other item turns the page meanwhile
     /// (`accessibilityPageTurnColumn`).
     weak var accessibilityCursorAtTurn: NSObject?
+    /// The item VoiceOver's cursor was on when a question about a link outside the book was
+    /// asked, until the question is answered (`returnCursorAfterLinkQuestion`).
+    weak var cursorBeforeLinkQuestion: NSObject?
+    /// The item VoiceOver's cursor is to go back to after a cancelled question, while the first
+    /// item VoiceOver comes to after it is awaited, and which wait that is.
+    weak var cursorToReturnTo: NSObject?
+    var cursorReturnWait = 0
+    /// The item VoiceOver's cursor is on; nil while VoiceOver is off. A test puts its own here.
+    var voiceOverCursor: @MainActor () -> NSObject? = {
+        UIAccessibility.isVoiceOverRunning ? UIAccessibility.focusedElement(using: .notificationVoiceOver) as? NSObject : nil
+    }
     #endif
 
     var wheelTurner = ReaderWheelPageTurner()
     var presentedNote: AnyObject?
+    /// The question shown about a link outside the book (`askToOpen`), an alert, and what to
+    /// call with its answer.
+    var linkQuestion: (shown: AnyObject, answer: @MainActor (Bool) -> Void)?
+    /// Where the note shown hangs from, for a link in it.
+    var noteRect = CGRect.zero
     var imageInspector: ReaderImageInspector?
     /// Where and when the last touch or click on the canvas began, for edge taps.
     var pointerDown: (location: CGPoint, time: TimeInterval)?
@@ -207,6 +225,11 @@ import AppKit
         super.init(frame: frame)
         platformSetUp()
         applyAppearance()
+        pageCounter.canvas = self
+        pageCounter.onCount = { [weak self] in
+            guard let self else { return }
+            self.delegate?.canvasDidChangeLayoutPage(self)
+        }
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -354,17 +377,22 @@ import AppKit
     }
 
     private func configurationDidChange(from old: ReaderCanvasConfiguration) {
-        if old.pageControls != configuration.pageControls || old.flow != configuration.flow {
+        if old.pageControls != configuration.pageControls || old.flow != configuration.flow
+            || old.togglesControls != configuration.togglesControls {
             pointerDown = nil
             wheelTurner = ReaderWheelPageTurner()
             updateInputHandlers()
         }
-        if old.isDark != configuration.isDark {
+        if old.theme != configuration.theme {
             applyAppearance()
             applyHighlights()
         }
         guard old.flow != configuration.flow || old.division != configuration.division
-                || old.isRightToLeft != configuration.isRightToLeft else { return }
+                || old.isRightToLeft != configuration.isRightToLeft else {
+            // New margins are a new column size, laid out as a resize is, keeping the position.
+            if old.pageMargins != configuration.pageMargins { layOutCanvas() }
+            return
+        }
         guard old.flow != configuration.flow else { return layOutCanvas() }
         #if os(macOS)
         pageEntry = nil
@@ -374,7 +402,12 @@ import AppKit
         anchorFollowsScroll = false
         carrySelectionAcrossRelayout()
         // The text views go; keyboard focus and the complete selection must not go with them.
+        #if os(iOS)
+        // The canvas keeps a focus it holds itself (`takeKeyboardFocusIfFree`).
+        let hadFocus = textViews.contains(where: \.isFirstResponder)
+        #else
         let hadFocus = hasKeyboardFocus
+        #endif
         tearDownPages()
         tearDownScroll()
         layOutCanvas()
@@ -419,7 +452,7 @@ import AppKit
 
     private func layOutPages() {
         let target = ReaderCanvasGeometry.spread(in: pageArea, division: configuration.division,
-                                                 isRightToLeft: configuration.isRightToLeft)
+                                                 isRightToLeft: configuration.isRightToLeft, margins: configuration.pageMargins)
         guard let spread, shownPage != nil else {
             cancelPendingSpread()
             carrySelectionAcrossRelayout()
@@ -533,6 +566,7 @@ import AppKit
         shownFixedArea = nil
         awaitedSections = []
         shownPaginatorKeys = []
+        pageCounter.stop()
     }
 
     /// A text view the canvas is done with. The platform frees views in its own time, so the
@@ -560,6 +594,15 @@ import AppKit
         paginators[key] = paginator
         trimPaginators()
         return paginator
+    }
+
+    /// The cached pagination of a section's current text at a column size, if there is one;
+    /// unlike `paginator(for:size:)` it makes none and leaves the cache's order alone.
+    func cachedPaginator(for section: Int, size: CGSize) -> ReaderPaginator? {
+        guard let text = dataSource?.text(forSection: section),
+              let cached = paginators[PaginatorKey(section: section, width: size.width, height: size.height)],
+              cached.sourceText === text else { return nil }
+        return cached
     }
 
     /// The paginator of the spread on screen, never trimmed: its first column's.
@@ -603,13 +646,16 @@ import AppKit
     func trimCaches() {
         let kept = Set(shownPage == nil ? [] : shownPaginatorKeys)
         for key in paginatorUse where !kept.contains(key) { removePaginator(key) }
+        pageCounter.trimCaches()
     }
 
     /// The reader is closed or this view is going away: nothing here is shown again, so the
     /// text and its paginations go now rather than with the views.
     func releaseContent() {
         cancelPendingSpread()
+        pageCounter.stop()
         for view in columns + [scrollTextView].compactMap({ $0 }) { empty(view) }
+        pageCounter.releaseLayoutResidue()
         scrollBook = nil
         paginators.removeAll()
         paginatorUse.removeAll()
@@ -759,6 +805,9 @@ import AppKit
         accessibilityPageWasShown(at: anchor)
         #endif
         trimPaginators()
+        // Counts at another column size are dropped before the delegate reads `layoutPage`.
+        if let spread { pageCounter.count(for: spread.columnSize) }
+        pageCounter.resume()
         applyHighlights()
         updateVisibleRange(force: true)
         if let carriedSelection, carriedSelection.start.tableCell != nil || carriedSelection.end.tableCell != nil
@@ -838,7 +887,7 @@ import AppKit
         withProgrammaticScroll { area = scrollColumnArea() }
         let column = ReaderCanvasGeometry.scrollColumn(
             in: CGRect(x: area.minX, y: bounds.minY, width: area.width, height: bounds.height),
-            division: configuration.division)
+            division: configuration.division, margins: configuration.pageMargins)
         defer { updateScrollViewport() }
         if let geometry = scrollGeometry, geometry.bounds == bounds, geometry.minX == column.minX,
            geometry.width == column.width { return }
@@ -1545,7 +1594,7 @@ import AppKit
         }
         let indicator = selectionContinuation ?? ReaderSelectionContinuation(canvas: self)
         selectionContinuation = indicator
-        indicator.configure(previous: previous, next: next, dark: configuration.isDark)
+        indicator.configure(previous: previous, next: next, theme: configuration.theme)
         indicator.frame = CGRect(x: pageArea.minX + 12, y: pageArea.maxY - 44, width: max(0, pageArea.width - 24), height: 44)
         if indicator.superview == nil { addSubview(indicator) }
         #if os(macOS)
@@ -1736,14 +1785,14 @@ import AppKit
     }
 
     private func applyHighlights() {
-        let dark = configuration.isDark
+        let theme = configuration.theme
         // Search matches draw over host highlights, the current match over both.
         let ordered = ReaderHighlight.drawingOrder(highlights)
         for view in textViews {
             view.setTableHighlights(ordered)
             view.setHighlights(ordered.compactMap { highlight in
                 guard let range = localRange(of: highlight.range, in: view) else { return nil }
-                let color = ReaderPalette.highlight(highlight.kind, dark: dark)
+                let color = theme.highlight(highlight.kind)
                 return (range, color)
             })
         }
@@ -1752,6 +1801,21 @@ import AppKit
     func activateExternalLink(_ url: URL, position: ReaderTextPosition, rect: CGRect) {
         guard let link = ReaderLink(url: url) else { return }
         delegate?.canvas(self, didActivate: link, at: position, rect: rect)
+    }
+
+    /// A link in a note's popover was activated. One outside the book goes to the session as
+    /// one in the text does, from where the note hangs; one inside the book does nothing there.
+    func activateNoteLink(_ url: URL) {
+        guard case .external? = ReaderLink(url: url) else { return }
+        activateExternalLink(url, position: visibleRange?.start ?? ReaderTextPosition(section: 0, offset: 0), rect: noteRect)
+    }
+
+    /// The question about a link outside the book was answered, by one of its buttons: true for
+    /// Open. Nothing when `shown` is not the question shown, which was withdrawn or replaced.
+    func answerLinkQuestion(_ open: Bool, to shown: AnyObject) {
+        guard let question = linkQuestion, question.shown === shown else { return }
+        linkQuestion = nil
+        question.answer(open)
     }
 
     /// A link in a text view was activated: decode it and report where it is. Nothing is opened.
@@ -1766,7 +1830,10 @@ import AppKit
     /// A page-turn key, swipe, wheel tick or edge tap.
     func turnPageFromInput(forward: Bool) {
         guard imageInspector == nil, !hasSelection, !isDraggingSelection else { return }
-        if turnPage(forward: forward) != .atBoundary { pageDidTurnFromTheText() }
+        if turnPage(forward: forward) != .atBoundary {
+            pageDidTurnFromTheText()
+            delegate?.canvasDidReadOn(self)
+        }
     }
 
     /// A page turn an assistive technology asks for by name, as a host's command is: nothing
@@ -1816,5 +1883,23 @@ import AppKit
         guard let shownPage else { return nil }
         guard let dataSource, let first = shownFixedSpread?.sections.min() else { return shownPage.page + 1 }
         return (0..<first).filter { dataSource.isLinear(section: $0) }.count + 1
+    }
+
+    /// Whether a tap at `point` (canvas coordinates) shows or hides the host's controls: anywhere
+    /// on the page but an edge zone that turns it, a link or a picture, and not while text is
+    /// selected or being selected, where a tap belongs to the selection.
+    func togglesControls(at point: CGPoint) -> Bool {
+        guard configuration.togglesControls, imageInspector == nil, bounds.contains(point), !hasSelection,
+              !isDraggingSelection, edgeTurn(at: point) == nil else { return false }
+        return !textViews.contains { view in
+            let local = convert(point, to: view)
+            return view.bounds.contains(local) && (view.link(at: local) != nil || view.image(at: local) != nil)
+        }
+    }
+
+    /// Shows or hides the host's controls, for a tap in the middle of the page or VoiceOver's
+    /// Magic Tap. False when there are none to toggle.
+    func toggleControls() -> Bool {
+        configuration.togglesControls && delegate?.canvasTogglesControls(self) == true
     }
 }

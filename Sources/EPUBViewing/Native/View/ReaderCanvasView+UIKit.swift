@@ -16,6 +16,11 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         tap.delegate = self
         tap.cancelsTouchesInView = false
         addGestureRecognizer(tap)
+        addGestureRecognizer(ReaderTouchObserver { [weak self] in self?.takeKeyboardFocusIfFree() })
+        let middle = ReaderMiddleTapRecognizer(target: self, action: #selector(middleTapped(_:)))
+        middle.delegate = self
+        middle.cancelsTouchesInView = false
+        addGestureRecognizer(middle)
         updateInputHandlers()
         NotificationCenter.default.addObserver(self, selector: #selector(memoryWarning(_:)),
                                                name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
@@ -26,7 +31,9 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// Disabled recognizers cannot compete with a host gesture, even before recognition.
     func updateInputHandlers() {
         for recognizer in gestureRecognizers ?? [] {
-            if recognizer is UISwipeGestureRecognizer {
+            if recognizer is ReaderMiddleTapRecognizer {
+                recognizer.isEnabled = configuration.togglesControls
+            } else if recognizer is UISwipeGestureRecognizer {
                 recognizer.isEnabled = configuration.flow == .paginated && configuration.pageControls.touchSwipesEnabled
             } else if recognizer is UITapGestureRecognizer {
                 recognizer.isEnabled = configuration.flow == .paginated && configuration.pageControls.edgeTapsEnabled
@@ -50,10 +57,13 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     }
 
     func applyAppearance() {
-        let dark = configuration.isDark
-        overrideUserInterfaceStyle = dark ? .dark : .light
-        backgroundColor = ReaderPalette.background(dark: dark)
-        scrollTextView?.backgroundColor = ReaderPalette.background(dark: dark)
+        let theme = configuration.theme
+        overrideUserInterfaceStyle = theme.isDark ? .dark : .light
+        backgroundColor = theme.background
+        scrollTextView?.backgroundColor = theme.background
+        // UIKit draws a text view's selection, its handles and its caret, and a table cell's
+        // selection, in the tint colour: the theme's links, which keep 4.5:1 on its page.
+        tintColor = theme.link
     }
 
     override func layoutSubviews() {
@@ -96,7 +106,7 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     func makeScrollView() -> (PlatformView, ReaderTextView) {
         let view = ReaderTextView(pageColumn: false)
         view.delegate = self
-        view.backgroundColor = ReaderPalette.background(dark: configuration.isDark)
+        view.backgroundColor = configuration.theme.background
         view.readerContainer.widthTracksTextView = false // `applyScrollGeometry` sets the column width.
         view.contentInsetAdjustmentBehavior = .automatic
         view.contentInset = UIEdgeInsets(top: ReaderCanvasGeometry.verticalMargin, left: 0, bottom: 64, right: 0)
@@ -179,6 +189,25 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
 
     var hasKeyboardFocus: Bool { isFirstResponder || textViews.contains(where: \.isFirstResponder) }
 
+    /// A hardware keyboard's page keys reach the reader only through its responders, and UIKit
+    /// gives nothing focus on its own: on an iPad with a keyboard no page key did anything until
+    /// some text was selected (#681). The reader takes keyboard focus when it is shown and when it
+    /// is touched, as a Mac's does when its window gives it none, but only while no other view in
+    /// its window holds it: a search field keeps its focus and its keyboard.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        takeKeyboardFocusIfFree()
+    }
+
+    func takeKeyboardFocusIfFree() {
+        guard let window, imageInspector == nil, !hasKeyboardFocus, !Self.holdsFocus(window) else { return }
+        becomeFirstResponder()
+    }
+
+    private static func holdsFocus(_ view: UIView) -> Bool {
+        view.isFirstResponder || view.subviews.contains(where: holdsFocus)
+    }
+
     // MARK: Text view delegate
 
     func textViewDidChangeSelection(_ textView: UITextView) {
@@ -260,10 +289,23 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         turnPageFromInput(forward: forward)
     }
 
+    /// A tap in the middle of the page shows or hides the host's controls (`togglesControls(at:)`),
+    /// unless the touch was a long press, timed as an edge tap is.
+    @objc private func middleTapped(_ recognizer: ReaderMiddleTapRecognizer) {
+        guard let down = pointerDown, let lift = recognizer.liftTime, lift - down.time < 0.35,
+              togglesControls(at: recognizer.location(in: self)) else { return }
+        _ = toggleControls()
+    }
+
     // Swipes never begin while text is selected, so dragging a selection handle never turns the
-    // page; edge taps begin only in the zones.
+    // page; edge taps begin only in the zones, and a tap in the middle only away from them.
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer.view === self else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
+        // VoiceOver's double tap on a line reaches the reader as a touch at the line: under
+        // VoiceOver the controls come and go by Magic Tap and the Show Controls button alone.
+        if gestureRecognizer is ReaderMiddleTapRecognizer {
+            return !UIAccessibility.isVoiceOverRunning && togglesControls(at: gestureRecognizer.location(in: self))
+        }
         guard imageInspector == nil, configuration.flow == .paginated, !hasSelection, !isDraggingSelection else { return false }
         if gestureRecognizer is UISwipeGestureRecognizer { return configuration.pageControls.touchSwipesEnabled && !hasSelection }
         if gestureRecognizer is UITapGestureRecognizer { return edgeTurn(at: gestureRecognizer.location(in: self)) != nil }
@@ -272,6 +314,8 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard gestureRecognizer.isEnabled else { return false }
+        // A touch that stops continuous scroll moving is not a tap on the page.
+        if gestureRecognizer is ReaderMiddleTapRecognizer, scrollTextView?.isDecelerating == true { return false }
         if gestureRecognizer is UITapGestureRecognizer { pointerDown = (touch.location(in: self), touch.timestamp) }
         return true
     }
@@ -279,8 +323,26 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 
-    /// The host may focus the canvas for hardware keys; it never takes focus on its own, which
-    /// would dismiss a keyboard elsewhere in the window.
+    /// A tap in the middle waits until it is not the first of the text's double tap, which
+    /// selects a word: that double tap does not show or hide the controls.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRequireFailureOf other: UIGestureRecognizer) -> Bool {
+        gestureRecognizer is ReaderMiddleTapRecognizer && ((other as? UITapGestureRecognizer)?.numberOfTapsRequired ?? 1) > 1
+    }
+
+    /// A finger dragging continuous scroll reads on (`ReaderCanvasDelegate.canvasDidReadOn`).
+    /// VoiceOver's own scrolling drags nothing.
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        guard scrollView === scrollTextView else { return }
+        delegate?.canvasDidReadOn(self)
+    }
+
+    /// VoiceOver's Magic Tap, a two-finger double tap, shows or hides the host's controls from
+    /// wherever its cursor is in the reader. Its lines and text views pass it here.
+    override func accessibilityPerformMagicTap() -> Bool { toggleControls() }
+
+    /// The canvas takes keyboard focus for hardware keys only while nothing else in its window
+    /// holds it (`takeKeyboardFocusIfFree`): taking it from a field would dismiss its keyboard.
     override var canBecomeFirstResponder: Bool { true }
 
     /// Bindings are read from the current configuration by both canvas and focused children.
@@ -298,16 +360,16 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(pageTurnKeyCommand(_:)), let command = sender as? UIKeyCommand {
-            return ReaderTextView.pageTurnDirection(input: command.input, flags: command.modifierFlags,
-                                                    controls: configuration.pageControls) != nil
+            return ReaderTextView.pageAction(input: command.input, flags: command.modifierFlags,
+                                             controls: configuration.pageControls) != nil
         }
         return super.canPerformAction(action, withSender: sender)
     }
 
     @objc func pageTurnKeyCommand(_ command: UIKeyCommand) {
-        guard imageInspector == nil, let forward = ReaderTextView.pageTurnDirection(input: command.input, flags: command.modifierFlags,
-                                                             controls: configuration.pageControls) else { return }
-        turnPageFromInput(forward: forward)
+        guard imageInspector == nil, let action = ReaderTextView.pageAction(input: command.input, flags: command.modifierFlags,
+                                                                    controls: configuration.pageControls) else { return }
+        performPageActionFromInput(action)
     }
 
     /// VoiceOver orders sibling containers by their frames, top first. A column starting below
@@ -517,15 +579,17 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     // MARK: Notes
 
     /// A popover from the nearest view controller; nothing without one.
-    func presentNote(_ text: NSAttributedString, dark: Bool, from rect: CGRect) {
+    func presentNote(_ text: NSAttributedString, theme: ReaderTheme, from rect: CGRect) {
         var responder: UIResponder? = next
         while let current = responder, !(current is UIViewController) { responder = current.next }
         guard var presenter = responder as? UIViewController, window != nil else { return }
         while let presented = presenter.presentedViewController, !presented.isBeingDismissed { presenter = presented }
-        let controller = ReaderNoteViewController(text: text, dark: dark,
+        let controller = ReaderNoteViewController(text: text, theme: theme,
                                                   width: min(360, max(200, bounds.width - 32)))
         controller.modalPresentationStyle = .popover
         if let popover = controller.popoverPresentationController {
+            // The arrow and the edges the popover draws round the note, in the note's page colour.
+            popover.backgroundColor = theme.background
             popover.sourceView = self
             popover.sourceRect = rect
             popover.permittedArrowDirections = [.up, .down]
@@ -533,18 +597,139 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         }
         presenter.present(controller, animated: true)
         presentedNote = controller
+        noteRect = rect
+        controller.onLink = { [weak self] url in self?.activateNoteLink(url) }
+    }
+
+    // MARK: Links outside the book
+
+    /// An alert from the view controller on top, the note's popover when one is shown, so it
+    /// stands over the note and the note is still there after it. Open is its preferred action,
+    /// which Return chooses on a keyboard, and Cancel its cancel action, which Escape chooses.
+    ///
+    /// The question and the address are the alert's title, on two lines, and it has no
+    /// message. UIKit gives an alert's title and message an element each, and VoiceOver reads
+    /// only the first as the alert comes up: with the address as the message it said "Open a
+    /// link outside the book?" and the address only on the next swipe (iOS 27.2 simulator, #793).
+    func askToOpen(_ question: ExternalLinkQuestion, from rect: CGRect, answer: @escaping @MainActor (Bool) -> Void) -> Bool {
+        // A question asked over another goes back, when cancelled, where the first began.
+        let cursor = linkQuestion == nil ? voiceOverCursor() : cursorBeforeLinkQuestion
+        withdrawLinkQuestion()
+        var responder: UIResponder? = next
+        while let current = responder, !(current is UIViewController) { responder = current.next }
+        guard var presenter = responder as? UIViewController, window != nil else { return false }
+        while let presented = presenter.presentedViewController, !presented.isBeingDismissed { presenter = presented }
+        let alert = UIAlertController(title: question.title + "\n" + question.message, message: nil, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: ExternalLinkQuestion.cancel, style: .cancel) { [weak self, weak alert] _ in
+            if let alert { self?.alertAnswered(false, to: alert) }
+        })
+        let open = UIAlertAction(title: ExternalLinkQuestion.open, style: .default) { [weak self, weak alert] _ in
+            if let alert { self?.alertAnswered(true, to: alert) }
+        }
+        alert.addAction(open)
+        alert.preferredAction = open
+        linkQuestion = (alert, answer)
+        cursorBeforeLinkQuestion = cursor
+        presenter.present(alert, animated: true)
+        return true
+    }
+
+    func withdrawLinkQuestion() {
+        guard let question = linkQuestion else { return }
+        linkQuestion = nil
+        cursorBeforeLinkQuestion = nil
+        if let alert = question.shown as? UIAlertController, alert.presentingViewController != nil {
+            alert.dismiss(animated: false)
+        }
+        question.answer(false)
+    }
+
+    /// One of the alert's buttons was chosen, and the alert has gone. After Cancel, VoiceOver's
+    /// cursor goes back to where it was; after Open, it is left to whatever was opened.
+    func alertAnswered(_ open: Bool, to alert: AnyObject) {
+        guard let question = linkQuestion, question.shown === alert else { return }
+        let cursor = cursorBeforeLinkQuestion
+        cursorBeforeLinkQuestion = nil
+        answerLinkQuestion(open, to: alert)
+        if !open, let cursor { returnCursorAfterLinkQuestion(to: cursor) }
+    }
+
+    /// Puts VoiceOver's cursor back on the item it was on when the question was asked: the link,
+    /// a table's row, or a note's text. As the alert went, VoiceOver took the first item of the
+    /// screen, the host's first control, though the link's element was still the one listed and
+    /// the reader had posted nothing (iOS 27.2 simulator, iPhone and iPad, #793). The alert is
+    /// presented by the view controller on top, in a SwiftUI host its hosting controller, and
+    /// the cursor was not given back to an element of the reader inside it. Over a note, which
+    /// UIKit presents, it came back to the note's text in one run on the iPhone and went to the
+    /// popover's first item in the others, of which no notification told. So the item is named
+    /// with the screen change as the answer comes, which took VoiceOver straight back to a link
+    /// or a row, and the first item VoiceOver then comes to is checked once: the cursor is put
+    /// back where it is anything else, or, with no item told of within a second, where the
+    /// cursor is elsewhere then. Over a note the iPhone said the popover's first item and was
+    /// back on the note's text a second later.
+    func returnCursorAfterLinkQuestion(to cursor: NSObject) {
+        guard isStillShown(cursor) else { return }
+        stopAwaitingCursorReturn()
+        cursorReturnWait += 1
+        let wait = cursorReturnWait
+        cursorToReturnTo = cursor
+        NotificationCenter.default.addObserver(self, selector: #selector(cursorMovedAfterLinkQuestion(_:)),
+                                               name: UIAccessibility.elementFocusedNotification, object: nil)
+        postAccessibilityNotification(.screenChanged, cursor)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            // VoiceOver came to no item it told of, as to a popover's own first item.
+            guard let self, self.cursorReturnWait == wait, let cursor = self.cursorToReturnTo else { return }
+            self.stopAwaitingCursorReturn()
+            if self.voiceOverCursor() !== cursor, self.isStillShown(cursor) { self.postAccessibilityNotification(.layoutChanged, cursor) }
+        }
+    }
+
+    @objc func cursorMovedAfterLinkQuestion(_ notification: Notification) {
+        // Each move posts two notifications, the first naming only the item left.
+        guard let cursor = cursorToReturnTo,
+              let focused = notification.userInfo?[UIAccessibility.focusedElementUserInfoKey] as AnyObject? else { return }
+        stopAwaitingCursorReturn()
+        if focused !== cursor, isStillShown(cursor) { postAccessibilityNotification(.layoutChanged, cursor) }
+    }
+
+    private func stopAwaitingCursorReturn() {
+        cursorToReturnTo = nil
+        NotificationCenter.default.removeObserver(self, name: UIAccessibility.elementFocusedNotification, object: nil)
+    }
+
+    /// Whether `item` is still on screen: a view in a window, or an element whose containers
+    /// lead to one.
+    private func isStillShown(_ item: NSObject) -> Bool {
+        var node: Any? = item
+        for _ in 0..<8 {
+            guard let current = node else { return false }
+            if let view = current as? UIView { return view.window != nil }
+            guard let element = current as? UIAccessibilityElement else { return true }
+            node = element.accessibilityContainer
+        }
+        return false
     }
 }
 
-/// A note shown in place: its text in a TextKit 2 view whose links do nothing.
+/// A note shown in place: its text in a TextKit 2 view. A link outside the book in it is
+/// handed to `onLink`, and so asked about as one in the text is; a link inside the book does
+/// nothing.
 final class ReaderNoteViewController: UIViewController, UIPopoverPresentationControllerDelegate, UITextViewDelegate {
     let textView = ReaderTextView(pageColumn: false)
+    /// Where a link the note's text activates goes: the canvas that shows the note.
+    var onLink: ((URL) -> Void)?
 
-    init(text: NSAttributedString, dark: Bool, width: CGFloat) {
+    convenience init(text: NSAttributedString, dark: Bool, width: CGFloat) {
+        self.init(text: text, theme: dark ? .dark : .light, width: width)
+    }
+
+    init(text: NSAttributedString, theme: ReaderTheme, width: CGFloat) {
         super.init(nibName: nil, bundle: nil)
-        overrideUserInterfaceStyle = dark ? .dark : .light
+        overrideUserInterfaceStyle = theme.isDark ? .dark : .light
         textView.delegate = self
-        textView.backgroundColor = ReaderPalette.background(dark: dark)
+        textView.backgroundColor = theme.background
+        textView.tintColor = theme.link
         textView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         textView.readerContainer.viewportSize = CGSize(width: width - 32, height: 400)
         textView.setContent(text)
@@ -559,7 +744,12 @@ final class ReaderNoteViewController: UIViewController, UIPopoverPresentationCon
     func adaptivePresentationStyle(for controller: UIPresentationController,
                                    traitCollection: UITraitCollection) -> UIModalPresentationStyle { .none }
 
-    func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? { nil }
+    /// A tap on a link, and VoiceOver's or Full Keyboard Access's activation of UIKit's own
+    /// element for it. Only a link outside the book has an action.
+    func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
+        guard case .link(let url) = textItem.content, case .external? = ReaderLink(url: url) else { return nil }
+        return UIAction { [weak self] _ in self?.onLink?(url) }
+    }
 
     func textView(_ textView: UITextView, menuConfigurationFor textItem: UITextItem,
                   defaultMenu: UIMenu) -> UITextItem.MenuConfiguration? { nil }
@@ -568,7 +758,7 @@ final class ReaderNoteViewController: UIViewController, UIPopoverPresentationCon
 /// The canvas's edge-tap recognizer, which keeps when its touch lifted, as the touch gives it.
 /// With when it went down (`pointerDown`) that times a press without reading a clock: the
 /// system's uptime is an API whose use a host would have to declare to the App Store (#685).
-final class ReaderEdgeTapRecognizer: UITapGestureRecognizer {
+class ReaderEdgeTapRecognizer: UITapGestureRecognizer {
     private(set) var liftTime: TimeInterval?
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
@@ -581,4 +771,27 @@ final class ReaderEdgeTapRecognizer: UITapGestureRecognizer {
         super.touchesEnded(touches, with: event)
     }
 }
+
+/// Sees each touch that begins in the canvas, on its text as well, and recognizes nothing: it
+/// fails at once, so every other gesture, the text's own among them, goes on as before.
+final class ReaderTouchObserver: UIGestureRecognizer {
+    private let onTouch: @MainActor () -> Void
+
+    init(onTouch: @escaping @MainActor () -> Void) {
+        self.onTouch = onTouch
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        onTouch()
+        state = .failed
+    }
+}
+
+/// The canvas's recognizer of a tap in the middle of the page, which shows or hides the host's
+/// controls. It is timed as an edge tap is.
+final class ReaderMiddleTapRecognizer: ReaderEdgeTapRecognizer {}
 #endif

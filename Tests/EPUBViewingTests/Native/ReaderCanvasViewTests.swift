@@ -574,7 +574,7 @@ import UIKit
     func testPageTurnKeyCommandsTakePriorityAndLeaveSelectionChords() throws {
         let host = host(sections(1, paragraphs: 20))
         let commands = try XCTUnwrap(host.canvas.keyCommands)
-        XCTAssertEqual(commands.count, 6)
+        XCTAssertEqual(commands.count, 8, "six turns, Home and End (#681)")
         XCTAssertTrue(commands.allSatisfy(\.wantsPriorityOverSystemBehavior))
         XCTAssertFalse(commands.contains { !$0.modifierFlags.isDisjoint(with: [.command, .alternate, .control]) })
         let start = try XCTUnwrap(host.canvas.visibleRange?.start)
@@ -1091,7 +1091,12 @@ import UIKit
         XCTAssertEqual(canvas.visibleRange, after)
         XCTAssertTrue(canvas.hasKeyboardFocus)
         canvas.configuration.flow = .scrolled
-        XCTAssertTrue((canvas.gestureRecognizers ?? []).allSatisfy { !$0.isEnabled })
+        // The touch observer that takes keyboard focus (#681) stays: it recognizes nothing, so
+        // it competes with no gesture of the host's or the text's.
+        let observers = (canvas.gestureRecognizers ?? []).filter { $0 is ReaderTouchObserver }
+        XCTAssertEqual(observers.count, 1)
+        XCTAssertTrue(observers.allSatisfy { !$0.cancelsTouchesInView && !$0.delaysTouchesBegan && !$0.delaysTouchesEnded })
+        XCTAssertTrue((canvas.gestureRecognizers ?? []).filter { !($0 is ReaderTouchObserver) }.allSatisfy { !$0.isEnabled })
         XCTAssertTrue(canvas.scrollTextView?.isScrollEnabled == true)
     }
 

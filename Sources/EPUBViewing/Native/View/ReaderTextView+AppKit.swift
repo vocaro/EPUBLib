@@ -138,8 +138,8 @@ final class ReaderTextView: NSTextView {
     // MARK: Keys, links and accessibility
 
     override func keyDown(with event: NSEvent) {
-        guard let canvas, canvas.imageInspector == nil, let forward = Self.pageTurnDirection(for: event, controls: canvas.configuration.pageControls) else { return super.keyDown(with: event) }
-        canvas.turnPageFromInput(forward: forward)
+        guard let canvas, canvas.imageInspector == nil, let action = Self.pageAction(for: event, controls: canvas.configuration.pageControls) else { return super.keyDown(with: event) }
+        canvas.performPageActionFromInput(action)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -151,6 +151,16 @@ final class ReaderTextView: NSTextView {
     /// layout in use (`bindingCharacter(for:unshifted:)`).
     static func pageTurnDirection(for event: NSEvent, controls: EPUBPageControls = .init(),
                                   unshifted: (NSEvent) -> String? = { $0.characters(byApplyingModifiers: []) }) -> Bool? {
+        switch pageAction(for: event, controls: controls, unshifted: unshifted) {
+        case .next: true
+        case .previous: false
+        case .bookStart, .bookEnd, nil: nil
+        }
+    }
+
+    /// The page action a key event is bound to, the book's start and end among them.
+    static func pageAction(for event: NSEvent, controls: EPUBPageControls = .init(),
+                           unshifted: (NSEvent) -> String? = { $0.characters(byApplyingModifiers: []) }) -> EPUBPageAction? {
         let key: EPUBPageKey
         switch event.keyCode {
         case 123: key = .leftArrow
@@ -172,7 +182,7 @@ final class ReaderTextView: NSTextView {
         if flags.contains(.command) { modifiers.insert(.command) }
         if flags.contains(.option) { modifiers.insert(.option) }
         if flags.contains(.control) { modifiers.insert(.control) }
-        return controls.direction(for: key, modifiers: modifiers)
+        return controls.action(for: key, modifiers: modifiers)
     }
 
     /// The letter or digit a key names for a character binding, whose modifiers, Shift among
