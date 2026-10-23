@@ -313,9 +313,11 @@ import SwiftUI
     }
 
     /// The legacy bookmark remains the first segment. Reject contradictory or foreign ranges
-    /// rather than silently restoring only part of a saved selection.
+    /// rather than silently restoring only part of a saved selection. A location saved in this
+    /// book carries one of its `publicationIDs`: its `persistentID`, which a copy downloaded or
+    /// zipped again, edited in its metadata or unpacked into a folder shares, or its `id` (#679).
     private func isCompatible(_ location: EPUBLocation) -> Bool {
-        guard location.publicationID == publication.id, let bookmark = location.bookmark else { return false }
+        guard publication.publicationIDs.contains(location.publicationID), let bookmark = location.bookmark else { return false }
         let bookmarks = location.rangeBookmarks ?? [bookmark]
         guard !bookmarks.isEmpty, bookmarks.first == bookmark else { return false }
         return bookmarks.allSatisfy {
@@ -510,7 +512,7 @@ import SwiftUI
             try Task.checkCancellation()
             guard !closed, ticket == searchGeneration else { return nil }
             let section = SearchResultBuilder.Section(
-                text: text, publicationID: publication.id, engineID: NativeEngine.identifier,
+                text: text, publicationID: publication.persistentID, engineID: NativeEngine.identifier,
                 bookmarkFormat: NativeEngine.bookmarkFormat, spine: spine, progress: progress)
             let firstIndex = results.count, limit = maximumSearchResults - results.count
             let batch = await Task.detached(priority: .userInitiated) {
@@ -787,7 +789,7 @@ import SwiftUI
         // Only continuous scroll over the whole book shows a range across sections.
         let pages = progress.pages(in: range, isShown: { [book] in !book.isOmitted($0) }, anchor: anchor)
         return EPUBLocation(
-            publicationID: publication.id, href: publication.spine[index].resource.href,
+            publicationID: publication.persistentID, href: publication.spine[index].resource.href,
             progression: fraction.flatMap { progress.progression(section: index, fraction: $0) },
             title: fraction == nil ? nil : progress.title(at: titlePosition(of: range), anchor: anchor),
             quote: quote,

@@ -185,7 +185,8 @@ ended at that test's `started` line, and the sample had the test's frame on the 
 
 ## Coverage
 
-Parser tests cover EPUB 2/3 structure, navigation, landmarks and page lists, resource access, identity, limits,
+Parser tests cover EPUB 2/3 structure, navigation, landmarks and page lists, resource access, identity
+across copies of a book (#679), books unpacked into folders with their links, pipes and limits (#680), limits,
 duplicate ZIP entries, symlinks, path separators and dot segments beside every scalar that joins
 their `Character`, CRC corruption, malformed/deep/wide XML, UTF-16 entities, repeated,
 conflicting, absent, remote and differently cased manifest items, references that start at or climb past
@@ -580,6 +581,22 @@ The script fetches each corpus at a pinned commit into `~/Library/Caches/EPUBLib
 `EPUBLIB_EPUBCHECK_CLI`. The expected outcome of each W3C test is in
 `Tests/EPUBTestSupport/SpecConformanceCorpus.swift`; a new pin goes in the script together
 with that table.
+
+`PublicationFolderCorpusTests` reads each W3C test and each expanded EPUBCheck fixture as a
+folder and as the archive packed from it, and each archived EPUBCheck fixture and each book of
+the two [collections](#books) as an archive and as the folder unzipped from it, and requires the
+same publication or the same refusal ([#680](https://github.com/vocaro/EPUBLib/issues/680)); each
+book zipped again must keep its `persistentID`
+([#679](https://github.com/vocaro/EPUBLib/issues/679)). Each test is skipped without its
+variable. A folder that lacks `mimetype` is held to the archive packed with one. An archived
+fixture that is refused, or whose names a Mac's file system cannot hold as they stand (two that
+differ only in case, a name that is not UTF-8), has no folder to compare and is listed as
+skipped, with the reason, in the test's output:
+
+```sh
+eval "$(bash scripts/fetch-corpora.sh)"
+swift test --filter PublicationFolderCorpusTests
+```
 
 ### Books
 
@@ -1209,7 +1226,9 @@ The verifier checks:
 - The mounted session emits `.ready` exactly once.
 - Advertised commands can be submitted; unsupported commands return the matching capability error.
 - Href navigation changes sections and bookmark restoration returns to the saved section.
-- Locations carry the publication identity and a valid engine-tagged bookmark when supported.
+- Locations carry the publication's `persistentID` and a valid engine-tagged bookmark when
+  supported, and a location that carries the book's `id` instead, as one saved before
+  `persistentID` does, restores too ([#679](https://github.com/vocaro/EPUBLib/issues/679)).
 - Foreign publication, engine and bookmark format identities are rejected.
 - An engine with `.searchResults` lists the phrase's results before reporting completion, with
   indices in order and the publication's identity; steps, wraps back from the first result to
@@ -1227,6 +1246,7 @@ A minimal SwiftUI test engine runs the same checks with no renderer at all, as a
 search, one that only highlights, one that lists results, and one that lists them and reports a
 step's relocation and a clear's idle state 30 ms late, from a timer of its own. Deliberately broken
 engines demonstrate that missing/duplicate readiness, ignored cancellation, incompatible restoration,
+locations that carry the file's hash, a restore that refuses a location saved under it,
 late callbacks, results published after completion, steps that do not wrap, stale results that
 still navigate, results kept after a clear and a step of a cleared search that still moves the
 reader fail the verifier. Adapter-specific tests must additionally check actual rendering,

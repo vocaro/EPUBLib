@@ -29,6 +29,17 @@ without files the archive lacks, and `publication.lostEntries` gives how many th
 whichever of their paths can still be read. When it is not nil, tell the reader the book may be
 incomplete.
 
+The URL may also name a book unpacked into a folder, as Apple Books keeps one on the Mac and as
+the type `org.idpf.epub-folder` names it ([#680](https://github.com/vocaro/EPUBLib/issues/680)).
+A host that declares that type passes the folder's URL, with security-scoped access to the
+folder. The folder is read as an archive is, with the same refusals and limits: `resourceBytes`
+for each file, `expandedBytes` for all of them, and `entryCount` for its files and folders
+together; `archiveBytes` limits only an archive. A symbolic link anywhere in it is refused, as a
+link entry in an archive is, and so is anything but a file or a folder. It need not hold
+`mimetype`, which EPUB 3.3 §4.2.2 reserves for a ZIP container. Its `archiveData` is empty, and
+its `id` is the SHA-256 of its files, so read them with `data(at:)` and key positions on
+`persistentID` ([positions and highlights](#positions-and-highlights)).
+
 ## Showing a book
 
 Create and retain a reading session on the main actor, then mount `EPUBReaderView(session:)`:
@@ -127,7 +138,8 @@ final class BookReader {
     func install(_ book: EPUBPublication, engine: any EPUBReaderEngine) throws {
         let token = generation
         publication = book
-        if let data = UserDefaults.standard.data(forKey: "position.\(book.id)") {
+        // Saved under the book's persistentID, or under an identity it had before.
+        if let data = book.publicationIDs.lazy.compactMap({ UserDefaults.standard.data(forKey: "position.\($0)") }).first {
             savedPosition = try? JSONDecoder().decode(EPUBLocation.self, from: data)
         }
         session = try engine.makeSession(publication: book,
@@ -178,7 +190,7 @@ final class BookReader {
 
     func clearPosition() {
         guard let publication else { return }
-        UserDefaults.standard.removeObject(forKey: "position.\(publication.id)")
+        for id in publication.publicationIDs { UserDefaults.standard.removeObject(forKey: "position.\(id)") }
         savedPosition = nil
         notice = "Bookmark cleared."
     }
@@ -247,13 +259,39 @@ need not match it byte for byte.
 
 ## Positions and highlights
 
-To store a position, encode `EPUBLocation` using `JSONEncoder`. On reopen, compare its publication
-ID and send `.restore(location)` only when bookmarks are supported. Compare a stored bookmark with
+To store a position, encode `EPUBLocation` using `JSONEncoder` and key it on
+`publication.persistentID`, which every location the reader emits carries as its `publicationID`
+([#679](https://github.com/vocaro/EPUBLib/issues/679)). It is the package's unique identifier,
+which EPUB 3.3 §5.5.3.1.1 asks a book's makers to keep through minor revisions such as an edit
+of the metadata. So a position saved in a book restores in a copy downloaded again, zipped again
+with other compression, whose metadata a library manager such as Calibre edited, or unpacked
+into a folder, and another edition, which has another unique identifier, does not take it. A
+package without a unique identifier is known by the SHA-256 of its content: each resource it
+holds and the order of its spine, without the package document, so an edit of its metadata
+leaves that too. `publication.id` is still the SHA-256 of the file's bytes, which every such
+copy changes.
+
+On reopen, look the position up under each of `publication.publicationIDs` in order:
+`persistentID`, then the content's SHA-256, for a position saved before the package gave a
+unique identifier, then `id`, which locations carried before `persistentID`. Send
+`.restore(location)` only when bookmarks are supported. The reader restores, and draws as a
+highlight, a location that carries any of them, as far as its CFI resolves in the copy at hand,
+and gives a `.notice` where it does not. The complete reader screen's `BookReader`
+[above](#a-complete-reader) does this.
+
+To tell versions of a book apart, compare `publication.releaseIdentifier`: the unique identifier,
+`@` and the package's `dcterms:modified`, as EPUB 3.0.1 defined a release identifier. Two books
+can give one unique identifier, which EPUB Reading Systems 3.3 §5.2 has a reading system not
+depend on being unique to one publication. They then share a `persistentID`, and a position saved
+in the one is restored in the other as far as its CFI resolves there. A host that must keep them
+apart adds the title, `releaseIdentifier` or `id` to its key, at the cost of positions that a
+metadata edit or another copy would otherwise keep.
+
+Compare a stored bookmark with
 `EPUBReader.identifier` and `EPUBReader.bookmarkFormat` rather than literal strings. A bookmark the
 former WebKit reader stored (`org.epubreaderlib.foliate`, `epubcfi-v1`) is migrated by replacing
 those two fields; its CFI value names the same position. If restoration reports an
-incompatible location, offer an explicit section/quote fallback where supported. EPUB files that
-change have a different SHA-256 identity, even when their metadata identifier is unchanged.
+incompatible location, offer an explicit section/quote fallback where supported.
 
 For a saved passage, persist the entire selection's `location` and pass it to
 `.setHighlights([EPUBHighlight(id: ..., location: saved)])`. In continuous scroll a selection

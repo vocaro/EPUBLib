@@ -198,7 +198,7 @@ import XCTest
             XCTAssertEqual(seen, Array(0...last))
             try await reader.session.send(.navigate(href: "OPS/bad.xhtml"))
             try await reader.wait("the withheld section") { reader.session.lastLocation?.href == "OPS/bad.xhtml" }
-            XCTAssertEqual(reader.session.lastLocation?.publicationID, reader.publication.id)
+            XCTAssertEqual(reader.session.lastLocation?.publicationID, reader.publication.persistentID)
             // Its refused text is not searchable; the rest of the book is.
             try await reader.session.send(.search(text: "withheldword"))
             XCTAssertEqual(reader.state.status.search, .completed(query: "withheldword", hasMatches: false))
