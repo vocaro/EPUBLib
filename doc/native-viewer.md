@@ -1830,6 +1830,33 @@ continues to describe the authored spine resource.
   one wider than the column is laid out too. TextKit keeps one interval for a
   paragraph, so an inline box's own `tab-size` is not read; and in the paragraph an outside
   list marker opens, the interval is the marker's width unless the item keeps its tabs.
+  The multiples are measured from the paragraph's leading edge, the edge its indents are
+  measured from, the right in right-to-left text, as TextKit 1 measures them in a table cell.
+  They are the same with and without a float or positioned box in the section, in the
+  section's layout and on its pages, and in a flex or grid item the box plan moves across.
+  With a box the text container sets each line and TextKit, shown the paragraph without its
+  indents, measured the interval from the line's start, so a tab in an indented paragraph
+  landed an indent further along; and right to left TextKit 2 measured it from the first
+  line's start less the tail indent, with a box or without. A paragraph that holds a tab and
+  has no stops of its own is shown its interval's stops, moved as its own would be
+  (`ReaderTextContainer.intervalStops`,
+  [#334](https://github.com/vocaro/EPUBLib/issues/334)). CSS measures them from the block's
+  content edge instead, inside its margin and padding. Two places are left. With a box, a
+  paragraph's stops are placed for its first line and measured from each line's start, as a
+  list marker's are: a tab on a later line of a paragraph whose first line has a
+  `text-indent` lands that indent off, except on a page that opens within the paragraph,
+  whose first line is set at the head indent and measures them from there; and a tab on a
+  line beside a float is measured from the float's edge.
+  A tab can advance by almost nothing. CSS Text 3 §4.2 skips a stop closer than half a `ch`
+  to where the tab starts; TextKit takes the next stop however near it is, because `NSTextTab`
+  has no minimum advance, and neither has the default interval. So text that ends just before
+  a stop is followed at once by what comes after the tab: 0.6 points apart in
+  `<p>Before <span style='white-space:pre'>a&#9;b</span> after the tab.</p>`, and from 1.96
+  to 29.55 points between the cells of a table flowed as rows of tabbed cells, one boundary in
+  eight narrower than a space. `pre` blocks have always been laid out so. The review of the fix
+  for [#227](https://github.com/vocaro/EPUBLib/issues/227) found no cheap and safe change
+  within it that would keep a gap: the separator is a single tab, which tests, a copy and
+  VoiceOver read as text ([#334](https://github.com/vocaro/EPUBLib/issues/334)).
 - **Custom properties.** Custom properties (`--name`) and `var()` follow CSS Custom
   Properties for Cascading Variables 1 ([#119](https://github.com/vocaro/EPUBLib/issues/119)).
   A custom property is declared on any element, `:root` and pseudo-elements included, in a
@@ -2573,7 +2600,8 @@ as they did.
   and set the item's first line a first-line indent further along than its wrapped lines; the
   text container shows it the stop moved by the
   difference (`ReaderTextContainer.rightToLeftStops`,
-  [#276](https://github.com/vocaro/EPUBLib/issues/276)).
+  [#276](https://github.com/vocaro/EPUBLib/issues/276)), and the stops of a paragraph's
+  interval in the same way ([#334](https://github.com/vocaro/EPUBLib/issues/334)).
 
 ### Floats and positioned boxes
 
