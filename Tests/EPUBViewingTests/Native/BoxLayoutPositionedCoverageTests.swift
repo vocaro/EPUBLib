@@ -81,7 +81,8 @@ import UIKit
     }
 
     func testNegativeInsetsAreClampedIntoTheColumn() throws {
-        for declarations in ["left:-50px; top:0; width:100px", "right:-50px; top:0; width:100px", "left:-999px; top:-20px; width:100px",
+        // `-998px` is drawn, a pixel short of the off-screen rule (#358).
+        for declarations in ["left:-50px; top:0; width:100px", "right:-50px; top:0; width:100px", "left:-998px; top:-20px; width:100px",
                              "left:500px; top:0; width:100px"] {
             let frame = try callout(declarations)
             XCTAssertGreaterThanOrEqual(frame.minX, -0.5, declarations); XCTAssertLessThanOrEqual(frame.maxX, 360.5, declarations)
@@ -226,18 +227,19 @@ import UIKit
 
     // MARK: Visually hidden labels
 
-    /// `doc/native-viewer.md`: "top/left offsets of -1,000 CSS pixels or less as the book wrote
-    /// them, an `em` or a `rem` counting as 16 pixels (`-62.5em`), including calculations in
-    /// those units alone"; zero-area `clip: rect(...)` and `clip-path: inset(50%)`. Everything
-    /// else stays visible.
+    /// `doc/native-viewer.md`: "top/left offsets as the book wrote them: -999 CSS pixels or less
+    /// in absolute units alone, and `-62.5em` or less, 1,000 pixels, when an `em` or a `rem` is
+    /// in the offset, each counting as 16 pixels; calculations in those units alone count too";
+    /// zero-area `clip: rect(...)` and `clip-path: inset(50%)`. Everything else stays visible.
     func testHiddenLabelHeuristicAtItsDocumentedBoundaries() throws {
         let hidden = ["left:-1000px", "top:-1000px", "left:-1000.5px", "left:-9999px", "left:calc(-1000px)", "left:calc(-500px - 500px)",
                       "left:calc(-250px * 4)", "left:-750pt", "left:-11in", "left:-1e9px", "inset:-2000px auto auto auto",
+                      "left:-999px", "top:-999px", "left:-999.01px", "left:calc(-500px - 499px)", "left:-749.25pt",
                       "left:-999em", "top:-999rem", "left:-62.5em", "top:-62.5rem", "left:calc(-999px - 1em)", "left:calc(-50em - 200px)",
                       "clip:rect(0 0 0 0)", "clip:rect(0, 0, 0, 0)", "clip:rect(1px, 1px, 1px, 1px)", "clip:rect(0px 0px 0px 0px)",
                       "clip-path:inset(50%)", "clip-path:inset(100%)", "visibility:hidden"]
-        let visible = ["left:-999px", "left:-999.99px", "top:-999px", "left:-62.49em", "top:-62rem", "left:calc(-50em - 199px)",
-                       "left:-999ex", "left:-999ch", "left:calc(-999em - 1%)", "top:-999vh",
+        let visible = ["left:-998px", "left:-998.99px", "top:-998px", "left:-800px", "left:-62.49em", "left:-62.4375em", "top:-62rem",
+                       "left:calc(-50em - 199px)", "left:-999ex", "left:-999ch", "left:calc(-999em - 1%)", "top:-999vh",
                        "left:calc(-2000px + 50%)", "left:-200%", "left:-500vw", "right:-9999px", "bottom:-9999px", "left:-749pt",
                        "right:-999em", "margin-left:-999em",
                        "margin-left:-9999px", "clip:rect(0, 0, 1px, 1px)", "clip:rect(auto, auto, auto, auto)", "clip-path:inset(49%)",

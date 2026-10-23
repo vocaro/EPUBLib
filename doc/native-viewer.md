@@ -2733,13 +2733,19 @@ relative vertical offsets, arbitrary overlap and `z-index`, and page-pinned or r
 boxes are outside the supported subset. Conventional positioned, visually hidden accessibility
 labels are not drawn, so that the page shows no duplicate text, and are kept for assistive
 technology as a browser keeps them (below). The offscreen heuristic recognizes
-top/left offsets of -1,000 CSS pixels or less as the book wrote them, an `em` or a `rem`
-counting as 16 pixels (`-62.5em`), including calculations in those units alone. That is the em
-media queries are given, not the element's font size or the reader's: `left: -999em`, where
-Standard Ebooks parks the heading of a title page beside an image of the same words, hides it
-at every text size, and `-62em` hides nothing at any, though it computes to more than 1,000
-points from 17 points up. Percentage and viewport offsets, offsets in a face's own metrics
-(`ex`, `ch`) and calculations holding one remain visible unless explicitly clipped or hidden:
+top/left offsets as the book wrote them: -999 CSS pixels or less in absolute units alone, and
+`-62.5em` or less, 1,000 pixels, when an `em` or a `rem` is in the offset, each counting as 16
+pixels; calculations in those units alone count too. That is the em media queries are given,
+not the element's font size or the reader's: `left: -999em`, where Standard Ebooks parks the
+heading of a title page beside an image of the same words, hides it at every text size, and
+`-62em` hides nothing at any, though it computes to more than 1,000 points from 17 points up.
+The pixel line takes in `-999px`, where stylesheets park skip links, visually hidden labels and
+inputs, and menus and tooltips until they open. Between -500 and -998 pixels they place what is
+seen: a strip of slides or tabs, a wide background, a heading set across a timeline at
+`-995px`, and panels that slide in from there, which stay drawn
+([#358](https://github.com/vocaro/EPUBLib/issues/358)). Percentage and viewport offsets,
+offsets in a face's own metrics (`ex`, `ch`) and calculations holding one remain visible
+unless explicitly clipped or hidden:
 a percentage is of a containing block of any width, and the viewport offset stylesheets use,
 `-100vw`, is the edge of the screen and not beyond it. Reading the offset as written keeps
 rendered text and saved range offsets identical across reader font-size changes. General clipping,
@@ -3775,8 +3781,9 @@ Go: the native viewer is the bundled engine.
   offsets, arbitrary overlap/`z-index` and page-pinned or repeating fixed boxes are unsupported.
   A layout disclosure accompanies books using these box styles. Common positioned accessibility
   labels hidden with zero-area `clip: rect(...)`, `clip-path: inset(50%)` or
-  top/left offsets of -1,000 CSS pixels or less (16 to the `em` or `rem`, so `-62.5em`) are
-  not drawn and are read by VoiceOver where they stand; percentage and viewport
+  top/left offsets of -999 CSS pixels or less, or of `-62.5em` or less (1,000 pixels at 16 to
+  the `em` or `rem`) when either is in them, are not drawn and are read by VoiceOver where they
+  stand; percentage and viewport
   offsets remain visible unless explicitly hidden or clipped. A box parked that far to the
   left that reaches back on screen, with a `right` offset or a great width, is hidden with
   the rest. A hidden heading is read as plain text, as a shown one is. General clipping and arbitrary offscreen
