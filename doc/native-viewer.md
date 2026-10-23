@@ -72,6 +72,21 @@ continues to describe the authored spine resource.
    last attribute as self-closing (the tag runs to the `/>` of a later empty element) and builds
    the rest in a second `html` beside or inside it, what that one holds is the root's, with each
    of its attributes that the root lacks, and the section is shown (#293).
+   Text NULs between a `>` and a `[` would join them into the internal subset the screen
+   refuses after a DOCTYPE, so once a file holds `<!DOCTYPE`, in any case, the first of them is
+   given to the parser as `<!>`. What keeps the text the same is libxml2 2.9.13, which reads
+   `<!>` as nothing wherever recovery writes it, `title` and `textarea` included; HTML reads it
+   as an empty comment in text. A libxml2 with an HTML tokenizer (2.14 and later) reads
+   `title`, `textarea`, `xmp`, `iframe`, `noembed`, `noframes`, `noscript` and `plaintext` as
+   RCDATA or raw text, and would show `<!>` there as written
+   ([#593](https://github.com/vocaro/EPUBLib/issues/593)). Any `>` after the file's first
+   `<!DOCTYPE` counts. The screen reads a DOCTYPE in two ways and refuses a `[` directly after
+   it in both: as XML reads it, in capitals and past a quoted `>`, and for the HTML parser, in
+   any case to its first `>` (#293). A section reaches the HTML parser after either reading,
+   and the screen also reads a DOCTYPE inside a style sheet, so recovery cannot tell which `>`
+   the screen takes for a DOCTYPE's end. `<!>` holds no quote and no `-->`, `?>` or `]]>`, so
+   it ends nothing the screen may be reading there (`<!---->` would end a comment the screen
+   reads in a style sheet) ([#246](https://github.com/vocaro/EPUBLib/issues/246)).
    A section whose file is cut off inside markup stays withheld, with its disclosure: the
    screen refuses markup left open at the end of the input before either parser runs.
    `XMLSafety` refuses entity declarations first. No DTD or network access, depth and node limits.
@@ -575,7 +590,9 @@ continues to describe the authored spine resource.
   other line does. In the inspector an image is named by its words, or is
   an image without a name. Zoom In, Zoom Out, Fit
   and Close controls complement pinch/trackpad magnification and panning; Escape closes the
-  inspector and Command-plus/minus/zero zooms or fits it. Reader page input is suspended while
+  inspector and Command-plus/minus/zero zooms or fits it. The controls and the image stand
+  inside the safe area, below a toolbar shown over the reader on the Mac as the pages do
+  ([#162](https://github.com/vocaro/EPUBLib/issues/162)). Reader page input is suspended while
   inspecting. Closing preserves the reader's text, selection and reading position.
   Inspection decodes the original archive resource independently of its inline CSS size and
   body font size, retaining resolution up to 16 megapixels and an 8,192-pixel long side.
@@ -620,6 +637,10 @@ continues to describe the authored spine resource.
   A continuation sharing a page with following rows or prose uses the displayed page’s exact
   bounds; overflowing content advances to the next page once, without laying out the whole
   section again ([#546](https://github.com/vocaro/EPUBLib/issues/546)).
+  A row is drawn across the content box of the block or list item its table is in, inside
+  its margins, borders and padding on both sides, in either direction and with or without a
+  float in the section; a list item's marker hangs in the indent beside the first row
+  ([#376](https://github.com/vocaro/EPUBLib/issues/376)).
   Continuous scroll retains full row heights. Tables too wide for the line shrink their text
   to 60%, then wrap by character. Only the outer table scales: tables inside cells inherit
   that scale and wrap at their cell's width, so nesting never multiplies text reductions.
@@ -632,6 +653,18 @@ continues to describe the authored spine resource.
   it, and continuous scroll brings that nested line to the top. Each named only the outer
   cell's character for the whole nested table, and opened the row's first page
   ([#544](https://github.com/vocaro/EPUBLib/issues/544)).
+  A match there is read in the innermost cell as well: its highlight is painted on its own
+  words, over the nested row's continuation that draws them, its search-result context and
+  passage are that cell's words, and its DOM range, and so a CFI made from it, is the match's
+  own. Each took the outer cell's characters, where the nested table is one unit: the
+  highlight covered the nested table on screen, the context was the outer cell's text around
+  it, and the CFI named the nested table element
+  ([#718](https://github.com/vocaro/EPUBLib/issues/718)). A match's highlight paints only the
+  nested rows the match runs through, so what a cell's matches cost to paint follows the rows
+  they are in. Two things still read the outer cell's characters: a selection there is drawn
+  over the whole nested table, and a match there is left out of the results, and not
+  selected by `.locate`, when `visibility: hidden` hides text anywhere else in the nested
+  table ([#739](https://github.com/vocaro/EPUBLib/issues/739)).
   A cell is laid out with TextKit 1. Where a paragraph's indents, a list's among them, take
   the whole column left inside the cell's padding, the paragraph keeps the glyph-wide column
   the reader's other text keeps, its left indent first
@@ -1753,9 +1786,33 @@ continues to describe the authored spine resource.
     between two columns and the top and bottom margins stay as they are, and a wider margin can
     turn a two-column spread into one column.
 - **Building** is per section and lazy for first paint: the opening section builds first and
-  the session emits `.ready` once it is on screen; the rest build in the background in
-  parallel. Images decode lazily, downsampled to their displayed size, under a shared cache
-  budget.
+  the session emits `.ready` once it is on screen, built for the appearance the reader opens
+  in; the rest build in the background in parallel. Images decode lazily, downsampled to
+  their displayed size, under a shared cache budget.
+- **One appearance on screen.** A page's text and the canvas behind it always have the same
+  appearance ([#243](https://github.com/vocaro/EPUBLib/issues/243)). A section's colours are
+  part of its build, and a session builds for Light until its host reports Dark, which a host
+  does when the view appears, possibly after the first build is in. The first page therefore
+  waits for text built for the host's appearance, on an empty canvas of that appearance; a
+  host that turns back before that build arrives opens on the build it turned back to.
+  After a live change the canvas changes appearance once and never back. It keeps the old
+  appearance, with the old text, until the sections on screen and those one page turn reaches
+  are built for the new: the section before a section's first page and after its last, and in
+  continuous scroll the section on each side. Those build together, the section on screen
+  among them, so the change waits for one build; the page and the canvas then change together.
+  A page turned to meanwhile is shown as built, in the old appearance, and one already built
+  for the new brings the change with it. Once the canvas has changed, a page turn, a contents
+  entry, a link or a search result that reaches a section still built for the old appearance
+  builds it for the new first, with the page on screen kept (`ReaderCanvasDataSource.canShow`);
+  that section's text still serves selection and progress meanwhile. A page turn or search
+  result that waits so is dropped when the page moves before the build arrives, by a key, a
+  click or tap, a swipe, the wheel, VoiceOver or a command. VoiceOver's move by heading shows
+  the heading it finds at once, so it stops at a section still built for the old appearance,
+  as at one not built yet, and asks for that section's build at once, ahead of the background
+  rebuild (`ReaderCanvasDelegate.canvas(_:wantsSection:)`): the next move finds the heading
+  once that one build is in, rather than wait on the main thread. A note is shown in the
+  appearance its text was built for, the new one, whatever the page behind it shows.
+  `effectiveAppearance` reports the new appearance at once.
 - **Release.** A typography change keeps each built section on screen until its rebuild
   arrives. A rebuilt SVG shares the font database its replaced build still holds, so a
   relayout needs no more of the font budget than the book already has. The text view drops
@@ -1826,7 +1883,9 @@ continues to describe the authored spine resource.
   most easily disagree about what the bytes are. The cost is one section of a file some tool
   wrote short; a download cut short is no readable archive at all
   ([#202](https://github.com/vocaro/EPUBLib/issues/202)). Text extraction's recovery reads the
-  matching case the same way: a `<` that is the last byte of a file is not text.
+  matching case the same way: a `<` that is the last byte of a file is not text. A `<` that
+  NULs follow at the end of a file is not its last byte, and the screen and HTML read it as a
+  character: `…<p>two <` and NULs reads `two <`, as text extraction reads the same bytes.
 - **Book pose.** New public `View.epubReaderDivision(_:)` reserves a vertical division in the
   reader's own coordinates. Columns never depend on device idiom, orientation or screen.
 
@@ -1983,12 +2042,12 @@ as they did.
   Every line below a box that follows the visible height moves with it, and its place is an
   estimate until it is laid out again. So once the boxes are resolved for a new height the
   reader rests the kept position again, as after a resize: the last one shown, or the visible
-  start, read from the layout the new height replaces, once the person has scrolled or AppKit
-  has moved the view by a point or more for a bar. A bar shown or hidden over a reader that
-  runs under it (a host's `ignoresSafeArea()`) changes the visible height and not the
-  reader's size. Without the rest an epigraph stood 81 points below the top on an iPhone
-  while the navigation bar was hidden, and on the Mac, after a toolbar was shown over a
-  full-size content view, the next layout drew another chapter, which the reader reported
+  start, read from the layout the new height replaces, once the person has scrolled. A bar
+  shown or hidden over a reader that runs under it (a host's `ignoresSafeArea()`) changes the
+  visible height and not the reader's size. Without the rest an epigraph stood 81 points
+  below the top on an iPhone while the navigation bar was hidden, and on the Mac, after a
+  toolbar was shown over a full-size content view, the next layout drew another chapter,
+  which the reader reported
   ([#338](https://github.com/vocaro/EPUBLib/issues/338)). On iOS the rest puts the line being
   read at the top of the taller area when a bar hides. UIKit reports the scrolling of an
   inset change once the change is over, the reader's rest included. Where that report finds
@@ -1997,9 +2056,18 @@ as they did.
   bar and the text under it is being laid out again. On an iPad a paragraph shown otherwise
   ended 38.6 points below the top once the bar had hidden twice. A book with no box to
   resolve is left as UIKit leaves it: when a bar hides, its text stays where it is on
-  screen. On the Mac nothing lays the reader out when a toolbar changes the insets
-  ([#162](https://github.com/vocaro/EPUBLib/issues/162)), so the boxes stay resolved for the
-  old height until something else does: a change of appearance, or a resize.
+  screen. On the Mac the reader is laid out when a toolbar changes its safe area (Pages,
+  below), and its layout lays out the scroll view, whose automatic insets follow the toolbar
+  then. AppKit moves the view for the new inset inside that layout, which is no scroll by the
+  person. In the middle of the book it moves the view by as much as the inset changed: the
+  line at the top of the visible area stays there, and the text moves with the bar, 34 points
+  down as a 66-point toolbar replaces the title bar alone and back up as it hides. Where the
+  view is as far down as it goes, a toolbar hidden moves it by less, and an earlier line comes
+  into view at the top; in a book with no box to resolve the reader then reads the screen
+  again, reports that line and puts the insertion point on it. Before, nothing laid the
+  reader out for a toolbar, and the boxes stayed resolved for a visible height of 620 points
+  where 586 showed until a change of appearance or a resize did
+  ([#162](https://github.com/vocaro/EPUBLib/issues/162)).
   On Mac, VoiceOver
   [enters a text view at its insertion point](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point).
   New text starts with it at its first line, and the scroll view's is kept on the first line
@@ -2302,6 +2370,13 @@ as they did.
   Paginations are cached per section and column size; a resize,
   rotation or bar change repaginates once it ends, in steps when far into a section, with the
   old spread on screen until the new one is ready. A finished pagination keeps only its pages.
+  On the Mac a toolbar shown, hidden or made compact over a reader that runs under it, as over
+  a full-size content view, changes its safe area and not its size. AppKit does not mark the
+  reader as needing layout for that (a scroll view with automatic insets marks only itself),
+  and tells whoever observes a view's `safeAreaInsets` (macOS 27.2); the reader observes its
+  own and is laid out then, where its pages stayed 80 points down under a
+  66-point toolbar until the window was resized
+  ([#162](https://github.com/vocaro/EPUBLib/issues/162)).
 - **Right to left.** `page-progression-direction="rtl"` mirrors spreads, swipes and tap zones.
   Within a page, a box's sides by flow (`margin-inline-start`, `padding-inline`,
   `border-inline-end`) are the sides the element's own `direction` maps them to, and cascade
@@ -2325,14 +2400,23 @@ as they did.
 
 The native CSS subset wraps prose beside left/right floated figures, text and archive images,
 then restores the full column below the box. Auto-width text floats use their content width,
-including narrow drop caps. Horizontal margins and padding reserve space around the native
-glyph column. `clear: left`, `right` and `both` on a block start it below the earlier floats
-of the requested side, with all it holds, a float it opens with included; inside it nothing
-clears again, so its later lines wrap beside its own floats. An empty block that clears moves
-what follows it. On a float, `clear` moves that float alone below the earlier floats of the
-side (CSS 2.2 9.5.2), and on a `br` it moves the line after the break, as browsers do
-([#151](https://github.com/vocaro/EPUBLib/issues/151)). So does a `br`'s `clear` attribute,
-`left`, `right`, `all` or `both` in any case, which HTML maps to the property as a
+including narrow drop caps. A float whose `width` or `max-width` is narrower than a word it
+holds is as wide as that word, as far as its containing block allows: CSS lets the word overflow
+the float (CSS Text 3 5.2), and the reader, which draws nothing outside its column, broke it
+between characters instead. The first word of a paragraph counts with the indent its first line
+keeps (`text-indent`). Where the float's text hyphenates (`hyphens: auto`, the reader's default)
+a line may end at a hyphenation point, so a word counts by its widest part and the hyphen set
+after it, and a float wide enough for those keeps its width and hyphenates, as WebKit sets it. A
+verse number in a float sized in pixels stays whole at a larger reader font. Only words count:
+an image with no size of its own still shrinks to the float
+([#152](https://github.com/vocaro/EPUBLib/issues/152)). Horizontal margins and padding reserve
+space around the native glyph column. `clear: left`, `right` and `both` on a block start it
+below the earlier floats of the requested side, with all it holds, a float it opens with
+included; inside it nothing clears again, so its later lines wrap beside its own floats. An
+empty block that clears moves what follows it. On a float, `clear` moves that float alone below
+the earlier floats of the side (CSS 2.2 9.5.2), and on a `br` it moves the line after the break,
+as browsers do ([#151](https://github.com/vocaro/EPUBLib/issues/151)). So does a `br`'s `clear`
+attribute, `left`, `right`, `all` or `both` in any case, which HTML maps to the property as a
 presentational hint (HTML §15.3.4, [#121](https://github.com/vocaro/EPUBLib/issues/121)).
 
 A float, and a sized `inline-block`, is placed and sized in its containing block: the content
@@ -2343,9 +2427,16 @@ are resolved at the column's size, as for its prose. A line beside a float is sh
 float's side (CSS 2.2 9.5): no text is set between a left float and the line's start, or
 between a right float and the line's end, so the prose after an indented block or a positioned
 container is not set in its margin, on the far side of a float it holds
-([#150](https://github.com/vocaro/EPUBLib/issues/150)). In a positioned container narrower than
-the column, or moved along it, the paragraphs and floats of the blocks inside it are set in the
-container's content box, without the margins of the blocks between.
+([#150](https://github.com/vocaro/EPUBLib/issues/150)). A line is set beside a float only where
+the room there holds the line's first word, or in a paragraph that hyphenates the word's first
+part and its hyphen, and is 48 points wide at least, or a third of the column where the column
+is narrower than 144 points. Otherwise the line goes down past the float, as CSS 2.2 9.5 shifts
+a line box too narrow for any of its content, where TextKit broke the word between any two
+characters ([#152](https://github.com/vocaro/EPUBLib/issues/152)). WebKit sets hyphenated parts
+in such a room too. The 48-point floor is the reader's own: a browser uses any room its content
+fits. In a positioned container narrower than the column, or moved along it, the paragraphs
+and floats of the blocks inside it are set in the container's content box, without the margins
+of the blocks between.
 
 A sized `inline-block` is set on its block's line. It starts where the text or the box before
 it ends, a space after it where the source has white space between the two, and at the start
@@ -2353,10 +2444,11 @@ of the block's next line when the one it would be on is full. A box that opens i
 the block's `text-indent`, and a block that sets its lines from the right fills them from the
 right. A run of such boxes is therefore a row that wraps as words do: the rows of asterisks
 that mark an omission, an initial in a box of fixed width before the rest of its word. The
-text after the run goes on from its last box, on the same line where that line has 48 points
-left, and the block that follows starts below the run's last row. A box's own horizontal
-margins, borders and padding stand between it and its neighbours. Each box is still a
-paragraph of its own in the text, so characters, offsets and CFIs are what they were.
+text after the run goes on from its last box, on the same line where what is left of that line
+holds its first word, as beside a float, and the block that follows starts below the run's last
+row. A box's own horizontal margins, borders and padding stand between it and its neighbours.
+Each box is still a paragraph of its own in the text, so characters, offsets and CFIs are what
+they were.
 
 Three things about a row differ from a browser. Its boxes are aligned by their tops, not
 their baselines, and prose beside a box taller than a line wraps beside it as beside a float.
@@ -2365,6 +2457,16 @@ turn, where a browser that honours `text-wrap: pretty` evens the rows out.
 
 Absolute callouts honor `top`, `right`, `bottom`, `left` and `inset` within their nearest
 positioned ancestor, including a top inset that places them before their source location.
+Prose and floats written before such a callout in its containing block keep clear of it: the
+layout places the callouts, then sets that text again beside them. Where a callout stands
+depends only on what is above its containing block and on the callouts before it, which it
+settles below, and the layout anticipates it there. So a chapter of margin notes, each written
+after its paragraph in a relative container of its own, has every note placed however long it
+is, where twelve containers had every note set in flow
+([#209](https://github.com/vocaro/EPUBLib/issues/209)). Callouts that four layouts of the
+section cannot settle are still set in flow. Such a chapter with a float before each note, on
+the note's side, can be: the float keeps clear of where the layout before placed the notes in
+the containers below it ([#751](https://github.com/vocaro/EPUBLib/issues/751)).
 Relative containers honor column sizing and horizontal offsets, with positive vertical
 offsets moving their content downward. Fixed callouts use the section's viewport coordinates
 and appear once; they do not remain pinned while scrolling or repeat on each page. The reader
@@ -2404,7 +2506,17 @@ indent. Margins, centring, right alignment, justification and list markers are t
 are in a text without boxes, and a paragraph with its own margin beside a float starts at the
 float's edge, its margin underneath it
 ([#63](https://github.com/vocaro/EPUBLib/issues/63),
-[#150](https://github.com/vocaro/EPUBLib/issues/150)). TextKit breaks a justified paragraph's
+[#150](https://github.com/vocaro/EPUBLib/issues/150)). An attachment is sized to the same
+line, between its paragraph's indents: a table's rows are as wide as the content box of the
+block or list item they are in, and so are a rule and an image of `width: 100%` where the
+block is indented by less than 15% of the line
+([#376](https://github.com/vocaro/EPUBLib/issues/376); further in, they are not:
+[#769](https://github.com/vocaro/EPUBLib/issues/769)). Past a tab, TextKit 2
+[sizes an attachment at a stop it measures from the line's start](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#textkit-2-sizes-an-attachment-past-a-tab-from-the-lines-start)
+and draws it at one it measures from the paragraph's edge. Past a list item's marker the two
+are the same stop, and the reader sizes the attachment where it is drawn; past any other tab an
+attachment can be a few points narrower than the room left on its line
+([#788](https://github.com/vocaro/EPUBLib/issues/788)). TextKit breaks a justified paragraph's
 lines a little differently where the container places them; their edges are the same.
 The plan measures its paragraphs one at a time, and measures each as the text lays it out:
 with the container, those above the text's first box included, since where TextKit applies the
@@ -2748,7 +2860,21 @@ The following are the defaults. Host commands and accessibility actions stay ena
   backward step is shortened to keep at least half of it on screen
   ([#161](https://github.com/vocaro/EPUBLib/issues/161)).
   `ViewCoverageScrollTests.testAPageTurnBackAfterAJumpPastFiguresKeepsTheLineThatWasFirstOnScreen`
-  covers a jump past figures and successive backward turns.
+  covers a jump past figures and successive backward turns. Where the book has a float or
+  positioned box anywhere the reader places every line itself, and TextKit 2 gives the text
+  it has not laid out no height, so the document ends at the last line laid out, and on Mac
+  a turn stopped there, short of a screen
+  ([#369](https://github.com/vocaro/EPUBLib/issues/369#issuecomment-6341377089)). So before
+  a scroll past that end the screen it opens is laid out, which for a turn forward is a
+  screen at most. A turn back into a section before the book is built shows the section's
+  end (`scrollToAnchorLine`), and lays out the whole of that section to reach it, on the main
+  thread in the key press or action that turned the page; the cost grows with the section's
+  length ([measured](https://github.com/vocaro/EPUBLib/issues/369#issuecomment-6341953637)).
+  Laying out only its last screen is not possible: TextKit 2 estimates nothing in such a
+  text, so the last screen's place is known only once everything above it is laid out
+  ([#746](https://github.com/vocaro/EPUBLib/issues/746)). Once the book is built no turn
+  asks for a section's end. On iOS the scroll view's content has the whole text's height
+  already.
 - VoiceOver: the text offers the page turn itself, and reads in order from the text views.
   On iPhone and iPad each line of a page offers Next Page and Previous Page, and the
   reader's SwiftUI surface has a page-turn `accessibilityScrollAction`. On Mac each text
@@ -2977,7 +3103,8 @@ The following are the defaults. Host commands and accessibility actions stay ena
   book, which each element keeps, so that it
   [gives the same answer twice](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#a-custom-heading-rotor-must-give-the-same-answer-twice).
   A section that is not built yet
-  ends the search, and so does the end of the book. A rotor is not an action: VoiceOver says
+  ends the search, as does one still built for an appearance the reader has left (**One
+  appearance on screen** under [Decisions](#decisions)), and so does the end of the book. A rotor is not an action: VoiceOver says
   "Actions available" of a line for the actions the line is offered, with the rotor and
   without it.
   On Mac a text area has no elements for its lines, so the heading's characters carry its
@@ -2998,7 +3125,8 @@ The following are the defaults. Host commands and accessibility actions stay ena
   list when its rotor opens, and neither does the request for a range. After the turn
   VoiceOver reads the page from its top, as after any page turn, with its cursor on the
   heading. The list takes in the sections page turns reach and the one on screen, and a
-  section that is not built yet ends it on that side: in the seconds after a book opens
+  section that is not built yet, or still built for an appearance the reader has left, ends
+  it on that side: in the seconds after a book opens
   it holds the sections built so far around the page. A heading that begins on an earlier
   page and ends on this one is listed once, where it begins.
   The search is written to
@@ -3157,20 +3285,23 @@ The following are the defaults. Host commands and accessibility actions stay ena
 | `setHighlights` | Replaces drawn host highlights. |
 
 `.searchResultsChanged` reports the result list before `.searchChanged(.completed)`, then each
-change of the current match, and nil when a clear, another query, a failure, a cancellation or
-`.locate` withdraws the list. Results are in spine order, then document order
+change of the current match, and nil when a clear, another query, a failure or `.locate`
+withdraws the list. A search cancelled before its results are published ends with none; a
+cancellation that arrives after they are published withdraws nothing, and the search completes.
+Results are in spine order, then document order
 (see [search results](reader-controls.md#search-results)).
 
-`.ready` is emitted once, when the opening section is on screen in a mounted view, and the first
-`.relocated` reports the opening position (the text start, see Decisions). `.relocated`
-carries the section href, overall progression (by section byte size, as foliate-js computed it),
-the table-of-contents title for the position, the page-list entries it shows (see Decisions)
-and the visible range's CFIs. A nonlinear section counts nothing toward progression unless no
-section is linear (see Decisions). A selection's `.selectionChanged` event and host selection action
-carry the same complete passage: `text` omits nonlinear sections, and `location.rangeBookmarks`
-preserves all included documents. Its `page` names the entry in effect at its start and `pages`
-includes the entries it spans, omitting nonlinear pages. Save the entire `EPUBLocation` and pass
-it to `.setHighlights` to restore all segments in either flow, including after typography changes.
+`.ready` is emitted once, when the opening section is on screen in a mounted view, built for the
+host's appearance (see Decisions), and the first `.relocated` reports the opening position (the text
+start, see Decisions). `.relocated` carries the section href, overall progression (by section byte
+size, as foliate-js computed it), the table-of-contents title for the position, the page-list
+entries it shows (see Decisions) and the visible range's CFIs. A nonlinear section counts nothing
+toward progression unless no section is linear (see Decisions). A selection's `.selectionChanged`
+event and host selection action carry the same complete passage: `text` omits nonlinear sections,
+and `location.rangeBookmarks` preserves all included documents. Its `page` names the entry in effect
+at its start and `pages` includes the entries it spans, omitting nonlinear pages. Save the entire
+`EPUBLocation` and pass it to `.setHighlights` to restore all segments in either flow, including
+after typography changes.
 No partial annotation is drawn while a section is building or if any segment fails to resolve.
 An empty collection, a contradictory first bookmark, a foreign identity/format or malformed CFI
 is incompatible; unordered/duplicate document targets, nonlinear multi-document targets or
@@ -3417,10 +3548,7 @@ Go: the native viewer is the bundled engine.
   rule that rests a box's top edge: each of its positions rests its own line. That rule holds
   for every position the reader shows, the one a resize or a setting change keeps included:
   where the person has scrolled part of a one-screen box off the top, a resize shows the box
-  whole again, moving its lines down to where the box puts them. On the Mac the reader is not
-  laid out when a toolbar changes the scroll view's insets
-  ([#162](https://github.com/vocaro/EPUBLib/issues/162)), so until something else lays it out its boxes are resolved for the old
-  height.
+  whole again, moving its lines down to where the box puts them.
 - Generated content ([Decisions](#decisions)) leaves out, with a disclosure, images and the
   other items of `content` the reader does not generate, and the generated content of a table
   laid out as a grid and of its rows. Without a disclosure: a `::before` or `::after` with no

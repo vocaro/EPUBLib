@@ -415,31 +415,89 @@ import UIKit
         }
     }
 
+    /// Shows or hides `window`'s toolbar, giving it one the first time, and lays out as display
+    /// cycles do until the canvas's safe area has followed and `followed` holds, or five seconds
+    /// have passed. Returns the top of the safe area. Each window's toolbar has an identifier of
+    /// its own: toolbars that share one share their visibility across a process's windows.
+    private func setToolbar(shown: Bool, of window: NSWindow, over canvas: ReaderCanvasView,
+                            until followed: (_ bar: CGFloat) -> Bool) async throws -> CGFloat {
+        let before = canvas.safeAreaInsets.top
+        if window.toolbar == nil { window.toolbar = NSToolbar(identifier: "org.epublib.tests.view-coverage.\(UUID().uuidString)") }
+        window.toolbar?.isVisible = shown
+        let deadline = Date().addingTimeInterval(5)
+        var bar = canvas.safeAreaInsets.top
+        // What every display cycle does: lay out whatever asked for it.
+        while Date() < deadline, bar == before || !followed(bar) {
+            try await Task.sleep(for: .milliseconds(20))
+            window.contentView?.layoutSubtreeIfNeeded()
+            bar = canvas.safeAreaInsets.top
+        }
+        return bar
+    }
+
     /// "A resize, rotation or bar change repaginates once it ends": a toolbar shown over the
-    /// reader takes more of its top, and the pages must move out from under it.
+    /// reader takes more of its top, and the pages must move out from under it. Hidden again,
+    /// it gives the top back, and the pages move up to the title bar.
     func testPagesMoveClearOfAToolbarShownOverThem() async throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/162")
         let (canvas, window) = underTitleBar(flow: .paginated)
         canvas.show(ReaderTextPosition(section: 0, offset: 9_000), selecting: nil)
         canvas.layoutSubtreeIfNeeded()
         let titleBar = canvas.safeAreaInsets.top
         XCTAssertEqual(try XCTUnwrap(canvas.textViews.first).frame.minY, titleBar + 48, accuracy: 0.01, "clear of the title bar to begin with")
-        window.toolbar = NSToolbar(identifier: "org.epublib.tests.view-coverage.shown")
-        let deadline = Date().addingTimeInterval(5)
-        var bar = canvas.safeAreaInsets.top
-        // What every display cycle does: lay out whatever asked for it.
-        while Date() < deadline, bar <= titleBar || canvas.textViews.contains(where: { $0.frame.minY < bar + 48 - 0.01 }) {
-            try await Task.sleep(for: .milliseconds(20))
-            window.contentView?.layoutSubtreeIfNeeded()
-            bar = canvas.safeAreaInsets.top
+        for shown in [true, false, true] {
+            let label = shown ? "toolbar shown" : "toolbar hidden"
+            let bar = try await setToolbar(shown: shown, of: window, over: canvas) { bar in
+                canvas.textViews.allSatisfy { abs($0.frame.minY - (bar + 48)) < 0.01 }
+            }
+            if shown {
+                XCTAssertGreaterThan(bar, titleBar, "the toolbar covers more of the reader than the title bar did")
+            } else {
+                XCTAssertEqual(bar, titleBar, "the title bar alone covers the reader again")
+            }
+            XCTAssertEqual(canvas.bounds.size, CGSize(width: 900, height: 700), "\(label): the canvas's size has not changed")
+            let page = CGRect(x: 0, y: bar, width: 900, height: 700 - bar)
+            XCTAssertEqual(canvas.pageArea, page, label)
+            XCTAssertEqual(canvas.spread, ReaderCanvasGeometry.spread(in: page, division: nil, isRightToLeft: false), "\(label): paginated for the area")
+            let top = try XCTUnwrap(canvas.textViews.map(\.frame.minY).min())
+            XCTAssertEqual(top, bar + 48, accuracy: 0.01, "\(label): the pages start \(top) points down, 48 below the \(bar)-point bar")
+            for column in canvas.textViews {
+                XCTAssertLessThanOrEqual(column.frame.maxY, canvas.bounds.maxY - 48 + 0.5, label)
+            }
+            let range = try XCTUnwrap(canvas.visibleRange)
+            XCTAssertTrue(range.start.offset <= 9_000 && 9_000 < range.end.offset, "\(label): \(range)")
         }
-        XCTAssertGreaterThan(bar, titleBar, "the toolbar covers more of the reader than the title bar did")
-        XCTAssertEqual(canvas.bounds.size, CGSize(width: 900, height: 700), "whose size has not changed")
-        XCTAssertEqual(canvas.pageArea.minY, bar)
-        let top = try XCTUnwrap(canvas.textViews.map(\.frame.minY).min())
-        XCTAssertGreaterThanOrEqual(top, bar + 48 - 0.01, "the pages still start \(top) points down: their first lines are under the \(bar)-point bar")
-        let range = try XCTUnwrap(canvas.visibleRange)
-        XCTAssertTrue(range.start.offset <= 9_000 && 9_000 < range.end.offset, "\(range)")
+    }
+
+    /// The same in continuous scroll, which runs under the bar: the scroll view's automatic
+    /// insets follow the toolbar, and the text must be laid out for the height that then shows.
+    /// The canvas was not laid out, so its boxes stayed resolved for a visible height of 620
+    /// where 586 was showing (#162).
+    func testScrolledTextIsLaidOutForTheHeightAToolbarLeavesIt() async throws {
+        let (canvas, window) = underTitleBar(flow: .scrolled)
+        let asked = ReaderTextPosition(section: 0, offset: 9_000)
+        canvas.show(asked, selecting: nil)
+        canvas.layoutSubtreeIfNeeded()
+        let view = try XCTUnwrap(canvas.scrollTextView)
+        let scrollView = try XCTUnwrap(canvas.scrollContainer as? NSScrollView)
+        let titleBar = canvas.safeAreaInsets.top
+        XCTAssertEqual(view.readerContainer.viewportSize.height, canvas.scrollVisibleContainerRect.height, accuracy: 0.5, "to begin with")
+        for shown in [true, false, true] {
+            let label = shown ? "toolbar shown" : "toolbar hidden"
+            let before = canvas.scrollVisibleContainerRect.height, covered = canvas.safeAreaInsets.top
+            let bar = try await setToolbar(shown: shown, of: window, over: canvas) { bar in
+                abs(scrollView.contentInsets.top - bar) < 0.5
+                    && abs(view.readerContainer.viewportSize.height - canvas.scrollVisibleContainerRect.height) < 0.5
+            }
+            XCTAssertEqual(shown, bar > titleBar, label)
+            XCTAssertEqual(canvas.bounds.size, CGSize(width: 900, height: 700), "\(label): the canvas's size has not changed")
+            XCTAssertEqual(scrollView.frame, canvas.bounds, "\(label): the text scrolls under the bar")
+            XCTAssertEqual(scrollView.contentInsets.top, bar, accuracy: 0.5, "\(label): the scroll view's insets follow the bar")
+            let visible = canvas.scrollVisibleContainerRect.height
+            XCTAssertEqual(before - visible, bar - covered, accuracy: 0.5, "\(label): the visible height changes by as much as the bar")
+            XCTAssertEqual(view.readerContainer.viewportSize.height, visible, accuracy: 0.5, "\(label): the text is laid out for it")
+            let range = try XCTUnwrap(canvas.visibleRange)
+            XCTAssertTrue(range.start <= asked && asked < range.end, "\(label): \(range)")
+        }
     }
     #endif
 

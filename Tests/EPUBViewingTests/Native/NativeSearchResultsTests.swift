@@ -100,7 +100,7 @@ import XCTest
         XCTAssertEqual(found.results.map(\.matchedText), ["findneedle", "FINDNEEDLE", "findnéedle", "findneedle", "findneedle", "findneedle"])
         XCTAssertEqual(found.results.map(\.location.quote), found.results.map { Optional($0.matchedText) })
         XCTAssertEqual(found.results.map(\.location.page?.label), ["1", "2", "2", "2", "2", "3"])
-        XCTAssertTrue(found.results.allSatisfy { $0.location.publicationID == session.publication.id })
+        XCTAssertTrue(found.results.allSatisfy { $0.location.publicationID == session.publication.persistentID })
 
         XCTAssertEqual(found.results[0].contextBefore, "Alpha comes before ")
         XCTAssertEqual(found.results[0].contextAfter, " one, then more.")

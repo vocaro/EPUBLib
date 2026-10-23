@@ -12,6 +12,9 @@ public struct EPUBEngineBookmark: Codable, Equatable, Sendable {
 /// Portable fields describe a reading position. `bookmark` restores an engine's precise position.
 /// Engines must reject incompatible bookmarks; matching text/href is a separate, potentially approximate operation.
 public struct EPUBLocation: Codable, Equatable, Sendable {
+    /// The book's `EPUBPublication.persistentID`: its unique identifier, or the SHA-256 of its
+    /// content when it has none. One saved before that identity (#679) carries the book's file
+    /// hash, its `id`. `EPUBPublication.publicationIDs` lists every value that names the book.
     public var publicationID: String
     /// URL-encoded archive-relative reference, compatible with `.navigate(href:)`.
     public var href: String?
@@ -204,13 +207,12 @@ public enum EPUBReaderError: Error, Equatable, Sendable {
 }
 
 public extension EPUBReaderError {
+    /// What the reader's controls show for a refused command or search: `localizedDescription`,
+    /// except that `invalidCommand` and `engineFailure` give the engine's own detail.
     var message: String {
         switch self {
-        case .unsupported: "This reader does not support this action."
-        case .incompatibleLocation: "This saved position belongs to a different book or reader."
+        case .unsupported, .incompatibleLocation, .notReady, .closed: plainMessage
         case .invalidCommand(let message), .engineFailure(let message): message
-        case .notReady: "The reader is not ready."
-        case .closed: "This book is closed."
         }
     }
 }
