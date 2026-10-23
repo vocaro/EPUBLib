@@ -190,14 +190,44 @@ continues to describe the authored spine resource.
   element with an ID assert it, and from foliate-js, which asserted every ID and nested one
   `epubcfi(…)` inside another for an ID with a line separator
   ([#105](https://github.com/vocaro/EPUBLib/issues/105)).
-- **Fixed layout.** Out of scope at first: neither StudyWright catalog (50 shipped EPUBs, 87
-  PDFReflowLib conversions) contains a pre-paginated book. Fixed-layout spine items render as
-  reflowable text with a `.disclosure`; capabilities are not reduced. Owner decision
-  (2026-10-10): no WebKit path for fixed-layout pages for now, open to review later.
-  [#5](https://github.com/vocaro/EPUBLib/issues/5) is narrowed to native rendering of pages
-  that are one image or one SVG, at their declared size and in spreads, and is unscheduled.
-  In nine of the ten fixed-layout titles in the W3C/IDPF EPUB 3 samples, every fixed-layout
-  page is one. Pages that position HTML text keep reflowing with the disclosure.
+- **Fixed layout.** A pre-paginated spine item (`rendition:layout`, for the book or its itemref)
+  that is one image or one drawing is shown whole as a page at its declared size
+  ([#5](https://github.com/vocaro/EPUBLib/issues/5)): an XHTML document whose body shows one
+  raster image or one SVG and nothing else, an SVG document, or a raster image in the spine. The
+  section is built as any other, and is a page when its text is that image's one attachment
+  character (`FixedLayoutPage`). A fixed-layout spine item that is not one image or one drawing
+  reflows, with a `.disclosure` ("This book's fixed page layout is shown as reflowable text."):
+  a page that positions HTML text over artwork, as layout tools export picture books and
+  cookbooks, a page of text, a page of an image and its caption. Capabilities are not reduced.
+  Owner decision (2026-10-10): no WebKit path for fixed-layout pages for now, open to review
+  later. In nine of the ten fixed-layout titles in the W3C/IDPF EPUB 3 samples, every
+  fixed-layout page is one image or drawing.
+  - *Size.* An XHTML page's is its first viewport `meta`'s first `width` and `height`: a unit
+    after a number is ignored and the number read as pixels, other properties are passed over,
+    and `device-width` and `device-height` declare nothing, as the W3C's `lay-fxl-xhtml-icb_*`
+    tests have a reading system read them. An SVG document's is its `viewBox`, as EPUB 3.3 has
+    it, and a raster image's its pixels. A dimension not declared is the image's own, scaled to
+    the one that is. The page keeps its aspect, and its image or drawing fills it, drawn as the
+    reader draws any image (the bundled resvg renderer for SVG, embedded fonts included).
+  - *Spreads.* Pages pair as foliate-js's `fixed-layout.js` paired them. From the first page of
+    a run of linear pages, each takes the next slot of a spread, the first slot the left one
+    (the right one in a book read right to left, `page-progression-direction="rtl"`). A page
+    whose itemref puts it on the first slot's side (`page-spread-left`, or its deprecated
+    `rendition:` form) begins a spread, one put on the other side ends one, leaving the first
+    slot empty where it would stand there, and `rendition:page-spread-center` stands alone. A
+    section that flows ends a run, and a nonlinear page, reached by a link, is shown alone.
+    Whether pages pair is `rendition:spread`, the itemref's or else the package's: `none`
+    never, `both` always, and `landscape` and `auto`, the default, in a landscape page or
+    across a host's division; the deprecated `portrait` is read as `both`.
+  - *Positions.* A page's one position is its image's character. Its CFI is into the XHTML or
+    SVG document; for a raster image in the spine, whose wrapper is no document of the book's,
+    it is the spine item's own (`epubcfi(/6/N)`), which names the page and restores to it, so
+    such a page withholds no positions. A spread's location carries a CFI for each of its pages
+    (`rangeBookmarks`). Search finds a drawing's words (its SVG `text`) and shows its page; an
+    image's `alt` is what VoiceOver reads and Copy copies, and search, which reads a document's
+    text as foliate-js did, does not find it.
+  - *Continuous scroll* shows a scroll of pages: each as large as the scroll's column and the
+    visible height let it be, centered, one after another.
 - **Vertical writing.** `writing-mode: vertical-*` renders horizontally, with a `.disclosure`.
   Ruby and right-to-left text are native. Owner decision (2026-10-11): no WebKit path for now,
   open to review later, and no CoreText page renderer.
@@ -1863,6 +1893,26 @@ as they did.
   division band plus half a gap each side, and both columns have the narrower side's width,
   aligned towards the fold. When that would be under 200 wide, and in continuous scroll, a
   single column uses the wider side.
+- **Fixed-layout pages.** A spread of fixed-layout pages (**Fixed layout** under
+  [Decisions](#decisions)) uses the page area within the same outer and top and bottom margins,
+  parted at its middle on a whole point, or at a usable division, the spread's gutter
+  (`View.epubReaderDivision(_:)`). Each page of a pair is as large as fits its half with its
+  aspect kept, centered vertically, the left page against its half's right edge and the right
+  page against its half's left edge, so that they meet at the middle as a book's pages meet at
+  its spine, or at the division's edges. A page whose partner's slot is empty stays in its
+  half. A page alone, a center page or one that does not pair at the page's size, is as large
+  as fits the whole area and centered, or with a division on its wider side. No column width
+  caps a page, and pages pair across a division only where each side is 200 wide or more.
+  Each page is a column whose text view is the page's fitted size, its one character an image
+  that fills it (`ReaderCanvasGeometry.fixedPageFrames`, `ReaderFixedSpread`). A turn moves by
+  the spread, forward to what the next linear section shows and back to what the one before
+  shows; the visible range runs from the first page's section to the end of the last's. A page not
+  built yet leaves its slot empty and is asked for (`wantsSection`), and the spread is shown
+  again once it is; a page taken for one until it was built and that flows makes the spreads
+  after it pair anew. The edge zones turn the page over a page's image as they do over text
+  (a tap or click elsewhere on it opens the image inspector, as on any image), and VoiceOver on
+  iPhone and iPad says "Page N" for a page turn it makes, N the first page's place among the
+  book's linear sections.
 - **Continuous scroll.** One column at most 720 wide, centred, with the same outer margin. On
   iOS the text view has `contentInsetAdjustmentBehavior = .automatic`, `contentInset` top 48
   and bottom 64 on top of the live safe area, `textContainerInset` only horizontal, and
@@ -2514,8 +2564,8 @@ a percentage is of a containing block of any width, and the viewport offset styl
 `-100vw`, is the edge of the screen and not beyond it. Reading the offset as written keeps
 rendered text and saved range offsets identical across reader font-size changes. General clipping,
 arbitrary offscreen geometry and transforms are outside this subset.
-Fixed-layout publications still reflow and report their existing fixed-layout disclosure; this
-subset does not implement fixed-page geometry.
+A fixed-layout page that positions text reflows with the fixed-layout disclosure, its
+positioned boxes in the flow; this subset does not implement fixed-page geometry.
 
 A label hidden in one of those ways (parked off screen, or clipped with a zero-area
 `clip: rect(...)` or `clip-path: inset(50%)`) is in the text as one character for each block
@@ -3375,8 +3425,14 @@ Go: the native viewer is the bundled engine.
 
 ## Limitations
 
-- Fixed-layout books reflow ([#5](https://github.com/vocaro/EPUBLib/issues/5)); vertical writing
-  renders horizontally ([#7](https://github.com/vocaro/EPUBLib/issues/7)); both are disclosed.
+- A fixed-layout page that is not one image or one drawing, such as one that positions HTML
+  text, reflows ([#5](https://github.com/vocaro/EPUBLib/issues/5)), and vertical writing renders
+  horizontally ([#7](https://github.com/vocaro/EPUBLib/issues/7)); both are disclosed. A
+  fixed-layout page's image or drawing fills the page: where its CSS sizes or places it
+  otherwise within the page's viewport, or clips it to the viewport, that is not followed.
+  Spreads pair pages within a run of linear fixed-layout pages, and a reflowed page between
+  them parts the run. `rendition:orientation`, `rendition:flow` and `rendition:align-x-center`
+  are not read.
 - Floats, positioned callouts and sized `inline-block` content use the rectangular native
   subset described above. Oversized groups and nested complex boxes fall back to native blocks
   in reading order without clipping text. Sticky positioning, negative relative vertical

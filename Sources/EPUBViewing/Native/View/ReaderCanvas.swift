@@ -151,11 +151,16 @@ enum ReaderPageEntry: Equatable, Sendable {
     /// Whether a page turn may show a section's text as it is: false for one that must be built
     /// again first, which the canvas then asks for (`needsSection`), keeping the page it shows.
     func canShow(section index: Int) -> Bool
+    /// The fixed-layout page a section is, which paginated flow shows whole, alone or in a
+    /// spread with the pages beside it; nil for a section that flows. A section not built yet
+    /// whose spine item is pre-paginated is taken for one, without a size.
+    func fixedPage(forSection index: Int) -> ReaderFixedPage?
 }
 
 extension ReaderCanvasDataSource {
     func selectionText(in range: ReaderTextRange) -> String? { nil }
     func canShow(section index: Int) -> Bool { true }
+    func fixedPage(forSection index: Int) -> ReaderFixedPage? { nil }
 }
 
 @MainActor protocol ReaderCanvasDelegate: AnyObject {

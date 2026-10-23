@@ -20,8 +20,9 @@ Requires iOS/iPadOS or macOS 27+, Swift 6.2 and Xcode 27.
 - Page turns by tap, swipe, wheel, keyboard and VoiceOver on iPhone, iPad and Mac.
 
 EPUBLib leaves accounts, networking, storage and library management to the app. It is not an EPUB
-conformance validator. Fixed-layout books reflow and vertical writing is shown horizontally, each
-with a disclosure; see the [native viewer's limitations](doc/native-viewer.md#limitations).
+conformance validator. A fixed-layout page that is one image or one drawing is shown whole, in
+spreads; other fixed-layout pages reflow and vertical writing is shown horizontally, each with a
+disclosure; see the [native viewer's limitations](doc/native-viewer.md#limitations).
 
 ## Products
 

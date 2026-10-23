@@ -65,6 +65,9 @@ public enum SpecConformanceCorpus {
         case vertical(Int, Bool)
         /// A position in each spine occurrence resolves back to that occurrence.
         case distinctPositions
+        /// The spine indices shown as fixed-layout pages, whole at their declared size: every
+        /// other section flows (#5).
+        case fixedPages([Int])
     }
 
     public struct Expectation: Sendable {
@@ -98,7 +101,7 @@ public enum SpecConformanceCorpus {
 
     // MARK: Documented decisions
 
-    static let fixedLayout = "doc/native-viewer.md, Decisions: \"Fixed-layout spine items render as reflowable text with a .disclosure\""
+    static let fixedLayout = "doc/native-viewer.md, Decisions: \"A fixed-layout spine item that is not one image or one drawing reflows, with a .disclosure\""
     static let verticalWriting = "doc/native-viewer.md, Decisions: \"writing-mode: vertical-* renders horizontally, with a .disclosure\""
     static let scripting = "doc/architecture.md, Viewer isolation: \"script elements are counted and disclosed but never run\""
     static let mediaOverlays = "doc/architecture.md: \"Media overlays, TTS and annotation persistence are outside the initial API\""
@@ -132,7 +135,7 @@ public enum SpecConformanceCorpus {
             return Expectation("epub-rs#sec-scripted-content", outOfScope: scripting, .disclosed(.scripts))
         }
         if id.hasPrefix("fxl-") || id.hasPrefix("lay-fxl-") || id.hasPrefix("lay-pp-") || id.hasPrefix("xx-lay-pp") {
-            return Expectation("epub-rs#sec-fixed-layouts", outOfScope: fixedLayout, .disclosed(.fixedLayout))
+            return Expectation("epub-rs#sec-fixed-layouts", outOfScope: fixedLayout, .disclosed(.fixedLayout), .fixedPages([]))
         }
         if id.hasPrefix("lay-roll-") || id.hasPrefix("xx-lay-roll") {
             return Expectation("epub-rs (3.4 draft) #sec-roll-layouts", outOfScope: "roll layouts are not part of EPUB 3.3; an unknown rendition:layout value is reflowable")
@@ -380,6 +383,23 @@ public enum SpecConformanceCorpus {
             .layouts(["prePaginated", "reflowable"]), .disclosed(.fixedLayout)),
         "lay-pp-spine-overrides_behave-as-global-bis": .init("epub-rs#confreq-rs-pkg-spine-override", outOfScope: fixedLayout,
             .layouts(["reflowable", "prePaginated", "reflowable"]), .disclosed(.fixedLayout)),
+        // Pre-paginated pages that are one image or drawing are shown whole (#5): Kate
+        // Greenaway's "A Apple Pie", its pages as XHTML with an image, as XHTML with an SVG,
+        // as raster images in the spine with XHTML fallbacks, and mixed.
+        "lay-pp-embedded-images": .init("epub-rs#confreq-rs-epub3-fxl", .fixedPages(Array(0...8)), .notDisclosed(.fixedLayout)),
+        "lay-pp-embedded-images-svg": .init("epub-rs#confreq-rs-epub3-fxl", .fixedPages(Array(0...8)), .notDisclosed(.fixedLayout)),
+        "lay-pp-images-in-spine": .init("epub-rs#confreq-rs-epub3-fxl", .fixedPages(Array(0...8)), .notDisclosed(.fixedLayout),
+            .notDisclosed(.positionsUnavailable)),
+        "lay-pp-images-mixed": .init("epub-rs#confreq-rs-epub3-fxl", .fixedPages(Array(0...8)), .notDisclosed(.fixedLayout),
+            .notDisclosed(.positionsUnavailable)),
+        "lay-pp-spine-overrides_image-only-pp": .init("epub-rs#confreq-rs-pkg-spine-override",
+            .layouts(["prePaginated", "reflowable"]), .fixedPages([0]), .notDisclosed(.fixedLayout)),
+        "lay-pp-spine-overrides_image-only-reflow": .init("epub-rs#confreq-rs-pkg-spine-override",
+            .layouts(["reflowable", "prePaginated", "reflowable"]), .fixedPages([1]), .notDisclosed(.fixedLayout)),
+        "lay-pp-spine-overrides_image-spine-pp": .init("epub-rs#confreq-rs-pkg-spine-override",
+            .layouts(["prePaginated", "reflowable"]), .fixedPages([0]), .notDisclosed(.fixedLayout)),
+        "lay-pp-spine-overrides_image-spine-reflow": .init("epub-rs#confreq-rs-pkg-spine-override",
+            .layouts(["reflowable", "prePaginated", "reflowable"]), .fixedPages([1]), .notDisclosed(.fixedLayout)),
         "xx-epub-template": .init("template", note: "the suite's own template"),
     ]
 

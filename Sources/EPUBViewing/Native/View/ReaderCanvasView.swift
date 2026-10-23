@@ -67,8 +67,19 @@ import AppKit
     // Paginated flow.
     private(set) var spread: ReaderCanvasGeometry.Spread?
     private(set) var columns: [ReaderTextView] = []
-    /// The spread on screen: its section and first page.
+    /// The spread on screen: its section and first page. For fixed-layout pages, the first
+    /// page's section and its one page.
     private(set) var shownPage: (section: Int, page: Int)?
+    /// The fixed-layout pages on screen, when they are what is shown (`ReaderFixedSpread`), and
+    /// the page area they were fitted into.
+    private(set) var shownFixedSpread: ReaderFixedSpread?
+    private var shownFixedArea: CGRect?
+    /// The sections the fixed-layout spread on screen has a slot for and does not show, not
+    /// being built or not to be shown as built. The spread is shown again once one is
+    /// (`awaitsSection`).
+    private var awaitedSections: Set<Int> = []
+    /// The paginations the columns on screen show, which the cache keeps.
+    private var shownPaginatorKeys: [PaginatorKey] = []
     /// A new spread (after a resize) waiting for its pagination; the old one stays on screen.
     private(set) var pendingSpread: ReaderCanvasGeometry.Spread?
     private var pendingPagination: Task<Void, Never>?
@@ -275,7 +286,8 @@ import AppKit
         let section: Int
         switch configuration.flow {
         case .paginated:
-            section = range.start.section
+            // A spread of fixed-layout pages ends in its last page's section.
+            section = forward ? range.end.section : range.start.section
             if forward {
                 guard let length = dataSource.text(forSection: section)?.length else { return nil }
                 if range.end.offset < length { return true }
@@ -416,7 +428,12 @@ import AppKit
             applyPendingSelection()
             return
         }
-        if target == spread { return cancelPendingSpread() }
+        if target == spread {
+            cancelPendingSpread()
+            // Fixed-layout pages fit the whole page area, which can change where columns do not.
+            if let area = shownFixedArea, area != pageArea { displayAnchor() }
+            return
+        }
         if target != pendingSpread {
             cancelPendingSpread()
             pendingSpread = target
@@ -512,6 +529,10 @@ import AppKit
         columns.removeAll()
         spread = nil
         shownPage = nil
+        shownFixedSpread = nil
+        shownFixedArea = nil
+        awaitedSections = []
+        shownPaginatorKeys = []
     }
 
     /// A text view the canvas is done with. The platform frees views in its own time, so the
@@ -541,10 +562,10 @@ import AppKit
         return paginator
     }
 
-    /// The paginator of the spread on screen, never trimmed.
+    /// The paginator of the spread on screen, never trimmed: its first column's.
     private var shownPaginatorKey: PaginatorKey? {
-        guard let shownPage, let size = spread?.columnSize else { return nil }
-        return PaginatorKey(section: shownPage.section, width: size.width, height: size.height)
+        guard shownPage != nil else { return nil }
+        return shownPaginatorKeys.first
     }
 
     /// The text what is on screen is laid out from, as the data source gave it: a section's, or
@@ -561,7 +582,7 @@ import AppKit
     /// Keeps the cache to a few paginators and their held layouts to `heldLayoutBudget`,
     /// dropping the least recently used.
     private func trimPaginators() {
-        let kept = Set([shownPaginatorKey, paginatorUse.last].compactMap { $0 })
+        let kept = Set((shownPage == nil ? [] : shownPaginatorKeys) + [paginatorUse.last].compactMap { $0 })
         while paginatorUse.count > Self.cachedPaginators, let victim = paginatorUse.first(where: { !kept.contains($0) }) {
             removePaginator(victim)
         }
@@ -580,8 +601,8 @@ import AppKit
 
     /// Memory is short: keep only the pagination on screen.
     func trimCaches() {
-        let kept = shownPaginatorKey
-        for key in paginatorUse where key != kept { removePaginator(key) }
+        let kept = Set(shownPage == nil ? [] : shownPaginatorKeys)
+        for key in paginatorUse where !kept.contains(key) { removePaginator(key) }
     }
 
     /// The reader is closed or this view is going away: nothing here is shown again, so the
@@ -600,14 +621,85 @@ import AppKit
 
     /// Shows the spread holding the anchor.
     private func displayAnchor() {
-        guard let anchor, let spread, spread.columnSize.width > 0, let paginator = paginator(for: anchor.section)
-        else { return }
+        guard let anchor, let spread, spread.columnSize.width > 0 else { return }
+        if let fixed = fixedSpread(containing: anchor.section) { return display(fixed) }
+        guard let paginator = paginator(for: anchor.section) else { return }
         let page = paginator.pageIndex(containing: anchor)
         display(section: anchor.section, firstPage: page - page % spread.columns.count)
     }
 
+    /// One column of the spread on screen: the page it shows, where, and at what viewport.
+    private struct PageSlot {
+        var section: Int
+        var page: ReaderPage
+        var paginator: ReaderPaginator
+        var frame: CGRect
+        var viewport: CGSize
+    }
+
     private func display(section: Int, firstPage: Int) {
         guard let spread, let paginator = paginator(for: section) else { return }
+        let slots = spread.columns.indices.map { slot in
+            paginator.page(at: firstPage + slot).map {
+                PageSlot(section: section, page: $0, paginator: paginator, frame: spread.columns[slot], viewport: spread.columnSize)
+            }
+        }
+        shownFixedSpread = nil
+        shownFixedArea = nil
+        awaitedSections = []
+        install(slots, shownPage: (section, firstPage), emptyPlacement: ReaderTextPlacement(section: section, offset: paginator.text.length))
+    }
+
+    /// The fixed-layout spread that shows `section` in paginated flow at the canvas's size; nil
+    /// when the section flows, or is a page not built yet.
+    func fixedSpread(containing section: Int) -> ReaderFixedSpread? {
+        guard configuration.flow == .paginated, let dataSource, section >= 0, section < dataSource.sectionCount,
+              dataSource.fixedPage(forSection: section)?.size != nil else { return nil }
+        let area = pageArea, division = configuration.division
+        let pairing = ReaderFixedSpread.Pairing(count: dataSource.sectionCount, page: { dataSource.fixedPage(forSection: $0) },
+            isLinear: { dataSource.isLinear(section: $0) },
+            pairs: { ReaderCanvasGeometry.showsFixedSpreads($0.spread, in: area, division: division) },
+            isRightToLeft: configuration.isRightToLeft)
+        return pairing.spread(containing: section)
+    }
+
+    /// Shows a spread of fixed-layout pages, each fitted whole into its slot. A page whose
+    /// section is not built, or not to be shown as built, leaves its slot empty and is asked
+    /// for (`wantsSection`); the spread is shown again once it is (`awaitsSection`).
+    private func display(_ fixed: ReaderFixedSpread) {
+        guard let dataSource else { return }
+        var sizes: [Int: CGSize] = [:]
+        var awaited: Set<Int> = []
+        for section in fixed.sections {
+            if let size = dataSource.fixedPage(forSection: section)?.size, dataSource.text(forSection: section) != nil,
+               dataSource.canShow(section: section) || section == anchor?.section {
+                sizes[section] = size
+            } else { awaited.insert(section) }
+        }
+        let area = pageArea
+        let frames = ReaderCanvasGeometry.fixedPageFrames(of: fixed, sizes: sizes, in: area, division: configuration.division,
+                                                          isRightToLeft: configuration.isRightToLeft)
+        let slots: [PageSlot?] = frames.map { section, frame in
+            guard frame.width > 0, frame.height > 0, let paginator = paginator(for: section, size: frame.size),
+                  let page = paginator.page(at: 0) else { return nil }
+            return PageSlot(section: section, page: page, paginator: paginator, frame: frame, viewport: frame.size)
+        }
+        guard let first = slots.compactMap({ $0 }).first else { return }
+        shownFixedSpread = fixed
+        shownFixedArea = area
+        awaitedSections = awaited
+        install(slots, shownPage: (first.section, 0),
+                emptyPlacement: ReaderTextPlacement(section: first.section, offset: first.paginator.text.length))
+        for section in awaited { delegate?.canvas(self, wantsSection: section) }
+    }
+
+    /// Whether the spread on screen has a slot for `section` that it leaves empty until the
+    /// section is built (`display(_:)`): its data source shows the spread again once it is.
+    func awaitsSection(_ section: Int) -> Bool { awaitedSections.contains(section) }
+
+    /// Puts `slots` in the columns, one each, hiding the columns past them and those of an
+    /// empty slot.
+    private func install(_ slots: [PageSlot?], shownPage: (section: Int, page: Int), emptyPlacement: ReaderTextPlacement) {
         let carriedSelection = programmaticSelection?.selection.range ?? (externalSelectionSource != nil ? currentSelection?.range : nil)
         let preservesFullRange = programmaticSelection?.preservesFullRange ?? false
         #if os(macOS)
@@ -615,21 +707,24 @@ import AppKit
         if pageEntry == nil { pageEntry = placeStillEntered() }
         enteredPlace = nil
         #endif
-        shownPage = (section, firstPage)
-        while columns.count < spread.columns.count {
+        self.shownPage = shownPage
+        shownPaginatorKeys = slots.compactMap { slot in
+            slot.map { PaginatorKey(section: $0.section, width: $0.paginator.size.width, height: $0.paginator.size.height) }
+        }
+        while columns.count < slots.count {
             let column = makeColumnView()
             column.canvas = self
             columns.append(column)
         }
         isApplyingSelection = true
-        for (slot, column) in columns.enumerated() {
-            guard slot < spread.columns.count, let page = paginator.page(at: firstPage + slot) else {
+        for (index, column) in columns.enumerated() {
+            guard index < slots.count, let slot = slots[index] else {
                 column.isHidden = true
-                column.placement = ReaderTextPlacement(section: section, offset: paginator.text.length)
+                column.placement = emptyPlacement
                 column.setContent(NSAttributedString())
                 continue
             }
-            let frame = spread.columns[slot]
+            let page = slot.page, frame = slot.frame
             let top = frame.minY + page.topSpacing
             // A page with layout context is clipped right after its last line.
             let clips = page.layoutEnd > page.range.upperBound
@@ -637,10 +732,10 @@ import AppKit
             column.frame = CGRect(x: frame.minX, y: top, width: frame.width,
                                   height: clips ? page.height : max(page.height, frame.maxY - top))
             column.readerContainer.size = CGSize(width: frame.width, height: 0)
-            column.readerContainer.viewportSize = spread.columnSize
-            column.placement = ReaderTextPlacement(section: section, offset: page.range.location,
+            column.readerContainer.viewportSize = slot.viewport
+            column.placement = ReaderTextPlacement(section: slot.section, offset: page.range.location,
                                                    visibleLength: page.range.length)
-            column.setContent(paginator.text(for: page))
+            column.setContent(slot.paginator.text(for: page))
             column.ensureFullLayout()
         }
         isApplyingSelection = false
@@ -676,15 +771,27 @@ import AppKit
         updateSelectionContinuation()
     }
 
+    /// What the columns show: from the first shown character to the end of the last, across
+    /// the sections of a spread of fixed-layout pages.
     private func pagesVisibleRange() -> ReaderTextRange? {
         guard let shownPage else { return nil }
         let shown = columns.filter { !$0.isHidden }
-        guard let first = shown.map(\.placement.offset).min(),
-              let end = shown.map({ $0.placement.offset + $0.placement.visibleLength }).max() else { return nil }
-        return ReaderTextRange(section: shownPage.section, first..<end)
+        func start(_ view: ReaderTextView) -> ReaderTextPosition {
+            ReaderTextPosition(section: view.placement.section ?? shownPage.section, offset: view.placement.offset)
+        }
+        func end(_ view: ReaderTextView) -> ReaderTextPosition {
+            ReaderTextPosition(section: view.placement.section ?? shownPage.section,
+                               offset: view.placement.offset + view.placement.visibleLength)
+        }
+        guard let first = shown.map(start).min(), let last = shown.map(end).max() else { return nil }
+        return ReaderTextRange(start: first, end: last)
     }
 
     private func turnPaginatedPage(forward: Bool) -> PageTurnResult {
+        // A spread of fixed-layout pages turns to the spread of the section past its pages.
+        if let fixed = shownFixedSpread, let section = forward ? fixed.sections.max() : fixed.sections.min() {
+            return turnSection(from: section, forward: forward)
+        }
         guard let shownPage, let spread, let paginator = paginator(for: shownPage.section) else { return .atBoundary }
         let count = spread.columns.count
         let target = forward ? shownPage.page + count : max(0, shownPage.page - count)
@@ -1692,8 +1799,22 @@ import AppKit
         let left = point.x < bounds.minX + width(configuration.pageControls.leftTapWidth)
         let right = point.x > bounds.maxX - width(configuration.pageControls.rightTapWidth)
         guard left || right else { return nil }
+        // A fixed-layout page is its image: its edges turn the page as the text's do.
         if let view = columns.first(where: { !$0.isHidden && $0.frame.contains(point) }),
-           (view.link(at: convert(point, to: view)) != nil || view.image(at: convert(point, to: view)) != nil) { return nil }
+           view.link(at: convert(point, to: view)) != nil
+            || (!showsFixedPages && view.image(at: convert(point, to: view)) != nil) { return nil }
         return right != configuration.isRightToLeft
+    }
+
+    /// The columns show fixed-layout pages, each its one image or drawing (`ReaderFixedSpread`).
+    var showsFixedPages: Bool { configuration.flow == .paginated && shownFixedSpread != nil && scrollTextView == nil }
+
+    /// The number an assistive technology is told for the page on screen: its place in its
+    /// section, or for fixed-layout pages, each a section of its own, the first one's place
+    /// among the linear sections, so that a book of pages counts its pages.
+    var shownPageNumber: Int? {
+        guard let shownPage else { return nil }
+        guard let dataSource, let first = shownFixedSpread?.sections.min() else { return shownPage.page + 1 }
+        return (0..<first).filter { dataSource.isLinear(section: $0) }.count + 1
     }
 }

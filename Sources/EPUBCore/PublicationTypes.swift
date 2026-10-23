@@ -54,14 +54,31 @@ public enum EPUBLayout: String, Sendable { case reflowable, prePaginated }
 /// The spine's `page-progression-direction`.
 public enum EPUBPageProgression: String, Sendable { case ltr, rtl, `default` }
 
+/// Where a fixed-layout page stands in a spread: an itemref's `page-spread-left`,
+/// `page-spread-right` or `rendition:page-spread-center` (EPUB 3.3, "Fixed layouts").
+public enum EPUBPageSpread: String, Sendable { case left, right, center }
+
+/// When fixed-layout pages are shown two at a time, side by side: `rendition:spread`
+/// (EPUB 3.3, "Fixed layouts"). `auto`, the default, leaves it to the reading system.
+public enum EPUBSpread: String, Sendable { case none, landscape, both, auto }
+
 public struct EPUBSpineItem: Equatable, Sendable {
     public let resource: EPUBResource
     public let isLinear: Bool
     /// The itemref's own `rendition:layout` override, the first its `properties` writes when it
     /// has several (EPUB Reading Systems 3.3 §5.5.1), else the package's `rendition:layout`.
     public let layout: EPUBLayout
-    public init(resource: EPUBResource, isLinear: Bool = true, layout: EPUBLayout = .reflowable) {
+    /// The side of a spread the itemref puts its page on, the first its `properties` writes;
+    /// nil when it names none.
+    public let pageSpread: EPUBPageSpread?
+    /// The itemref's own `rendition:spread` override, the first its `properties` writes, else
+    /// the package's `rendition:spread`, else `auto`. The deprecated `portrait` is read as
+    /// `both`, which spreads in portrait as well.
+    public let spread: EPUBSpread
+    public init(resource: EPUBResource, isLinear: Bool = true, layout: EPUBLayout = .reflowable,
+                pageSpread: EPUBPageSpread? = nil, spread: EPUBSpread = .auto) {
         self.resource = resource; self.isLinear = isLinear; self.layout = layout
+        self.pageSpread = pageSpread; self.spread = spread
     }
 }
 

@@ -111,10 +111,17 @@ final class TextualTestAttachment: NSTextAttachment, ReaderTextualAttachment {
         self.sections = sections
         self.linear = linear ?? sections.map { _ in true }
     }
+    /// The fixed-layout pages among the sections, by index.
+    var fixedPages: [Int: ReaderFixedPage] = [:]
     var sectionCount: Int { sections.count }
     func text(forSection index: Int) -> NSAttributedString? { sections[index] }
     func isLinear(section index: Int) -> Bool { linear[index] }
     var bookText: ReaderBookText? { book }
+    func fixedPage(forSection index: Int) -> ReaderFixedPage? {
+        guard var page = fixedPages[index] else { return nil }
+        if sections[index] == nil { page.size = nil }
+        return page
+    }
 }
 
 @MainActor final class CanvasRecorder: ReaderCanvasDelegate {

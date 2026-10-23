@@ -348,7 +348,7 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         let result = turnPage(forward: forward)
         accessibilityCursorIsHeld = false
         guard result != .atBoundary else { return false }
-        if let shownPage { postAccessibilityNotification(.pageScrolled, "Page \(shownPage.page + 1)") }
+        if let number = shownPageNumber { postAccessibilityNotification(.pageScrolled, "Page \(number)") }
         accessibilityCursorAtTurn = accessibilityCursorFollowsThePage(to: visibleRange?.start) as? NSObject
         return true
     }
