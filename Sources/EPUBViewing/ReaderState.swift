@@ -39,7 +39,22 @@ public struct EPUBReaderStatus: Equatable, Sendable {
     /// The colours the mounted viewer draws with: its theme's, as Increase Contrast leaves
     /// them. A host can draw its own controls in them.
     public var effectiveColors: EPUBReaderColors = .light
+    /// The highlights of the latest `.setHighlights` that the reader does not draw, by their `id`,
+    /// and why. Empty while it draws them all. A highlight whose passage is found missing only when
+    /// its section is built joins it then. The bundled reader also gives one `.notice` for the
+    /// list, a sentence for a person that names none of them (#698).
+    public var undrawnHighlights: [String: EPUBHighlightFailure] = [:]
     public init(capabilities: Set<EPUBReaderCapability>) { self.capabilities = capabilities }
+}
+
+/// Why the reader does not draw a host's highlight (`EPUBReaderStatus.undrawnHighlights`).
+public enum EPUBHighlightFailure: Hashable, Sendable {
+    /// Its location belongs to another book or reader, or holds no position this reader can read,
+    /// as `EPUBReaderError.incompatibleLocation` says of a position to restore.
+    case incompatibleLocation
+    /// Its passage is not in this book as the reader shows it: a part of it cannot be found, or
+    /// it is only content that shows nothing.
+    case passageNotFound
 }
 
 /// The pages on screen in the current paginated layout: "page 12 of 230", and the pages left

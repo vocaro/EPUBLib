@@ -65,8 +65,10 @@ import UIKit
         XCTAssertEqual(EPUBReaderError.unsupported(.search).message, "This reader does not support this action.")
         XCTAssertEqual(EPUBReaderError.unsupported(.bookmarks).message, EPUBReaderError.unsupported(.search).message)
         XCTAssertEqual(EPUBReaderError.incompatibleLocation.message, "This saved position belongs to a different book or reader.")
-        XCTAssertEqual(EPUBReaderError.invalidCommand("Unknown publication href").message, "Unknown publication href")
-        XCTAssertEqual(EPUBReaderError.engineFailure("The package document could not be read").message, "The package document could not be read")
+        // A refusal of the bundled reader's says why; another engine's detail is for a developer.
+        XCTAssertEqual(EPUBReaderError.invalidCommand("Unknown publication href").message, "That part of the book cannot be found.")
+        XCTAssertEqual(EPUBReaderError.invalidCommand("Not this book's").message, "The reader cannot carry out this request.")
+        XCTAssertEqual(EPUBReaderError.engineFailure("The package document could not be read").message, "The reader cannot show this book.")
         XCTAssertEqual(EPUBReaderError.notReady.message, "The reader is not ready.")
         XCTAssertEqual(EPUBReaderError.closed.message, "This book is closed.")
         XCTAssertNotEqual(EPUBReaderError.invalidCommand("a"), .invalidCommand("b"))
@@ -304,10 +306,11 @@ import UIKit
         let session = Session(), model = try controls(session)
         XCTAssertNil(model.commandError)
         let failures: [(any Error, String)] = [
-            (EPUBReaderError.invalidCommand("Unknown publication href"), "Unknown publication href"),
+            (EPUBReaderError.invalidCommand("Unknown publication href"), "That part of the book cannot be found."),
+            (EPUBReaderError.invalidCommand("Renderer refused"), "The reader cannot carry out this request."),
             (EPUBReaderError.unsupported(.highlights), "This reader does not support this action."),
             (EPUBReaderError.incompatibleLocation, "This saved position belongs to a different book or reader."),
-            (EPUBReaderError.notReady, "The reader is not ready."), (EPUBReaderError.engineFailure("Renderer lost"), "Renderer lost"),
+            (EPUBReaderError.notReady, "The reader is not ready."), (EPUBReaderError.engineFailure("Renderer lost"), "The reader cannot show this book."),
             (EPUBReaderError.closed, "This book is closed."),
         ]
         for (failure, message) in failures {
@@ -716,7 +719,7 @@ import UIKit
         session.failure = EPUBReaderError.invalidCommand("The reader refused this command")
         model.send(.nextPage)
         await model.waitForCommands()
-        XCTAssertEqual(model.commandError, "The reader refused this command")
+        XCTAssertEqual(model.commandError, "The reader cannot carry out this request.", "an engine's detail is for a developer")
         try await wait("the error under the groups") { host.fittingHeight > plain }
         model.dismissError()
         XCTAssertNil(model.commandError)

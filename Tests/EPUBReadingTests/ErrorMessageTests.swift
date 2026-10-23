@@ -144,13 +144,10 @@ final class ErrorMessageTests: XCTestCase {
     func testEachCaseOfAReaderFailureHasAPlainMessage() {
         XCTAssertEqual(Set(Self.readerErrors.map { Self.expected($0).name }),
                        ["unsupported", "incompatibleLocation", "invalidCommand", "notReady", "closed", "engineFailure"])
+        // What the reader's controls show beside a search or a command, EPUBViewing's `message`,
+        // is ReaderRefusalMessageTests'.
         for error in Self.readerErrors {
             assertMessage(error, Self.expected(error).message)
-            // What the reader's controls show beside a search or a command.
-            switch error {
-            case .invalidCommand(let detail), .engineFailure(let detail): XCTAssertEqual(error.message, detail)
-            case .unsupported, .incompatibleLocation, .notReady, .closed: XCTAssertEqual(error.message, error.localizedDescription)
-            }
         }
     }
 
