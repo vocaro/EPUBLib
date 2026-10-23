@@ -1,5 +1,6 @@
 import EPUBCore
 import EPUBReading
+import EPUBTestSupport
 import XCTest
 @testable import EPUBViewing
 #if os(macOS)
@@ -75,7 +76,7 @@ import UIKit
     private func rest(_ reader: SessionCoverageReader) async throws {
         try await reader.wait("the whole book in the scroll view") { reader.session.canvas?.scrollBook != nil }
         try await reader.settle()
-        try await Task.sleep(for: .milliseconds(300))
+        try await TestDeadline.pause(.milliseconds(300))
     }
 
     /// The frame of each text view the reader has mounted on a cell.
@@ -227,8 +228,8 @@ import UIKit
 
     private func resize(_ reader: SessionCoverageReader, to size: CGSize) async throws {
         reader.window?.resize(to: size)
-        let deadline = Date().addingTimeInterval(5)
-        while reader.session.canvas?.bounds.width != size.width, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        let deadline = TestDeadline(seconds: 5)
+        while reader.session.canvas?.bounds.width != size.width, try !deadline.hasPassed() { try await Task.sleep(for: .milliseconds(20)) }
         try await rest(reader)
     }
 

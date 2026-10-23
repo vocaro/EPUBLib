@@ -1,5 +1,6 @@
 import EPUBCore
 import EPUBReading
+import EPUBTestSupport
 import EPUBViewing
 import Foundation
 
@@ -15,7 +16,9 @@ import Foundation
 
     /// Tests lifecycle, advertised commands, cancellation, location identity and bookmark restoration.
     /// Rendering fidelity, input gestures and resource release require adapter-specific tests.
-    /// The mount closure returns cleanup; it must retain its window until cleanup runs.
+    /// The mount closure returns cleanup; it must retain its window until cleanup runs. Each wait
+    /// for an event is a `TestDeadline` of `timeout`; one the host decided throws
+    /// `TestDeadline.Unmeasured`.
     public static func verify(
         engine: any EPUBReaderEngine, publication: EPUBPublication,
         firstHref: String, secondHref: String, text: String,
@@ -32,12 +35,16 @@ import Foundation
         try require(firstHref != secondHref && publication.spine.contains { $0.resource.href == firstHref }
             && publication.spine.contains { $0.resource.href == secondHref }, "Provide two distinct spine resource hrefs")
         func wait(_ label: String, _ condition: () -> Bool) async throws {
-            let deadline = Date().addingTimeInterval(timeout)
+            let deadline = TestDeadline(seconds: timeout)
             while !condition() {
                 if let failure = events.compactMap({ event -> EPUBReaderError? in
                     if case .failed(let error) = event { return error }; return nil
                 }).first { throw Failure(description: "Engine failed: \(failure)") }
-                guard Date() < deadline else { throw Failure(description: "Timed out waiting for \(label)") }
+                switch deadline.state {
+                case .running: break
+                case .exceeded: throw Failure(description: "Timed out waiting for \(label)")
+                case .unmeasured(let reason): throw TestDeadline.Unmeasured(description: "waiting for \(label): \(reason)")
+                }
                 try await Task.sleep(for: .milliseconds(20))
             }
         }
@@ -50,12 +57,13 @@ import Foundation
             throw Failure(description: "Accepted command that should throw \(expected)")
         }
         /// A fixed wait for what the engine has still to send, before events are counted or a
-        /// late one is looked for. The yield lets what the engine has queued start first, so that
-        /// a timer it starts there is due before the 150 ms end. The second sleep is for an event
+        /// late one is looked for: 150 ms, and on a busy host as long again as the process waited
+        /// for a core meanwhile. The yield lets what the engine has queued start first, so that a
+        /// timer it starts there is due before the 150 ms end. The last sleep is for an event
         /// delivered with that end: two sleeps overdue together resume in either order.
         func settle() async throws {
             await Task.yield()
-            try await Task.sleep(for: .milliseconds(150))
+            try await TestDeadline.pause(.milliseconds(150))
             try await Task.sleep(for: .milliseconds(20))
         }
         func locations(since index: Int = 0) -> [EPUBLocation] {
@@ -134,7 +142,7 @@ import Foundation
             // Let the last step's relocation arrive before judging what a stale command does. An
             // event that comes just after this wait is still counted before the stale commands,
             // by the wait after the clear.
-            try await Task.sleep(for: .milliseconds(150))
+            try await TestDeadline.pause(.milliseconds(150))
             let cleared = events.count
             try await session.send(.clearSearch)
             try await wait("withdrawn search results") { published(since: cleared).last == .some(nil) }

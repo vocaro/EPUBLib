@@ -425,7 +425,7 @@ import UIKit
         let before = posted.count
         try answer(false, in: reader)
         focus(element)
-        try await Task.sleep(for: .milliseconds(1_300))
+        try await TestDeadline.pause(.milliseconds(1_300))
         XCTAssertFalse(posted.dropFirst(before).contains { $0.name == .layoutChanged }, "\(posted.dropFirst(before))")
 
         // VoiceOver tells of no item, and its cursor is elsewhere a second later.
@@ -437,7 +437,7 @@ import UIKit
         try await ask()
         try answer(true, in: reader)
         focus(elsewhere)
-        try await Task.sleep(for: .milliseconds(1_300))
+        try await TestDeadline.pause(.milliseconds(1_300))
         XCTAssertEqual(backOnTheLink(), 2)
         XCTAssertEqual(try controls(reader).opened, [URL(string: "https://example.invalid/page?q=1")!])
     }

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Hold the gate's waits and settling pauses against the time the test process could run, report a test or simulator boot that a busy host decided as unmeasured with exit 3, and admit the gate as heavy work with bounded build workers ([#859](https://github.com/vocaro/EPUBLib/issues/859)).
 - Leave `epub:type` terms on the head and what it holds, on metadata content such as `script`, `template` and `noscript`, in what a script, style or template holds, and on an SVG element that is not rendered, such as `title`, `desc` and `defs`, out of a section's extracted `semanticTypes`, as the reader ignores them ([#777](https://github.com/vocaro/EPUBLib/issues/777)).
 - Check a recovered section's DOCTYPEs in one pass in text extraction, where four mebibytes of DOCTYPE openers in an unclosed comment were read again from each opener and took tens of minutes ([#783](https://github.com/vocaro/EPUBLib/issues/783)).
 - Scan a recovered section once more with its abrupt comments left open where closing one leads the declaration check to refuse it, as one that leads the scan to refuse it already was, so that `< <!--> <!DO<![CDATA[]]>CTYPE html [` is read as before the comments were closed ([#333](https://github.com/vocaro/EPUBLib/issues/333)).

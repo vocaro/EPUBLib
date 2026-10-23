@@ -105,7 +105,8 @@ import AppKit
             container.addSubview(strip)
             canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
             host.layOut()
-            for _ in 0..<50 where textField(in: strip) == nil { try await Task.sleep(for: .milliseconds(20)) }
+            let mounted = TestDeadline(seconds: 10)
+            while textField(in: strip) == nil, try !mounted.hasPassed() { try await Task.sleep(for: .milliseconds(20)) }
             let field = try XCTUnwrap(textField(in: strip), "the built-in search field is mounted")
             XCTAssertTrue(host.window.makeFirstResponder(field))
             let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)

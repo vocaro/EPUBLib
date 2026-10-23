@@ -1,4 +1,5 @@
 import CoreGraphics
+import EPUBTestSupport
 import Foundation
 import XCTest
 @testable import EPUBViewing
@@ -250,8 +251,8 @@ enum CanvasScrollBars: CaseIterable {
         let before = canvas.safeAreaInsets.top
         if window.toolbar == nil { window.toolbar = NSToolbar(identifier: "org.epublib.tests.canvas-host.\(UUID().uuidString)") }
         window.toolbar?.isVisible = shown
-        let deadline = Date().addingTimeInterval(5)
-        while Date() < deadline, canvas.safeAreaInsets.top == before {
+        let deadline = TestDeadline(seconds: 5)
+        while try !deadline.hasPassed(), canvas.safeAreaInsets.top == before {
             try await Task.sleep(for: .milliseconds(20))
             layOut()
         }
@@ -281,9 +282,10 @@ enum CanvasScrollBars: CaseIterable {
         #endif
     }
 
-    /// Lets the canvas's 150 ms settling and throttling run.
+    /// Lets the canvas's 150 ms settling and throttling run, and on a busy host as long again as
+    /// the process waited for a core meanwhile.
     func settle(_ milliseconds: Int = 300) async throws {
-        try await Task.sleep(for: .milliseconds(milliseconds))
+        try await TestDeadline.pause(.milliseconds(milliseconds))
     }
 
     /// Lets the canvas's settling run and waits on, up to ten seconds, for `condition`. The canvas
@@ -291,10 +293,9 @@ enum CanvasScrollBars: CaseIterable {
     /// wait: on a hosted runner with nothing else to do, a 250 ms sleep read the recorder before
     /// the report in 17 of 50 runs of `ReaderCanvasViewTests` (#268).
     private func settle(until condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(10))
+        let deadline = TestDeadline(seconds: 10)
         while !condition() {
-            guard clock.now < deadline else {
+            guard try !deadline.hasPassed() else {
                 XCTFail("The canvas did not deliver its expected report within ten seconds", file: file, line: line)
                 throw CanvasReportTimeout()
             }

@@ -14,9 +14,9 @@ import XCTest
 /// screen: TextKit 2 keeps each laid-out fragment's drawing until something invalidates it.
 @MainActor final class HighlightPaintTests: XCTestCase {
     private func wait(_ label: String, timeout: TimeInterval = 20, until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = TestDeadline(seconds: timeout)
         while !condition() {
-            guard Date() < deadline else { return XCTFail("Timed out waiting for \(label)") }
+            guard try !deadline.hasPassed() else { return XCTFail("Timed out waiting for \(label)") }
             try await Task.sleep(for: .milliseconds(20))
         }
     }
@@ -49,11 +49,11 @@ import XCTest
         /// Lets the system paint what it has scheduled until `condition` holds. Nothing is
         /// invalidated here: a surface the reader left alone stays as it was.
         func paint(timeout: TimeInterval, until condition: () -> Bool) async throws -> Bool {
-            let deadline = Date().addingTimeInterval(timeout)
+            let deadline = TestDeadline(seconds: timeout)
             while true {
                 recorder.flush()
                 if condition() { return true }
-                guard Date() < deadline else { return false }
+                guard try !deadline.hasPassed() else { return false }
                 try await Task.sleep(for: .milliseconds(20))
             }
         }

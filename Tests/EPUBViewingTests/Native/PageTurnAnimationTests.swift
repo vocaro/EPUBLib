@@ -183,8 +183,8 @@ import UIKit
         let canvas = host.canvas
         XCTAssertEqual(canvas.turnPage(forward: true), .turned)
         let transition = try XCTUnwrap(canvas.pageTransition)
-        let deadline = Date().addingTimeInterval(5)
-        while canvas.pageTransition != nil, Date() < deadline { try await host.settle(50) }
+        let deadline = TestDeadline(seconds: 5)
+        while canvas.pageTransition != nil, try !deadline.hasPassed() { try await host.settle(50) }
         XCTAssertNil(canvas.pageTransition, "it ends once its animation is over")
         XCTAssertTrue(transition.isEnded)
         XCTAssertTrue(overlays(in: canvas).isEmpty)

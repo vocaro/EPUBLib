@@ -9,7 +9,7 @@ Set `DEVELOPER_DIR` when more than one Xcode is installed. From the repository r
 python3 scripts/eng run gate
 ```
 
-`gate` is the `exclusive` lane in `engineering.json` that runs `scripts/check-all.sh`, which
+`gate` is the `heavy` lane in `engineering.json` that runs `scripts/check-all.sh`, which
 takes no arguments. The gate checks the hosted-run and VoiceOver session scripts, verifies
 module boundaries, compares documentation snippets with compiled Swift sources, runs the Mac
 tests and the full test suite on dedicated iPhone 17 Pro and iPad Air 13-inch (M4) simulators,
@@ -40,7 +40,8 @@ session deadlines and reports, the list state used when restoring VoiceOver
 ([#504](https://github.com/vocaro/EPUBLib/issues/504)), where the scripts find the shared
 toolkit ([#701](https://github.com/vocaro/EPUBLib/issues/701)), and which symbols the privacy
 manifest check counts as an API to declare
-([#685](https://github.com/vocaro/EPUBLib/issues/685)).
+([#685](https://github.com/vocaro/EPUBLib/issues/685)), and how the Mac suite's script bounds its
+build and reports an unmeasured test ([#859](https://github.com/vocaro/EPUBLib/issues/859)).
 They do not establish what VoiceOver reads or does; that uses the speech lanes below.
 
 These checks and `scripts/eng` need the [shared engineering toolkit](shared-engineering.md), a
@@ -52,19 +53,41 @@ so a session that shares the main checkout's clone sets nothing
 another clone and comes first; the checks give the copies of the scripts they run the clone
 they find.
 
-Run one gate at a time on this shared Mac, with its Mac and iOS suites one after the other.
-The `gate` lane waits for the host's
+The `gate` lane is heavy work, like the suites it runs: it waits for the host's
 [heavy-work admission](https://github.com/vocaro/apple-engineering/blob/main/guides/shared-host.md#heavy-work-admission)
-to have no other heavy work running and holds every slot while it runs. Keep build and test
-worker counts bounded. Admission sees only admitted work, so look for every run on the host
-first, as that section describes: on 2026-10-20 a check of the worktrees alone missed another
-session's Mac suite.
+and then runs beside other admitted work, another gate included. Admission counts it as one
+job however many workers it starts, so it runs its Mac and iOS suites one after the other,
+their tests one at a time, and builds with `EPUB_BUILD_JOBS` workers, 4 unless that is set;
+`scripts/test-ios.sh` takes the same variable. Admission sees only admitted work, so look for
+every run on the host first, as that section describes: on 2026-10-20 a check of the worktrees
+alone missed another session's Mac suite.
 EPUBLib's runs are listed by
 `ps -Ao args | grep -E '[E]PUBLib.*\.xctest|[c]heck-all\.sh|[t]est-ios\.sh'`.
-Synchronous performance assertions use thread CPU time and asynchronous readiness waits
-wall-clock deadlines; record host activity beside the results as context, as
-[CPU, scheduling and core-wait time](https://github.com/vocaro/apple-engineering/blob/main/guides/measurement.md#cpu-scheduling-and-core-wait-time)
-describes. The idle-CPU recipe [reported in #62](https://github.com/vocaro/EPUBLib/issues/62#issuecomment-6155249383)
+
+Nothing the gate runs needs the host to itself. A Mac test's windows are its own process's,
+and it sends its events to its own views, not through the window server. A copy test writes
+to a pasteboard of its own, since a named one is the whole Mac's. Each simulator is the run's
+own (below). A timing measurement does need the host, and runs by itself with
+`eng admit --exclusive` ([Probes and recorded inputs](#probes-and-recorded-inputs)).
+
+The gate's limits tolerate a busy host
+([#859](https://github.com/vocaro/EPUBLib/issues/859)). Synchronous performance assertions
+use thread CPU time (`TestCPUClock`). Every wait and settling pause in the gate's tests, and in
+`EPUBEngineContract`, is a `TestDeadline` (`Tests/EPUBTestSupport/TestDeadline.swift`); a delay
+that a test makes on purpose, as when it models a late report, stays on the wall clock. It
+holds its limit against the host's awake seconds less the seconds the test process's threads
+waited for a core, so on a quiet host the limit is the wall clock, and a backstop of four
+times the limit, and at least ten seconds more than it (two for a settling pause), ends any wait
+([CPU, scheduling and core-wait time](https://github.com/vocaro/apple-engineering/blob/main/guides/measurement.md#cpu-scheduling-and-core-wait-time)).
+A wait that the backstop ends within its own limit, or that reaches its limit under memory
+pressure, skips its test with a reason beginning `Unmeasured:`. A simulator whose first boot
+passes its limit is unmeasured too. The gate and `scripts/test-ios.sh` list each one and exit 3,
+neither passed nor failed: run those tests again when the host is quieter. The Mac suite's log
+is `.build/validation/mac.log`. The script checks bound a run of fake tools only against a
+hang, at two minutes (`HANG_SECONDS` in `scripts/tests/support.py`).
+
+Record host activity beside the results as context, as that section describes. The idle-CPU
+recipe [reported in #62](https://github.com/vocaro/EPUBLib/issues/62#issuecomment-6155249383)
 is a heuristic from one session, not a gate requirement or an acceptance cutoff.
 
 When several branches are ready at once, one gate can serve them all, as
@@ -88,12 +111,13 @@ gate and before blaming a change for that failure.
 
 `scripts/test-ios.sh` runs its devices as
 [disposable simulators](https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#disposable-simulators).
-It reports `Passed` or `Failed` for each device, continues to the second after a creation, boot
-or test failure, and exits nonzero if either failed. A passed device reports the tests it ran:
+It reports `Passed`, `Failed` or `Unmeasured` for each device, continues to the second after a
+creation, boot or test failure, and exits 1 if either failed, or otherwise 3 if either was
+unmeasured. A passed device reports the tests it ran:
 XCTest's total for each test bundle, which `xcodebuild` runs one at a time, and Swift Testing's
 for each run. A device that ran none fails. Arguments go to each device's `xcodebuild test`.
 Each first boot has a 600-second limit (`EPUB_SIM_BOOT_TIMEOUT` overrides it with a positive
-number of seconds). The device and last
+number of seconds), and a boot that passes it leaves its device unmeasured. The device and last
 boot stage, including any migration plugin, are retained in
 `.build/validation/<device-kind>-boot.log`, the identifier creation printed in
 `<device-kind>-create.log`, and the test log in `<device-kind>.log`. Destination discovery gets
@@ -103,8 +127,10 @@ The failure, timeout and interruption paths can be checked without creating a si
 fresh temporary directory and checks that every created device is deleted.
 
 The Mac and iOS suites are `heavy` lanes of their own, `swift-tests` and `ios-tests`, and the
-narrower checks are runs of them. Arguments after `--` go to the lane's command: a `swift test`
-filter, or `xcodebuild test` options such as `-only-testing:` for each simulator.
+narrower checks are runs of them. `swift-tests` runs `scripts/test-mac.sh`, which runs
+`swift test` as the gate does and exits 3 when a test was unmeasured. Arguments after `--` go to
+the lane's command: a `swift test` filter, or `xcodebuild test` options such as
+`-only-testing:` for each simulator.
 
 ```sh
 python3 scripts/eng run swift-tests

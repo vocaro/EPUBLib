@@ -6,6 +6,8 @@ import sys
 import tempfile
 import unittest
 
+from support import HANG_SECONDS
+
 SCRIPTS = Path(__file__).resolve().parents[1]
 TARGETS = ("EPUBCore", "EPUBReading", "EPUBText", "EPUBWriting", "EPUBViewing")
 # StaticSVG is a dependency, built in its own project folder.
@@ -76,7 +78,7 @@ class RequiredReasonAPITests(unittest.TestCase):
 
     def run_check(self, *roots):
         return subprocess.run([sys.executable, str(self.root / "scripts/check-required-reason-apis.py"), *roots],
-                              cwd=self.root, env=self.env, capture_output=True, text=True, timeout=15)
+                              cwd=self.root, env=self.env, capture_output=True, text=True, timeout=HANG_SECONDS)
 
     def test_clean_objects_on_both_platforms_pass(self):
         result = self.run_check()

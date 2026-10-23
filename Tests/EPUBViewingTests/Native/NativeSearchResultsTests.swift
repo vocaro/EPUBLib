@@ -9,9 +9,9 @@ import XCTest
 /// public commands and observed through its events, published state and visible range.
 @MainActor final class NativeSearchResultsTests: XCTestCase {
     private func wait(_ label: String, timeout: TimeInterval = 20, until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = TestDeadline(seconds: timeout)
         while !condition() {
-            guard Date() < deadline else { return XCTFail("Timed out waiting for \(label)") }
+            guard try !deadline.hasPassed() else { return XCTFail("Timed out waiting for \(label)") }
             try await Task.sleep(for: .milliseconds(20))
         }
     }
@@ -263,7 +263,7 @@ import XCTest
                 try await session.send(command)
                 XCTAssertFalse(throwing, "\(label): the stale result was accepted")
             } catch { XCTAssertEqual(error as? EPUBReaderError, .invalidCommand("That search result is no longer available"), label) }
-            try await Task.sleep(for: .milliseconds(50))
+            try await TestDeadline.pause(.milliseconds(50))
             XCTAssertEqual(session.visibleRange, before, "\(label): stale navigation moved the reader")
             XCTAssertNil(state.status.searchResults?.currentIndex, "\(label): a current match appeared")
             XCTAssertEqual(events().count, count, "\(label): events after a suppressed command")
@@ -337,7 +337,7 @@ import XCTest
             do { try await session.send(command); XCTFail("Closed session accepted \(command)") }
             catch { XCTAssertEqual(error as? EPUBReaderError, .closed) }
         }
-        try await Task.sleep(for: .milliseconds(100))
+        try await TestDeadline.pause(.milliseconds(100))
         XCTAssertEqual(events().count, count, "no callbacks after close")
     }
 
@@ -508,7 +508,7 @@ import XCTest
         let size = window.window.frame.size
         for height in [size.height * 0.55, size.height] {
             window.resize(to: CGSize(width: size.width, height: height))
-            try await Task.sleep(for: .milliseconds(300))
+            try await TestDeadline.pause(.milliseconds(300))
             try await wait("result 2 on screen at \(Int(height)) points") { self.isVisible(2, in: session) }
             XCTAssertGreaterThanOrEqual(try depth(of: 2, in: session), 0, "result 2 is below the top at \(Int(height)) points")
         }

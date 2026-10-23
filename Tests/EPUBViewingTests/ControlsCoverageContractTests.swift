@@ -242,6 +242,8 @@ import XCTest
         } catch let failure as EPUBEngineContract.Failure {
             XCTAssertEqual(failure.errorDescription, failure.description)
             return failure.description
+        } catch let unmeasured as TestDeadline.Unmeasured {
+            throw unmeasured.skip
         } catch { return "threw \(error)" }
     }
 

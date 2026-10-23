@@ -212,7 +212,7 @@ import UIKit
         session.refusesResults = false
         model.showNextSearchResult()
         model.cancelPendingCommands()
-        try await Task.sleep(for: .milliseconds(50))
+        try await TestDeadline.pause(.milliseconds(50))
         model.send(.nextPage)
         await model.waitForCommands()
         XCTAssertEqual(announced.count, 3, "refused, cancelled and other commands say nothing: \(announced)")
@@ -391,12 +391,12 @@ import UIKit
                 let pane = Self.searchPane(model).dynamicTypeSize(textSize)
                 // Held to a size, so that the device's safe area is no part of what is measured.
                 let asking = MountedView(pane, size: CGSize(width: 400, height: 400))
-                try await Task.sleep(for: .milliseconds(60))
+                try await TestDeadline.pause(.milliseconds(60))
                 let ideal = asking.idealSize()
                 asking.close()
                 let popover = MountedView(pane, size: ideal)
                 defer { popover.close() }
-                try await Task.sleep(for: .milliseconds(60))
+                try await TestDeadline.pause(.milliseconds(60))
                 XCTAssertNil(popover.paneScroller(), "\(name): the pane scrolls in a popover of the \(ideal) it asked for")
                 if results?.isEmpty == false {
                     let list = try XCTUnwrap(popover.listFrame(), name)
@@ -416,7 +416,7 @@ import UIKit
                     let rounded = MountedView(pane, size: CGSize(width: ideal.width, height: ideal.height - 0.75))
                     let short = MountedView(pane, size: CGSize(width: ideal.width, height: ideal.height - 2))
                     defer { rounded.close(); short.close() }
-                    try await Task.sleep(for: .milliseconds(60))
+                    try await TestDeadline.pause(.milliseconds(60))
                     XCTAssertNil(rounded.paneScroller(), name)
                     XCTAssertNotNil(short.paneScroller(), name)
                 }
@@ -436,14 +436,14 @@ import UIKit
             let mounted = MountedView(Color.clear.presentationProbe(probe).environment(\.horizontalSizeClass, .compact),
                                       size: CGSize(width: 360, height: 640), windowWidth: width)
             defer { mounted.close() }
-            try await Task.sleep(for: .milliseconds(60))
+            try await TestDeadline.pause(.milliseconds(60))
             XCTAssertEqual(probe.coversReader, width == .compact, "a \(width == .compact ? "compact" : "regular") window")
         }
         #else
         let probe = EPUBPresentationProbe()
         let mounted = MountedView(Color.clear.presentationProbe(probe), size: CGSize(width: 360, height: 640))
         defer { mounted.close() }
-        try await Task.sleep(for: .milliseconds(60))
+        try await TestDeadline.pause(.milliseconds(60))
         XCTAssertFalse(probe.coversReader)
         #endif
     }
@@ -465,7 +465,7 @@ import UIKit
         let name = "\(textSize) in \(Int(room.width)) by \(Int(room.height)) points"
         let pane = MountedView(Self.searchPane(model).environment(\.verticalSizeClass, height).dynamicTypeSize(textSize), size: room)
         defer { pane.close() }
-        try await Task.sleep(for: .milliseconds(60))
+        try await TestDeadline.pause(.milliseconds(60))
         let field = try XCTUnwrap(pane.views(UITextField.self).first, name)
         let list = try XCTUnwrap(pane.listFrame(), name)
         // Content over by less than a point is not scrolled for it.
@@ -548,8 +548,8 @@ import UIKit
                     }
                     let host = MountedView(stack.environment(\.verticalSizeClass, .compact).dynamicTypeSize(textSize), size: room)
                     defer { session.close(); host.close() }
-                    let deadline = Date().addingTimeInterval(20)
-                    while !(session.isReady && session.book.isComplete && session.visibleRange != nil), Date() < deadline {
+                    let deadline = TestDeadline(seconds: 20)
+                    while !(session.isReady && session.book.isComplete && session.visibleRange != nil), try !deadline.hasPassed() {
                         try await Task.sleep(for: .milliseconds(20))
                     }
                     XCTAssertTrue(session.isReady && session.book.isComplete, name)
@@ -675,7 +675,7 @@ import UIKit
         let host = MountedView(stack.dynamicTypeSize(textSize), size: room)
         #endif
         defer { host.close() }
-        try await Task.sleep(for: .milliseconds(60))
+        try await TestDeadline.pause(.milliseconds(60))
         let marker = try XCTUnwrap(host.views(FrameMarker.Marker.self).first)
         var frames = StripFrames(strip: host.frame(of: marker), field: host.searchField().map(host.frame(of:)))
         if let scroller = host.paneScroller() {
@@ -785,7 +785,7 @@ import UIKit
         ]
         for (name, search, results) in states {
             session.publish(search, results)
-            try await Task.sleep(for: .milliseconds(60))
+            try await TestDeadline.pause(.milliseconds(60))
             let fitted = plain.fittingSize()
             XCTAssertGreaterThan(fitted.width, 0, name)
             XCTAssertGreaterThan(fitted.height, 0, name)
@@ -798,7 +798,7 @@ import UIKit
         XCTAssertGreaterThan(try XCTUnwrap(sizes["listed"]).height, try XCTUnwrap(sizes["idle"]).height,
                              "results add the match navigator and the result list to the pane")
         session.close()
-        try await Task.sleep(for: .milliseconds(60))
+        try await TestDeadline.pause(.milliseconds(60))
         XCTAssertGreaterThan(plain.fittingSize().height, 0)
         XCTAssertTrue(session.received.isEmpty, "laying the views out submits nothing")
     }
@@ -1001,7 +1001,7 @@ extension FrameMarker: UIViewRepresentable {
     /// Writes the window's content as a PNG when a snapshot directory is configured.
     func snapshot(_ name: String) async throws {
         guard let directory = ProcessInfo.processInfo.environment["EPUB_SNAPSHOT_DIR"], !directory.isEmpty else { return }
-        try await Task.sleep(for: .milliseconds(250))
+        try await TestDeadline.pause(.milliseconds(250))
         #if os(macOS)
         // The window's frame view, so a toolbar SwiftUI installs in the title bar is included.
         let view = window.contentView?.superview ?? host

@@ -1,6 +1,7 @@
 import CoreGraphics
 import EPUBCore
 import EPUBReading
+import EPUBTestSupport
 import XCTest
 @testable import EPUBViewing
 
@@ -455,7 +456,7 @@ final class TableCoverageTextMappingTests: XCTestCase {
     /// A search maps every match of a section to where it is drawn (up to 10,000 of them, on
     /// the main actor for the highlights). In a long table a match costs the same however long
     /// the table is: four times the rows and matches is about four times the work, not sixteen.
-    /// Timed as a ratio of best-of-several runs, with slack, so a busy machine does not decide it.
+    /// Timed in thread CPU time as a ratio of best-of-several runs, with slack, so a busy machine does not decide it.
     func testMappingEveryMatchInALongTableGrowsInStepWithItsRows() throws {
         func seconds(rows: Int, runs: Int) throws -> TimeInterval {
             let markup = (0..<rows).map { "<tr><td>Row \($0)</td><td>Value \($0)</td></tr>" }.joined()
@@ -464,10 +465,10 @@ final class TableCoverageTextMappingTests: XCTestCase {
             XCTAssertEqual(matches.count, rows)
             var best = TimeInterval.infinity
             for _ in 0..<runs {
-                let start = ProcessInfo.processInfo.systemUptime
+                let start = TestCPUClock.seconds()
                 var cells = 0
                 for match in matches where SearchResultBuilder.renderedRange(of: match, in: section).start.tableCell != nil { cells += 1 }
-                best = min(best, ProcessInfo.processInfo.systemUptime - start)
+                best = min(best, TestCPUClock.seconds() - start)
                 XCTAssertEqual(cells, rows)
             }
             return best

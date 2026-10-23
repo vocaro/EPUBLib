@@ -1,6 +1,7 @@
 import EPUBCore
 import EPUBReading
 import CryptoKit
+import EPUBTestSupport
 import XCTest
 @testable import EPUBViewing
 #if os(macOS)
@@ -37,25 +38,25 @@ import UIKit
         #endif
         let questionHref = try XCTUnwrap(publication.spine.map(\.resource.path).first { $0.hasSuffix("ch009.xhtml") }) + "#questions-8"
         try await session.send(.navigate(href: questionHref))
-        try await Task.sleep(for: .milliseconds(500))
+        try await TestDeadline.pause(.milliseconds(500))
         try capture(try XCTUnwrap(session.canvas), name: "wide-light")
         window.resize(to: CGSize(width: 400, height: 700))
-        try await Task.sleep(for: .milliseconds(500))
+        try await TestDeadline.pause(.milliseconds(500))
         try capture(try XCTUnwrap(session.canvas), name: "narrow-light")
         try assertContained(try XCTUnwrap(session.canvas))
         let bodyHref = try XCTUnwrap(publication.spine.map(\.resource.path).first { $0.hasSuffix("ch008.xhtml") })
         try await session.send(.navigate(href: bodyHref))
-        try await Task.sleep(for: .milliseconds(500))
+        try await TestDeadline.pause(.milliseconds(500))
         try capture(try XCTUnwrap(session.canvas), name: "narrow-body-light")
         try assertContained(try XCTUnwrap(session.canvas))
         try await session.send(.style(.init(fontSize: 25, isDark: true, flow: .scrolled)))
         try await wait { session.book.isComplete && session.book.typography.fontSize == 25 }
         try await session.send(.navigate(href: bodyHref))
-        try await Task.sleep(for: .milliseconds(500))
+        try await TestDeadline.pause(.milliseconds(500))
         try capture(try XCTUnwrap(session.canvas), name: "narrow-body-dark")
         try assertContained(try XCTUnwrap(session.canvas))
         try await session.send(.navigate(href: questionHref))
-        try await Task.sleep(for: .milliseconds(500))
+        try await TestDeadline.pause(.milliseconds(500))
         let canvas = try XCTUnwrap(session.canvas)
         try capture(canvas, name: "narrow-dark")
         try assertContained(canvas)
@@ -75,7 +76,7 @@ import UIKit
         coldScroll.autohidesScrollers = false
         #endif
         try await reopened.send(.restore(saved))
-        try await Task.sleep(for: .milliseconds(500))
+        try await TestDeadline.pause(.milliseconds(500))
         let coldCanvas = try XCTUnwrap(reopened.canvas)
         try capture(coldCanvas, name: "cold-dark", requireReadable: true)
         try assertContained(coldCanvas)
@@ -83,9 +84,9 @@ import UIKit
     }
 
     private func wait(_ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(30)
+        let deadline = TestDeadline(seconds: 30)
         while !condition() {
-            guard Date() < deadline else { XCTFail("Timed out waiting for the reader"); return }
+            guard try !deadline.hasPassed() else { XCTFail("Timed out waiting for the reader"); return }
             try await Task.sleep(for: .milliseconds(20))
         }
     }

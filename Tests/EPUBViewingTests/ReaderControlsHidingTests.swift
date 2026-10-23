@@ -91,14 +91,14 @@ import UIKit
     }
 
     private func wait(_ label: String, timeout: TimeInterval = 20, until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = TestDeadline(seconds: timeout)
         while !condition() {
-            guard Date() < deadline else { return XCTFail("Timed out waiting for \(label)") }
+            guard try !deadline.hasPassed() else { return XCTFail("Timed out waiting for \(label)") }
             try await Task.sleep(for: .milliseconds(20))
         }
     }
 
-    private func settle(_ seconds: Double = 0.6) async throws { try await Task.sleep(for: .seconds(seconds)) }
+    private func settle(_ seconds: Double = 0.6) async throws { try await TestDeadline.pause(.seconds(seconds)) }
 
     private func controls(_ session: some EPUBReaderSession) throws -> EPUBReaderControls {
         EPUBReaderControls(publication: try EPUBPublication.open(data: Fixture.epub()), session: session)

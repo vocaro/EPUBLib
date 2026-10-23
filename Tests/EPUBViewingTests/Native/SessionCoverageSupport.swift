@@ -142,9 +142,9 @@ enum SessionCoverageBook {
 
     func wait(_ label: String, timeout: TimeInterval = 20, file: StaticString = #filePath, line: UInt = #line,
               until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = TestDeadline(seconds: timeout)
         while !condition() {
-            guard Date() < deadline else {
+            guard try !deadline.hasPassed() else {
                 throw SessionCoverageTimeout(description: "Timed out waiting for \(label) (\(file):\(line))")
             }
             try await Task.sleep(for: .milliseconds(20))

@@ -27,7 +27,7 @@ let package = Package(
                                                     .product(name: "MathMLLayout", package: "MathMLLayout"),
                                                     .product(name: "StaticSVG", package: "StaticSVG")],
                 resources: [.process("Localizable.xcstrings")]),
-        .target(name: "EPUBViewingTestSupport", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing"]),
+        .target(name: "EPUBViewingTestSupport", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing", "EPUBTestSupport"]),
         .target(name: "EPUBTestSupport", dependencies: ["ZIPFoundation"], path: "Tests/EPUBTestSupport"),
         .target(name: "ReaderHostSupport", dependencies: ["EPUBCore", "EPUBReading", "EPUBText", "EPUBViewing"],
                 path: "Examples/VoiceOverVerification/Shared"),
