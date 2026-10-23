@@ -1156,7 +1156,14 @@ private struct ReaderAccessibilityList {
             if links.isEmpty, accessibilityLabel == nil, let image = images.first { canvas.inspectImage(image); return true }
             return false
         }
-        if let url { canvas.activateLink(url, range: range, in: view); return true }
+        if let url {
+            canvas.activateLink(url, range: range, in: view)
+            // A summary that opened or closed its details is the same item in another state,
+            // which VoiceOver is told of, as it is of a cell's action that changes the cell: it
+            // reads the item again, expanded or collapsed.
+            if ReaderLink.isDisclosure(url) { canvas.postToAccessibility(.layoutChanged, self) }
+            return true
+        }
         if let image = image ?? view.announcedImages(in: range).first?.image { canvas.inspectImage(image); return true }
         return false
     }

@@ -231,9 +231,12 @@ import UIKit
                 XCTAssertFalse(listed.contains { $0.accessibilityLabel?.contains(word) == true }, "\(label): \(word) is read")
             }
             XCTAssertFalse(listed.contains { $0 is UIAccessibilityContainerDataTable }, "\(label): no table while it is closed")
-            // A double tap opens it, and the summary says so.
+            // A double tap opens it, and VoiceOver is told that the summary changed, to read it again.
+            var posted: [(UIAccessibility.Notification, Any?)] = []
+            try XCTUnwrap(reader.session.canvas).postToAccessibility = { posted.append(($0, $1)) }
             XCTAssertTrue(button.accessibilityActivate(), label)
             XCTAssertTrue(try isOpen(reader), label)
+            XCTAssertTrue(posted.contains { $0.0 == .layoutChanged && $0.1 as AnyObject === button }, label)
             let opened = try summary(reader).view
             try await reader.wait("the cells' text views") { opened.tableInteraction?.cells.isEmpty == false }
             listed = try elements(opened)

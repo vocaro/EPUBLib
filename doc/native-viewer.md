@@ -2812,7 +2812,8 @@ still applies, and a summary counts no list item.
   another typography keeps it.
 - **VoiceOver.** On iPhone and iPad the summary is a button whose expanded status says
   whether its details is open (`accessibilityExpandedStatus`), as Safari gives it and HTML-AAM
-  maps it (a push button that expands and collapses). On Mac it is a disclosure triangle,
+  maps it (a push button that expands and collapses); after its double tap VoiceOver is told
+  that the item changed, and reads it again in its new state. On Mac it is a disclosure triangle,
   HTML-AAM's role there, with `AXExpanded` and a value of 1 or 0, among the text's children
   and as the link of its characters, and pressing it opens or closes the details. VoiceOver
   is not given the triangle, which is kept from assistive technology as an `aria-hidden`
