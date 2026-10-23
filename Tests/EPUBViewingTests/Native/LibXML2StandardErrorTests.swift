@@ -44,7 +44,7 @@ import XCTest
     func testHTMLSourceEncodingWritesNothingToStandardError() throws {
         for (encoding, bytes) in Markup.undecodableEncodings {
             let (decoded, output) = try StandardErrorCapture.capture {
-                try HTMLSourceEncoding.utf8(Markup.undecodableXHTML(encoding, bytes), path: "EPUB/page.xhtml", limit: 1 << 20)
+                try HTMLSourceEncoding.utf8(Markup.undecodableXHTML(encoding, bytes), limit: 1 << 20)
             }
             XCTAssertNil(decoded, encoding)
             XCTAssertEqual(output, "", encoding)

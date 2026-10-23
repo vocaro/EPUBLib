@@ -870,9 +870,9 @@ private enum BrowserMarkup {
     /// `data` rewritten, or as it stands: decided for the bytes given, those one parse attempt
     /// starts from, in one of three ways.
     ///
-    /// - A document `wide` takes for UTF-16 or UTF-32, by a byte-order mark or by the NUL bytes
-    ///   among its first four, is rewritten as text decoded in that encoding, if it decodes,
-    ///   whatever its XML declaration says. The mark or those bytes are trusted for the whole
+    /// - A document `XMLSafety.wideEncoding` takes for UTF-16 or UTF-32, by a byte-order mark or
+    ///   by the NUL bytes among its first four, is rewritten as text decoded in that encoding, if
+    ///   it decodes, whatever its XML declaration says. The mark or those bytes are trusted for the whole
     ///   document. The parser stays in UTF-16 when the declaration names UTF-8, but can change
     ///   after the declaration to another encoding it names, wide or not, and a document made
     ///   that way can be rewritten wrongly: when its first 90 bytes are a UTF-16LE byte-order
@@ -886,24 +886,11 @@ private enum BrowserMarkup {
     /// - Any other is rewritten when `isASCIITransparent` says so, by its XML declaration read
     ///   as ASCII.
     static func asXML(_ data: Data) -> Data {
-        guard case let (encoding, mark)? = wide(data) else { return isASCIITransparent(data) ? rewrite(data) ?? data : data }
+        guard case let (encoding, mark)? = XMLSafety.wideEncoding(data) else { return isASCIITransparent(data) ? rewrite(data) ?? data : data }
         guard let text = String(data: data.dropFirst(mark), encoding: encoding),
               let rewritten = rewrite(Data(text.utf8)),
               let encoded = String(decoding: rewritten, as: UTF8.self).data(using: encoding) else { return data }
         return data.prefix(mark) + encoded
-    }
-
-    private static func wide(_ data: Data) -> (encoding: String.Encoding, mark: Int)? {
-        let prefix = Array(data.prefix(4))
-        if prefix.starts(with: [0, 0, 0xFE, 0xFF]) { return (.utf32BigEndian, 4) }
-        if prefix.starts(with: [0, 0, 0]) { return (.utf32BigEndian, 0) }
-        if prefix.starts(with: [0xFF, 0xFE, 0, 0]) { return (.utf32LittleEndian, 4) }
-        if prefix.count == 4 && prefix[1...3].allSatisfy({ $0 == 0 }) { return (.utf32LittleEndian, 0) }
-        if prefix.starts(with: [0xFE, 0xFF]) { return (.utf16BigEndian, 2) }
-        if prefix.first == 0 { return (.utf16BigEndian, 0) }
-        if prefix.starts(with: [0xFF, 0xFE]) { return (.utf16LittleEndian, 2) }
-        if prefix.count >= 2 && prefix[1] == 0 { return (.utf16LittleEndian, 0) }
-        return nil
     }
 
     /// Whether a document that is not UTF-16 or UTF-32 keeps every byte below 0x80 for its ASCII

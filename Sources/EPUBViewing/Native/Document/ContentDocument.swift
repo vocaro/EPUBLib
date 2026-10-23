@@ -440,8 +440,12 @@ final class ContentDocument: @unchecked Sendable {
     static func htmlSource(_ data: Data, rewritten: Data, path: String, limits: ContentLimits) throws -> (data: Data, placeholder: Unicode.Scalar?, ampPlaceholder: String?) {
         let limit = min(limits.bytes, Int(Int32.max))
         let doctypesAsHTML = XMLSafety.assess(data, doctypesAsHTML: true) == .safe
-        let text = try HTMLSourceEncoding.utf8(data, path: path, limit: limit, doctypesAsHTML: doctypesAsHTML)
-            .map { HTMLEntities.numericReferences(in: $0) } ?? rewritten
+        let decoded: Data?
+        do { decoded = try HTMLSourceEncoding.utf8(data, limit: limit, doctypesAsHTML: doctypesAsHTML) }
+        catch .malformed { throw ContentDocumentError.malformed(path) }
+        catch .limitExceeded { throw ContentDocumentError.limitExceeded("bytes") }
+        catch .unsafe { throw ContentDocumentError.unsafeMarkup(path) }
+        let text = decoded.map { HTMLEntities.numericReferences(in: $0) } ?? rewritten
         guard let ampersands = HTMLLiteralAmpersands.prepared(text, limit: limit) else { throw ContentDocumentError.limitExceeded("bytes") }
         let recoveredText = try HTMLRecoveryText.prepared(ampersands.data, path: path, limit: limit, doctypesAsHTML: doctypesAsHTML)
         guard let signs = HTMLStraySigns.replaced(in: recoveredText, limit: limit),
@@ -605,7 +609,7 @@ enum HTMLEntities {
     static func numericReferences(in data: Data) -> Data {
         // Rewrite wide XML in its own encoding so the declaration and BOM still agree
         // with the bytes given to libxml2. Scanning UTF-16 bytes as ASCII splits names.
-        if let (encoding, mark) = HTMLSourceEncoding.wide(data),
+        if let (encoding, mark) = XMLSafety.wideEncoding(data),
            let text = String(data: data.dropFirst(mark), encoding: encoding) {
             let utf8 = Data(text.utf8)
             let rewritten = numericReferences(in: utf8)
