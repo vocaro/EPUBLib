@@ -419,6 +419,89 @@ import UIKit
         XCTAssertEqual(tabInterval("Kept", in: section), try eightSpaces("Kept"), accuracy: 0.01, "unless it keeps its tabs")
     }
 
+    /// CSS Text 3 §4.2: the interval is the block's `tab-size`, inherited, a number of its
+    /// spaces, each with the block's letter and word spacing, or a length, which scales with
+    /// the reader's size as a font size does (#378).
+    func testAParagraphsTabIntervalIsItsBlocksTabSize() throws {
+        let section = try H.build("""
+            <pre style='tab-size:4'>Four&#9;spaces</pre><pre style='tab-size:40px'>Forty&#9;points</pre>
+            <pre style='tab-size:2em; font-size:20px'>Two&#9;ems</pre>
+            <pre style='tab-size:3; letter-spacing:2px; word-spacing:1px'>Spaced&#9;out</pre>
+            <div style='tab-size:5'><p style='white-space:pre-wrap'>Inherited&#9;size</p></div>
+            <pre style='tab-size:0'>Zero&#9;size</pre><pre>Initial&#9;size</pre>
+            """, css: H.reset)
+        func spaces(_ count: CGFloat, _ phrase: String, spacing: CGFloat = 0) throws -> CGFloat {
+            count * (InlineStyling.spaceAdvance(try font(phrase, in: section)) + spacing)
+        }
+        XCTAssertEqual(tabInterval("Four", in: section), try spaces(4, "Four"), accuracy: 0.01, "four of the block's spaces")
+        XCTAssertEqual(tabInterval("Forty", in: section), 40, accuracy: 0.01, "40 pixels")
+        XCTAssertEqual(tabInterval("Two", in: section), 40, accuracy: 0.01, "two of the block's ems")
+        XCTAssertEqual(tabInterval("Spaced", in: section), try spaces(3, "Spaced", spacing: 3), accuracy: 0.01,
+                       "three spaces, each with the letter and word spacing")
+        XCTAssertEqual(tabInterval("Inherited", in: section), try spaces(5, "Inherited"), accuracy: 0.01, "inherited")
+        XCTAssertEqual(tabInterval("Zero", in: section), 1, "never under a point")
+        XCTAssertEqual(tabInterval("Initial", in: section), try spaces(8, "Initial"), accuracy: 0.01, "eight spaces")
+        let larger = try H.build("<pre style='tab-size:40px'>Forty&#9;points</pre>", css: H.reset, fontSize: 24)
+        XCTAssertEqual(tabInterval("Forty", in: larger), 60, accuracy: 0.01, "at the reader's 24 points, 40 pixels are 60 points")
+    }
+
+    /// A tab after text advances to the next multiple of its block's `tab-size`.
+    func testATabAdvancesByItsBlocksTabSize() throws {
+        for (tabSize, interval) in [("40px", CGFloat(40)), ("3em", 48)] {
+            guard let section = try layOut("<pre style='tab-size:\(tabSize)'>Left&#9;Right</pre><p>After.</p>") else { return }
+            let view = H.view(section.string, size: size)
+            let left = H.frame("Left", in: section, view: view), right = H.frame("Right", in: section, view: view)
+            XCTAssertEqual(left.minY, right.minY, accuracy: 0.5, "\(tabSize): the text after the tab is on the tab's line")
+            XCTAssertTrue(isNextStop(right.minX, after: left.maxX, every: interval),
+                          "\(tabSize): at the next multiple of \(interval) points: \(right.minX) after \(left.maxX)")
+        }
+    }
+
+    /// A `tab-size` of nothing, or wider than any column, still leaves every tab somewhere to go.
+    func testATabSizeOfNothingOrWiderThanTheColumnIsLaidOut() throws {
+        for tabSize in ["0", "0px", "1000", "10000px", "calc(infinity)", "calc(infinity * 1px)"] {
+            let body = "<pre style='tab-size:\(tabSize)'>a&#9;b&#9;c</pre><p style='white-space:pre-wrap; tab-size:\(tabSize)'>Some&#9;words&#9;here.</p><p>After.</p>"
+            try layOut(body)
+            try layOut(float + body)
+        }
+    }
+
+    /// The box plan restyles the paragraphs of a flex or grid container that aligns its items:
+    /// it moves them across and adds space along (`ReaderAlignmentLayout`). Each copy it makes
+    /// keeps its interval, so that a tab kept in one still has somewhere to go (#378).
+    func testAnAlignedBoxsRestyledParagraphsKeepTheirTabInterval() throws {
+        let body = "<div style='display:flex; justify-content:center; align-items:center; height:200px'>"
+            + "<p style='white-space:pre'>Kept&#9;tab</p></div><p>After.</p>"
+        guard let section = try layOut(body) else { return }
+        let resolved = ReaderBoxLayout.resolve(section.string, viewport: size).text
+        let source = H.paragraphStyle("Kept", in: section, text: section.string)
+        let restyled = H.paragraphStyle("Kept", in: section, text: resolved)
+        XCTAssertGreaterThan(restyled.headIndent, source.headIndent + 50, "the box plan moved the item to the middle")
+        XCTAssertGreaterThan(ReaderAlignmentLayout.lead(in: resolved, at: H.range("Kept", in: section).location), 50,
+                             "and down")
+        XCTAssertEqual(restyled.defaultTabInterval, source.defaultTabInterval, "and kept its interval")
+        XCTAssertGreaterThanOrEqual(restyled.defaultTabInterval, 1)
+        XCTAssertEqual(withoutATabInterval(resolved), 0)
+    }
+
+    /// A section that opens with a hidden label before what cannot hold it gives the label a
+    /// paragraph of its own (`SectionWriter.flushSpokenParagraph`), built apart from the
+    /// others. It holds only the label, and has its box's interval as they do (#378).
+    func testAHiddenLabelsOwnParagraphHasItsBoxsTabInterval() throws {
+        let css = ".sr { position:absolute; left:-999em } .tabbed { tab-size:4 }"
+        let body = "<div class='tabbed'><span class='sr'>Label</span><table><tr><td>a</td><td>b</td></tr></table>"
+            + "<p>After.</p></div>"
+        guard let section = try layOut(body, css: css) else { return }
+        XCTAssertTrue(section.string.attribute(.attachment, at: 0, effectiveRange: nil) is SpokenLabelAttachment, "the label opens the section")
+        let style = try XCTUnwrap(section.string.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
+        XCTAssertEqual(style.maximumLineHeight, SpokenLabelAttachment.lineHeight, "in a paragraph of its own")
+        let space = InlineStyling.spaceAdvance(try font("After", in: section))
+        XCTAssertEqual(style.defaultTabInterval, 4 * space, accuracy: 0.01, "with its box's interval")
+        XCTAssertEqual(tabInterval("After", in: section), 4 * space, accuracy: 0.01, "as the box's other paragraphs have")
+        XCTAssertEqual(withoutATabInterval(section.string), 0)
+        XCTAssertEqual(withoutATabInterval(ReaderBoxLayout.resolve(section.string, viewport: size).text), 0)
+    }
+
     // MARK: A float as wide as its text
 
     /// A drop cap that opens a list item is a float as wide as its text, which begins with the

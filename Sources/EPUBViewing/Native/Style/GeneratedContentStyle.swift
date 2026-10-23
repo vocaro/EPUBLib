@@ -16,9 +16,10 @@ extension ComputedStyle {
         case counter(String, ListStyleType)
         /// `counters(name, separator, style)`.
         case counters(String, separator: String, ListStyleType)
-        /// What the reader does not generate: an image (`url()`, `image-set()`, a gradient),
-        /// `leader()`, `target-counter()`, `target-counters()`, `target-text()`, `contents`, or an
-        /// `attr()` with a type or a fallback. It is left out, and the section discloses it.
+        /// What the reader does not generate: an image (`url()`, `image-set()`, `cross-fade()`, a
+        /// gradient), `leader()`, `target-counter()`, `target-counters()`, `target-text()`,
+        /// `contents`, or an `attr()` with a type or a fallback. It is left out, and the section
+        /// discloses it.
         case unsupported
 
         /// Whether the item can generate characters, whatever the counters and quotes are.
@@ -181,12 +182,14 @@ extension CSSPropertyParser {
                 case "counter", "counters":
                     guard let item = counter(name, arguments) else { return nil }
                     items.append(item)
-                case "url", "src", "image", "image-set", "-webkit-image-set", "cross-fade", "-webkit-cross-fade", "element",
-                     "leader", "target-counter", "target-counters", "target-text", "content", "string", "paint":
+                case "leader", "target-counter", "target-counters", "target-text", "content", "string":
                     items.append(.unsupported)
-                case _ where name.hasSuffix("gradient"):
+                default:
+                    // An image, read as a background's is (`isImage`): a function the reader
+                    // does not know, such as a gradient prefixed for another engine, is none,
+                    // and makes the declaration invalid.
+                    guard isImage(component) else { return nil }
                     items.append(.unsupported)
-                default: return nil
                 }
             default: return nil
             }

@@ -252,6 +252,28 @@ final class GeneratedContentTests: XCTestCase {
         XCTAssertNil(NativeDisclosure.text(for: supported.report))
     }
 
+    /// An image in `content` is read as a background's is (`CSSPropertyParser.isImage`): one
+    /// the reader does not know, such as a gradient prefixed for another engine, makes the
+    /// declaration invalid, and the earlier one stays (CSS 2.2 §4.2; #643). One it knows is
+    /// left out and disclosed.
+    func testContentWithAFunctionTheReaderDoesNotKnowLeavesTheEarlierOne() throws {
+        let invalid = ["-moz-linear-gradient(top, #fff, #000)", "-o-linear-gradient(top, #fff, #000)", "-ms-radial-gradient(red, blue)",
+                       "bogus-gradient(red, blue)", "linear-gradient(top, #fff, #000)", "image(url(star.png))", "element(#a)", "paint(x)",
+                       "bogus(1)", "'x' -moz-linear-gradient(top, #fff, #000)"]
+        func styled(_ values: [String]) throws -> SectionText {
+            try S.styled(values.indices.map { "<p class='e\($0)'>Text</p>" }.joined(),
+                         css: values.enumerated().map { "p.e\($0.offset)::before { content: '> '; content: \($0.element) }" }.joined(separator: " "))
+        }
+        let kept = try styled(invalid)
+        XCTAssertEqual(S.paragraphs(kept), Array(repeating: "> Text", count: invalid.count))
+        XCTAssertFalse(kept.report.generatedContentOmitted, "nothing is left out")
+        let valid = ["linear-gradient(red, blue)", "-webkit-linear-gradient(top, #fff, #000)", "url(star.png)", #"url("star.png") '* '"#,
+                     #"-webkit-image-set(url(star.png) 1x)"#, "-webkit-cross-fade(url(a.png), url(b.png), 50%)"]
+        let images = try styled(valid)
+        XCTAssertEqual(S.paragraphs(images), ["Text", "Text", "Text", "* Text", "Text", "Text"])
+        XCTAssertTrue(images.report.generatedContentOmitted, "the images are left out, and disclosed")
+    }
+
     func testGeneratedTextIsBounded() throws {
         let long = String(repeating: "x", count: 2_000)
         let text = try S.styled(String(repeating: "<p>a</p>", count: 600), css: "p::before { content: '\(long)' }")
