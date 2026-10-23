@@ -40,6 +40,12 @@ link entry in an archive is, and so is anything but a file or a folder. It need 
 its `id` is the SHA-256 of its files, so read them with `data(at:)` and key positions on
 `persistentID` ([positions and highlights](#positions-and-highlights)).
 
+`publication.metadata.accessibility` holds the accessibility metadata the book declares, as
+written: its access modes, features, hazards and summary, and what it claims to conform to and
+who evaluated it. It is `isEmpty` when the book declares none. A book information view shows it
+as the W3C display guide words it; [architecture](architecture.md#accessibility-metadata) says
+how each value is read and what it leaves out.
+
 ## Showing a book
 
 Create and retain a reading session on the main actor, then mount `EPUBReaderView(session:)`:

@@ -226,7 +226,10 @@ final class SpecConformancePackageTests: XCTestCase {
               <collection role="index"><link href="two.xhtml"/></collection>
             """
         let publication = try EPUBPublication.open(data: book.archive())
-        XCTAssertEqual(publication.metadata, plain.metadata)
+        // `schema:accessMode` is accessibility metadata, read since #676; nothing else is.
+        XCTAssertEqual(publication.metadata, EPUBMetadata(title: plain.metadata.title, authors: plain.metadata.authors,
+                                                          languages: plain.metadata.languages, identifiers: plain.metadata.identifiers,
+                                                          accessibility: EPUBAccessibilityMetadata(accessModes: ["textual"])))
         XCTAssertEqual(publication.spine.map(\.resource.path), plain.spine.map(\.resource.path))
         XCTAssertEqual(publication.spine.map(\.isLinear), [true, true])
         XCTAssertEqual(publication.spine.map(\.layout), [.reflowable, .reflowable])

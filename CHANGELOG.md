@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Read the EPUB Accessibility metadata a package declares, in EPUB 3's form or EPUB 2's, into `EPUBMetadata.accessibility`, so that a host can show it as the W3C display guide does ([#676](https://github.com/vocaro/EPUBLib/issues/676)).
 - Leave the words and pictures a book keeps from assistive technology out of what VoiceOver reads of a table cell, on iPhone and iPad in a cell's element, a row's line and its actions and on Mac in what a row is called and a cell's selected text, while a selection and a copy of the row keep them ([#551](https://github.com/vocaro/EPUBLib/issues/551))
 - Name the language of a picture's words to VoiceOver, that of its `img`, `object`, `embed` or `svg` element, so that a heading or a cell whose picture's words outweigh its own is read in their language ([#548](https://github.com/vocaro/EPUBLib/issues/548))
 

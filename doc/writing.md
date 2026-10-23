@@ -41,6 +41,9 @@ requires, reads a metadata value or a label with each run of ASCII whitespace as
 none at its ends, so a title given with a tab, a line end, doubled spaces or a space at an end
 is written as given and does not read back as given. The caller chooses a stable identifier and
 modification date for reproducible output; package generation does not invent document facts.
+Of `EPUBMetadata`, the writer writes the title, creators, languages and identifiers; it does not
+write `accessibility`, the accessibility metadata a reader reads from a book
+([#809](https://github.com/vocaro/EPUBLib/issues/809)).
 
 A refusal is an `EPUBWritingError`, whose detail names what was refused and whose
 `localizedDescription` is a plain message for a person, that the book has errors or is too large
