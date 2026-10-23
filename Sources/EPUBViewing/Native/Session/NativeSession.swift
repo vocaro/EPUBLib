@@ -79,15 +79,20 @@ import SwiftUI
     @ObservationIgnored private(set) var drawnHighlights: [ReaderHighlight] = []
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
 
+    /// `style` is the one the session starts with, as if a host had sent it before mounting: a
+    /// preview starts in continuous scroll without laying its pages out first.
     init(publication: EPUBPublication, action: EPUBSelectionAction?, rich: any RichContentFactory,
-         onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void) throws {
+         style: EPUBReaderStyle = EPUBReaderStyle(), onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void) throws {
         self.publication = publication; self.action = action; self.onEvent = onEvent
         readerState = EPUBReaderState(status: EPUBReaderStatus(capabilities: capabilities))
         do { spine = try SpineCFIs(publication: publication) }
         catch { throw EPUBReaderError.engineFailure("The package document could not be read: \(error)") }
         progress = NativeProgress(publication: publication)
         (initialSection, initialFragment) = Self.openingTarget(of: publication)
-        book = NativeBook(publication: publication, typography: NativeTypography(), rich: rich)
+        self.style = style
+        readerState?.modify { $0.style = style; $0.effectiveAppearance = style.appearance == .dark ? .dark : .light }
+        book = NativeBook(publication: publication, typography: NativeTypography(fontSize: style.fontSize, isDark: style.appearance == .dark),
+                          rich: rich)
         book.onSectionBuilt = { [weak self] in self?.sectionBuilt($0) }
         book.onBookComplete = { [weak self] in self?.bookCompleted() }
         buildBook(from: initialSection)

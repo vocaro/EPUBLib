@@ -50,6 +50,9 @@ public struct EPUBPublication: Sendable {
     /// Original EPUB bytes, for engines with their own container implementation.
     public let archiveData: Data
     private let contents: [String: Data]
+    /// The entries of a book opened on demand that opening did not read, read when asked for;
+    /// nil for a book read whole.
+    private let unread: ArchiveEntries?
     /// All declared IDs, including missing and remote hops. They are never fetched. By the ID's
     /// code units, as an IDREF names it (`EPUBElementID`), once both are read as XML IDs are
     /// (`XMLNode.identifier`).
@@ -81,14 +84,64 @@ public struct EPUBPublication: Sendable {
 
     /// Reads a decoded archive path, never a file-system path or remote URL.
     public func data(at path: String) throws -> Data {
-        guard let data = contents[path] else { throw EPUBPublicationError.missingResource(path) }
+        if let data = contents[path] { return data }
+        // A book opened on demand reads the entry now, and may refuse it as opening would have.
+        guard let data = try unread?.data(at: path) else { throw EPUBPublicationError.missingResource(path) }
         return data
+    }
+
+    /// The publication with only the first `count` items of its spine, and all else as it is:
+    /// its identity, resources, navigation and bytes. A preview shows the opening of a book with
+    /// it, and builds no more of the book than that.
+    package func prefix(spineItems count: Int) -> Self {
+        Self(id: id, metadata: metadata, resources: resources, lostEntries: lostEntries, spine: Array(spine.prefix(max(1, count))),
+             tableOfContents: tableOfContents, landmarks: landmarks, pageList: pageList, cover: cover,
+             pageProgression: pageProgression, archiveData: archiveData, contents: contents, unread: unread,
+             manifestByID: manifestByID)
+    }
+
+    /// Expanded bytes read from the archive: for a book opened on demand, those of each entry it
+    /// has read so far, once however often it was read; for a book read whole, those of every
+    /// entry it holds.
+    package var expandedBytesRead: Int {
+        unread?.expandedBytes ?? contents.values.reduce(0) { $0 + $1.count }
     }
 
     /// Synchronous for CLI/background use. Call off the main actor for large books.
     /// `onProgress` receives cumulative expanded bytes on the importing thread; keep it brief.
     public static func open(at url: URL, limits: EPUBImportLimits = .init(),
                             onProgress: (@Sendable (Int) -> Void)? = nil) throws -> Self {
+        try open(at: url, limits: limits, onProgress: onProgress, onDemand: false)
+    }
+
+    /// `onProgress` receives cumulative expanded bytes synchronously, after each decoded chunk.
+    public static func open(data: Data, limits: EPUBImportLimits = .init(),
+                            onProgress: (@Sendable (Int) -> Void)? = nil) throws -> Self {
+        try open(data: data, limits: limits, onProgress: onProgress, onDemand: false)
+    }
+
+    /// Opens a book for a preview, which reads little of it: a Quick Look thumbnail or preview.
+    ///
+    /// With `onDemand`, opening reads the archive's directory and every name in it as it reads
+    /// them for any book, and refuses the same names, but inflates only the entries it needs to
+    /// read the book's structure: the `mimetype`, the container, the encryption document, the
+    /// package document, the navigation document or NCX, and fonts obfuscated with a key the
+    /// package gives. Every other entry is read when `data(at:)` first asks for it, and held to
+    /// its checksum and the limits then: an entry that would refuse the book read whole is a
+    /// resource that cannot be read, and the book opens. The archive's bytes are held in memory,
+    /// as they are for any book, and the entries read are not kept: each is read again when it
+    /// is asked for again.
+    package static func open(at url: URL, limits: EPUBImportLimits = .init(), onDemand: Bool) throws -> Self {
+        try open(at: url, limits: limits, onProgress: nil, onDemand: onDemand)
+    }
+
+    /// Opens `data` as `open(at:limits:onDemand:)` opens a file's bytes.
+    package static func open(data: Data, limits: EPUBImportLimits = .init(), onDemand: Bool) throws -> Self {
+        try open(data: data, limits: limits, onProgress: nil, onDemand: onDemand)
+    }
+
+    private static func open(at url: URL, limits: EPUBImportLimits, onProgress: (@Sendable (Int) -> Void)?,
+                             onDemand: Bool) throws -> Self {
         guard url.isFileURL else { throw EPUBPublicationError.unsafePath(url.absoluteString) }
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
@@ -97,12 +150,11 @@ public struct EPUBPublication: Sendable {
         }
         // A file its length or its ends refuse is refused unread beyond them (`ArchiveFile`).
         var file = ArchiveFile(handle: handle)
-        return try open(data: file.bytes(limits: limits), limits: limits, onProgress: onProgress)
+        return try open(data: file.bytes(limits: limits), limits: limits, onProgress: onProgress, onDemand: onDemand)
     }
 
-    /// `onProgress` receives cumulative expanded bytes synchronously, after each decoded chunk.
-    public static func open(data: Data, limits: EPUBImportLimits = .init(),
-                            onProgress: (@Sendable (Int) -> Void)? = nil) throws -> Self {
+    private static func open(data: Data, limits: EPUBImportLimits, onProgress: (@Sendable (Int) -> Void)?,
+                             onDemand: Bool) throws -> Self {
         try Task.checkCancellation()
         try limits.admit(archiveBytes: data.count)
         let archive: Archive
@@ -123,8 +175,10 @@ public struct EPUBPublication: Sendable {
         let directory = try ArchiveBounds.check(archiveBytes, names: limits.entryCount)
         var contents: [String: Data] = [:]
         var paths = Set<String>()
-        var total = 0
-        var inputWork = ArchiveInputWork(archiveBytes: archiveBytes.count)
+        let entries = ArchiveEntries(archive: archive, bytes: archiveBytes, directory: directory, limits: limits,
+                                     onProgress: onProgress)
+        // The entries opening needs, of a book opened on demand; the rest are read when asked for.
+        let needed: Set = ["mimetype", "META-INF/container.xml", "META-INF/encryption.xml"]
         for (index, entry) in archive.enumerated() {
             try Task.checkCancellation()
             // The entry's path and type, read from its directory record's own bytes.
@@ -139,58 +193,22 @@ public struct EPUBPublication: Sendable {
             guard paths.count <= limits.entryCount else { throw EPUBPublicationError.limitExceeded("entry count") }
             // Directories have no data to extract or count toward expanded-byte limits.
             if name.type == .directory { continue }
-            // An entry that declares more than a limit allows is refused before it is read,
-            // unless it is compressed. A compressed entry is not read by its declared size,
-            // which may be wrong either way with its data whole: a deflated one is held to the
-            // limits below, by what it inflates to, and one in any other method is not read.
-            // A data descriptor's size is read by the form of the descriptor's own bytes, not the
-            // one ZIPFoundation takes from the entry's version and ZIP64 field (`DataDescriptor`).
-            let declared = directory.describedSizes[index] ?? entry.uncompressedSize
-            guard entry.isCompressed || (declared <= UInt64(limits.resourceBytes)
-                                         && declared <= UInt64(limits.expandedBytes - total)) else {
-                throw EPUBPublicationError.limitExceeded(path)
-            }
-            var bytes = Data()
-            inputWork.beginEntry()
-            let crc: CRC32
-            do {
-                func consume(_ chunk: Data) throws {
-                    try Task.checkCancellation()
-                    guard chunk.count <= limits.resourceBytes - bytes.count,
-                          chunk.count <= limits.expandedBytes - total else {
-                        throw EPUBPublicationError.limitExceeded(path)
-                    }
-                    try inputWork.consume(outputBytes: chunk.count)
-                    bytes.append(chunk)
-                    total += chunk.count
-                    onProgress?(total)
-                    try Task.checkCancellation()
-                }
-                // A deflated entry is inflated with zlib, not by ZIPFoundation, whose decoder
-                // gives the same damaged stream different results on different opens (#583).
-                if let deflated = directory.deflatedData[index] {
-                    crc = try archiveBytes.withUnsafeBytes {
-                        try DeflateStream.inflate(UnsafeRawBufferPointer(rebasing: $0[deflated]),
-                                                  chunkSize: ArchiveInputWork.chunkSize, consumer: consume)
-                    }
-                } else {
-                    crc = try archive.extract(entry, bufferSize: ArchiveInputWork.chunkSize, consumer: consume)
-                }
-            }
-            catch let error as EPUBPublicationError { throw error }
-            catch let error as CancellationError { throw error }
-            // A method other than stored and Deflate, or a stream that does not inflate, is
-            // damage in the archive however much the entry declares: what it declares is not
-            // trusted, and a limit is exceeded only by bytes it inflates to (#74).
-            catch { throw EPUBPublicationError.invalidArchive("\(path): \(error)") }
-            guard crc == entry.checksum else { throw EPUBPublicationError.invalidArchive("CRC: \(path)") }
-            contents[path] = bytes
+            if onDemand, !needed.contains(path) { entries.hold(entry, index: index, path: path); continue }
+            contents[path] = try entries.read(entry, index: index, path: path)
         }
-        guard isEPUBMimetype(contents["mimetype"]) else {
+        // An entry's bytes: read above, or, in a book opened on demand, read now and kept.
+        func read(_ path: String) throws -> Data? {
+            if let bytes = contents[path] { return bytes }
+            guard let bytes = try entries.take(path) else { return nil }
+            contents[path] = bytes
+            return bytes
+        }
+        func holds(_ path: String) -> Bool { contents[path] != nil || entries.holds(path) }
+        guard isEPUBMimetype(try read("mimetype")) else {
             throw EPUBPublicationError.invalidArchive("Missing EPUB mimetype")
         }
         func xml(_ path: String) throws -> XMLNode {
-            guard let bytes = contents[path] else { throw EPUBPublicationError.missingResource(path) }
+            guard let bytes = try read(path) else { throw EPUBPublicationError.missingResource(path) }
             guard bytes.count <= limits.xmlBytes else { throw EPUBPublicationError.limitExceeded(path) }
             return try XMLTree.parse(bytes, path: path)
         }
@@ -204,7 +222,7 @@ public struct EPUBPublication: Sendable {
             $0.attribute("media-type")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "application/oebps-package+xml"
         } ?? rootfiles.first
         guard let fullPath = rootfile?.attribute("full-path"),
-              let opfPath = ResourceReference.rootfilePath(fullPath, isEntry: { contents[$0] != nil }) else {
+              let opfPath = ResourceReference.rootfilePath(fullPath, isEntry: holds) else {
             throw EPUBPublicationError.invalidXML("container rootfile")
         }
         let opf = try xml(opfPath)
@@ -227,7 +245,7 @@ public struct EPUBPublication: Sendable {
         // is encryption this package cannot undo: `unproven` holds the paths not named as fonts,
         // which the manifest has yet to declare as one.
         var undecoded: Set<String> = [], unproven: Set<String> = []
-        if contents["META-INF/encryption.xml"] != nil {
+        if holds("META-INF/encryption.xml") {
             let encryption = try xml("META-INF/encryption.xml")
             let identifiers = metadataElements.filter { $0.name == "identifier" }
             // The identifier `unique-identifier` names, by its exact code units once each is read as
@@ -249,7 +267,7 @@ public struct EPUBPublication: Sendable {
                 }
                 // A font already left out stays out, however often it is listed as obfuscated.
                 if undecoded.contains(path), Self.obfuscations.contains(algorithm) { continue }
-                guard var bytes = contents[path] else { throw EPUBPublicationError.unsupportedEncryption }
+                guard var bytes = try read(path) else { throw EPUBPublicationError.unsupportedEncryption }
                 let key: [UInt8]?
                 let prefixLength: Int
                 switch algorithm {
@@ -267,6 +285,7 @@ public struct EPUBPublication: Sendable {
                 }
                 guard let key else {
                     contents[path] = nil
+                    entries.remove(path)
                     undecoded.insert(path)
                     if !isFont(mediaType: nil, path: path) { unproven.insert(path) }
                     continue
@@ -299,8 +318,8 @@ public struct EPUBPublication: Sendable {
                 path = String(reference.split(separator: "#", maxSplits: 1)[0]).removingPercentEncoding ?? reference
                 // A file system that ignores case hides this mismatch from a book's author. The
                 // one entry that differs only in case is the one meant; between two, none is.
-                if contents[path] == nil {
-                    let index = folded ?? Dictionary(grouping: Array(contents.keys) + undecoded) { $0.lowercased() }
+                if !holds(path) {
+                    let index = folded ?? Dictionary(grouping: Array(contents.keys) + entries.paths + undecoded) { $0.lowercased() }
                     folded = index
                     if let matches = index[path.lowercased()], matches.count == 1 { path = matches[0] }
                 }
@@ -324,7 +343,7 @@ public struct EPUBPublication: Sendable {
             // So is a remote item: EPUB 3 lets audio, video and fonts live outside the
             // container, and nothing is ever fetched.
             if isRemote { remote.insert(EPUBElementID(id)) }
-            guard !isRemote, contents[path] != nil else { continue }
+            guard !isRemote, holds(path) else { continue }
             resources.append(resource)
             byID[id] = resource
         }
@@ -449,7 +468,7 @@ public struct EPUBPublication: Sendable {
             pageList: pages.isEmpty ? nil : pages,
             cover: resources.first { $0.properties.contains("cover-image") } ?? coverID.flatMap { byID[$0] },
             pageProgression: EPUBPageProgression(rawValue: spineNode.attribute("page-progression-direction") ?? "") ?? .default,
-            archiveData: data, contents: contents, manifestByID: declared)
+            archiveData: data, contents: contents, unread: onDemand ? entries : nil, manifestByID: declared)
     }
 
     /// Whether the `mimetype` entry names an EPUB. White space around the media type and a
