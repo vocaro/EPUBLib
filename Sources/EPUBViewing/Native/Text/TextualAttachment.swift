@@ -161,14 +161,17 @@ extension NSAttributedString {
     /// break, they read as one space where they stand between two shown words, which the room
     /// they take sets apart on the page, and otherwise as nothing. `spoken` reads characters
     /// that `aria-hidden` keeps from assistive technology (`.readerUnspoken`) the same way, for
-    /// VoiceOver.
+    /// VoiceOver. What a closed details collapses (`.readerCollapsed`) takes no room, and reads
+    /// as nothing, its breaks included: the line before it and the line after it are one break
+    /// apart, as they are on the page.
     func readerHiddenText(_ run: NSRange, spoken: Bool = false) -> String {
         let characters = string as NSString
-        var breaks = ""
+        var breaks = "", collapsed = false
         for index in run.location..<NSMaxRange(run) where Self.isReaderBreak(characters.character(at: index)) {
+            if attribute(.readerCollapsed, at: index, effectiveRange: nil) != nil { collapsed = true; continue }
             breaks.unicodeScalars.append(Unicode.Scalar(characters.character(at: index))!)
         }
-        if !breaks.isEmpty { return breaks }
+        if !breaks.isEmpty || collapsed { return breaks }
         func shownWord(at index: Int) -> Bool {
             guard index >= 0, index < length, attribute(.readerHidden, at: index, effectiveRange: nil) == nil,
                   !spoken || attribute(.readerUnspoken, at: index, effectiveRange: nil) == nil else { return false }

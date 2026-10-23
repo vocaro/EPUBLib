@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Show a `details` closed unless the book opens it, with its summary as a disclosure triangle and words that open and close it by touch, click or VoiceOver in place, a button that is expanded or collapsed to VoiceOver on iPhone and iPad and a disclosure triangle on Mac, and open it when search, a link or a saved place goes to what it holds, where everything a details held was shown and its summary was read as text ([#708](https://github.com/vocaro/EPUBLib/issues/708)).
 - Leave the words and pictures a book keeps from assistive technology out of what VoiceOver reads of a table cell, on iPhone and iPad in a cell's element, a row's line and its actions and on Mac in what a row is called and a cell's selected text, while a selection and a copy of the row keep them ([#551](https://github.com/vocaro/EPUBLib/issues/551))
 - Name the language of a picture's words to VoiceOver, that of its `img`, `object`, `embed` or `svg` element, so that a heading or a cell whose picture's words outweigh its own is read in their language ([#548](https://github.com/vocaro/EPUBLib/issues/548))
 

@@ -741,6 +741,36 @@ library, the startup canary, the assertion matrix and its stock negative control
 `--workflow`, `--font-size` and `--device` select a narrower repeat. Results belong on the
 issue, including the exact runtime build and whether the hook and canary confirmed it.
 
+### DAISY's extended description test
+
+[#708](https://github.com/vocaro/EPUBLib/issues/708) was checked against DAISY's
+extdescription-010, `content/epub30-test-0350` of
+[daisy/epub-accessibility-tests](https://github.com/daisy/epub-accessibility-tests) at commit
+`6ecadf3393083dd93fa79d8b62e0281957a7b05e`, whose `EPUB/Text/testDetailsUnderImage.xhtml`
+puts a chart's long description, a table among it, in a details under the chart. The
+repository states no license, so the book is fetched for a run and never committed: fetch the
+thirteen files under that directory at that commit from `raw.githubusercontent.com`, and zip
+them with `mimetype` first and stored. The issue records each file's SHA-256 and the book's.
+Read it on a simulator with the book given to the verification host:
+
+```sh
+python3 scripts/run-voiceover-simulator.py --runtime com.apple.CoreSimulator.SimRuntime.iOS-27-0 \
+  --launch '-SampleBook /absolute/path/epub30-test-0350.epub' \
+  --href 'EPUB/Text/testDetailsUnderImage.xhtml#image1-extended-desc' --vot-log --timeout 1200 \
+  --start-limit 600 --steps 'touch=Expand / collapse Extended Description,forward=4'
+```
+
+With `-SampleSearch "Qtr Total"` in `--launch` the host searches as the book opens, which
+shows the first result and so opens the details; the same steps then read it open and its
+table. `DisclosureDAISYTests` reads the same book without VoiceOver, opening and closing the
+details through the summary's accessibility element, finding its table of data and searching
+into it, when `EPUBLIB_DAISY_EXTDESC` names the book, and is skipped otherwise:
+
+```sh
+EPUBLIB_DAISY_EXTDESC=/absolute/path/epub30-test-0350.epub swift test --filter DisclosureDAISYTests
+``` The book is not one of the [standard corpora](#corpus-runs): admitting DAISY's tests
+as one is the owner's to decide.
+
 ### Corpus teardown
 
 The [reproduction on #589](https://github.com/vocaro/EPUBLib/issues/589#issuecomment-6283724393)
@@ -1515,8 +1545,8 @@ and a cell of "Unheard alone". "Words after the kept ones." and sixty
 numbered lines follow. Every kept or hidden word begins "unheard" or "Unheard" and no shown
 word does, so either in a transcript is a kept word read, and no word of it is one VoiceOver
 uses for a heading, a link, a picture or a table. Open it with `--href OPS/kept.xhtml` on a simulator
-and `"launch=-SampleHref OPS/kept.xhtml"` in a hosted session. The book's last section,
-**Links out of the book** (`OPS/outside.xhtml`), holds links to places outside the book
+and `"launch=-SampleHref OPS/kept.xhtml"` in a hosted session. After it,
+**Links out of the book** (`OPS/outside.xhtml`) holds links to places outside the book
 ([#683](https://github.com/vocaro/EPUBLib/issues/683)), each in a line of its own between
 "Shown before" and "in the line.": "far site", a web page; "letter route", an email address;
 and "script route", a `javascript:` link, which the reader refuses with a notice. A table
@@ -1525,7 +1555,20 @@ reference, "noted route", to a footnote whose link is the web page "noted far si
 before the routes out." opens it, and "Words after the routes out." and sixty numbered lines
 follow. Every address is under `example.invalid`, which nothing answers, and no word of it is
 one VoiceOver uses for a link, a table or a note. Open it with `--href OPS/outside.xhtml`;
-[Links out of the book](#links-out-of-the-book) has the sessions. A second bundled book, opened with
+[Links out of the book](#links-out-of-the-book) has the sessions. The book's last section,
+**Folded notes** (`OPS/folded.xhtml`), holds two details
+([Details and summary](native-viewer.md#details-and-summary)). The first, `folded`, is
+closed by the book, and its summary "Open the folded notes" opens it on a picture's long
+description as DAISY's extdescription-010 has one: "Tucked overview" in bold, "Tucked words
+of the notes.", a table of data under the header cells "Tucked month" and "Tucked visits"
+with the rows "Tucked first" 135 and "Tucked second" 117, and "Tucked closing words.", whose
+paragraph is the target `folded-end`. The second is open in the book, "Open aside" over
+"Aside words shown.". "Words before the folded notes." and "Words after the folded notes."
+stand round them, and sixty numbered lines follow. Every word a closed details holds begins
+"Tucked" or "tucked" and no shown word does, so either in a transcript was read while it
+was open. It has no heading and no link, and no word of it is one VoiceOver uses for a
+button, its state, a table or a heading. Open it with `--href OPS/folded.xhtml` on a
+simulator and `"launch=-SampleHref OPS/folded.xhtml"` in a hosted session. A second bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
 twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
@@ -1539,7 +1582,8 @@ section of parts below a jump; the sections of entries and of jumps inside a gri
 "What each line offers" and "Tables of data", have none, and neither has the section of
 jumps at a grid's edges nor the three of squares and of gaps inside grids and of words
 hidden in the flow. "Math readings" (level 1) opens the section after them, and "Harbour
-notes" (level 2) stands in the book's last. The second book's are "Chapter one", "Chapter two"
+notes" (level 2) stands in the section of words kept from listeners, the book's last heading.
+The second book's are "Chapter one", "Chapter two"
 and "Chapter three", screens apart.
 Do not import private books for this check. The fixture keeps to the shared rules for
 [speech fixtures and reference views](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#speech-fixtures-and-reference-views),
@@ -2121,6 +2165,44 @@ presses the link with VoiceOver on the search field, `ax:follow` as under
 ```text
 width=600 text_size=17 "launch=-SampleHref OPS/outside.xhtml" ax:focus=search "ax:follow=far site" line
 ```
+
+### Details and summary
+
+The fixture's **Folded notes** (`OPS/folded.xhtml`) holds a details the book leaves closed
+and one it opens ([Details and summary](native-viewer.md#details-and-summary)). On a
+simulator, read the page with it closed, and with it opened by a target inside it, which
+opens it without VoiceOver's own activation, which a stock simulator does not perform
+([Simulators](#simulators)):
+
+```sh
+python3 scripts/run-voiceover-simulator.py --runtime com.apple.CoreSimulator.SimRuntime.iOS-27-0 \
+  --href OPS/folded.xhtml --vot-log --timeout 1200 --start-limit 600 \
+  --steps 'touch=Words before the folded notes,forward=5'
+python3 scripts/run-voiceover-simulator.py --runtime com.apple.CoreSimulator.SimRuntime.iOS-27-0 \
+  --href OPS/folded.xhtml#folded-end --vot-log --timeout 1200 --start-limit 600 \
+  --steps 'touch=Open the folded notes,forward=12'
+```
+
+The first reads the summaries as buttons, the closed one collapsed and the open one expanded,
+and no word that begins "Tucked"; the second reads the summary expanded, then the notes and
+their table cell by cell with its rows and columns. On a Mac the same section is read in
+[hosted sessions](#hosted-mac-sessions), one closed, one opened by VoiceOver's own
+Control-Option-Space on the summary, and one opened by its target:
+
+```text
+width=600 text_size=17 "launch=-SampleHref OPS/folded.xhtml" ax:links ax:focus=search ax:focus=0 in line nextline nextline nextline nextline
+width=600 text_size=17 "launch=-SampleHref OPS/folded.xhtml" "ax:caret=Open the folded notes" ax:focus=search ax:focus=0 in line "activate=Open the folded notes" ax:links line nextline nextline nextline
+width=600 text_size=17 "launch=-SampleHref OPS/folded.xhtml#folded-end" ax:links ax:tables ax:focus=search ax:focus=0 in line nextline nextline nextline nextline
+```
+
+`ax:links` prints each summary as an `AXDisclosureTriangle` child with its `AXExpanded`, and
+`ax:tables` the table once the details is open. The first session reads no word that begins
+"Tucked"; the second says what VoiceOver says of a disclosure triangle and reads on into the
+notes; the third reads the notes and reaches the table's row.
+
+DAISY's own test of a details under a picture
+([DAISY's extended description test](#daisys-extended-description-test)) is read the same
+way, from a book the runner is given with `-SampleBook`.
 
 ### Tables on Mac
 

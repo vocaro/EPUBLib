@@ -2884,6 +2884,67 @@ stay, and kept words between two shown ones read as one space.
   is given (`spokenEquivalent`), as an image has
   ([#551](https://github.com/vocaro/EPUBLib/issues/551)).
 
+### Details and summary
+
+A `details` element shows its first `summary` child as the control that opens and closes the
+rest, as a browser does (HTML §4.11.1), and starts closed unless it has `open`
+([#708](https://github.com/vocaro/EPUBLib/issues/708)). Publishers put an image's extended
+description there, as DAISY's extdescription-010 has it. The user-agent sheet gives the
+summary HTML's rendering, `display: list-item` and `list-style: disclosure-closed inside`, and
+`disclosure-open` in an open details, so it opens with a triangle that points along the line
+(to the left in right-to-left text) or down; a book's own `list-style` or `display` for it
+still applies, and a summary counts no list item.
+
+- **One text, open or closed.** A section's characters do not depend on what is open: its
+  text holds the whole of every details, written open (`ReaderDisclosure`), and the reader
+  shows what a closed one holds collapsed (`ReaderDisclosures.render`). Those characters stay
+  where they are, take no room and draw nothing: each paragraph is a line of no height under
+  the summary, as a line of hidden labels alone is, and an image, a table's row, a formula or
+  a rule in it is an attachment of no size. They carry `.readerHidden` and
+  `.readerCollapsed`, and nothing they were laid out with is kept: no link, heading, page
+  break, float, box or alignment. Only the summary's triangle turns, one character for
+  another. So every rendered position, search result, highlight, selection, CFI and DOM range
+  is the same open or closed, and a page is shown again after a toggle as it is after a
+  change of appearance. The gap after a closed details is the one its content had at its end,
+  or the summary's own bottom margin, padding and border where those are more: CSS collapses
+  the margins through a closed details, and the gap the summary had above the content held
+  the content's first margin.
+- **Opening and closing.** A touch or a click on the summary, its triangle and its words, a
+  VoiceOver double tap or Control-Option-Space, and Full Keyboard Access on iPhone and iPad
+  (the summary is an element of its own) open and close it. The summary is a link in the
+  reader's own scheme (`ReaderLink.disclosure`), so an edge tap on it turns no page, and it
+  keeps the text's colors. The place is kept: in pages the same page is shown again, and in
+  continuous scroll the line at the top stays there, so the summary stays where it was. What
+  the reader has opened or closed lasts for the session and is not saved; a rebuild for
+  another typography keeps it.
+- **VoiceOver.** On iPhone and iPad the summary is a button whose expanded status says
+  whether its details is open (`accessibilityExpandedStatus`), as Safari gives it and HTML-AAM
+  maps it (a push button that expands and collapses); after its double tap VoiceOver is told
+  that the item changed, and reads it again in its new state. On Mac it is a disclosure triangle,
+  HTML-AAM's role there, with `AXExpanded` and a value of 1 or 0, among the text's children
+  and as the link of its characters, and pressing it opens or closes the details. VoiceOver
+  is not given the triangle, which is kept from assistive technology as an `aria-hidden`
+  character is: it says the state in its own words. A closed details is read by nobody, as
+  hidden text is ([Hidden text](#hidden-text)), its breaks included: on iPhone and iPad its
+  lines have no element and Copy and a selection take nothing of it, and on Mac its
+  characters are given as spaces, its breaks as breaks, so its lines are lines of spaces. Once
+  open, what it holds is read as anywhere else, a table of data as a table (**Data tables**
+  under [Decisions](#decisions)).
+- **Search and places inside.** Search finds words in a closed details, lists them with their
+  context and draws them where they are, which is nowhere on the page until the details
+  opens. Showing such a result opens every details round it, as HTML's ancestor details
+  revealing algorithm does for find in page, and so do `.locate`, a link or contents entry to
+  an element inside one, and a restored location there (`NativeSession.reveal`). A place
+  outside a details leaves it as it is.
+- **Limits.** A `details` with no `summary` child shows everything it holds and does not
+  close, where HTML gives it a summary of its own words; so does one in a table's cell, in a
+  note's popover, in a fallback table row, or that floats or is positioned, and one whose
+  summary is not a block in the flow. A book's `details[open]` selectors and generated
+  content follow the book's `open` attribute, not what the reader has opened, so a triangle
+  the book draws itself with `::before` keeps the book's state. On Mac a summary, as a link,
+  is reached from the keyboard only with VoiceOver: the reader gives no keyboard focus to a
+  link of its text ([#815](https://github.com/vocaro/EPUBLib/issues/815)).
+
 ### Flex and grid alignment
 
 A flex or grid container renders as a block and its items as blocks in source order. Three

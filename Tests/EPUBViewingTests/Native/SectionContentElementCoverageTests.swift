@@ -124,10 +124,13 @@ final class SectionContentElementCoverageTests: XCTestCase {
 
     // MARK: Interactive and embedded content
 
-    func testDetailsShowTheirSummaryAndContentWhetherOpenOrNot() throws {
-        // Nothing can open a closed `details` here, so its content must not be lost.
+    func testDetailsKeepTheirSummaryAndContentWhetherOpenOrNot() throws {
+        // The section's text holds a closed `details` whole: the reader collapses its content
+        // where it shows it (`ReaderDisclosures`, `DisclosureTests`), and its summary has the
+        // triangle of its state.
         let text = try H.build("<details><summary>Sum</summary><p>Closed body</p></details><details open=''><summary>Open</summary>shown</details>")
-        XCTAssertEqual(S.paragraphs(text), ["Sum", "Closed body", "Open", "shown"])
+        XCTAssertEqual(S.paragraphs(text), ["\u{25B8} Sum", "Closed body", "\u{25BE} Open", "shown"])
+        XCTAssertEqual(text.disclosures.map(\.isOpenInBook), [false, true])
         S.assertTextMapContracts(text)
     }
 

@@ -49,7 +49,8 @@ enum SectionBuilder {
         var truncated = text.report
         truncated.stylesTruncated = true
         return SectionText(spineIndex: text.spineIndex, href: text.href, document: text.document, string: text.string, map: text.map,
-                           anchors: text.anchors, notes: text.notes, title: text.title, report: truncated, layout: text.layout)
+                           anchors: text.anchors, notes: text.notes, title: text.title, report: truncated, layout: text.layout,
+                           disclosures: text.disclosures)
     }
 
     /// The builder proper, over an already parsed document and an injected cascade.
@@ -73,7 +74,8 @@ enum SectionBuilder {
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
         return SectionText(spineIndex: request.spineIndex, href: item.resource.href, document: document,
                            string: output.string, map: output.map, anchors: output.anchors, notes: state.shownNotes,
-                           title: title?.isEmpty == false ? title : nil, report: state.report.report, layout: state.layout)
+                           title: title?.isEmpty == false ? title : nil, report: state.report.report, layout: state.layout,
+                           disclosures: output.disclosures)
     }
 
     static func withheld(_ request: SectionBuildRequest, reason: Error) -> SectionText {

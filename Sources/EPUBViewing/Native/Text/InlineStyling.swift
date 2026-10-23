@@ -109,10 +109,13 @@ final class InlineStyling {
         let font = fonts.font(for: style)
         let hidden = style.isHidden
         let link = hidden ? nil : context.link
+        // A summary opens its details and is no link to the eye: it keeps the text's colors.
+        let linkColored: Bool
+        if case .disclosure = link { linkColored = false } else { linkColored = link != nil }
         let color: ColorChoice
         if hidden { color = .clear }
-        else if isDark { color = link == nil ? .text : .link }
-        else if link != nil {
+        else if isDark { color = linkColored ? .link : .text }
+        else if linkColored {
             color = style.color.flatMap { $0 != context.linkBaseColor ? ColorChoice.book($0) : nil } ?? .link
         } else { color = style.color.map(ColorChoice.book) ?? .text }
         let decorate = !hidden && !isDark

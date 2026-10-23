@@ -29,6 +29,12 @@ import AppKit
     private var background: Task<Void, Never>?
     private var cachedBookText: ReaderBookText?
     private var closed = false
+    /// The details the reader has opened or closed, by section and then by details
+    /// (`ReaderDisclosure.id`): whether each is open now. The rest are as the book has them.
+    /// It outlasts a section's builds, which name its details the same way.
+    private var disclosureStates: [Int: [Int: Bool]] = [:]
+    /// Each section's text as it is shown, for the build it was made from (`shownText`).
+    private var shownTexts: [Int: (built: NSAttributedString, shown: NSAttributedString)] = [:]
 
     /// A section (re)build arrived. `isCurrentTypography` is false for a stale build.
     var onSectionBuilt: ((Int) -> Void)?
@@ -149,7 +155,7 @@ import AppKit
                 string.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: separator, .font: font]))
             }
             starts[index] = string.length
-            string.append(section.string)
+            string.append(shownText(index) ?? section.string)
         }
         // An omitted section's start is the next included section's.
         var next = string.length
@@ -158,6 +164,34 @@ import AppKit
         }
         cachedBookText = ReaderBookText(string: string, sectionStarts: starts, omitted: omitted)
         return cachedBookText
+    }
+
+    /// Whether a section's details is open where the reader shows it: as the reader last left
+    /// it, else as the book has it.
+    func isOpen(_ disclosure: ReaderDisclosure, inSection index: Int) -> Bool {
+        disclosureStates[index]?[disclosure.id] ?? disclosure.isOpenInBook
+    }
+
+    /// Opens or closes a section's details where the reader shows it. Its characters stay as
+    /// they are, so every position in the book stays where it was; only what is shown of them
+    /// changes, which the canvas is then given again (`shownText`, `bookText`).
+    func setOpen(_ open: Bool, disclosure id: Int, inSection index: Int) {
+        guard sections.indices.contains(index), disclosureStates[index]?[id] != open else { return }
+        disclosureStates[index, default: [:]][id] = open
+        shownTexts[index] = nil
+        cachedBookText = nil
+    }
+
+    /// A section's newest build as the reader shows it: its string, with each details it has
+    /// closed collapsed (`ReaderDisclosures.render`). The same object until the section is
+    /// built again or a details in it opens or closes. nil while it has no build.
+    func shownText(_ index: Int) -> NSAttributedString? {
+        guard let section = section(index) else { return nil }
+        guard !section.disclosures.isEmpty else { return section.string }
+        if let cached = shownTexts[index], cached.built === section.string { return cached.shown }
+        let shown = ReaderDisclosures.render(section.string, section.disclosures) { isOpen($0, inSection: index) }
+        shownTexts[index] = (section.string, shown)
+        return shown
     }
 
     /// The content document of a section for searching: the built one, else a fresh parse.
@@ -181,6 +215,7 @@ import AppKit
         sections = Array(repeating: nil, count: sections.count)
         builtTypography = Array(repeating: nil, count: builtTypography.count)
         cachedBookText = nil
+        shownTexts.removeAll()
     }
 
     private func store(_ section: SectionText, typography target: NativeTypography) {

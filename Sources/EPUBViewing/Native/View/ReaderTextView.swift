@@ -342,7 +342,16 @@ extension ReaderTextView {
     /// The source envelope of the lines the viewport mostly shows
     /// (`ReaderVisualLine.sourceRange(mostlyWithin:in:)`): what is on screen to a reader.
     func mostlyVisibleCharacterRange(in rect: CGRect) -> NSRange? {
-        ReaderVisualLine.sourceRange(mostlyWithin: rect, in: visualLines()) { hiddenLabelsAlone(at: $0.range.location) == nil }
+        ReaderVisualLine.sourceRange(mostlyWithin: rect, in: visualLines()) {
+            hiddenLabelsAlone(at: $0.range.location) == nil && collapsedAlone(at: $0.range.location) == nil
+        }
+    }
+
+    /// The paragraphs holding `location` that a closed details collapses (`.readerCollapsed`):
+    /// lines of no height that show nothing, under the summary, which are never the first or
+    /// the last line on screen.
+    func collapsedAlone(at location: Int) -> NSRange? {
+        contentStorage.textStorage?.readerCollapsedRun(at: location)
     }
 
     /// The paragraph holding `location` when it holds hidden labels and nothing else
@@ -364,18 +373,19 @@ extension ReaderTextView {
         return alone ? paragraph : nil
     }
 
-    /// `location` moved past the lines from it on that hold hidden labels alone.
+    /// `location` moved past the lines from it on that hold hidden labels alone, or what a
+    /// closed details collapses.
     func firstShownLine(from location: Int) -> Int {
         var location = location
-        while let labels = hiddenLabelsAlone(at: location) { location = NSMaxRange(labels) }
+        while let labels = hiddenLabelsAlone(at: location) ?? collapsedAlone(at: location) { location = NSMaxRange(labels) }
         return location
     }
 
     /// `location`, the end of a line, moved back before the lines ending there that hold hidden
-    /// labels alone.
+    /// labels alone, or what a closed details collapses.
     func lastShownLine(upTo location: Int) -> Int {
         var location = location
-        while let labels = hiddenLabelsAlone(at: location - 1) { location = labels.location }
+        while let labels = hiddenLabelsAlone(at: location - 1) ?? collapsedAlone(at: location - 1) { location = labels.location }
         return location
     }
 

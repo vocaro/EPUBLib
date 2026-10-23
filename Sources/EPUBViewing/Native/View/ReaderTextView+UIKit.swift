@@ -690,6 +690,10 @@ final class ReaderTextView: UITextView {
                     label = nil
                 }
                 var traits: UIAccessibilityTraits = url == nil ? .staticText : .link
+                // A summary opens and closes its details: a button that says which it is, as
+                // Safari gives one (HTML-AAM maps it to a push button that expands and collapses).
+                let disclosure = ReaderLink.isDisclosure(url)
+                if disclosure { traits = .button }
                 // A hidden label is words the page does not show, not a picture.
                 let isSpoken = attachment is SpokenLabelAttachment
                 // A table row is its cells' words, read once where the row stands. A row that
@@ -737,6 +741,8 @@ final class ReaderTextView: UITextView {
                 element.setLabel(label, languages: languages, headingLevel: heading?.level)
                 element.position = canvas?.position(at: range.location, in: self)
                 element.accessibilityTraits = traits
+                element.accessibilityExpandedStatus = !disclosure ? .unsupported
+                    : (storage.attribute(.readerExpanded, at: range.location, effectiveRange: nil) as? Bool) == true ? .expanded : .collapsed
                 // A scroll view's bounds move with its content, and a line listed past the
                 // screen is outside them.
                 if range != run { ensureLayout(from: range.location, through: NSMaxRange(range) - 1) }
@@ -1094,6 +1100,7 @@ private struct ReaderAccessibilityList {
         accessibilityLabel = line.accessibilityLabel
         if let label = line.accessibilityAttributedLabel { accessibilityAttributedLabel = label }
         accessibilityTraits = line.accessibilityTraits
+        accessibilityExpandedStatus = line.accessibilityExpandedStatus
         accessibilityLanguage = line.accessibilityLanguage
         accessibilityFrameInContainerSpace = line.accessibilityFrameInContainerSpace
     }
@@ -1151,7 +1158,14 @@ private struct ReaderAccessibilityList {
             if links.isEmpty, accessibilityLabel == nil, let image = images.first { canvas.inspectImage(image); return true }
             return false
         }
-        if let url { canvas.activateLink(url, range: range, in: view); return true }
+        if let url {
+            canvas.activateLink(url, range: range, in: view)
+            // A summary that opened or closed its details is the same item in another state,
+            // which VoiceOver is told of, as it is of a cell's action that changes the cell: it
+            // reads the item again, expanded or collapsed.
+            if ReaderLink.isDisclosure(url) { canvas.postToAccessibility(.layoutChanged, self) }
+            return true
+        }
         if let image = image ?? view.announcedImages(in: range).first?.image { canvas.inspectImage(image); return true }
         return false
     }

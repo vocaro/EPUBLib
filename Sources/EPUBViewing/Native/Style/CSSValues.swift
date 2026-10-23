@@ -1335,6 +1335,8 @@ enum CSSPropertyParser {
         case "lower-roman": return .lowerRoman
         case "upper-roman": return .upperRoman
         case "lower-greek": return .lowerGreek
+        case "disclosure-open": return .disclosureOpen
+        case "disclosure-closed": return .disclosureClosed
         case "inherit", "initial", "unset", "default", "revert": return nil
         // Unknown counter styles fall back to decimal (CSS Counter Styles §3.1).
         default: return .decimal

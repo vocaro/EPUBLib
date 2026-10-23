@@ -282,8 +282,9 @@ enum ContentSemantics {
 
 /// CSS list markers (`list-style-type`) for a counter value.
 enum ListMarker {
-    /// The marker text, without the separating space; nil for `none`.
-    static func text(_ type: ComputedStyle.ListStyleType, value: Int) -> String? {
+    /// The marker text, without the separating space; nil for `none`. A closed disclosure's
+    /// triangle points towards the end of a line of `rightToLeft` text (CSS Counter Styles 3 §7.1).
+    static func text(_ type: ComputedStyle.ListStyleType, value: Int, rightToLeft: Bool = false) -> String? {
         switch type {
         case .none: nil
         case .disc: "•"
@@ -296,6 +297,8 @@ enum ListMarker {
         case .lowerRoman: (roman(value) ?? "\(value)") + "."
         case .upperRoman: (roman(value)?.uppercased() ?? "\(value)") + "."
         case .lowerGreek: (alphabetic(value, letters: greek) ?? "\(value)") + "."
+        case .disclosureOpen: disclosureOpen
+        case .disclosureClosed: rightToLeft ? disclosureClosedRightToLeft : disclosureClosed
         case .string(let string): string
         }
     }
@@ -306,6 +309,12 @@ enum ListMarker {
         if case .string = type { return false }
         return true
     }
+
+    /// The triangles of `disclosure-open` and `disclosure-closed`, one UTF-16 unit each, so that
+    /// a summary's marker can show either state without its section's characters moving.
+    static let disclosureOpen = "\u{25BE}"
+    static let disclosureClosed = "\u{25B8}"
+    static let disclosureClosedRightToLeft = "\u{25C2}"
 
     private static let latin = Array("abcdefghijklmnopqrstuvwxyz")
     private static let greek = Array("αβγδεζηθικλμνξοπρστυφχψω")

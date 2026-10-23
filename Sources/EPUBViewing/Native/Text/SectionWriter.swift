@@ -59,6 +59,8 @@ final class SectionWriter {
         let string: NSAttributedString
         let map: TextMap
         let anchors: [EPUBElementID: Int]
+        /// The section's details that open and close on their summary, each written open.
+        var disclosures: [ReaderDisclosure] = []
     }
 
     /// Nominal column the percentages of a section resolve against.
@@ -130,6 +132,11 @@ final class SectionWriter {
     private var headingRanges: [(range: NSRange, heading: ReaderHeading)] = []
     /// One object for each heading element, by the element's order.
     private var headings: [Int: ReaderHeading] = [:]
+
+    /// The section's details with a summary, in the order they open, and the ones being walked,
+    /// the nearest last (`ReaderDisclosure`).
+    private var disclosureBuilds: [DisclosureBuild] = []
+    private var openDisclosures: [Int] = []
 
     private var stack: [Entry] = []
     /// `ResourceReference.resolve` by href (nil: not in the archive); books repeat their links.
@@ -253,6 +260,9 @@ final class SectionWriter {
         var heading = false
         /// The element's `::after`, generated as it closes.
         var after: ComputedStyle?
+        /// The details (`disclosureBuilds`) the element is, or whose summary it is.
+        var disclosure: Int?
+        var summary: Int?
         /// Whether closing the element ends the scope of the counters it and the elements
         /// inside it own (`GeneratedContentState.leave`).
         var endsCounters = true
@@ -489,7 +499,8 @@ final class SectionWriter {
             lists.append(ListCounter(list: node))
             entry.exit.list = true
         }
-        if style.display == .listItem { startListItem(node, style: style, context: entry.context) }
+        beginDisclosure(node, style: style, entry: entry, parentStyle: parentStyle)
+        if style.display == .listItem { startListItem(node, style: style, context: entry.context, summary: entry.exit.summary) }
         if node.isHTML("a"), let href = node.attribute("href") ?? node.attribute("href", namespace: ContentNamespace.xlink) {
             if let link = link(for: node, href: href) {
                 entry.context.link = link
@@ -521,6 +532,56 @@ final class SectionWriter {
         if let saved = entry.exit.ruby { collectingRubyBase = saved.collecting; rubyBaseStart = saved.start }
         if entry.exit.block { exitBlock() }
         if entry.exit.list { lists.removeLast() }
+        if let summary = entry.exit.summary {
+            disclosureBuilds[summary].summaryEnd = paragraphs.count
+            disclosureBuilds[summary].summaryGap = min(gap.value, Self.maximumGap)
+        }
+        if let disclosure = entry.exit.disclosure {
+            disclosureBuilds[disclosure].end = paragraphs.count
+            openDisclosures.removeLast()
+        }
+    }
+
+    // MARK: Details and summary
+
+    /// A `details` with a `summary` opens and closes on it (`ReaderDisclosure`): only in the
+    /// section's own text, where both are blocks in the flow. Its summary is a link that does
+    /// so, and is written where it stands among the details' children. Elsewhere (a note, a
+    /// table's cell, a box taken out of the flow) a details shows everything it holds.
+    private func beginDisclosure(_ node: ContentNode, style: ComputedStyle, entry: Entry, parentStyle: ComputedStyle) {
+        guard isSection, flattenDepth == 0, node.isHTML, entry.exit.block else { return }
+        if node.name == "details", !style.requiresFlowBox,
+           let summary = node.elementChildren.first(where: { $0.isHTML("summary") }) {
+            disclosureBuilds.append(DisclosureBuild(id: node.order, summaryNode: summary.order,
+                                                    isOpen: node.attribute("open") != nil, firstParagraph: paragraphs.count))
+            openDisclosures.append(disclosureBuilds.count - 1)
+            entry.exit.disclosure = disclosureBuilds.count - 1
+        } else if node.name == "summary", !style.requiresFlowBox, let index = openDisclosures.last,
+                  disclosureBuilds[index].summaryNode == node.order, disclosureBuilds[index].summaryStart == nil {
+            disclosureBuilds[index].summaryStart = paragraphs.count
+            disclosureBuilds[index].isRightToLeft = style.direction == .rtl
+            entry.exit.summary = index
+            entry.context.link = .disclosure(disclosureBuilds[index].id)
+            entry.context.linkBaseColor = parentStyle.color
+        }
+    }
+
+    /// The disclosures written, as ranges of the finished text, `length` long.
+    private func finishedDisclosures(length: Int) -> [ReaderDisclosure] {
+        let count = paragraphs.count
+        func start(_ index: Int) -> Int { index < count ? paragraphs[index].start : length }
+        return disclosureBuilds.compactMap { build in
+            guard let first = build.summaryStart, let last = build.summaryEnd, let end = build.end,
+                  first < count, last > first else { return nil }
+            let summaryEnd = last < count ? max(start(first), start(last) - 1) : length
+            let summary = NSRange(location: start(first), length: summaryEnd - start(first))
+            var content: [NSRange] = []
+            for (lower, upper) in [(build.firstParagraph, first), (last, min(end, count))] where lower < upper {
+                if start(upper) > start(lower) { content.append(NSRange(location: start(lower), length: start(upper) - start(lower))) }
+            }
+            return ReaderDisclosure(id: build.id, summary: summary, content: content, marker: build.marker,
+                                    isOpenInBook: build.isOpen, isRightToLeft: build.isRightToLeft, summaryGap: build.summaryGap)
+        }
     }
 
     /// EPUB 3 `epub:switch`: the MathML case when there is one (MathML is supported), else the default.
@@ -941,9 +1002,13 @@ final class SectionWriter {
         for entry in headingRanges.sorted(by: { $0.range.length > $1.range.length }) where NSMaxRange(entry.range) <= length {
             string.addAttribute(.readerHeading, value: entry.heading, range: entry.range)
         }
+        let disclosures = finishedDisclosures(length: length)
+        for disclosure in disclosures where disclosure.summary.length > 0 {
+            string.addAttribute(.readerExpanded, value: disclosure.isOpenInBook, range: disclosure.summary)
+        }
         string.endEditing()
         map.length = length
-        return Output(string: string, map: map, anchors: anchors)
+        return Output(string: string, map: map, anchors: anchors, disclosures: disclosures)
     }
 
     private func paragraphStyle(_ paragraph: Paragraph) -> NSParagraphStyle {
@@ -1033,24 +1098,33 @@ final class SectionWriter {
     /// negative indent would set the line's first words over the marker, so it starts at `stop`.
     static func markerStop(_ stop: CGFloat, indent: CGFloat) -> CGFloat { stop + max(0, indent) }
 
-    private func startListItem(_ node: ContentNode, style: ComputedStyle, context: InlineContext) {
+    private func startListItem(_ node: ContentNode, style: ComputedStyle, context: InlineContext, summary: Int? = nil) {
+        var type = style.listStyleType
+        let triangle = type == .disclosureOpen || type == .disclosureClosed
         let value: Int
-        if let last = lists.indices.last {
+        if node.isHTML("summary") {
+            // A summary counts no item of a list (HTML §15.3.10: `counter-increment: list-item 0`).
+            value = lists.last?.value ?? orphanList.value
+        } else if let last = lists.indices.last {
             lists[last].advance(for: node); value = lists[last].value
         } else {
             orphanList.advance(for: node); value = orphanList.value
         }
-        guard let text = ListMarker.text(style.listStyleType, value: value) else { return }
+        // What a details holds is shown whole where it cannot close: its triangle is open.
+        if type == .disclosureClosed, summary == nil, node.isHTML("summary") { type = .disclosureOpen }
+        guard let text = ListMarker.text(type, value: value, rightToLeft: style.direction == .rtl) else { return }
         var markerContext = InlineContext()
         markerContext.language = context.language
-        // The marker is the item's own, kept from assistive technology with it.
-        markerContext.isUnspoken = context.isUnspoken
+        // The marker is the item's own, kept from assistive technology with it. A summary's
+        // triangle is the summary's, to touch, and VoiceOver says its state in its own words.
+        markerContext.isUnspoken = context.isUnspoken || (summary != nil && triangle)
+        if summary != nil { markerContext.link = context.link; markerContext.linkBaseColor = context.linkBaseColor }
         let attributes = styling.attributes(style, markerContext)
         let outside = style.listStylePosition == .outside && flattenDepth == 0 && !isNote
         let suffix = ListMarker.hasSuffix(style.listStyleType)
         let width = outside ? styling.markerWidth(text + " ", style: style) : 0
         let marker = Marker(text: text, suffix: suffix, attributes: attributes, outside: outside, width: width,
-                            frame: frames.count - 1)
+                            frame: frames.count - 1, disclosure: triangle ? summary : nil)
         if flattenDepth > 0 { emitGenerated(Array((text + (suffix ? " " : "")).utf16), attributes: attributes) }
         else { pendingMarker = marker }
     }
@@ -1058,6 +1132,7 @@ final class SectionWriter {
     private func emitMarker(_ marker: Marker) {
         pendingMarker = nil
         flushAnchors()
+        if let disclosure = marker.disclosure, marker.text.utf16.count == 1 { disclosureBuilds[disclosure].marker = buffer.count }
         if marker.outside {
             buffer.append(Array(marker.text.utf16) + [0x09], attributes: marker.attributes)
             paragraphs[paragraphs.count - 1].markerWidth = marker.width
@@ -2073,6 +2148,23 @@ private struct Marker {
     let width: CGFloat
     /// The list item's block frame.
     let frame: Int
+    /// The details (`SectionWriter.disclosureBuilds`) whose summary's triangle this is.
+    var disclosure: Int?
+}
+
+/// A details being written (`ReaderDisclosure`): its paragraphs by index, the summary's from
+/// `summaryStart` to `summaryEnd` among the details' from `firstParagraph` to `end`.
+private struct DisclosureBuild {
+    let id: Int
+    let summaryNode: Int
+    let isOpen: Bool
+    let firstParagraph: Int
+    var summaryStart: Int?
+    var summaryEnd: Int?
+    var end: Int?
+    var marker: Int?
+    var isRightToLeft = false
+    var summaryGap: CGFloat = 0
 }
 
 private struct ListCounter {
