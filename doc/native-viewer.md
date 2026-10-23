@@ -3030,6 +3030,52 @@ The following are the defaults. Host commands and accessibility actions stay ena
   ([#746](https://github.com/vocaro/EPUBLib/issues/746)). Once the book is built no turn
   asks for a section's end. On iOS the scroll view's content has the whole text's height
   already.
+- Page turn animation ([#688](https://github.com/vocaro/EPUBLib/issues/688)):
+  `View.epubReaderPageTurnAnimation(_:)` chooses how a page turns in paginated flow
+  ([integration](integration.md#animating-page-turns)). `.none`, the default, replaces one page
+  with the other at once, as before. `.slide` moves the page shown away and the next in beside
+  it in 0.3 s, from the right in a book read left to right and from the left in one read right
+  to left, and back the other way. `.dissolve` fades the one into the other where they stand,
+  in 0.25 s. With Reduce Motion on, a slide dissolves, so no turn moves (`ReaderPageMotion`).
+  Every turn in pages has it: an edge tap or click, a swipe, a key, the wheel and trackpad,
+  VoiceOver's actions, scroll and reading on, the selected passage's continuation, the host's
+  commands, and a turn into a section not yet built, which comes in once it is
+  (`showTurned`). Continuous scroll scrolls as before whichever is chosen
+  ([#622](https://github.com/vocaro/EPUBLib/issues/622)).
+  The columns hold the page turned to as soon as the turn returns, as with no animation: the
+  delegate is told at once, VoiceOver is told and its cursor sent as above, and the selection
+  and highlights are those of the turn with none. Only what is drawn over them moves
+  (`ReaderPageTransition`): a picture of the columns as they were drawn before the turn goes
+  (`snapshotView(afterScreenUpdates: false)` on iPhone and iPad; on Mac each column drawn
+  again into a bitmap, `cacheDisplay(in:to:)`), and the columns are drawn coming in by an
+  animation of their layers, which leaves their frames, and so what VoiceOver and a touch
+  find, where the page ends. What is drawn is no accessibility element, holds none, and lets a
+  touch or click through. A turn made meanwhile, a relayout or another page shown ends the one
+  in motion where it would have ended.
+  A swipe follows the finger on iPhone and iPad. With an animation chosen the canvas's swipe is
+  a pan across the page (`ReaderPagePanRecognizer`), and the swipe of before with none. The
+  page moves with the finger, or fades as far as it has gone, and the page it moves towards
+  comes in, drawn by columns of its own laid out as the turn would show them, with the
+  highlights it would draw, which nothing reads or touches (`turnPreview`). Nothing is turned
+  until the finger lets go: past half the width, or flicked on at 300 points a second or more,
+  the page is turned to as by any swipe (`turnPageFromInput`) and goes the rest of the way in;
+  short of that, or moving back that fast, it goes back to where it was, and nothing is told.
+  Towards no page, at an end of the book or before the next section is built, the page gives
+  less the further it goes and goes back, and a section not built is asked for and comes in
+  once it is. A selection begun during the swipe puts the page back.
+  On Mac a trackpad's swipe across the page is followed the same way where System Settings has
+  a swipe go between pages (`NSEvent.isSwipeTrackingFromScrollEventsEnabled`): AppKit tracks
+  it, moves the page with the fingers and, once they lift, on or back
+  (`trackSwipeEvent(options:dampenAmountThresholdMin:max:usingHandler:)`), and the page turns
+  where AppKit took it all the way (`followPageSwipe`). A trackpad moved up or down, a wheel,
+  and a trackpad with no swipe between pages turn the page once it has moved, as before, with
+  the animation.
+  Not done: a curl ([#810](https://github.com/vocaro/EPUBLib/issues/810)). A search match and
+  a selection in a data table's cell, on the page a swipe brings in, are drawn once that page
+  is turned to: the swipe's columns are given no table interaction, which draws them. No
+  trackpad has swiped a page on Mac: the steps AppKit's tracking gives are held in process
+  (`PageTurnAnimationTests`), and an amount above zero is taken to move the page to the right,
+  as WebKit's swipe between pages takes it, which only fingers on a trackpad can confirm.
 - The host's controls, under `epubReaderHidesControls`
   ([reader controls](reader-controls.md#hiding-the-controls-while-reading)): on iPhone and iPad
   a tap in the middle of a page, anywhere but the edge zones, a link, a picture or selected
