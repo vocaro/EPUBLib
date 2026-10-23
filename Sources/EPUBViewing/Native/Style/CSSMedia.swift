@@ -220,12 +220,15 @@ enum CSSMedia {
         }
     }
 
-    /// `components` as a value of `kind`; nil when the kind does not take it.
+    /// `components` as a value of `kind`; nil when the kind does not take it. A math function
+    /// stands wherever its type does (CSS Values 4 §10), and one that comes out of a range the
+    /// feature takes is clamped to it (§10.12), where a literal out of it is no value.
     private static func value(_ components: [CSSComponent], as kind: Kind) -> Value? {
+        typealias P = CSSPropertyParser
         if case .ratio = kind {
             func part(_ component: CSSComponent) -> Double? {
-                guard case .token(.number(let value, _, _)) = component, value >= 0 else { return nil }
-                return value
+                if case .token(.number(let value, _, _)) = component { return value >= 0 ? value : nil }
+                return P.calcNumber(component).map { max($0, 0) }
             }
             if components.count == 1, let a = part(components[0]) { return .number(a) }
             guard components.count == 3, let a = part(components[0]), components[1].isDelim("/"),
@@ -234,39 +237,62 @@ enum CSSMedia {
         }
         guard components.count == 1 else { return nil }
         let component = components[0]
-        switch (kind, component) {
-        case (.length, .token(.number(let value, _, _))) where value == 0:
-            return .number(0)
-        case (.length, .token(.dimension(let value, let unit, _, _))):
-            switch unit.lowercased() {
-            case "px": return .number(value)
-            case "em", "rem": return .number(value * 16)
-            case "pt": return .number(value * 4 / 3)
-            case "pc": return .number(value * 16)
-            case "in": return .number(value * 96)
-            case "cm": return .number(value * 96 / 2.54)
-            case "mm": return .number(value * 96 / 25.4)
-            case "q": return .number(value * 96 / 101.6)
-            default: return nil
+        switch kind {
+        case .length:
+            guard case .length(let length)? = P.length(component, percent: false, negative: true, auto: false) else { return nil }
+            return pixels(length).map(Value.number)
+        case .resolution:
+            if case .token(.dimension(let value, let unit, _, _)) = component {
+                return value >= 0 ? P.dotsPerPixel(value, unit: unit).map(Value.number) : nil
             }
-        case (.resolution, .token(.dimension(let value, let unit, _, _))) where value >= 0:
-            switch unit.lowercased() {
-            case "dppx", "x": return .number(value)
-            case "dpi": return .number(value / 96)
-            case "dpcm": return .number(value * 2.54 / 96)
-            default: return nil
-            }
-        case (.resolution, _) where component.ident == "infinite":
-            return .number(.infinity)
-        case (.integer, .token(.number(let value, true, _))), (.number, .token(.number(let value, _, _))):
-            return .number(value)
-        case (.boolean, .token(.number(let value, true, _))) where value == 0 || value == 1:
-            return .number(value)
-        case (.keywords(let words), _):
+            if component.ident == "infinite" { return .number(.infinity) }
+            return P.calcResolution(component).map { .number(max($0, 0)) }
+        case .integer:
+            if case .token(.number(let value, true, _)) = component { return .number(value) }
+            return P.calcInteger(component).map { .number(Double($0)) }
+        case .number:
+            if case .token(.number(let value, _, _)) = component { return .number(value) }
+            return P.calcNumber(component).map(Value.number)
+        case .boolean:
+            if case .token(.number(let value, true, _)) = component { return value == 0 || value == 1 ? .number(value) : nil }
+            return P.calcInteger(component).map { .number(Double(min(max($0, 0), 1))) }
+        case .keywords(let words):
             return component.ident.flatMap { words.contains($0) ? Value.ident($0) : nil }
-        default:
+        case .ratio:
             return nil
         }
+    }
+
+    /// The initial font size, in CSS pixels: `medium`.
+    static let initialFontSize = 16.0
+
+    /// A length in CSS pixels. Relative units are those of the initial values (§1.3): an `em`,
+    /// a `rem` and an `ic` are the initial font size, an `ex` and a `ch` half of it (CSS Values 4
+    /// §6.1.1 takes that where a font's own measure is not known, as here), a `cap` 0.7 of it and
+    /// an `lh` and an `rlh` the 1.2 of a `normal` line, as the reader resolves them without a face
+    /// (`StyleResolver`); the viewport units are of the nominal viewport. NaN is 0 (CSS Values 4
+    /// §10.9.2).
+    private static func pixels(_ length: CSSLength) -> Double? {
+        func unitPixels(_ value: Double, _ unit: CSSUnit) -> Double? {
+            let em = initialFontSize
+            switch unit {
+            case .em, .rem, .ic: return value * em
+            case .ex, .ch: return value * em / 2
+            case .cap: return value * em * 0.7
+            case .lh, .rlh: return value * em * 1.2
+            case .vw: return value * viewport.width / 100
+            case .vh: return value * viewport.height / 100
+            case .vmin: return value * min(viewport.width, viewport.height) / 100
+            case .vmax: return value * max(viewport.width, viewport.height) / 100
+            case .number, .percent: return nil
+            case .px, .pt, .pc, .inch, .cm, .mm, .q: return unit.pixels.map { value * $0 }
+            }
+        }
+        let value: Double? = switch length {
+        case .value(let value, let unit): unitPixels(value, unit)
+        case .calc(let expression): expression.evaluated(unitPixels)
+        }
+        return value.map { $0.isNaN ? 0 : $0 }
     }
 
     /// Whether an environment value counts as true in a boolean context (`(color)`).
@@ -373,7 +399,8 @@ enum CSSSupports {
         condition(components.significant, namespaces: namespaces) ?? false
     }
 
-    private static func condition(_ components: [CSSComponent], namespaces: CSSNamespaces) -> Bool? {
+    /// A `<supports-condition>` over whitespace-free components; nil when it does not parse.
+    static func condition(_ components: [CSSComponent], namespaces: CSSNamespaces) -> Bool? {
         guard let first = components.first else { return nil }
         if first.ident == "not" {
             guard components.count == 2 else { return nil }

@@ -384,9 +384,11 @@ files['OPS/nav.xhtml'] = files['OPS/nav.xhtml'].replace('</ol>', '<li><a href="m
 # words are and given to no assistive technology (#552), and a picture `visibility: hidden`
 # hides, which keeps its room and is read by nobody (#549). A row of stars between scenes is
 # kept on its element; words in a line, an ornament in a heading and a link's words, round
-# them. Every word kept or hidden begins "unheard" or "Unheard", and no shown word does, so
-# any of them in a transcript was read. Sixty numbered lines follow. No word of it is one
-# VoiceOver uses for a heading, a link or a picture.
+# them. Two tables follow (#551): one used for layout, whose row holds kept words in a cell
+# and a kept picture in the other, and one of data, whose second row holds kept words in a
+# cell and a cell of kept words alone. Every word kept or hidden begins "unheard" or
+# "Unheard", and no shown word does, so any of them in a transcript was read. Sixty numbered
+# lines follow. No word of it is one VoiceOver uses for a heading, a link, a picture or a table.
 files["OPS/kept.xhtml"] = (
     '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Words kept '
     'from listeners</title><style>.veiled { visibility: hidden; } img { width: 32px; height: 32px; }</style></head>'
@@ -395,6 +397,10 @@ files["OPS/kept.xhtml"] = (
     '<h2>Harbour notes <span aria-hidden="true">unheard ornament</span></h2>'
     '<p>Shown words around <a href="body.xhtml#link-target" aria-hidden="true">unheard jump</a> the kept jump.</p>'
     '<p>Shown words beside <img class="veiled" src="square.svg" alt="Unheard veiled square"/> the hidden square.</p>'
+    '<table role="presentation"><tr><td>Left words <span aria-hidden="true">unheard cell words</span> in the cell</td>'
+    '<td>Right words <img src="square.svg" alt="Unheard kept square" aria-hidden="true"/> next to it</td></tr></table>'
+    '<table><tr><th>Station</th><th>Remark</th></tr><tr><td>Birch <span aria-hidden="true">unheard remark</span> grove</td>'
+    '<td><span aria-hidden="true">Unheard alone</span></td></tr></table>'
     "<p>Words after the kept ones.</p>"
     + "".join(f"<p>Line {i:02d} after the kept words.</p>" for i in range(1, 61)) + "</body></html>")
 files["OPS/package.opf"] = files["OPS/package.opf"].replace(

@@ -494,6 +494,60 @@ final class ContainerDocumentCoverageTests: XCTestCase {
         XCTAssertEqual(try EPUBPublication.open(data: colon).data(at: "OPS/fonts/Serif: Bold.otf"), original, "a colon in the path")
     }
 
+    func testACipherReferenceIsAURLParsedAgainstTheContainerRootAndElseThePathItIsWrittenAs() throws {
+        // EPUB 3.3 §4.2.6.2 has a URL in a META-INF file parsed with the container root URL as its
+        // base (#753): split at the delimiters written as themselves before it is decoded, so an
+        // escaped slash stays in its segment and names no entry, and its dot segments, a leading
+        // slash, white space round it, a query and a fragment resolved as URL parsing resolves
+        // them. Where that names no entry, the URI names the file it is written as, as a
+        // rootfile's path does. Each URI is read against an archive holding the file each reading
+        // names, where an entry can have that name, and the file the whole URI decodes to, as it
+        // was read before: the URL's is the one decoded, and the others are left as they are.
+        // Then against archives holding the file of one reading.
+        let original = font(1_100), scrambled = obfuscated(original, key: sha1("test-book"), prefix: 1040)
+        let cases: [(uri: String, url: String?, written: String?)] = [
+            ("OPS%2Ffonts%2Fa.otf", nil, "OPS%2Ffonts%2Fa.otf"),
+            ("./OPS/fonts/a.otf", "OPS/fonts/a.otf", nil),
+            ("%2E/OPS/fonts/a.otf", "OPS/fonts/a.otf", "%2E/OPS/fonts/a.otf"),
+            ("OPS/x/../fonts/a.otf", "OPS/fonts/a.otf", nil),
+            ("OPS/x/%2E%2E/fonts/a.otf", "OPS/fonts/a.otf", "OPS/x/%2E%2E/fonts/a.otf"),
+            ("/OPS/fonts/a.otf", "OPS/fonts/a.otf", nil),
+            (" OPS/fonts/a.otf ", "OPS/fonts/a.otf", " OPS/fonts/a.otf "),
+            ("OPS/fonts/a.otf?v=1", "OPS/fonts/a.otf", "OPS/fonts/a.otf?v=1"),
+            ("OPS/fonts/a.otf#face", "OPS/fonts/a.otf", "OPS/fonts/a.otf#face"),
+            ("OPS/fonts/100%.otf", nil, "OPS/fonts/100%.otf"),
+        ]
+        /// The path the whole URI decodes to, where an entry can have it.
+        func decoded(_ uri: String) -> String? {
+            uri.removingPercentEncoding.flatMap { path in
+                path.split(separator: "/", omittingEmptySubsequences: false).allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." } ? path : nil
+            }
+        }
+        for (uri, url, written) in cases {
+            let meant = try XCTUnwrap(url ?? written)
+            let named = Set([url, written, decoded(uri)].compactMap { $0 })
+            let both = try EPUBPublication.open(data: book(identifier: "test-book", fonts: Dictionary(uniqueKeysWithValues: named.map { ($0, scrambled) }),
+                                                           encryption: encryption([(Self.idpf, uri)])))
+            for path in named {
+                XCTAssertEqual(try both.data(at: path), path == meant ? original : scrambled, "\(uri), all: \(path)")
+            }
+            for path in [url, written].compactMap({ $0 }) {
+                let one = try book(identifier: "test-book", fonts: [path: scrambled], encryption: encryption([(Self.idpf, uri)]))
+                XCTAssertEqual(try EPUBPublication.open(data: one).data(at: path), original, "\(uri), alone: \(path)")
+            }
+        }
+        // Nor does a URI name what it decodes to where URL parsing reads it otherwise: an escaped
+        // slash is no separator, and a URL with no path names the root, not a file in it.
+        for (uri, path) in [("OPS%2Ffonts%2Fa.otf", "OPS/fonts/a.otf"), ("?v=1", "OPS/fonts/a.otf"), ("#face", "OPS/fonts/a.otf"),
+                            ("", "OPS/fonts/a.otf")] {
+            assertOpening(try book(identifier: "test-book", fonts: [path: scrambled], encryption: encryption([(Self.idpf, uri)])),
+                          throws: .unsupportedEncryption, uri)
+        }
+        // A remote URL names nothing in the container.
+        assertOpening(try book(identifier: "test-book", fonts: ["OPS/fonts/a.otf": scrambled],
+                               encryption: encryption([(Self.idpf, "https://example.org/OPS/fonts/a.otf")])), throws: .unsupportedEncryption)
+    }
+
     func testTheIDPFKeyIgnoresXMLWhiteSpaceInTheIdentifier() throws {
         // EPUB 3.3 §4.4.3: U+0020, U+0009, U+000D and U+000A are removed before hashing. A parser
         // reads a carriage return in the text as a line end, so one is also written as a reference.
