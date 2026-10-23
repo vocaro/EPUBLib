@@ -100,7 +100,8 @@ import XCTest
         defer { session.close(); window.close() }
         // `doc/architecture.md`: "sessions advertise every capability".
         XCTAssertEqual(session.capabilities, [.pagination, .scrolling, .typography, .selection, .bookmarks, .locateText,
-                                              .navigateHref, .searchHighlight, .highlights, .search, .searchResults])
+                                              .navigateHref, .searchHighlight, .highlights, .search, .searchResults,
+                                              .goToProgression])
         let state = try XCTUnwrap(session.readerState)
         XCTAssertEqual(state.status.capabilities, session.capabilities)
         func wait(_ label: String, until condition: () -> Bool) async throws {
@@ -114,7 +115,7 @@ import XCTest
         try await wait("the first location") { !locations().isEmpty }
         XCTAssertEqual(events.first, .ready, "readiness comes before anything else")
         let first = try XCTUnwrap(locations().first)
-        XCTAssertEqual(first.publicationID, publication.id)
+        XCTAssertEqual(first.publicationID, publication.persistentID)
         XCTAssertEqual(first.href, "OPS/one.xhtml")
         XCTAssertEqual(first.title, "First Chapter")
         XCTAssertEqual(first.bookmark?.engineID, EPUBReader.identifier)
@@ -513,7 +514,7 @@ import XCTest
                 continue
             }
             try await Task.sleep(for: .milliseconds(100))
-            XCTAssertEqual(reader.notices(since: count), ["the saved position could not be found in this book"], label)
+            XCTAssertEqual(reader.notices(since: count), ["The saved position could not be found in this book."], label)
             try await Task.sleep(for: .milliseconds(50))
             XCTAssertEqual(reader.session.visibleRange, original, "\(label) moved the reader")
             XCTAssertTrue(reader.locations(since: count).isEmpty, label)
@@ -562,7 +563,7 @@ import XCTest
 
     // MARK: locate
 
-    /// "A miss emits `.notice("the cited passage could not be found in this book")`."
+    /// "A miss emits `.notice("The passage could not be found in this book.")`."
     func testLocateRefusesEmptyAndOverlongTextAndNoticesEveryMiss() async throws {
         let reader = try open(SessionCoverageBook.chapters())
         try await reader.settle()
@@ -584,7 +585,7 @@ import XCTest
             count = reader.events.count
             try await reader.session.send(.locate(text: text, highlight: true))
             try await reader.wait("the miss") { !reader.notices(since: count).isEmpty }
-            XCTAssertEqual(reader.notices(since: count), ["the cited passage could not be found in this book"])
+            XCTAssertEqual(reader.notices(since: count), ["The passage could not be found in this book."])
         }
         XCTAssertEqual(reader.session.visibleRange, original, "a miss keeps the position")
         XCTAssertNil(reader.session.selection)
@@ -614,7 +615,7 @@ import XCTest
         XCTAssertEqual(reader.section, 3)
         XCTAssertEqual(selection.location.href, "OPS/three.xhtml")
         XCTAssertEqual(selection.location.quote, "Closing words with findword")
-        XCTAssertEqual(selection.location.publicationID, reader.publication.id)
+        XCTAssertEqual(selection.location.publicationID, reader.publication.persistentID)
         XCTAssertNil(selection.location.progression, "a selection is a passage, not a reading position")
         XCTAssertNil(selection.location.title)
         // Locating again without highlight drops the selection and says so.
@@ -757,8 +758,9 @@ import XCTest
 
     // MARK: setHighlights
 
-    /// "Replaces drawn host highlights"; "one `.notice` per rejected highlight".
-    func testHighlightsAreReplacedAsAWholeAndEachRejectedOneIsNoticedOnce() async throws {
+    /// "Replaces drawn host highlights"; each list's rejected highlights are named in the status,
+    /// and noticed once for the list.
+    func testHighlightsAreReplacedAsAWholeAndEachListsRejectedOnesAreNoticedOnce() async throws {
         let reader = try open(SessionCoverageBook.chapters())
         try await reader.settle()
         func passage(_ text: String) async throws -> EPUBLocation {
@@ -788,10 +790,9 @@ import XCTest
         ]))
         func annotations() -> [String] { reader.session.drawnHighlights.filter { $0.kind == .annotation }.map(\.id) }
         XCTAssertEqual(annotations(), ["opening", "destination", "words", "same"], "the valid ones, in the order given")
-        XCTAssertEqual(reader.notices(since: count).sorted(), [
-            "a highlight belongs to another book or reader and was not drawn: foreign",
-            "a highlight belongs to another book or reader and was not drawn: unbookmarked",
-            "a highlight's passage could not be found in this book: missing",
+        XCTAssertEqual(reader.notices(since: count), ["Some highlights could not be shown."])
+        XCTAssertEqual(reader.state.status.undrawnHighlights, [
+            "foreign": .incompatibleLocation, "unbookmarked": .incompatibleLocation, "missing": .passageNotFound,
         ])
         let ranges = Dictionary(uniqueKeysWithValues: reader.session.drawnHighlights.map { ($0.id, $0.range) })
         XCTAssertEqual(ranges["opening"], ranges["same"], "two highlights of one passage are both drawn")
@@ -803,12 +804,14 @@ import XCTest
         count = reader.events.count
         try await reader.session.send(.setHighlights([EPUBHighlight(id: "point", location: point), EPUBHighlight(id: "words", location: words)]))
         XCTAssertEqual(annotations(), ["words"], "the earlier list is gone")
-        XCTAssertEqual(reader.notices(since: count), ["a highlight's passage could not be found in this book: point"])
+        XCTAssertEqual(reader.notices(since: count), ["Some highlights could not be shown."])
+        XCTAssertEqual(reader.state.status.undrawnHighlights, ["point": .passageNotFound])
 
         count = reader.events.count
         try await reader.session.send(.setHighlights([]))
         XCTAssertTrue(reader.session.drawnHighlights.isEmpty, "an empty array removes them")
         XCTAssertEqual(reader.events.count, count)
+        XCTAssertTrue(reader.state.status.undrawnHighlights.isEmpty)
     }
 
     /// A highlight or saved range whose passage is only content that renders nothing has nothing
@@ -830,15 +833,13 @@ import XCTest
                 EPUBHighlight(id: "across", location: EPUBLocation(publicationID: id, bookmark: opening, rangeBookmarks: [opening, tale])),
             ]))
             XCTAssertEqual(reader.session.drawnHighlights.filter { $0.kind == .annotation }.map(\.id), ["opening"], label)
-            XCTAssertEqual(reader.notices(since: count).sorted(), [
-                "a highlight's passage could not be found in this book: across",
-                "a highlight's passage could not be found in this book: hidden",
-            ], label)
+            XCTAssertEqual(reader.notices(since: count), ["Some highlights could not be shown."], label)
+            XCTAssertEqual(reader.state.status.undrawnHighlights, ["across": .passageNotFound, "hidden": .passageNotFound], label)
 
             // A range across documents is restored only when each document's part of it renders.
             count = reader.events.count
             try await reader.session.send(.restore(EPUBLocation(publicationID: id, bookmark: opening, rangeBookmarks: [opening, tale])))
-            XCTAssertEqual(reader.notices(since: count), ["the saved position could not be found in this book"], label)
+            XCTAssertEqual(reader.notices(since: count), ["The saved position could not be found in this book."], label)
             reader.close()
         }
     }

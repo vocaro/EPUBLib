@@ -237,8 +237,8 @@ import UIKit
         XCTAssertFalse(model.canShowSearchResults)
 
         session.publish(.failed(query: " ", error: .invalidCommand("The search text is empty or too long")))
-        XCTAssertEqual(model.searchResultSummary, "The search text is empty or too long")
-        XCTAssertEqual(model.searchResultAccessibilityValue, "Search failed. The search text is empty or too long")
+        XCTAssertEqual(model.searchResultSummary, "The search is empty or longer than 512 characters.")
+        XCTAssertEqual(model.searchResultAccessibilityValue, "Search failed. The search is empty or longer than 512 characters.")
 
         session.publish(.completed(query: "absent", hasMatches: false), EPUBSearchResults(query: "absent"))
         XCTAssertEqual(model.searchResultSummary, "No matches")

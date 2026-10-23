@@ -23,6 +23,12 @@ import Foundation
     /// Has an assistive technology say the words (`announceSearchResult`). The platform's own
     /// post, which a test takes in its place.
     @ObservationIgnored var postAnnouncement: @MainActor (String) -> Void = { EPUBReaderControls.postAccessibilityAnnouncement($0) }
+    /// The person asked for the controls to be hidden (`hideControls()`), until they are shown
+    /// again. `controlsHidden` is this while the reader is ready.
+    var controlsHiddenRequested = false
+    /// Whether VoiceOver or Switch Control is running, which keeps the controls from hiding by
+    /// themselves (`readerDidReadOn`). The platform's own answer, which a test takes in its place.
+    @ObservationIgnored var assistiveTechnologyIsRunning: @MainActor () -> Bool = { EPUBReaderControls.assistiveTechnologyKeepsControls }
 
     public init(publication: EPUBPublication, session: any EPUBReaderSession) {
         self.publication = publication
@@ -160,6 +166,16 @@ import Foundation
     private func section(of href: String) -> (section: Int, fragment: String?)? {
         try? NativeSession.target(of: href, in: publication)
     }
+
+    /// `changeStyle`, and `then` once the engine has applied the style, as a text size step
+    /// says the size drawn (`stepTextSize`).
+    func changeStyle(_ change: @escaping @MainActor (inout EPUBReaderStyle) -> Void, then: @escaping @MainActor () -> Void) {
+        enqueue(then: then) { [weak self] in
+            var style = self?.status?.style ?? EPUBReaderStyle()
+            change(&style)
+            return .style(style)
+        }
+    }
 }
 
 extension EPUBPageAction {
@@ -172,6 +188,10 @@ extension EPUBPageAction {
         case (.paginated, .previous): "Previous Page"
         case (.scrolled, .next): "Scroll Forward"
         case (.scrolled, .previous): "Scroll Backward"
+        case (.paginated, .bookStart): "First Page"
+        case (.paginated, .bookEnd): "Last Page"
+        case (.scrolled, .bookStart): "Scroll to Beginning"
+        case (.scrolled, .bookEnd): "Scroll to End"
         }
     }
 }

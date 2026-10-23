@@ -69,12 +69,14 @@ final class ArchiveEntries: @unchecked Sendable {
     func remove(_ path: String) { lock.withLock { pending[path] = nil } }
 
     /// The entry at `path`, read now, and again each time it is asked for; nil when no entry not
-    /// yet read at opening is there.
-    func data(at path: String) throws -> Data? {
+    /// yet read at opening is there. Read without `charging`, it is held to `resourceBytes` alone
+    /// and counts toward nothing, as opening reads an entry to hash it.
+    func data(at path: String, charging: Bool = true) throws -> Data? {
         try lock.withLock {
             guard let (index, entry) = pending[path] else { return nil }
-            if charged.contains(path) {
-                // Read before within the limits, and from the same bytes: charged nothing again.
+            if charged.contains(path) || !charging {
+                // Read before within the limits, and from the same bytes, or read to be hashed:
+                // charged nothing.
                 var work = ArchiveInputWork(archiveBytes: bytes.count), sum = 0
                 return try Self.extract(entry, index: index, path: path, archive: archive, bytes: bytes, directory: directory,
                                         limits: limits, inputWork: &work, total: &sum, onProgress: nil)

@@ -8,6 +8,11 @@ public enum EPUBPublicationError: Error, Equatable, Sendable {
     case missingResource(String)
     case invalidXML(String)
     case unsupportedEncryption
+    /// A ZIP archive with no EPUB `mimetype`: another kind of file, not an EPUB book.
+    case notEPUB
+    /// Bytes with no ZIP end record: not a ZIP archive, or one cut short, as by a download that
+    /// did not finish.
+    case notArchive
 }
 
 public struct EPUBImportLimits: Sendable {

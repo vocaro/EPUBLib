@@ -34,7 +34,13 @@ public struct EPUBPageControls: Equatable, Sendable {
 }
 
 /// A logical page action: independent of the publication's visual reading direction.
-public enum EPUBPageAction: Equatable, Sendable { case next, previous }
+public enum EPUBPageAction: Equatable, Sendable {
+    case next, previous
+    /// The book's first page, or the top of continuous scroll, as `EPUBReaderCommand.goToStart`.
+    case bookStart
+    /// The book's last page, or the bottom of continuous scroll, as `EPUBReaderCommand.goToEnd`.
+    case bookEnd
+}
 
 /// Portable hardware keys. Character bindings accept ASCII letters and digits (letters
 /// are case-insensitive; use the Shift modifier to distinguish chords). Other characters
@@ -69,11 +75,26 @@ public struct EPUBPageKeyBinding: Equatable, Sendable {
     public init(_ key: EPUBPageKey, modifiers: EPUBPageKeyModifiers = [], action: EPUBPageAction) {
         self.key = key; self.modifiers = modifiers; self.action = action
     }
+    /// Left Arrow, Page Up and Shift-Space go back a page; Right Arrow, Page Down and Space go on;
+    /// Home and End go to the book's start and end, and on the Mac Command-Up Arrow and
+    /// Command-Down Arrow too.
     public static let defaults: [Self] = [
         .init(.leftArrow, action: .previous), .init(.rightArrow, action: .next),
         .init(.pageUp, action: .previous), .init(.pageDown, action: .next),
         .init(.space, action: .next), .init(.space, modifiers: .shift, action: .previous),
-    ]
+    ] + bookEndDefaults
+
+    /// Home and End, as a Mac text view and an iPad's hardware keyboard move to a document's
+    /// start and end, and on the Mac Command-Up and Command-Down, which do the same there
+    /// (and Fn-Left and Fn-Right type Home and End on a Mac keyboard without those keys).
+    private static var bookEndDefaults: [Self] {
+        var bindings: [Self] = [.init(.home, action: .bookStart), .init(.end, action: .bookEnd)]
+        #if os(macOS)
+        bindings += [.init(.upArrow, modifiers: .command, action: .bookStart),
+                     .init(.downArrow, modifiers: .command, action: .bookEnd)]
+        #endif
+        return bindings
+    }
 }
 
 public extension View {
@@ -99,7 +120,8 @@ extension EPUBPageControls {
         var hints: [String] = []
         let keys = effectiveBindings.filter { $0.action == action }.map(\.helpLabel)
         if !keys.isEmpty { hints.append("With reader focus: " + keys.joined(separator: ", ")) }
-        guard paginated else { return hints }
+        // Taps, swipes and the wheel turn one page; none goes to the book's start or end.
+        guard paginated, action == .next || action == .previous else { return hints }
         let right = (action == .next) != isRightToLeft
         let edgeWidth = right ? rightTapWidth : leftTapWidth
         if edgeTapsEnabled && edgeWidth.isFinite && edgeWidth > 0 {
@@ -124,10 +146,21 @@ extension EPUBPageControls {
         }
     }
 
+    /// Whether a key turns a page forward (true) or back (false); nil for a key bound to no
+    /// turn, the book's start and end among them.
     func direction(for key: EPUBPageKey, modifiers: EPUBPageKeyModifiers) -> Bool? {
+        switch action(for: key, modifiers: modifiers) {
+        case .next: true
+        case .previous: false
+        case .bookStart, .bookEnd, nil: nil
+        }
+    }
+
+    /// The action a key with exactly these modifiers is bound to.
+    func action(for key: EPUBPageKey, modifiers: EPUBPageKeyModifiers) -> EPUBPageAction? {
         guard let key = key.normalized,
               let binding = effectiveBindings.first(where: { $0.key == key && $0.modifiers == modifiers }) else { return nil }
-        return binding.action == .next
+        return binding.action
     }
 }
 

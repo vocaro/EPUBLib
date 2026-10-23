@@ -33,6 +33,30 @@
         "check"
       ],
       "resource": "light"
+    },
+    "swift-tests": {
+      "command": [
+        "swift",
+        "test"
+      ],
+      "resource": "heavy",
+      "minimumTests": 2516
+    },
+    "ios-tests": {
+      "command": [
+        "bash",
+        "scripts/test-ios.sh"
+      ],
+      "resource": "heavy",
+      "minimumTests": 3252
+    },
+    "gate": {
+      "command": [
+        "bash",
+        "scripts/check-all.sh"
+      ],
+      "resource": "exclusive",
+      "minimumTests": 3252
     }
   },
   "exceptions": [],

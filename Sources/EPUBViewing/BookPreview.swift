@@ -172,7 +172,7 @@ public struct EPUBPreview: Sendable {
         disclosure = nil
         do {
             session = try NativeSession(publication: opening, action: nil, rich: NativeRichContent(),
-                                        style: EPUBReaderStyle(flow: .scrolled)) { [weak self] event in
+                                        flow: .scrolled) { [weak self] event in
                 guard let self, generation == token else { return }
                 switch event {
                 case .failed(let error): failure = error.message
