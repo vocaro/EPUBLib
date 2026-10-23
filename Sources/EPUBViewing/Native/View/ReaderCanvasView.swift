@@ -365,7 +365,8 @@ import AppKit
     }
 
     private func configurationDidChange(from old: ReaderCanvasConfiguration) {
-        if old.pageControls != configuration.pageControls || old.flow != configuration.flow {
+        if old.pageControls != configuration.pageControls || old.flow != configuration.flow
+            || old.togglesControls != configuration.togglesControls {
             pointerDown = nil
             wheelTurner = ReaderWheelPageTurner()
             updateInputHandlers()
@@ -1722,7 +1723,10 @@ import AppKit
     /// A page-turn key, swipe, wheel tick or edge tap.
     func turnPageFromInput(forward: Bool) {
         guard imageInspector == nil, !hasSelection, !isDraggingSelection else { return }
-        if turnPage(forward: forward) != .atBoundary { pageDidTurnFromTheText() }
+        if turnPage(forward: forward) != .atBoundary {
+            pageDidTurnFromTheText()
+            delegate?.canvasDidReadOn(self)
+        }
     }
 
     /// A page turn an assistive technology asks for by name, as a host's command is: nothing
@@ -1758,5 +1762,23 @@ import AppKit
         if let view = columns.first(where: { !$0.isHidden && $0.frame.contains(point) }),
            (view.link(at: convert(point, to: view)) != nil || view.image(at: convert(point, to: view)) != nil) { return nil }
         return right != configuration.isRightToLeft
+    }
+
+    /// Whether a tap at `point` (canvas coordinates) shows or hides the host's controls: anywhere
+    /// on the page but an edge zone that turns it, a link or a picture, and not while text is
+    /// selected or being selected, where a tap belongs to the selection.
+    func togglesControls(at point: CGPoint) -> Bool {
+        guard configuration.togglesControls, imageInspector == nil, bounds.contains(point), !hasSelection,
+              !isDraggingSelection, edgeTurn(at: point) == nil else { return false }
+        return !textViews.contains { view in
+            let local = convert(point, to: view)
+            return view.bounds.contains(local) && (view.link(at: local) != nil || view.image(at: local) != nil)
+        }
+    }
+
+    /// Shows or hides the host's controls, for a tap in the middle of the page or VoiceOver's
+    /// Magic Tap. False when there are none to toggle.
+    func toggleControls() -> Bool {
+        configuration.togglesControls && delegate?.canvasTogglesControls(self) == true
     }
 }

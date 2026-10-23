@@ -56,6 +56,8 @@ import SwiftUI
     var division: CGRect? { didSet { if division != oldValue { applyConfiguration() } } }
 
     var pageControls = EPUBPageControls() { didSet { if pageControls != oldValue { applyConfiguration() } } }
+    /// The host's controls that the reader hides and shows, from `View.epubReaderHidesControls`.
+    var controlsHiding: EPUBReaderControlsHiding? { didSet { if controlsHiding != oldValue { applyConfiguration() } } }
 
     @ObservationIgnored let book: NativeBook
     @ObservationIgnored private let spine: SpineCFIs
@@ -177,6 +179,7 @@ import SwiftUI
         configuration.pageControls = pageControls
         configuration.selectionActionTitle = action?.title
         configuration.selectionActionImage = action?.systemImage ?? "text.quote"
+        configuration.togglesControls = controlsHiding?.controls != nil
         return configuration
     }
 
@@ -1069,6 +1072,7 @@ private struct NativeSurface: View {
     let session: NativeSession
     @Environment(\.epubReaderDivision) private var division
     @Environment(\.epubReaderPageControls) private var pageControls
+    @Environment(\.epubReaderControlsHiding) private var controlsHiding
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     /// Increase Contrast, on iPhone, iPad and Mac.
@@ -1085,9 +1089,11 @@ private struct NativeSurface: View {
                     updateSystemAccessibility()
                     session.division = division
                     session.pageControls = pageControls
+                    session.controlsHiding = controlsHiding
                 }
                 .onChange(of: division) { session.division = division }
                 .onChange(of: pageControls) { session.pageControls = pageControls }
+                .onChange(of: controlsHiding) { session.controlsHiding = controlsHiding }
                 .onChange(of: colorScheme) { session.updateSystemAppearance(isDark: colorScheme == .dark) }
                 .onChange(of: dynamicTypeSize) { session.updateSystemTextSize(dynamicTypeSize) }
                 .onChange(of: contrast) { updateSystemAccessibility() }
@@ -1141,3 +1147,18 @@ private struct NativeCanvasHost: NSViewRepresentable {
     }
 }
 #endif
+
+extension NativeSession {
+    /// The person read on with the reader's own input: the host's controls hide, where it asked
+    /// for that (`View.epubReaderHidesControls(_:whileReading:)`).
+    func canvasDidReadOn(_ canvas: any ReaderCanvas) {
+        guard let controlsHiding, controlsHiding.whileReading else { return }
+        controlsHiding.controls?.readerDidReadOn()
+    }
+
+    func canvasTogglesControls(_ canvas: any ReaderCanvas) -> Bool {
+        guard let controls = controlsHiding?.controls else { return false }
+        controls.toggleControls()
+        return true
+    }
+}

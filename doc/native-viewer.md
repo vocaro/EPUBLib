@@ -2969,6 +2969,17 @@ The following are the defaults. Host commands and accessibility actions stay ena
   ([#746](https://github.com/vocaro/EPUBLib/issues/746)). Once the book is built no turn
   asks for a section's end. On iOS the scroll view's content has the whole text's height
   already.
+- The host's controls, under `epubReaderHidesControls`
+  ([reader controls](reader-controls.md#hiding-the-controls-while-reading)): on iPhone and iPad
+  a tap in the middle of a page, anywhere but the edge zones, a link, a picture or selected
+  text, shows or hides them once it is not the first tap of a double tap, except while VoiceOver
+  is running, whose double tap on a line arrives as such a tap; VoiceOver's Magic Tap does the
+  same from any line of the text. A page turned by a key, a swipe, an edge or the
+  wheel, and continuous scroll dragged by a finger or moved by a Mac's wheel or trackpad, are
+  reading on, which hides them where `whileReading` asks (by default on iPhone and iPad, not on
+  a Mac); a turn VoiceOver or the host asks for is not. Without the
+  modifier the tap's recognizer is off and Magic Tap goes on to the app
+  ([#696](https://github.com/vocaro/EPUBLib/issues/696)).
 - VoiceOver: the text offers the page turn itself, and reads in order from the text views.
   On iPhone and iPad each line of a page offers Next Page and Previous Page, and the
   reader's SwiftUI surface has a page-turn `accessibilityScrollAction`. On Mac each text

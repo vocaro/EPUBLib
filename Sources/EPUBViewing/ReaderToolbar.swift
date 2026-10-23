@@ -3,6 +3,9 @@ import SwiftUI
 
 public enum EPUBReaderControlGroup: String, CaseIterable, Hashable, Sendable {
     case pages, search, contents, appearance, readingMode
+    /// Hide Controls, on iPhone and iPad under `epubReaderHidesControls(_:whileReading:)`, which
+    /// hides them. On a Mac the window's View > Hide Toolbar is that command, and this is nothing.
+    case hideControls
 }
 
 /// Order and omit groups using `groups`; placement applies to each group's toolbar item.
@@ -11,12 +14,21 @@ public struct EPUBReaderToolbar: ToolbarContent {
     private let controls: EPUBReaderControls
     private let groups: [EPUBReaderControlGroup]
     private let placement: ToolbarItemPlacement
+    @Environment(\.epubReaderControlsHiding) private var hiding
     public init(controls: EPUBReaderControls, groups: [EPUBReaderControlGroup] = EPUBReaderControlGroup.allCases,
                 placement: ToolbarItemPlacement = .automatic) {
         self.controls = controls; self.groups = groups; self.placement = placement
     }
+    private var offersHideControls: Bool {
+        #if os(macOS)
+        false
+        #else
+        hiding?.controls === controls
+        #endif
+    }
     public var body: some ToolbarContent {
-        ForEach(groups, id: \.self) { group in
+        // Hide Controls takes no place in a toolbar whose controls nothing hides, nor on a Mac.
+        ForEach(groups.filter { $0 != .hideControls || offersHideControls }, id: \.self) { group in
             if group == .pages {
                 if controls.supports(.pagination) || controls.supports(.scrolling) {
                     #if os(macOS)
@@ -78,7 +90,7 @@ public struct EPUBReaderControlStrip<Extras: View>: View {
         // On a Mac a scroll view is a scroll area in the accessibility tree, one more
         // container round the strip's controls. Nothing raises a keyboard there and text is
         // one size: only a window shorter than the strip is short of room.
-        stacked
+        stacked.modifier(EPUBControlStripHiding(controls: controls))
         #else
         // One scroll view, whether or not the groups fit. A second arrangement to change to as
         // the keyboard comes up would be a second field, without the focus that raised it.
@@ -96,6 +108,7 @@ public struct EPUBReaderControlStrip<Extras: View>: View {
                     $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom - $0.containerSize.height < 1
                 } action: { fits = $1 }
         }
+        .modifier(EPUBControlStripHiding(controls: controls))
         .layoutPriority(1)
         #endif
     }
@@ -156,6 +169,7 @@ public struct EPUBReaderControl: View {
     private let group: EPUBReaderControlGroup
     private let inlineSearch: Bool
     @State private var showingSearch = false
+    @Environment(\.epubReaderControlsHiding) private var hiding
     public init(controls: EPUBReaderControls, group: EPUBReaderControlGroup, inlineSearch: Bool = false) {
         self.controls = controls; self.group = group; self.inlineSearch = inlineSearch
     }
@@ -184,6 +198,10 @@ public struct EPUBReaderControl: View {
                 if controls.supports(.typography) { appearance }
             case .readingMode:
                 if controls.supports(.pagination) && controls.supports(.scrolling) { readingMode }
+            case .hideControls:
+                #if !os(macOS)
+                if hiding?.controls === controls { hideControls }
+                #endif
             }
         }
         .disabled(!controls.isReady)
@@ -250,6 +268,15 @@ public struct EPUBReaderControl: View {
         #else
         button
         #endif
+    }
+    /// Under `epubReaderHidesControls` on iPhone and iPad, which hides the bars it is in. Disabled
+    /// while they are hidden, so that Show Controls has Option-Command-T: a hidden bar's items keep
+    /// their shortcuts, and with two for one key the hidden one took it.
+    private var hideControls: some View {
+        Button("Hide Controls", systemImage: "arrow.up.left.and.arrow.down.right") { controls.hideControls() }
+            .keyboardShortcut(EPUBReaderControls.toggleShortcut)
+            .disabled(controls.controlsHidden)
+            .help("Hide Controls")
     }
     private var readingMode: some View {
         Picker("Reading Mode", selection: Binding(

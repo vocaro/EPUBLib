@@ -121,6 +121,9 @@ struct ReaderCanvasConfiguration: Equatable, Sendable {
     var pageMargins: CGFloat = 1
     var selectionActionTitle: String?
     var selectionActionImage = "text.quote"
+    /// The host's controls hide and show from the reader (`View.epubReaderHidesControls`): a tap
+    /// in the middle of the page toggles them, and VoiceOver's Magic Tap.
+    var togglesControls = false
 }
 
 enum PageTurnResult: Equatable, Sendable {
@@ -191,11 +194,20 @@ extension ReaderCanvasDataSource {
     /// `ReaderCanvasView.layoutPage` changed without a new visible range: counting went on, or
     /// the count was dropped for a new layout.
     func canvasDidChangeLayoutPage(_ canvas: any ReaderCanvas)
+    /// The person read on with the reader's own input: a page turned by a key, a swipe, an edge
+    /// or the wheel, or continuous scroll dragged or wheeled. Not a turn an assistive technology
+    /// or the host asked for.
+    func canvasDidReadOn(_ canvas: any ReaderCanvas)
+    /// A tap in the middle of the page or VoiceOver's Magic Tap asks for the host's controls to
+    /// show or hide. False when there are none to toggle.
+    func canvasTogglesControls(_ canvas: any ReaderCanvas) -> Bool
 }
 
 extension ReaderCanvasDelegate {
     func canvas(_ canvas: any ReaderCanvas, wantsSection index: Int) {}
     func canvasDidChangeLayoutPage(_ canvas: any ReaderCanvas) {}
+    func canvasDidReadOn(_ canvas: any ReaderCanvas) {}
+    func canvasTogglesControls(_ canvas: any ReaderCanvas) -> Bool { false }
 }
 
 /// The TextKit 2 surface: continuous scroll in a real scroll view, or columns paginated from the

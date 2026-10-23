@@ -169,6 +169,8 @@ final class ReaderTextView: UITextView {
         return canvas.accessibilityScroll(direction)
     }
 
+    override func accessibilityPerformMagicTap() -> Bool { canvas?.accessibilityPerformMagicTap() ?? false }
+
     override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
         get {
             // VoiceOver offers a container's actions on every element in it, after the
@@ -942,6 +944,8 @@ private struct ScrollAccessibilityPlace: Equatable {
         view?.accessibilityScroll(direction) ?? false
     }
 
+    override func accessibilityPerformMagicTap() -> Bool { view?.accessibilityPerformMagicTap() ?? false }
+
     override func accessibilityElementDidBecomeFocused() {
         super.accessibilityElementDidBecomeFocused()
         view?.accessibilityCursorMovedToScrollBar()
@@ -1153,6 +1157,8 @@ private struct ReaderAccessibilityList {
     override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
         view?.accessibilityScroll(direction) ?? false
     }
+
+    override func accessibilityPerformMagicTap() -> Bool { view?.accessibilityPerformMagicTap() ?? false }
 
     override func accessibilityElementDidBecomeFocused() {
         super.accessibilityElementDidBecomeFocused()
