@@ -13,6 +13,10 @@ because VoiceOver ignores its own shortcut under one. A session whose VoiceOver 
 state still writes its transcript, with the reason in it, and exits with status 126.
 With --safari the session is of Safari, already open at a page, in place of the reader: the
 keys go to Safari and to nothing else, and `ax:` steps are the observer's for a web page.
+On the owner's Mac a session takes the owner's screen, so it refuses before its first key, and
+stops before its next step, unless the session that VOCARO_DEVICE_OWNER names holds
+`mac-foreground` in the device record within the owner's approval; after a stop it only
+restores. A GitHub-hosted runner is not the owner's Mac and needs no reservation.
 This script never changes the VoiceOver AppleScript setting or the clipboard.
 """
 import argparse
@@ -144,8 +148,18 @@ def other_tests():
 
 def main():
     root = Path(__file__).resolve().parents[1]
-    from _engineering import support_path
+    from _engineering import support_path, toolkit_root
     source = support_path("voiceover-ax-observer.swift")
+    toolkit_root(root)
+    from vocaro_engineering import devices
+
+    def reserved(moment):
+        """Refuse unless this session holds the owner's screen within the owner's approval (#818)."""
+        try:
+            devices.require_foreground(os.environ.get("VOCARO_DEVICE_OWNER"))
+        except devices.Refused as error:
+            raise devices.Refused(f"Refused {moment}: {error}") from None
+
     os.environ["VOCARO_AX_ALLOWED_BUNDLES"] = READER
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--derived-data", type=Path, default=root / ".build/voiceover/mac")
@@ -218,6 +232,11 @@ def main():
     if args.xctest_values:
         environment["TEST_RUNNER_VOICEOVER_SNAPSHOTS"] = "1"
     deadline = time.monotonic() + args.timeout
+    try:
+        # Turning VoiceOver on is the session's first key.
+        reserved("before the first key")
+    except devices.Refused as error:
+        raise SystemExit(str(error))
     original = enabled()
     process = watcher = unrestored = None
     status = 1
@@ -243,6 +262,9 @@ def main():
                 time.sleep(args.pause)
                 for step in args.steps:
                     check_banner(f"before {step}")
+                    # A key or an observer step, each acts while VoiceOver speaks on the owner's screen.
+                    # The refusal stops the session, which then only closes a list and restores VoiceOver.
+                    reserved(f"before {step}")
                     transcript.append(f"{now()} STEP {step}")
                     if step.startswith("ax:"):
                         done = events_path.read_text(errors="replace").count(" STEPPED ")

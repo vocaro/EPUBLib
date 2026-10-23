@@ -36,10 +36,10 @@ final class ContainerArchiveCoverageTests: XCTestCase {
     func testAnArchiveWithoutTheEPUBMimetypeIsRefusedAsInvalid() throws {
         var files = try Fixture.files()
         files["mimetype"] = nil
-        assertOpening(try Fixture.archive(files), throws: .invalidArchive("Missing EPUB mimetype"), "no mimetype entry")
-        assertOpening(try Fixture.epub(overrides: ["mimetype": "application/zip"]), throws: .invalidArchive("Missing EPUB mimetype"))
-        assertOpening(try Fixture.epub(overrides: ["mimetype": ""]), throws: .invalidArchive("Missing EPUB mimetype"), "empty")
-        assertOpening(Fixture.storedArchive([]), throws: .invalidArchive("Missing EPUB mimetype"), "an archive of no entries")
+        assertOpening(try Fixture.archive(files), throws: .notEPUB, "no mimetype entry")
+        assertOpening(try Fixture.epub(overrides: ["mimetype": "application/zip"]), throws: .notEPUB)
+        assertOpening(try Fixture.epub(overrides: ["mimetype": ""]), throws: .notEPUB, "empty")
+        assertOpening(Fixture.storedArchive([]), throws: .notEPUB, "an archive of no entries")
     }
 
     func testBytesThatAreNoZIPArchiveAreRefusedAsInvalid() throws {
@@ -48,7 +48,7 @@ final class ContainerArchiveCoverageTests: XCTestCase {
                              ("cut before the directory", Data(whole.prefix(whole.count / 2))),
                              ("a lone signature", Data([0x50, 0x4b, 0x03, 0x04]))] {
             XCTAssertThrowsError(try EPUBPublication.open(data: data), name) {
-                guard case .invalidArchive = $0 as? EPUBPublicationError else { return XCTFail("\(name): \($0)") }
+                XCTAssertEqual($0 as? EPUBPublicationError, .notArchive, name)
             }
         }
     }
@@ -995,7 +995,7 @@ final class ContainerArchiveCoverageTests: XCTestCase {
         let empty = directory.appending(path: "empty.epub")
         try Data().write(to: empty)
         XCTAssertThrowsError(try EPUBPublication.open(at: empty), "an empty file") {
-            guard case .invalidArchive = $0 as? EPUBPublicationError else { return XCTFail("\($0)") }
+            XCTAssertEqual($0 as? EPUBPublicationError, .notArchive)
         }
     }
 

@@ -12,10 +12,67 @@ import XCTest
 @MainActor final class HighlightStyleTests: XCTestCase {
     // MARK: Colors
 
-    /// WCAG 2.2's relative luminance of an sRGB color.
-    private func luminance(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat) -> CGFloat {
-        func linear(_ value: CGFloat) -> CGFloat { value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4) }
-        return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+    /// Every theme a reader can choose, with Increase Contrast off and on: the four presets and
+    /// a light and a dark custom theme of a host's own colors.
+    private var themes: [(name: String, theme: ReaderTheme)] {
+        let custom: [(String, EPUBReaderColors)] = [
+            ("custom light", EPUBReaderColors(background: EPUBReaderColor(hex: "#E8F0E0")!, text: EPUBReaderColor(hex: "#203018")!,
+                                              link: EPUBReaderColor(hex: "#1A4F8A")!)),
+            ("custom dark", EPUBReaderColors(background: EPUBReaderColor(hex: "#101830")!, text: EPUBReaderColor(hex: "#E0E6F0")!,
+                                             link: EPUBReaderColor(hex: "#8DB4FF")!)),
+        ]
+        let presets: [(String, EPUBReaderColors)] = [("light", .light), ("dark", .dark), ("sepia", .sepia), ("black", .black)] + custom
+        return presets.flatMap { name, colors in
+            [(name, ReaderTheme(colors)), ("\(name) with Increase Contrast", ReaderTheme(colors, increasesContrast: true))]
+        }
+    }
+
+    /// Every style's fill keeps the theme's text over it at 4.5:1 or more and its mark at 3:1 or
+    /// more against it, 4.5:1 with Increase Contrast: WCAG 2.2's floors for text and for a
+    /// graphic that carries meaning, in every theme. Yellow is drawn as every host highlight was
+    /// before styles: a highlight without one is drawn so.
+    func testEveryStyleKeepsTheTextOverItReadableAndItsMarkSeenInEveryTheme() {
+        XCTAssertEqual(EPUBHighlightColor.allCases, [.yellow, .green, .blue, .pink, .purple])
+        for (name, theme) in themes {
+            for color in EPUBHighlightColor.allCases {
+                let under = theme.composite(theme.highlightFill(color), over: theme.colors.background), mark = theme.markColor(color)
+                let label = "\(color) in \(name)"
+                XCTAssertGreaterThanOrEqual(theme.colors.text.contrastRatio(to: under), ReaderTheme.minimumTextContrast, label)
+                XCTAssertGreaterThanOrEqual(mark.contrastRatio(to: under), theme.increasesContrast ? ReaderTheme.minimumTextContrast
+                                                : ReaderTheme.minimumGraphicContrast, label)
+                XCTAssertGreaterThanOrEqual(mark.contrastRatio(to: theme.colors.background), ReaderTheme.minimumGraphicContrast, label)
+                XCTAssertEqual(components(theme.mark(color)).alpha, 1, "\(label): a mark is opaque")
+            }
+            XCTAssertEqual(theme.highlight(.annotation), theme.highlight(EPUBHighlightColor.yellow), name)
+            XCTAssertNil(theme.paint(ReaderHighlight(id: "h", range: ReaderTextRange(section: 0, 0..<1), kind: .annotation)).mark, name)
+        }
+        // On the reader's own Light, Sepia and Black the text keeps far more than the floor.
+        for (theme, floor) in [(ReaderTheme.light, 14.0), (ReaderTheme(.sepia), 5.0), (ReaderTheme(.black), 8.0), (ReaderTheme.dark, 6.0)] {
+            for color in EPUBHighlightColor.allCases {
+                XCTAssertGreaterThanOrEqual(theme.colors.text.contrastRatio(to: theme.composite(theme.highlightFill(color), over: theme.colors.background)),
+                                            floor, "\(color)")
+            }
+        }
+        XCTAssertEqual(ReaderTheme.light.highlightFill(.yellow).alpha, 0.55, accuracy: 0.001)
+        XCTAssertEqual(ReaderTheme(.black).highlightFill(.yellow).alpha, 0.35, accuracy: 0.001)
+    }
+
+    /// Each color paints a fill of its own in every theme, far enough from every other and
+    /// from a search match's that the pictures below can tell them apart, and so can a reader.
+    func testEveryColorPaintsAFillOfItsOwnInEveryTheme() {
+        func pixel(_ color: EPUBReaderColor) -> [Int] { [color.red, color.green, color.blue].map { Int(($0 * 255).rounded()) } }
+        for (name, theme) in themes {
+            var fills = EPUBHighlightColor.allCases.map { (name: "\($0)", pixel: pixel(theme.composite(theme.highlightFill($0), over: theme.colors.background))) }
+            for kind in [ReaderHighlight.Kind.search, .currentSearch] {
+                fills.append(("\(kind)", pixel(theme.composite(theme.highlightFill(kind), over: theme.colors.background))))
+            }
+            for (index, one) in fills.enumerated() {
+                for other in fills[(index + 1)...] {
+                    let apart = zip(one.pixel, other.pixel).map { abs($0 - $1) }.max() ?? 0
+                    XCTAssertGreaterThan(apart, 3, "\(one.name) and \(other.name) in \(name)")
+                }
+            }
+        }
     }
 
     private func components(_ color: PlatformColor) -> (red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
@@ -26,62 +83,6 @@ import XCTest
         color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
         #endif
         return (red, green, blue, alpha)
-    }
-
-    private func contrast(_ a: (red: CGFloat, green: CGFloat, blue: CGFloat), _ b: (red: CGFloat, green: CGFloat, blue: CGFloat)) -> CGFloat {
-        let one = luminance(a.red, a.green, a.blue), two = luminance(b.red, b.green, b.blue)
-        return (max(one, two) + 0.05) / (min(one, two) + 0.05)
-    }
-
-    /// A highlight's fill as it shows over the page.
-    private func fill(_ color: EPUBHighlightColor, dark: Bool) -> (red: CGFloat, green: CGFloat, blue: CGFloat) {
-        let page = components(ReaderPalette.background(dark: dark)), fill = ReaderPalette.highlightFill(color, dark: dark)
-        func blend(_ top: CGFloat, _ bottom: CGFloat) -> CGFloat { top * fill.alpha + bottom * (1 - fill.alpha) }
-        return (blend(fill.red, page.red), blend(fill.green, page.green), blend(fill.blue, page.blue))
-    }
-
-    /// Every color keeps the reader's text over it at 4.5:1 or more and draws its mark at 3:1
-    /// or more against it, WCAG 2.2's floors for text and for a graphic that carries meaning,
-    /// in both appearances. Yellow is drawn as every host highlight was before styles.
-    func testEveryColorKeepsTheTextOverItReadableAndItsMarkSeenInBothAppearances() {
-        XCTAssertEqual(EPUBHighlightColor.allCases, [.yellow, .green, .blue, .pink, .purple])
-        for dark in [false, true] {
-            let text = components(ReaderPalette.text(dark: dark))
-            for color in EPUBHighlightColor.allCases {
-                let under = fill(color, dark: dark), mark = ReaderPalette.highlightMark(color, dark: dark)
-                let label = "\(color) \(dark ? "dark" : "light")"
-                XCTAssertGreaterThanOrEqual(contrast((text.red, text.green, text.blue), under), dark ? 8 : 14, label)
-                XCTAssertGreaterThanOrEqual(contrast(mark, under), 3, label)
-                let page = components(ReaderPalette.background(dark: dark))
-                XCTAssertGreaterThanOrEqual(contrast(mark, (page.red, page.green, page.blue)), 3, label)
-                XCTAssertEqual(components(ReaderPalette.mark(color, dark: dark)).alpha, 1, "\(label): a mark is opaque")
-            }
-            XCTAssertEqual(ReaderPalette.annotationHighlight(dark: dark), ReaderPalette.highlight(EPUBHighlightColor.yellow, dark: dark))
-        }
-        XCTAssertEqual(components(ReaderPalette.annotationHighlight(dark: false)).alpha, 0.55, accuracy: 0.001)
-        XCTAssertEqual(components(ReaderPalette.annotationHighlight(dark: true)).alpha, 0.35, accuracy: 0.001)
-    }
-
-    /// Each color paints a fill of its own, far enough from every other and from a search
-    /// match's that the pictures below can tell them apart, and so can a reader.
-    func testEveryColorPaintsAFillOfItsOwn() {
-        for dark in [false, true] {
-            func pixel(_ rgb: (red: CGFloat, green: CGFloat, blue: CGFloat)) -> [Int] { [rgb.red, rgb.green, rgb.blue].map { Int(($0 * 255).rounded()) } }
-            var fills = EPUBHighlightColor.allCases.map { (name: "\($0)", pixel: pixel(fill($0, dark: dark))) }
-            let page = components(ReaderPalette.background(dark: dark))
-            for kind in [ReaderHighlight.Kind.search, .currentSearch] {
-                let color = components(ReaderPalette.highlight(kind, dark: dark))
-                fills.append(("\(kind)", pixel((color.red * color.alpha + page.red * (1 - color.alpha),
-                                                color.green * color.alpha + page.green * (1 - color.alpha),
-                                                color.blue * color.alpha + page.blue * (1 - color.alpha)))))
-            }
-            for (index, one) in fills.enumerated() {
-                for other in fills[(index + 1)...] {
-                    let apart = zip(one.pixel, other.pixel).map { abs($0 - $1) }.max() ?? 0
-                    XCTAssertGreaterThan(apart, 3, "\(one.name) and \(other.name) \(dark ? "dark" : "light")")
-                }
-            }
-        }
     }
 
     // MARK: Marks
@@ -153,20 +154,20 @@ import XCTest
         let window: ReaderTestWindow
         let canvas: ReaderCanvasView
         let recorder: ReaderPaintRecorder
-        let dark: Bool
-        var background: PlatformColor { ReaderPalette.background(dark: dark) }
+        /// The theme the reader draws in.
+        var theme: ReaderTheme { canvas.configuration.theme }
+        var background: PlatformColor { theme.background }
         var painted: ReaderPaintBitmap { recorder.bitmap(background: background) }
-        /// A fill over the page as painted beside the text, its top left corner: on a Mac a
-        /// dark continuous scroll is painted dark gray there, where its pages are black.
+        /// A fill over the page as painted beside the text, its top left corner.
         func fillPixels(_ color: EPUBHighlightColor, in region: CGRect? = nil) -> Int {
             let picture = painted, index = (4 * picture.width + 4) * 4
             func value(_ offset: Int) -> CGFloat { CGFloat(picture.pixels[index + offset]) / 255 }
             let page = PlatformColor(red: value(0), green: value(1), blue: value(2), alpha: 1)
-            return picture.count(of: ReaderPalette.highlight(color, dark: dark), over: page, in: region)
+            return picture.count(of: theme.highlight(color), over: page, in: region)
         }
         /// An opaque line of the mark's color, wherever it stands.
         func markPixels(_ color: EPUBHighlightColor, in region: CGRect? = nil) -> Int {
-            painted.count(of: ReaderPalette.mark(color, dark: dark), over: background, in: region, tolerance: 10)
+            painted.count(of: theme.mark(color), over: background, in: region, tolerance: 10)
         }
         var inkPixels: Int { painted.ink(over: background) }
 
@@ -234,7 +235,17 @@ import XCTest
         #endif
     }
 
-    private func open(_ data: Data, flow: EPUBReadingFlow, size: CGSize? = nil, dark: Bool = false) async throws -> Reader {
+    /// The theme each appearance draws in, Increase Contrast off as the test window keeps it.
+    private func theme(_ appearance: EPUBReaderAppearance) -> ReaderTheme {
+        switch appearance {
+        case .dark: ReaderTheme(.dark)
+        case .sepia: ReaderTheme(.sepia)
+        case .black: ReaderTheme(.black)
+        default: ReaderTheme(.light)
+        }
+    }
+
+    private func open(_ data: Data, flow: EPUBReadingFlow, size: CGSize? = nil, appearance: EPUBReaderAppearance = .light) async throws -> Reader {
         let publication = try EPUBPublication.open(data: data)
         let events = Events()
         let session = try XCTUnwrap(try NativeEngine().makeSession(publication: publication, selectionAction: nil) {
@@ -243,14 +254,15 @@ import XCTest
         let window = ReaderTestWindow(session: session)
         if let size { window.resize(to: size) }
         try await wait("the reader") { session.isReady && session.book.isComplete && session.lastLocation != nil }
-        try await session.send(.style(.init(appearance: dark ? .dark : .light, flow: flow)))
+        try await session.send(.style(.init(appearance: appearance, flow: flow)))
+        let expected = theme(appearance)
         try await wait("the styled book") {
-            session.book.isComplete && session.book.typography.isDark == dark && session.canvas?.configuration.flow == flow
-                && !(session.canvas?.textViews.isEmpty ?? true)
+            session.book.isComplete && session.book.typography.theme == expected && session.canvas?.configuration.theme == expected
+                && session.canvas?.configuration.flow == flow && !(session.canvas?.textViews.isEmpty ?? true)
         }
         let canvas = try XCTUnwrap(session.canvas)
         let recorder = ReaderPaintRecorder(root: canvas)
-        let reader = Reader(session: session, events: events, window: window, canvas: canvas, recorder: recorder, dark: dark)
+        let reader = Reader(session: session, events: events, window: window, canvas: canvas, recorder: recorder)
         reader.stopTextChecking()
         recorder.synchronize()
         let painted = try await reader.paint(timeout: 10) { reader.inkPixels > 0 }
@@ -293,10 +305,10 @@ import XCTest
 
     /// Every style is painted in its color, with its mark where it has one and with none
     /// where it has none, and each change of style repaints in place.
-    private func exerciseStyles(flow: EPUBReadingFlow, size: CGSize? = nil, dark: Bool = false) async throws {
-        let reader = try await open(try styledBook, flow: flow, size: size, dark: dark)
+    private func exerciseStyles(flow: EPUBReadingFlow, size: CGSize? = nil, appearance: EPUBReaderAppearance = .light) async throws {
+        let reader = try await open(try styledBook, flow: flow, size: size, appearance: appearance)
         defer { reader.close() }
-        let label = "\(flow)\(dark ? " dark" : "")"
+        let label = "\(flow) \(appearance)"
         for color in EPUBHighlightColor.allCases {
             XCTAssertEqual(reader.fillPixels(color), 0, "\(label): the book has no \(color) fill of its own")
             XCTAssertEqual(reader.markPixels(color), 0, "\(label): the book has no \(color) mark of its own")
@@ -345,8 +357,17 @@ import XCTest
     }
 
     func testEveryStyleIsPaintedWithItsColorAndMarkInDarkAppearance() async throws {
-        try await exerciseStyles(flow: .paginated, size: onePage, dark: true)
-        try await exerciseStyles(flow: .scrolled, dark: true)
+        try await exerciseStyles(flow: .paginated, size: onePage, appearance: .dark)
+        try await exerciseStyles(flow: .scrolled, appearance: .dark)
+    }
+
+    /// Sepia and Black, in pages and in continuous scroll: a light theme with its own page and
+    /// text, and the black page Dark had before themes.
+    func testEveryStyleIsPaintedWithItsColorAndMarkInSepiaAndBlack() async throws {
+        for appearance in [EPUBReaderAppearance.sepia, .black] {
+            try await exerciseStyles(flow: .paginated, size: onePage, appearance: appearance)
+            try await exerciseStyles(flow: .scrolled, appearance: appearance)
+        }
     }
 
     /// Each mark is given to the text view as what it is, in its color's shade, on the

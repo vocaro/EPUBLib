@@ -334,6 +334,12 @@ typealias TableNativeTextView = UITextView
             }
         }
         addAccessibilityLinks(accessibilityLinks(in: full), to: result, of: full)
+        // A host highlight's characters are highlighted text, as in the text around the table.
+        for (range, paint) in highlights where paint.replacesMarks {
+            let run = NSIntersectionRange(range, full)
+            guard run.length > 0 else { continue }
+            result.addAttribute(.accessibilityHighlightedText, value: true, range: NSRange(location: run.location - full.location, length: run.length))
+        }
         return result
     }
 

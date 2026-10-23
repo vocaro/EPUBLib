@@ -30,6 +30,16 @@ count checks. Use the commands in [testing](doc/testing.md).
   reads on simulators of its own, muted; what that record settles is in
   [Tests are automated](#tests-are-automated) below.
 
+## Heavy work
+
+Run `swift test`, the iOS suites and the gate by their lanes, which wait for the host's
+heavy-work admission: `python3 scripts/eng run swift-tests`, `ios-tests` and `gate`, the gate
+exclusively. Arguments after `--` filter a run, which must then run a test, and `--expect N`
+requires exactly N: `python3 scripts/eng run swift-tests --expect N -- --filter X`, or
+`-- -only-testing:Target/Class` for `ios-tests`, whose N counts both simulators. Any other
+heavy command goes through
+`python3 scripts/eng admit -- COMMAND` ([testing](doc/testing.md#local-gate)).
+
 ## Tests are automated
 
 - Before proposing a physical device, apply the shared

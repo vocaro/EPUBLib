@@ -251,6 +251,11 @@ struct ReaderTableAction {
                             return owner?.canvas?.selectionText(for: self)
                         }
                         cell.onImage = { [weak owner] image in owner?.canvas?.inspectImage(image) }
+                        #if os(macOS)
+                        if let theme = owner.canvas?.configuration.theme {
+                            cell.selectedTextAttributes = ReaderCanvasView.selectedTextAttributes(theme)
+                        }
+                        #endif
                         cells[key] = cell
                         owner.addSubview(cell)
                     }
@@ -342,6 +347,9 @@ struct ReaderTableAction {
     func highlights(_ highlights: [ReaderHighlight]) {
         guard let owner, let canvas = owner.canvas, let storage = owner.contentStorage.textStorage else { return }
         for (key, cell) in cells {
+            #if os(macOS)
+            cell.selectedTextAttributes = ReaderCanvasView.selectedTextAttributes(canvas.configuration.theme)
+            #endif
             var runs: [(NSRange, ReaderHighlightPaint)] = [], nested: [(TableNestedHighlight, ReaderHighlightPaint)] = []
             guard let position = canvas.position(at: key.location, in: owner),
                   let row = storage.attribute(.attachment, at: key.location, effectiveRange: nil) as? TableRowAttachment else { continue }
@@ -357,7 +365,7 @@ struct ReaderTableAction {
                     if row.table.sourceOrder > endpoint.table || (row.table.sourceOrder == endpoint.table && key.cell > endpoint.cell) { continue }
                     if row.table.sourceOrder == endpoint.table && key.cell == endpoint.cell { upper = endpoint.offset; last = endpoint }
                 } else if position >= end { continue }
-                let paint = ReaderPalette.paint(highlight, dark: canvas.configuration.isDark)
+                let paint = canvas.configuration.theme.paint(highlight)
                 var run = NSRange(location: lower, length: max(0, upper - lower))
                 // An end in a table nested in the cell: the nested table's rows paint their part.
                 if first?.nested != nil || last?.nested != nil {

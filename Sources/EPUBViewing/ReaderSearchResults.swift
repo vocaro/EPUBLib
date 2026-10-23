@@ -39,7 +39,7 @@ public extension EPUBReaderControls {
     }
 
     /// The search's state in a few words for a count indicator: “3 of 27”, “27 matches”,
-    /// “No matches”, “Searching…” or the engine's error. nil while no search is active and
+    /// “No matches”, “Searching…” or the error's plain `message`. nil while no search is active and
     /// after a successful search by an engine that only highlights.
     var searchResultSummary: String? {
         switch status?.search ?? .idle {
@@ -61,7 +61,9 @@ public extension EPUBReaderControls {
         switch status?.search ?? .idle {
         case .idle: return nil
         case .searching: return "Searching"
-        case .failed(_, let error): return "Search failed. \(error.message)"
+        case .failed(_, let error):
+            return String(localized: "Search failed. \(error.message)", bundle: .module,
+                          comment: "What a screen reader says of a search that failed, followed by why it failed, a sentence such as “The search is empty or longer than 512 characters.”")
         case .completed(_, let hasMatches):
             guard let results = searchResults else { return hasMatches ? "Matches highlighted" : "No matches" }
             guard !results.isEmpty else { return "No matches" }

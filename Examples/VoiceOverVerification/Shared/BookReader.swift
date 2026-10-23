@@ -26,7 +26,13 @@ final class BookReader {
     private var generation = UUID()
     var sessionID: UUID { generation }
 
-    func reportImportError(_ error: Error) { self.error = error.localizedDescription }
+    func reportImportError(_ error: Error) { self.error = Self.message(for: error) }
+
+    /// What to tell the reader: what went wrong and, where the error says, what to do about it.
+    nonisolated static func message(for error: Error) -> String {
+        let error = error as NSError
+        return [error.localizedDescription, error.localizedRecoverySuggestion].compactMap { $0 }.joined(separator: " ")
+    }
 
     func open(url: URL) {
         close()
@@ -47,7 +53,7 @@ final class BookReader {
                 // Closing or opening another book intentionally cancels the previous import.
             } catch {
                 guard let self, generation == token else { return }
-                self.error = String(describing: error)
+                self.error = Self.message(for: error)
             }
             if let self, generation == token { loading = false; opening = nil }
         }
@@ -56,7 +62,8 @@ final class BookReader {
     func install(_ book: EPUBPublication, engine: any EPUBReaderEngine) throws {
         let token = generation
         publication = book
-        if let data = UserDefaults.standard.data(forKey: "position.\(book.id)") {
+        // Saved under the book's persistentID, or under an identity it had before.
+        if let data = book.publicationIDs.lazy.compactMap({ UserDefaults.standard.data(forKey: "position.\($0)") }).first {
             savedPosition = try? JSONDecoder().decode(EPUBLocation.self, from: data)
         }
         session = try engine.makeSession(publication: book,
@@ -70,7 +77,7 @@ final class BookReader {
                 case .relocated(let value): location = value
                 case .disclosure(let value): disclosure = value
                 case .notice(let value): notice = value
-                case .failed(let value): error = String(describing: value); ready = false
+                case .failed(let value): error = Self.message(for: value); ready = false
                 case .selectionChanged(let value): selection = value?.text; selectionLocation = value?.location
                 case .searchChanged, .searchResultsChanged: break
                 }
@@ -107,7 +114,7 @@ final class BookReader {
 
     func clearPosition() {
         guard let publication else { return }
-        UserDefaults.standard.removeObject(forKey: "position.\(publication.id)")
+        for id in publication.publicationIDs { UserDefaults.standard.removeObject(forKey: "position.\(id)") }
         savedPosition = nil
         notice = "Bookmark cleared."
     }

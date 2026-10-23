@@ -13,7 +13,7 @@ import XCTest
 /// the bytes read, not the time or memory that took.
 final class ArchiveFileTests: XCTestCase {
     /// What ZIPFoundation says of bytes it finds no end record in.
-    private let noEndRecord = EPUBPublicationError.invalidArchive("missingEndOfCentralDirectoryRecord")
+    private let noEndRecord = EPUBPublicationError.notArchive
     private let signature: [UInt8] = [0x50, 0x4B, 0x05, 0x06]
     private let localHeader: [UInt8] = [0x50, 0x4B, 0x03, 0x04]
     /// The last bytes and the first four.

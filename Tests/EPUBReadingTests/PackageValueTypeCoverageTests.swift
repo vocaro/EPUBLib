@@ -54,12 +54,13 @@ final class PackageValueTypeCoverageTests: XCTestCase {
 
     func testRawValuesThatHostsStoreKeepTheirSpelling() throws {
         XCTAssertEqual(EPUBReadingFlow.allValues, ["paginated", "scrolled"])
-        XCTAssertEqual(EPUBReaderAppearance.allCases.map(\.rawValue), ["system", "light", "dark"])
+        XCTAssertEqual(EPUBReaderAppearance.allCases.map(\.rawValue), ["system", "light", "dark", "sepia", "black", "custom"])
         XCTAssertEqual([EPUBLayout.reflowable, .prePaginated].map(\.rawValue), ["reflowable", "prePaginated"])
         XCTAssertEqual([EPUBPageProgression.ltr, .rtl, .default].map(\.rawValue), ["ltr", "rtl", "default"])
         XCTAssertEqual(try JSONDecoder().decode([EPUBReadingFlow].self, from: Data(#"["scrolled","paginated"]"#.utf8)), [.scrolled, .paginated])
         XCTAssertEqual(String(decoding: try JSONEncoder().encode([EPUBReaderAppearance.dark, .system]), as: UTF8.self), #"["dark","system"]"#)
-        XCTAssertThrowsError(try JSONDecoder().decode([EPUBReaderAppearance].self, from: Data(#"["sepia"]"#.utf8)))
+        XCTAssertEqual(try JSONDecoder().decode([EPUBReaderAppearance].self, from: Data(#"["sepia","black","custom"]"#.utf8)), [.sepia, .black, .custom])
+        XCTAssertThrowsError(try JSONDecoder().decode([EPUBReaderAppearance].self, from: Data(#"["Sepia"]"#.utf8)))
         XCTAssertNil(EPUBPageProgression(rawValue: "RTL"))
         XCTAssertNil(EPUBLayout(rawValue: "pre-paginated"), "the package's spelling is not the raw value")
     }
