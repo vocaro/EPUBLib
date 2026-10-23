@@ -7,7 +7,11 @@ import AppKit
 
 /// The page actions the Mac's text areas offer VoiceOver, read through AppKit's own
 /// `accessibilityCustomActions()`: what its Actions menu lists for the item under its cursor.
-@MainActor final class PageActionAccessibilityTests: XCTestCase {
+@MainActor class PageActionAccessibilityTests: XCTestCase {
+    /// How every page here turns; `SlidingPageActionAccessibilityTests` runs them all again with a
+    /// slide (#688).
+    class var pageTurnAnimation: EPUBPageTurnAnimation { .none }
+
     func testAPageActionIsNamedForItsFlow() {
         XCTAssertEqual([EPUBPageAction.next, .previous].map { $0.label(in: .paginated) }, ["Next Page", "Previous Page"])
         XCTAssertEqual([EPUBPageAction.next, .previous].map { $0.label(in: .scrolled) }, ["Scroll Forward", "Scroll Backward"])
@@ -26,6 +30,7 @@ import AppKit
         var configuration = ReaderCanvasConfiguration()
         configuration.flow = flow
         configuration.pageControls = controls
+        configuration.pageTurnAnimation = Self.pageTurnAnimation
         let host = CanvasHost(FakeCanvasSource([CanvasText.section(0, paragraphs: 30)]), size: size, configuration: configuration)
         hosts.append(host)
         host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
@@ -180,4 +185,10 @@ import AppKit
         XCTAssertEqual(names(note.textView), [])
     }
     #endif
+}
+
+/// Every test above again with each page turn sliding: what a text area offers VoiceOver, and
+/// what its page actions do, are what they are with none (#688).
+@MainActor final class SlidingPageActionAccessibilityTests: PageActionAccessibilityTests {
+    override class var pageTurnAnimation: EPUBPageTurnAnimation { .slide }
 }

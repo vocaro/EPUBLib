@@ -68,6 +68,42 @@ extension ReaderCanvasView: NSTextViewDelegate {
         return view
     }
 
+    /// A column that draws a page a swipe brings in, which nothing reads or touches.
+    func makePreviewColumn() -> ReaderTextView {
+        let view = ReaderTextView(pageColumn: true)
+        view.setAccessibilityElement(false)
+        view.setAccessibilityHidden(true)
+        return view
+    }
+
+    /// A picture of the page on screen as it is drawn: each shown column's, where it stands on
+    /// the canvas, drawn again into a bitmap of the window's scale. nil while nothing is shown.
+    func pageSnapshot() -> PlatformView? {
+        let shown = columns.filter { !$0.isHidden }
+        guard !shown.isEmpty, bounds.width > 0, bounds.height > 0 else { return nil }
+        let picture = ReaderPageTransitionView(frame: bounds)
+        for column in shown {
+            guard let bitmap = column.bitmapImageRepForCachingDisplay(in: column.bounds) else { return nil }
+            column.cacheDisplay(in: column.bounds, to: bitmap)
+            let image = NSImage(size: column.bounds.size)
+            image.addRepresentation(bitmap)
+            let view = NSImageView(frame: column.frame)
+            view.image = image
+            view.imageScaling = .scaleAxesIndependently
+            view.setAccessibilityElement(false)
+            picture.addSubview(view)
+        }
+        return picture
+    }
+
+    /// Puts what a page turn draws above the columns, and below what stands over the page: the
+    /// selection's continuation and the image inspector.
+    func addPageTransitionView(_ view: PlatformView) {
+        view.frame = bounds
+        let top = subviews.last { subview in columns.contains { $0 === subview } }
+        addSubview(view, positioned: .above, relativeTo: top)
+    }
+
     func makeScrollView() -> (PlatformView, ReaderTextView) {
         let scrollView = ReaderScrollView(frame: bounds)
         scrollView.canvas = self
@@ -483,8 +519,11 @@ extension ReaderCanvasView: NSTextViewDelegate {
     }
 
     /// In paginated flow a trackpad gesture or wheel tick turns a page; the columns do not scroll.
+    /// A trackpad's swipe across the page is followed by the page where the turn is animated
+    /// (`followSwipe`).
     override func scrollWheel(with event: NSEvent) {
         guard imageInspector == nil, configuration.flow == .paginated, configuration.pageControls.wheelEnabled else { return super.scrollWheel(with: event) }
+        if followSwipe(event) { return }
         // Line-based mouse wheels report lines; count them in points as WebKit did.
         func points(_ delta: CGFloat) -> CGFloat {
             event.hasPreciseScrollingDeltas ? delta : ReaderWheelPageTurner.points(lines: delta)
@@ -500,6 +539,53 @@ extension ReaderCanvasView: NSTextViewDelegate {
                                                   isRightToLeft: configuration.isRightToLeft,
                                                   at: event.timestamp) else { return }
         turnPageFromInput(forward: forward)
+    }
+
+    /// Has the page follow a trackpad's swipe across it, as a page turn's animation does a
+    /// finger's on iPhone and iPad (`beginPageDrag`), where the person lets a swipe go between
+    /// pages (`NSEvent.isSwipeTrackingFromScrollEventsEnabled`, System Settings' "Swipe between
+    /// pages"). AppKit then tracks the swipe, moves the page with the fingers and, once they lift,
+    /// on to its turn or back (`followPageSwipe`). The first horizontal event of a gesture starts
+    /// it, and the page is drawn following it from AppKit's first step. A gesture up or down the
+    /// page, a wheel's, and one with no swipe between pages turn the page once it has moved, as
+    /// before. False where the event is not such a swipe's.
+    private func followSwipe(_ event: NSEvent) -> Bool {
+        guard canBeginPageDrag, NSEvent.isSwipeTrackingFromScrollEventsEnabled, event.momentumPhase.isEmpty,
+              event.phase.contains(.began) || event.phase.contains(.changed), !wheelTurner.gestureHasTurned,
+              abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else { return false }
+        wheelTurner.takeGesture()
+        // An amount above zero moves the page to the right, which brings in the page before in a
+        // book read left to right and the next in one read right to left.
+        let rightward = canTurnPage(forward: configuration.isRightToLeft) == true
+        let leftward = canTurnPage(forward: !configuration.isRightToLeft) == true
+        var drag: ReaderPageTransition?
+        event.trackSwipeEvent(options: [.lockDirection, .clampGestureAmount],
+                              dampenAmountThresholdMin: leftward ? -1 : 0, max: rightward ? 1 : 0) { [weak self] amount, _, complete, stop in
+            MainActor.assumeIsolated {
+                guard let self else { stop.pointee = true; return }
+                if drag == nil {
+                    guard self.beginPageDrag() else { stop.pointee = true; return }
+                    drag = self.pageTransition
+                }
+                // A turn or another drag meanwhile has ended this one.
+                guard self.pageTransition === drag, self.followPageSwipe(amount: amount, complete: complete) else {
+                    stop.pointee = true
+                    return
+                }
+            }
+        }
+        return true
+    }
+
+    /// One step of a trackpad's swipe that the page follows: AppKit's `amount` of the width, from
+    /// -1 to 1, above zero to the right. Once `complete` the page turns where AppKit took it all
+    /// the way, and otherwise stands where it began. False once the drag has ended otherwise, as
+    /// by a key's turn meanwhile, for AppKit to stop tracking.
+    @discardableResult func followPageSwipe(amount: CGFloat, complete: Bool) -> Bool {
+        guard let transition = pageTransition, transition.isDrag, !transition.isSettling else { return false }
+        dragPage(by: amount * bounds.width)
+        if complete { endPageDrag(turns: abs(amount) >= 0.5, animated: false) }
+        return true
     }
 
     // MARK: Notes
