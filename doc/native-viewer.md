@@ -254,7 +254,10 @@ continues to describe the authored spine resource.
   [StaticSVG](https://github.com/vocaro/StaticSVG) and the resvg static renderer it bundles,
   including paths, text, gradients, transforms, clipping, local definitions and
   `viewBox`/`preserveAspectRatio`. SVG dimension attributes retain their CSS units
-  ([#117](https://github.com/vocaro/EPUBLib/issues/117)). A plain single-image wrapper retains
+  ([#117](https://github.com/vocaro/EPUBLib/issues/117)). They, and an `img`'s, `object`'s or
+  `embed`'s `width` and `height`, are presentational hints that any author rule beats,
+  `width: auto` included: an image is sized by what the cascade computes
+  ([#763](https://github.com/vocaro/EPUBLib/issues/763)). A plain single-image wrapper retains
   the raster-image fast path for the default centred meet fit: image percentages resolve in
   viewBox coordinates, and one omitted dimension follows the image's intrinsic ratio.
   Other aspect fits, transforms and nested viewports use the SVG renderer
@@ -667,12 +670,22 @@ continues to describe the authored spine resource.
   ([TextKit 1 and TextKit 2](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#textkit-1-and-textkit-2-apply-paragraph-indents-differently)),
   one image-drawn attachment per row so pages can break between any two rows; rows a rowspan
   joins, and the header, keep with the next row and share a page when they fit. `colspan`/
-  `rowspan` honoured (`rowspan="0"` spans one row, as WebKit does); a spanning cell is drawn in
-  each row it covers. A table, its columns, rows and cells take their sizes, and a cell where
-  its content sits, from the cascade, where `width`, `height` and `valign` are presentational
-  hints that an author rule beats (HTML §15.3.8): a table's width of zero and a cell's width
-  or height of zero are no size at all ([#121](https://github.com/vocaro/EPUBLib/issues/121)),
-  and a row group's alignment reaches its rows and their cells, which inherit it
+  `rowspan` honored (`rowspan="0"` spans one row, as WebKit does); a spanning cell is drawn in
+  each row it covers. They, a column's `span` and a table's `border` are read by HTML's rules
+  for parsing non-negative integers (§2.3.4.2): white space and a `+` before the digits, and
+  whatever follows them, are passed over, so `" 2"`, `"2px"` and `"2.9"` are 2; a `colspan`
+  or `span` that is not a number or is zero is 1 and one past 1,000 is 1,000, and a `rowspan`
+  ends with its row group ([#143](https://github.com/vocaro/EPUBLib/issues/143)). A table,
+  its columns, rows and cells take their sizes, backgrounds, borders, padding and spacing, a
+  cell where its content sits and whether its lines wrap, and a caption its side, from the
+  cascade alone, where `width`, `height`, `valign`, `bgcolor`, `border`, `cellpadding`,
+  `cellspacing`, `nowrap` and a caption's `align="bottom"` are presentational hints that any
+  author rule beats (HTML §15.3.8, §15.3.10), one that sets the default included:
+  `table { border-spacing: 2px }` beats `cellspacing`, and `td { padding: 0 }` beats
+  `cellpadding` ([#763](https://github.com/vocaro/EPUBLib/issues/763)). A table's width of zero
+  and a cell's width or height of zero are no size at all
+  ([#121](https://github.com/vocaro/EPUBLib/issues/121)), and a row group's alignment reaches
+  its rows and their cells, which inherit it
   ([#142](https://github.com/vocaro/EPUBLib/issues/142)). Consecutive columns spanned by exactly the same cells, and declared by no
   `col` or `colgroup`, are laid out as one (CSS Tables 3 §3.3.2, track merging): the 98 columns
   a title row's `colspan="100"` runs past over a two-column body add one border spacing to the
@@ -759,10 +772,12 @@ continues to describe the authored spine resource.
   A grid holds 200 columns and 20,000 cells. A cell whose `colspan` runs past the 200th column
   reaches the table's last column when it is the last cell of its row, and then takes one row
   whatever its `rowspan`. A cell the grid has no slot for follows the table as a paragraph of
-  its own in reading order, and the `.disclosure` says so: a cell with such a span that is not
-  the last of its row (the cells written after it keep their slots) or that follows another
-  cell left out of that row, a cell starting past the 200th column, and every cell past the
-  20,000th.
+  its own in reading order: a cell with such a span that is not the last of its row (the cells
+  written after it keep their slots) or that follows another cell left out of that row, a cell
+  starting past the 200th column, and every cell past the 20,000th. The `.disclosure` says that
+  part of the table is shown after it when one of those cells shows anything there; one that is
+  empty, or holds white space or hidden content alone, shows nothing and is not disclosed
+  ([#272](https://github.com/vocaro/EPUBLib/issues/272)).
   Visible cells have
   native text interaction surfaces aligned to their drawn glyphs: select and Copy cell text,
   invoke the host's selection action, follow internal links and open notes. A link outside the

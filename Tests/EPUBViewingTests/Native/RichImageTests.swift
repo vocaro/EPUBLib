@@ -80,13 +80,32 @@ final class RichImageTests: XCTestCase {
         XCTAssertEqual(fitted.height, 400 * 1562 / 1068, accuracy: 0.01)
     }
 
-    func testAttributesAreHintsThatCSSOverrides() {
-        let hinted = ImageSizing(intrinsic: CGSize(width: 64, height: 64), style: ComputedStyle(), widthHint: "55", heightHint: "55")
-        XCTAssertEqual(size(hinted), CGSize(width: 55, height: 55))
-        var style = ComputedStyle()
-        style.width = .points(20)
-        let css = ImageSizing(intrinsic: CGSize(width: 64, height: 64), style: style, widthHint: "55", heightHint: nil)
-        XCTAssertEqual(size(css), CGSize(width: 20, height: 20))
+    /// HTML §15.4.3: an image's `width` and `height` are presentational hints, which any author
+    /// rule beats, `auto` included; SVG 2 maps an `svg`'s the same way. The image is sized by what
+    /// the cascade computes, and the attributes are not read again (#763).
+    func testAttributesAreHintsThatCSSOverrides() throws {
+        func image(_ css: String) throws -> ImageSizing {
+            let section = try TableCoverage.section("<p><img src='p.png' width='200' height='100' alt=''/></p>", css: css,
+                                                    files: ["p.png": RichFixture.image(width: 64, height: 32)])
+            return try XCTUnwrap(section.richMediaImages.first).sizing
+        }
+        let hinted = try image("")
+        XCTAssertEqual([hinted.width, hinted.height], [.points(200), .points(100)])
+        XCTAssertEqual(size(hinted), CGSize(width: 200, height: 100))
+        XCTAssertEqual(size(try image("img { width: 20px }")), CGSize(width: 20, height: 10))
+        let reset = try image("img { width: auto; height: auto }")
+        XCTAssertEqual([reset.width, reset.height], [.auto, .auto])
+        XCTAssertEqual(size(reset), CGSize(width: 64, height: 32), "the image at its own size")
+        func drawing(_ css: String) throws -> ImageSizing {
+            let section = try TableCoverage.section("""
+            <p><svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 2 1"><rect width="2" height="1"/></svg></p>
+            """, css: css)
+            return try XCTUnwrap(section.richMediaImages.first).sizing
+        }
+        let drawn = try drawing("")
+        XCTAssertEqual([drawn.width, drawn.height], [.points(200), .points(100)])
+        let unsized = try drawing("svg { width: auto; height: auto }")
+        XCTAssertEqual([unsized.width, unsized.height], [.auto, .auto])
         XCTAssertEqual(ImageSizing.length("50%", fontSize: 16), .percent(50))
         XCTAssertEqual(ImageSizing.length(" 2em ", fontSize: 16), .points(32))
         XCTAssertEqual(ImageSizing.length("1in", fontSize: 16), .points(96))

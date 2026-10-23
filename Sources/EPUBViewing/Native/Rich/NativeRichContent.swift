@@ -74,8 +74,7 @@ struct NativeRichContent: RichContentFactory {
             alternative = ImageAlternative(name: svg.accessibleLabel)
         }
         if intrinsic.width <= 0 || intrinsic.height <= 0 { intrinsic = source.pixelSize }
-        let sizing = ImageSizing(intrinsic: intrinsic, style: style, widthHint: element.attribute("width"),
-                                 heightHint: element.attribute("height"))
+        let sizing = ImageSizing(intrinsic: intrinsic, style: style)
         return attachment(ReaderImageAttachment(source: source, sizing: sizing, alternative: alternative, style: style,
                                                 isDark: context.typography.isDark,
                                                 isHiddenFromAssistiveTechnology: ContentSemantics.isHiddenFromAssistiveTechnology(element),
@@ -93,7 +92,6 @@ struct NativeRichContent: RichContentFactory {
         // Prefer authored title/description, then drawing labels, when it cannot be shown.
         let nothing = { Self.altText(drawing.fallbackText, style: style, context: context) ?? NSAttributedString() }
         SVGContent.disclose(drawing, report: context.report)
-        let widthHint = element.attribute("width"), heightHint = element.attribute("height")
         if let image = SVGContent.wrappedImage(element), let reference = SVGContent.href(image), !reference.hasPrefix("#") {
             let found: (source: ReaderImageSource, intrinsic: CGSize, svg: SVGDocument?)?
             if let url = Self.imageDataURL(reference) {
@@ -108,7 +106,7 @@ struct NativeRichContent: RichContentFactory {
             }
             let source = resolved.source
             let intrinsic = SVGContent.intrinsicSize(element, fontSize: style.fontSize, fallback: source.pixelSize)
-            let sizing = ImageSizing(intrinsic: intrinsic, style: style, widthHint: widthHint, heightHint: heightHint)
+            let sizing = ImageSizing(intrinsic: intrinsic, style: style)
             let placement = SVGContent.placement(of: image, in: element, source: source, fontSize: style.fontSize)
             let alternative = title.isEmpty ? ImageAlternative(alt: image.attribute("alt")) : .text(title)
             // The drawing is kept from assistive technology, or the image it shows where that
@@ -130,7 +128,7 @@ struct NativeRichContent: RichContentFactory {
             return nothing()
         }
         let intrinsic = SVGContent.intrinsicSize(element, fontSize: style.fontSize, fallback: source.pixelSize)
-        let sizing = ImageSizing(intrinsic: intrinsic, style: style, widthHint: widthHint, heightHint: heightHint)
+        let sizing = ImageSizing(intrinsic: intrinsic, style: style)
         return attachment(ReaderImageAttachment(source: source, sizing: sizing, alternative: ImageAlternative(name: title), style: style,
                                                 isDark: context.typography.isDark,
                                                 isHiddenFromAssistiveTechnology: ContentSemantics.isHiddenFromAssistiveTechnology(element),
