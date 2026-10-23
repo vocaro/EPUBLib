@@ -545,6 +545,46 @@ not rebuild text, repaginate, clear selection or highlights, or emit a relocatio
 current wheel gesture/cooldown and pending edge press are reset. Host commands and
 accessibility use the same page/viewport operation regardless of direct-input configuration.
 
+## Animating page turns
+
+`epubReaderPageTurnAnimation(_:)` chooses how the bundled native reader turns a page in
+paginated flow. `.none`, the default, replaces one page with the other at once. `.slide` moves
+the page away and the next in beside it, from the side the book reads towards, and `.dissolve`
+fades the one into the other. Apply it to the retained `EPUBReaderView`, or an ancestor of it;
+a change takes effect at the next turn, with no reload and no relocation.
+
+<!-- snippet:pageTurnAnimation -->
+```swift
+/// Let the reader choose how a page turns. Under Reduce Motion a slide dissolves by itself.
+struct PageTurnAnimationExample: View {
+    let session: any EPUBReaderSession
+    @State private var slides = true
+
+    var body: some View {
+        VStack {
+            Toggle("Slide pages", isOn: $slides)
+            EPUBReaderView(session: session)
+                .epubReaderPageTurnAnimation(slides ? .slide : .none)
+        }
+    }
+}
+```
+<!-- /snippet -->
+
+- Every page turn has the animation chosen: an edge tap or click, a swipe, a key, the wheel or
+  trackpad, VoiceOver's own page turns and the host's `.nextPage` and `.previousPage`.
+  Continuous scroll scrolls as before.
+- A swipe on iPhone and iPad follows the finger, and turns the page only when let go past half
+  the width or flicked on; otherwise the page goes back and nothing is reported. On Mac a
+  trackpad's swipe across the page does the same where the person has System Settings let a
+  swipe go between pages.
+- With Reduce Motion on, a turn never slides: `.slide` dissolves instead. A host that wants no
+  animation at all under Reduce Motion reads SwiftUI's `accessibilityReduceMotion` and passes
+  `.none`.
+- What is reported and what VoiceOver reads are those of a turn with no animation: the
+  relocation is emitted as the page turns, not when the animation ends, and the selection and
+  highlights are unchanged ([native viewer](native-viewer.md#input-and-accessibility)).
+
 ## Setting book text
 
 `EPUBReaderStyle.typography` sets the font, line and paragraph spacing, letter and word
