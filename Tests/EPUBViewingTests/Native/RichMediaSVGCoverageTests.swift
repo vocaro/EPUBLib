@@ -57,6 +57,17 @@ final class RichMediaSVGCoverageTests: XCTestCase {
             XCTAssertEqual(image?.source.format, .bitmap, "\(reference): a lone wrapped image keeps the raster fast path")
         }
         XCTAssertEqual(try image("<div><svg \(Self.ns) viewBox='0 0 60 80'><image width='60' height='80' href='cover.jpg'/></svg></div>", files: files).0?.source.format, .bitmap, "plain href works too")
+        // A fragment reference names the drawing's own document, not a file read in its place,
+        // whatever follows its `#`: "#" and a mark after it are one `Character`
+        // (https://github.com/vocaro/EPUBLib/issues/641). The drawing goes to the renderer, which
+        // has no image to draw for it, and its title stands in.
+        for reference in ["#cover", "#&#x301;cover"] {
+            let (shown, text) = try image("<div><svg \(Self.ns) viewBox='0 0 60 80'><title>Cover</title><image width='60' height='80' href='\(reference)'/></svg></div>", files: files)
+            XCTAssertNil(shown, reference)
+            XCTAssertEqual(text.richMediaPlain, "Cover", reference)
+            XCTAssertEqual(text.report.unreadableResources, 0, "\(reference): no file was read")
+            XCTAssertEqual(text.report.unsupportedElements["svg"], 1, "\(reference): the renderer was given the drawing")
+        }
         // A wrapped image not filling its box carries a content rect in unit fractions.
         let half = try XCTUnwrap(try image("<p><svg \(Self.ns) width='200' height='100' viewBox='0 0 200 100'><image x='100' width='100' height='100' href='cover.jpg'/></svg></p>", files: files).0)
         let rect = try XCTUnwrap(half.contentRect)

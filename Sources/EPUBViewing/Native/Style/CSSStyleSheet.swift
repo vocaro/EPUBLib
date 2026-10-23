@@ -97,14 +97,25 @@ extension CSSStyleSheet {
         return CSSPropertyParser.block(CSSParser.declarations(CSSParser.components(text, truncated: &truncated)), isRuleValue: false)
     }
 
+    /// Which rules a sheet's top level still takes, in order (CSS Cascade 5 §2, CSS Namespaces
+    /// §3, as Chromium's parser decides them): `@import` before any valid rule but `@charset` and
+    /// the `@layer` statements that precede the first import, then `@namespace`, then the rest.
+    /// A rule that is not valid, and so is dropped, moves nothing: an unknown at-rule, one written
+    /// in the wrong place or with a prelude its grammar does not take, a style rule whose selector
+    /// is invalid.
+    private enum Section: Comparable {
+        /// Nothing but `@charset` and `@layer` statements yet.
+        case start
+        case imports
+        case namespaces
+        case rules
+    }
+
     private struct Builder {
         let path: String
         var sheet = CSSStyleSheet()
         var namespaces = CSSNamespaces()
-        /// `@import` is honoured only before any other valid rule (CSS Cascade 4 §2: "Any @import
-        /// rules must precede all other valid at-rules and style rules"). A rule the parser drops,
-        /// an unknown at-rule or a style rule whose selector is invalid, leaves it set.
-        var importsAllowed = true
+        var section = Section.start
 
         init(path: String) { self.path = path }
 
@@ -114,7 +125,7 @@ extension CSSStyleSheet {
                 case .qualified(let prelude, let block):
                     // Under media that never match nothing is imported, so the rule need not be read.
                     guard !media.isEmpty else { continue }
-                    if styleRule(prelude, block, media: media) { importsAllowed = false }
+                    if styleRule(prelude, block, media: media), topLevel { section = .rules }
                 case .at(let name, let prelude, let block):
                     atRule(name, prelude, block, media: media, topLevel: topLevel, depth: depth)
                 }
@@ -162,8 +173,9 @@ extension CSSStyleSheet {
         }
 
         /// At-rules other than `@charset`, `@import`, `@namespace` and `@layer` statements that are
-        /// valid at the top level of a sheet, those Chromium keeps. Each takes a block: an unknown
-        /// at-rule, or one of these written as a statement, is invalid.
+        /// valid at the top level of a sheet, those Chromium keeps. Each takes a block and a
+        /// prelude its grammar allows (`CSSAtRulePrelude`): an unknown at-rule, or one of these
+        /// written as a statement or with another prelude, is invalid.
         private static let blockAtRules: Set<String> = [
             "media", "supports", "layer", "font-face",
             "page", "keyframes", "-webkit-keyframes", "container", "counter-style", "font-feature-values",
@@ -176,20 +188,24 @@ extension CSSStyleSheet {
             case "charset":
                 return
             case "import":
-                guard topLevel, importsAllowed, block == nil else { return }
-                importRule(prelude.significant, media: media)
+                guard topLevel, section <= .imports, block == nil, importRule(prelude.significant, media: media) else { return }
+                section = .imports
                 return
             case "namespace":
-                guard topLevel, block == nil else { return }
-                namespaceRule(prelude.significant)
+                guard topLevel, section <= .namespaces, block == nil, namespaceRule(prelude.significant) else { return }
+                section = .namespaces
                 return
             case "layer" where block == nil:
+                // Layers are flattened, so a statement declares nothing to keep. Before the first
+                // `@import` it leaves the imports open; after one it ends them and the namespaces.
+                guard topLevel, CSSAtRulePrelude.layerNameCount(prelude) != nil, section != .start else { return }
+                section = .rules
                 return
             default:
                 break
             }
-            guard let block else { return }
-            if Self.blockAtRules.contains(name) { importsAllowed = false }
+            guard let block, Self.blockAtRules.contains(name), CSSAtRulePrelude.isValid(name, prelude, namespaces: namespaces) else { return }
+            if topLevel { section = .rules }
             guard depth < CSSStyleSheet.maximumConditionalNesting else { sheet.truncated = true; return }
             switch name {
             case "media":
@@ -210,12 +226,17 @@ extension CSSStyleSheet {
             }
         }
 
-        private mutating func importRule(_ components: [CSSComponent], media: CSSMediaMask) {
-            guard let first = components.first, let href = Self.url(first) else { return }
+        /// Adds what applies of an `@import`, and returns whether the rule is valid: whether it
+        /// names a sheet and its `supports()` condition, if any, parses, whatever its conditions
+        /// then match.
+        private mutating func importRule(_ components: [CSSComponent], media: CSSMediaMask) -> Bool {
+            guard let first = components.first, let href = Self.url(first) else { return false }
             var rest = Array(components.dropFirst())
             switch rest.first {
             case .token(.ident(let word))? where word.lowercased() == "layer": rest.removeFirst()
-            case .function("layer", _)?: rest.removeFirst()
+            // A `layer()` that names no one layer is left to the media query list, where it is
+            // unknown, as Chromium reads it.
+            case .function("layer", let arguments)? where CSSAtRulePrelude.layerNameCount(arguments) == 1: rest.removeFirst()
             default: break
             }
             if let supports = rest.first, case .function("supports", let arguments) = supports {
@@ -224,28 +245,33 @@ extension CSSStyleSheet {
                     if case .block = first { return arguments }
                     return [.block(.openParen, arguments)]
                 } ?? []
-                guard CSSSupports.evaluate(condition, namespaces: namespaces) else { return }
+                guard let supported = CSSSupports.condition(condition.significant, namespaces: namespaces) else { return false }
+                guard supported else { return true }
             }
             let mask = media.intersection(CSSMedia.mask(rest))
-            guard !mask.isEmpty else { return }
+            guard !mask.isEmpty else { return true }
             switch StyleReference(href, relativeTo: path) {
             case .local(let target): sheet.imports.append(CSSImport(path: target, media: mask))
             case .remote: sheet.remoteReferences += 1
             case .data, .invalid: break
             }
+            return true
         }
 
-        private mutating func namespaceRule(_ components: [CSSComponent]) {
+        /// Declares a namespace, and returns whether the rule is valid.
+        private mutating func namespaceRule(_ components: [CSSComponent]) -> Bool {
             switch components.count {
             case 1:
-                if let uri = Self.url(components[0]) { namespaces.defaultNamespace = uri }
+                guard let uri = Self.url(components[0]) else { return false }
+                namespaces.defaultNamespace = uri
             case 2:
-                guard let prefix = components[0].ident, let uri = Self.url(components[1]) else { return }
+                guard let prefix = components[0].ident, let uri = Self.url(components[1]) else { return false }
                 if case .token(.ident(let original)) = components[0] { namespaces.prefixes[original] = uri }
                 namespaces.prefixes[prefix] = uri
             default:
-                return
+                return false
             }
+            return true
         }
 
         static func url(_ component: CSSComponent) -> String? {
@@ -263,8 +289,36 @@ extension CSSStyleSheet {
                                                        "collection", "ttf", "otf", "woff-variations",
                                                        "woff2-variations", "opentype-variations", "truetype-variations"]
 
+        /// A `src` descriptor's sources: the archive paths in preference order and the count of
+        /// remote ones. nil when it has no source the reader could use, in a format CoreText
+        /// loads: CSS Fonts 4 §4.3 makes a `src` with no supported source invalid, and a
+        /// `local()` face is not one here.
+        private func sourceList(_ value: [CSSComponent]) -> (paths: [String], remote: Int)? {
+            var paths: [String] = [], remote = 0, supported = false
+            for part in value.split(separator: .token(.comma)) {
+                guard let first = part.first, let href = Self.url(first) else { continue }
+                let formats = part.compactMap { component -> [String]? in
+                    guard case .function("format", let arguments) = component else { return nil }
+                    return arguments.significant.compactMap {
+                        switch $0 {
+                        case .token(.string(let v)), .token(.ident(let v)): v.lowercased()
+                        default: nil
+                        }
+                    }
+                }.flatMap { $0 }
+                if !formats.isEmpty, !formats.contains(where: Self.fontFormats.contains) { continue }
+                supported = true
+                switch StyleReference(href, relativeTo: path) {
+                case .local(let target): if !paths.contains(target) { paths.append(target) }
+                case .remote: remote += 1
+                case .data, .invalid: break
+                }
+            }
+            return supported ? (paths, remote) : nil
+        }
+
         private mutating func fontFace(_ block: [CSSComponent]) -> CSSFontFace? {
-            var family: String?, sources: [String] = []
+            var family: String?, sources: (paths: [String], remote: Int) = ([], 0)
             var weights = 400...400, italic = false
             for declaration in CSSParser.declarations(block) {
                 let value = declaration.value.significant
@@ -272,24 +326,9 @@ extension CSSStyleSheet {
                 case "font-family":
                     family = CSSPropertyParser.families(value)?.first
                 case "src":
-                    for part in value.split(separator: .token(.comma)) {
-                        guard let first = part.first, let href = Self.url(first) else { continue }
-                        let formats = part.compactMap { component -> [String]? in
-                            guard case .function("format", let arguments) = component else { return nil }
-                            return arguments.significant.compactMap {
-                                switch $0 {
-                                case .token(.string(let v)), .token(.ident(let v)): v.lowercased()
-                                default: nil
-                                }
-                            }
-                        }.flatMap { $0 }
-                        if !formats.isEmpty, !formats.contains(where: Self.fontFormats.contains) { continue }
-                        switch StyleReference(href, relativeTo: path) {
-                        case .local(let target): if !sources.contains(target) { sources.append(target) }
-                        case .remote: sheet.remoteReferences += 1
-                        case .data, .invalid: break
-                        }
-                    }
+                    // As for any descriptor, a later valid `src` replaces an earlier one, which
+                    // the two-`src` pattern for old Internet Explorer relies on.
+                    if let list = sourceList(value) { sources = list }
                 case "font-weight":
                     let numbers = value.compactMap { component -> Int? in
                         switch component {
@@ -307,8 +346,179 @@ extension CSSStyleSheet {
                     break
                 }
             }
-            guard let family, !sources.isEmpty else { return nil }
-            return CSSFontFace(family: family, weights: weights, isItalic: italic, sources: sources)
+            // Only the `src` that stands is fetched by a browser, so only its remote sources count.
+            sheet.remoteReferences += sources.remote
+            guard let family, !sources.paths.isEmpty else { return nil }
+            return CSSFontFace(family: family, weights: weights, isItalic: italic, sources: sources.paths)
         }
+    }
+}
+
+/// Whether a block at-rule's prelude is one its grammar takes, as Chromium decides it. A rule
+/// whose prelude is not is dropped with all it holds, and ends no `@import` section.
+private enum CSSAtRulePrelude {
+    static func isValid(_ name: String, _ prelude: [CSSComponent], namespaces: CSSNamespaces) -> Bool {
+        let significant = prelude.significant
+        switch name {
+        case "media":
+            // A query list that does not parse is `not all`, and the rule stays (Media Queries 4 §3.2).
+            return true
+        case "supports":
+            return CSSSupports.condition(significant, namespaces: namespaces) != nil
+        case "layer":
+            return significant.isEmpty || layerNameCount(prelude) == 1
+        case "font-face", "starting-style", "view-transition":
+            return significant.isEmpty
+        case "keyframes", "-webkit-keyframes":
+            // `<keyframes-name>` (CSS Animations 1 §3).
+            guard significant.count == 1 else { return false }
+            switch significant[0] {
+            case .token(.ident(let name)): return isCustomIdent(name, excluding: ["none"])
+            case .token(.string(let name)): return !name.isEmpty
+            default: return false
+            }
+        case "counter-style":
+            // A `<counter-style-name>` that does not name a style a sheet may not redefine
+            // (CSS Counter Styles 3 §3).
+            guard significant.count == 1, case .token(.ident(let name)) = significant[0] else { return false }
+            return isCustomIdent(name, excluding: ["none", "decimal", "disc", "square", "circle", "disclosure-open", "disclosure-closed"])
+        case "property", "font-palette-values", "position-try":
+            guard significant.count == 1, case .token(.ident(let name)) = significant[0] else { return false }
+            return isDashedIdent(name)
+        case "font-feature-values":
+            return isFamilyNameList(significant)
+        case "page":
+            return isPageSelectorList(prelude)
+        case "container":
+            return isContainerQuery(significant)
+        case "scope":
+            return isScopePrelude(significant, namespaces: namespaces)
+        case "function":
+            return isFunctionPrelude(significant)
+        default:
+            return false
+        }
+    }
+
+    /// The number of names in a `<layer-name>#` (CSS Cascade 5 §6.4.2), each its idents joined
+    /// by `.` with nothing between and none a CSS-wide keyword; nil when it is not one.
+    static func layerNameCount(_ components: [CSSComponent]) -> Int? {
+        var count = 0
+        for part in components.split(separator: .token(.comma), omittingEmptySubsequences: false) {
+            let name = Array(part).trimmingWhitespace
+            guard name.count % 2 == 1 else { return nil }
+            for (offset, component) in name.enumerated() {
+                if offset % 2 == 1 {
+                    guard component.isDelim(".") else { return nil }
+                } else {
+                    guard case .token(.ident(let segment)) = component, !cssWideKeywords.contains(segment.lowercased()) else { return nil }
+                }
+            }
+            count += 1
+        }
+        return count
+    }
+
+    private static let cssWideKeywords: Set<String> = ["initial", "inherit", "unset", "revert", "revert-layer"]
+
+    /// A `<custom-ident>` (CSS Values 4 §4.2), and none of `excluded`, all compared ASCII
+    /// case-insensitively.
+    private static func isCustomIdent(_ name: String, excluding excluded: Set<String> = []) -> Bool {
+        let lower = name.lowercased()
+        return !cssWideKeywords.contains(lower) && lower != "default" && !excluded.contains(lower)
+    }
+
+    /// A `<dashed-ident>` other than `--` alone.
+    private static func isDashedIdent(_ name: String) -> Bool { name.hasPrefix("--") && name.count > 2 }
+
+    /// `<family-name>#`: strings, or idents, where a family of one is no generic family.
+    private static func isFamilyNameList(_ components: [CSSComponent]) -> Bool {
+        let generic: Set<String> = ["serif", "sans-serif", "cursive", "fantasy", "monospace", "system-ui", "math", "emoji", "fangsong",
+                                    "ui-serif", "ui-sans-serif", "ui-monospace", "ui-rounded"]
+        let families = components.split(separator: .token(.comma), omittingEmptySubsequences: false)
+        return families.allSatisfy { family in
+            if family.count == 1, case .token(.string(let name)) = family.first! { return !name.isEmpty }
+            let words = family.compactMap { component -> String? in
+                if case .token(.ident(let word)) = component { return word }
+                return nil
+            }
+            guard !words.isEmpty, words.count == family.count else { return false }
+            return words.count > 1 || isCustomIdent(words[0], excluding: generic)
+        }
+    }
+
+    /// `<page-selector-list>` (CSS Paged Media 3 §3.1), with the page pseudo-classes Chromium
+    /// knows, or nothing.
+    private static func isPageSelectorList(_ prelude: [CSSComponent]) -> Bool {
+        guard !prelude.significant.isEmpty else { return true }
+        return prelude.split(separator: .token(.comma), omittingEmptySubsequences: false).allSatisfy { part in
+            var selector = Array(part).trimmingWhitespace[...]
+            guard !selector.isEmpty else { return false }
+            if case .token(.ident)? = selector.first { selector = selector.dropFirst() }
+            while let colon = selector.first {
+                guard colon == .token(.colon), selector.count >= 2,
+                      let pseudo = selector[selector.startIndex + 1].ident, ["first", "left", "right"].contains(pseudo) else { return false }
+                selector = selector.dropFirst(2)
+            }
+            return true
+        }
+    }
+
+    /// `[ <container-name> ]? <container-condition>` (CSS Conditional 5 §6.2). A query in
+    /// parentheses or a function stands for itself: what it asks is never evaluated here.
+    private static func isContainerQuery(_ components: [CSSComponent]) -> Bool {
+        var condition = components[...]
+        if case .token(.ident(let name))? = condition.first, isCustomIdent(name, excluding: ["none", "not", "and", "or"]) {
+            condition = condition.dropFirst()
+        }
+        func inParens(_ component: CSSComponent) -> Bool {
+            switch component {
+            case .block(.openParen, _), .function: true
+            default: false
+            }
+        }
+        guard let first = condition.first else { return false }
+        if first.ident == "not" { return condition.count == 2 && inParens(condition[condition.startIndex + 1]) }
+        guard inParens(first) else { return false }
+        var joiner: String?
+        var index = condition.startIndex + 1
+        while index < condition.endIndex {
+            guard let word = condition[index].ident, word == "and" || word == "or", joiner == nil || joiner == word,
+                  index + 1 < condition.endIndex, inParens(condition[index + 1]) else { return false }
+            joiner = word
+            index += 2
+        }
+        return true
+    }
+
+    /// `[ ( <scope-start> ) ]? [ to ( <scope-end> ) ]?` (CSS Cascade 6 §2.5.1), each a selector
+    /// list without a pseudo-element.
+    private static func isScopePrelude(_ components: [CSSComponent], namespaces: CSSNamespaces) -> Bool {
+        func isBoundary(_ component: CSSComponent) -> Bool {
+            guard case .block(.openParen, let contents) = component,
+                  let selectors = try? CSSSelectorParser(namespaces: namespaces).parseList(contents.trimmingWhitespace) else { return false }
+            return selectors.allSatisfy { $0.pseudoElement == nil }
+        }
+        var rest = components[...]
+        if let first = rest.first, first.ident != "to" {
+            guard isBoundary(first) else { return false }
+            rest = rest.dropFirst()
+        }
+        guard !rest.isEmpty else { return true }
+        return rest.count == 2 && rest.first?.ident == "to" && isBoundary(rest[rest.startIndex + 1])
+    }
+
+    /// `<function-token> <function-parameter>#? ) [ returns <css-type> ]?` (CSS Mixins 1 §2.1),
+    /// with a `<dashed-function>` name and each parameter a `<custom-property-name>` first.
+    private static func isFunctionPrelude(_ components: [CSSComponent]) -> Bool {
+        guard case .function(let name, let parameters)? = components.first, isDashedIdent(name) else { return false }
+        if !parameters.significant.isEmpty {
+            guard parameters.commaSeparated.allSatisfy({ parameter in
+                guard case .token(.ident(let name))? = parameter.first else { return false }
+                return isDashedIdent(name)
+            }) else { return false }
+        }
+        let rest = components.dropFirst()
+        return rest.isEmpty || (rest.first?.ident == "returns" && rest.count >= 2)
     }
 }

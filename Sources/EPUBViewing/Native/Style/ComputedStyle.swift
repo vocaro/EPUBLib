@@ -35,6 +35,9 @@ struct ComputedStyle: Equatable, Sendable {
         case offset(CGFloat)
     }
     enum TextTransform: Equatable, Sendable { case none, uppercase, lowercase, capitalize }
+    /// CSS Text 3's `tab-size`: a number of spaces, each as wide as the box's own with its
+    /// letter and word spacing, or a length in points.
+    enum TabSize: Equatable, Sendable { case spaces(CGFloat), points(CGFloat) }
     enum Direction: Hashable, Sendable { case ltr, rtl }
     enum WritingMode: Equatable, Sendable { case horizontalTB, verticalRL, verticalLR }
     enum ListStyleType: Equatable, Sendable {
@@ -203,6 +206,8 @@ struct ComputedStyle: Equatable, Sendable {
     /// Points; 0 is `normal`.
     var letterSpacing: CGFloat = 0
     var wordSpacing: CGFloat = 0
+    /// `tab-size`: how far apart a block's tab stops are (`InlineStyling.tabInterval`).
+    var tabSize: TabSize = .spaces(8)
     var direction: Direction = .ltr
     var writingMode: WritingMode = .horizontalTB
     var listStyleType: ListStyleType = .disc

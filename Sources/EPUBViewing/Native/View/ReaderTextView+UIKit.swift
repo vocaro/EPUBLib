@@ -872,13 +872,15 @@ final class ReaderTextView: UITextView {
     }
 
     /// UIKit reads an attachment in text by its accessibility label: give each one that stands
-    /// for text its text equivalent, unless it labels itself.
+    /// for text its text equivalent, unless it labels itself. A table row's holds the words the
+    /// book keeps from assistive technology, so a row is given its spoken one (#551).
     func exposeTextualAttachments() {
         pageAccessibilityCache = nil
         scrollAccessibilityCache = nil
         accessibilityCursor = nil
         for (attachment, text, _) in textualAttachments() where attachment.accessibilityLabel == nil {
-            attachment.accessibilityLabel = text
+            let words = (attachment as? TableRowAttachment)?.spokenEquivalent ?? text
+            if !words.isEmpty { attachment.accessibilityLabel = words }
         }
     }
 }

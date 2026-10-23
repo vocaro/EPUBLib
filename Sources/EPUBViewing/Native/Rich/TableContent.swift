@@ -15,8 +15,8 @@ import AppKit
 ///
 /// Nothing a grid holds is left out of it silently. Content written outside its rows and cells
 /// takes the anonymous rows and cells of CSS 2.2 §17.2.1, and the cells the grid has no slot
-/// for (past `TableModel.maximumColumns` or `maximumCells`) follow the rows as paragraphs,
-/// counted for disclosure.
+/// for (past `TableModel.maximumColumns` or `maximumCells`) follow the rows as paragraphs. A
+/// table is counted for disclosure when one of those shows anything.
 enum TableContent {
     /// The row attachments' font: tiny, so a row's line is exactly as tall as its attachment
     /// whatever line-height multiple the paragraph has.
@@ -58,9 +58,10 @@ enum TableContent {
         return output
     }
 
-    /// Whether a caption is shown below the rows, by its own `caption-side` or `align`.
+    /// Whether a caption is shown below the rows, by its computed `caption-side`, which its
+    /// `align="bottom"` reaches as a presentational hint (HTML §15.3.10).
     private static func isBelow(_ caption: ContentNode, style: ComputedStyle) -> Bool {
-        style.captionSide == .bottom || caption.attribute("align")?.lowercased() == "bottom"
+        style.captionSide == .bottom
     }
 
     private static func caption(_ element: ContentNode, style: ComputedStyle, atBottom: Bool,
@@ -264,13 +265,12 @@ enum TableContent {
                     guard let groupStyle = visible(child, style) else { continue }
                     let items = child.name == "col" ? [child] : child.elementChildren.filter { $0.isHTML("col") }
                     if items.isEmpty {
-                        let span = min(1000, max(1, Int(child.attribute("span") ?? "") ?? 1))
-                        columns += Array(repeating: groupStyle.width, count: span)
+                        columns += Array(repeating: groupStyle.width, count: TableContent.columnSpan(child.attribute("span")))
                     }
                     for col in items {
                         let colStyle = context.style(col, groupStyle)
-                        let span = min(1000, max(1, Int(col.attribute("span") ?? "") ?? 1))
-                        columns += Array(repeating: colStyle.width == .auto ? groupStyle.width : colStyle.width, count: span)
+                        columns += Array(repeating: colStyle.width == .auto ? groupStyle.width : colStyle.width,
+                                         count: TableContent.columnSpan(col.attribute("span")))
                     }
                 case "thead", "tbody", "tfoot":
                     closeImplicit()
@@ -376,7 +376,8 @@ enum TableContent {
                     let index = first + offset
                     while result.occupied.count <= index { result.occupied.append([]) }
                     result.rowElements.append((row.element, group.element))
-                    let background = row.element.flatMap { row.style.backgroundColor ?? TableContent.color($0.attribute("bgcolor")) }
+                    // An anonymous row has no box of its own; a written one's background is computed.
+                    let background = row.element == nil ? nil : row.style.backgroundColor
                     let height = row.element == nil ? nil : row.style.height.points
                     result.rows.append(TableModel.Row(background: isDark || row.style.isHidden ? nil : background?.cgColor, height: height ?? 0,
                                                       isHeader: group.isHeader))
@@ -384,11 +385,8 @@ enum TableContent {
                     var leavesOut = false
                     for (position, cell) in rowCells.enumerated() {
                         while column < result.occupied[index].count, result.occupied[index][column] { column += 1 }
-                        var columnSpan = min(1000, max(1, Int(cell.element?.attribute("colspan") ?? "") ?? 1))
-                        // `rowspan="0"` spans one row, as WebKit (and so the WebKit reader) treats it;
-                        // books written for WebKit put it on every cell.
-                        let requested = Int(cell.element?.attribute("rowspan") ?? "") ?? 1
-                        var rowSpan = min(groupRows.count - offset, max(1, requested))
+                        var columnSpan = TableContent.columnSpan(cell.element?.attribute("colspan"))
+                        var rowSpan = min(groupRows.count - offset, TableContent.rowSpan(cell.element?.attribute("rowspan")))
                         guard result.placed.count < TableModel.maximumCells else {
                             isFull = true
                             result.leftOut.append(cell)
@@ -441,19 +439,14 @@ enum TableContent {
         }
 
         private func makeCell(_ item: Placed, rows: [TableModel.Row], columnCount: Int, tableBorders: TableModel.Borders, collapse: Bool,
-                              cellPadding: CGFloat?, hinted: Bool, defaultColor: PlatformColor, content: NSAttributedString) -> TableModel.Cell {
-            // The table's `cellpadding` and `border` are hints for its `td` and `th` elements: an
-            // anonymous cell has neither padding nor borders.
+                              content: NSAttributedString) -> TableModel.Cell {
+            // A cell's padding, borders, background and wrapping are what the cascade computes, where
+            // the table's `cellpadding` and `border` reach its `td` and `th` elements, and a cell's
+            // `bgcolor` and `nowrap` reach it, as presentational hints any author rule beats (HTML
+            // §15.3.10). An anonymous cell has none of its own.
             let cellStyle = item.cell.style, element = item.cell.element
-            var padding = TableContent.insets(cellStyle.padding)
-            if element != nil, let cellPadding, max(padding.top, padding.right, padding.bottom, padding.left) <= 1 {
-                padding = TableModel.Insets(top: cellPadding, right: cellPadding, bottom: cellPadding, left: cellPadding)
-            }
+            let padding = TableContent.insets(cellStyle.padding)
             var borders = strokes(cellStyle)
-            if element != nil, hinted, borders.widths == TableModel.Insets() {
-                let line = TableModel.Stroke(width: 1, style: .solid, color: defaultColor.cgColor)
-                borders = TableModel.Borders(top: line, right: line, bottom: line, left: line)
-            }
             // A hidden cell keeps its room and draws neither its borders nor its background; its
             // content is hidden with it unless it sets `visibility: visible` again.
             if cellStyle.isHidden { borders = borders.hidden }
@@ -470,7 +463,7 @@ enum TableContent {
             } else {
                 chrome.top += own.top; chrome.bottom += own.bottom; chrome.left += own.left; chrome.right += own.right
             }
-            let noWrap = !cellStyle.whiteSpace.wraps || element?.attribute("nowrap") != nil
+            let noWrap = !cellStyle.whiteSpace.wraps
             let maxContent = TableMeasure.maximumWidth(content)
             let minContent = noWrap ? maxContent : min(maxContent, TableMeasure.minimumWidth(content))
             return TableModel.Cell(
@@ -478,8 +471,7 @@ enum TableContent {
                 content: content, text: TableMeasure.spokenText(content), isHeader: element?.isHTML("th") ?? false,
                 scope: TableContent.scope(element),
                 padding: padding, borders: borders, chrome: chrome,
-                background: isDark || cellStyle.isHidden ? nil
-                    : (cellStyle.backgroundColor ?? TableContent.color(element?.attribute("bgcolor")))?.cgColor,
+                background: isDark || cellStyle.isHidden ? nil : cellStyle.backgroundColor?.cgColor,
                 placement: TableContent.placement(cellStyle.verticalAlign),
                 width: cellStyle.width, height: cellStyle.height.points ?? 0,
                 minContent: minContent, maxContent: maxContent)
@@ -507,42 +499,29 @@ enum TableContent {
 
         /// The recursive phase holds no border/style measurement temporaries on the stack.
         private func renderCells() {
-            if !arrangement.leftOut.isEmpty {
-                context.report.report.unsupportedElements["table", default: 0] += 1
-                for cell in arrangement.leftOut {
-                    let content = render(cell)
-                    if content.length > 0 { overflow.append(content) }
-                }
+            for cell in arrangement.leftOut {
+                let content = render(cell)
+                if content.length > 0 { overflow.append(content) }
             }
+            // Disclosed when a cell left out shows something after the table, and only then.
+            if !overflow.isEmpty { context.report.report.unsupportedElements["table", default: 0] += 1 }
             rendered = arrangement.placed.map { render($0.cell) }
         }
 
         private func assemble() -> Built {
             let placed = arrangement.placed, rows = arrangement.rows, rowElements = arrangement.rowElements
-            // Presentational hints: `border`, `cellspacing`, `cellpadding`, `align`, `bgcolor`.
-            let borderAttribute = table.attribute("border").map { Int($0.trimmingCharacters(in: .whitespaces)) ?? 1 }
-            let cellPadding = table.attribute("cellpadding").flatMap { ImageSizing.length($0, fontSize: style.fontSize)?.points }
-            let defaultColor = isDark ? theme.rule : (style.color?.platformColor ?? theme.text)
+            // The table's `border`, `cellspacing` and `bgcolor` reach it through the cascade, as
+            // presentational hints any author rule beats (HTML §15.3.10), the default included:
+            // `border-spacing: 2px` beats `cellspacing`. Its `align` is read here as well.
             var tableBorders = strokes(style)
-            let hinted = borderAttribute.map { $0 > 0 } ?? false
-            if hinted, tableBorders.widths == TableModel.Insets() {
-                let line = TableModel.Stroke(width: CGFloat(min(borderAttribute ?? 1, 16)), style: .solid,
-                                             color: (isDark ? theme.rule : PlatformColor(white: 0.5, alpha: 1)).cgColor)
-                tableBorders = TableModel.Borders(top: line, right: line, bottom: line, left: line)
-            }
             // A hidden table draws no borders or background of its own; a row, a cell or content
             // in them that sets `visibility: visible` again is drawn.
             if style.isHidden { tableBorders = tableBorders.hidden }
-            var spacing = style.borderSpacing
-            if spacing == CGSize(width: 2, height: 2), let value = table.attribute("cellspacing").flatMap({ ImageSizing.length($0, fontSize: style.fontSize)?.points }) {
-                spacing = CGSize(width: value, height: value)
-            }
+            let spacing = style.borderSpacing
             let collapse = style.borderCollapse
 
             let cells = zip(placed, rendered).map { item, content in
-                makeCell(item, rows: rows, columnCount: columnCount,
-                         tableBorders: tableBorders, collapse: collapse, cellPadding: cellPadding,
-                         hinted: hinted, defaultColor: defaultColor, content: content)
+                makeCell(item, rows: rows, columnCount: columnCount, tableBorders: tableBorders, collapse: collapse, content: content)
             }
             let alignment: TableModel.Alignment
             switch (style.margin.left, style.margin.right, table.attribute("align")?.lowercased()) {
@@ -556,7 +535,7 @@ enum TableContent {
                 cells: cells, rows: rows, columnCount: columnCount, columns: columns,
                 width: style.width, collapse: collapse,
                 spacing: spacing, borders: tableBorders,
-                background: isDark || style.isHidden ? nil : (style.backgroundColor ?? TableContent.color(table.attribute("bgcolor")))?.cgColor,
+                background: isDark || style.isHidden ? nil : style.backgroundColor?.cgColor,
                 alignment: alignment, isRightToLeft: style.direction == .rtl,
                 isData: TableContent.isData(table, hasHeaderOrFooter: head != nil || !feet.isEmpty, rows: rowElements.map(\.row),
                                cells: zip(placed, cells).map { ($0.cell.element, $0.row, $0.column, $1.borders) }))
@@ -634,19 +613,17 @@ enum TableContent {
         }
     }
 
-    /// An HTML `bgcolor`: `#rgb`, `#rrggbb`, or a basic color name.
-    static func color(_ value: String?) -> ComputedStyle.Color? {
-        guard var hex = value?.trimmingCharacters(in: .whitespaces).lowercased(), !hex.isEmpty else { return nil }
-        let names = ["white": "ffffff", "black": "000000", "silver": "c0c0c0", "gray": "808080", "grey": "808080",
-                     "red": "ff0000", "yellow": "ffff00", "green": "008000", "blue": "0000ff", "navy": "000080",
-                     "aqua": "00ffff", "teal": "008080", "lime": "00ff00", "maroon": "800000", "olive": "808000",
-                     "purple": "800080", "fuchsia": "ff00ff"]
-        if let named = names[hex] { hex = named }
-        if hex.hasPrefix("#") { hex.removeFirst() }
-        if hex.count == 3 { hex = hex.map { "\($0)\($0)" }.joined() }
-        guard hex.count == 6, let value = UInt32(hex, radix: 16) else { return nil }
-        return ComputedStyle.Color(red: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255,
-                                   blue: CGFloat(value & 0xFF) / 255)
+    /// A `colspan`, or a `col`'s or `colgroup`'s `span` (HTML §4.9.12, "forming a table"): a
+    /// non-negative integer (§2.3.4.2), 1 where it is none or zero, and at most 1000.
+    static func columnSpan(_ value: String?) -> Int {
+        min(1000, max(1, value.flatMap(PresentationalHints.nonNegativeInteger) ?? 1))
+    }
+
+    /// A `rowspan` (HTML §4.9.12): a non-negative integer, 1 where it is none, and at most 65534.
+    /// HTML spans the rest of the row group with zero; WebKit (and so the WebKit reader) spans one
+    /// row, and books written for WebKit put `rowspan="0"` on every cell.
+    static func rowSpan(_ value: String?) -> Int {
+        min(65534, max(1, value.flatMap(PresentationalHints.nonNegativeInteger) ?? 1))
     }
 }
 

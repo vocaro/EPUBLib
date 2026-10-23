@@ -15,7 +15,7 @@ enum CSSProperty: Int, CaseIterable, Sendable {
     case width, height, minWidth, minHeight, maxWidth, maxHeight
     case backgroundColor, verticalAlign, breakBefore, breakAfter, breakInside
     case textDecorationLine, textDecorationColor
-    case textAlign, textIndent, whiteSpace, textTransform, letterSpacing, wordSpacing
+    case textAlign, textIndent, whiteSpace, textTransform, letterSpacing, wordSpacing, tabSize
     case direction, writingMode, listStyleType, listStylePosition, hyphens, visibility
     case borderCollapse, borderSpacing, captionSide
     case filter
@@ -30,7 +30,7 @@ enum CSSProperty: Int, CaseIterable, Sendable {
     var isInherited: Bool {
         switch self {
         case .fontSize, .fontFamily, .fontWeight, .fontStyle, .fontVariantCaps, .lineHeight, .color,
-             .textAlign, .textIndent, .whiteSpace, .textTransform, .letterSpacing, .wordSpacing,
+             .textAlign, .textIndent, .whiteSpace, .textTransform, .letterSpacing, .wordSpacing, .tabSize,
              .direction, .writingMode, .listStyleType, .listStylePosition, .hyphens, .visibility,
              .borderCollapse, .borderSpacing, .captionSide, .quotes:
             true
@@ -130,6 +130,35 @@ indirect enum CSSCalc: Equatable, Sendable {
     case product(CSSCalc, Double)
     case min([CSSCalc]), max([CSSCalc])
     case clamp(CSSCalc, CSSCalc, CSSCalc)
+
+    /// The expression's value where `leaf` gives each value's, nil when it gives none for one.
+    /// A product of zero stays zero, as the reader's lengths do (`StyleResolver`), and NaN in an
+    /// argument of `min()`, `max()` or `clamp()` is their result (CSS Values 4 §10.9.2).
+    func evaluated(_ leaf: (Double, CSSUnit) -> Double?) -> Double? {
+        switch self {
+        case .value(let value, let unit):
+            return leaf(value, unit)
+        case .sum(let terms):
+            var total = 0.0
+            for term in terms {
+                guard let value = term.evaluated(leaf) else { return nil }
+                total += value
+            }
+            return total
+        case .product(let term, let factor):
+            return term.evaluated(leaf).map { $0 == 0 ? 0 : $0 * factor }
+        case .min(let terms), .max(let terms):
+            let values = terms.compactMap { $0.evaluated(leaf) }
+            guard values.count == terms.count, !values.isEmpty else { return nil }
+            if values.contains(where: \.isNaN) { return .nan }
+            if case .min = self { return values.min() }
+            return values.max()
+        case .clamp(let low, let value, let high):
+            guard let low = low.evaluated(leaf), let value = value.evaluated(leaf), let high = high.evaluated(leaf) else { return nil }
+            if low.isNaN || value.isNaN || high.isNaN { return .nan }
+            return Swift.max(low, Swift.min(value, high))
+        }
+    }
 }
 
 /// A specified length or percentage.
@@ -205,7 +234,7 @@ enum CSSValue: Equatable, Sendable {
     case itemAlignment(ComputedStyle.ItemAlignment)
     /// `order` and grid track counts.
     case integer(Int)
-    /// `flex-grow`.
+    /// `flex-grow`, and `tab-size` in spaces.
     case number(Double)
     /// `content`; nil for `normal` and `none`.
     case content([ComputedStyle.ContentItem]?)
@@ -419,6 +448,7 @@ enum CSSPropertyParser {
         case "text-transform": .textTransform
         case "letter-spacing": .letterSpacing
         case "word-spacing": .wordSpacing
+        case "tab-size": .tabSize
         case "direction": .direction
         case "writing-mode", "-epub-writing-mode", "-webkit-writing-mode": .writingMode
         case "list-style-type": .listStyleType
@@ -646,6 +676,13 @@ enum CSSPropertyParser {
         case .letterSpacing, .wordSpacing:
             if keyword == "normal" { return .length(.zero) }
             return single.flatMap { length($0, percent: false, negative: true, auto: false) }
+        case .tabSize:
+            // `<number [0,∞]> | <length [0,∞]>` (CSS Text 3 §4.2): a number of spaces, or a
+            // length. A math function that comes to a number is clamped to the range.
+            guard let single else { return nil }
+            if case .token(.number(let value, _, _)) = single { return value >= 0 ? .number(value) : nil }
+            if let value = calcNumber(single) { return .number(max(value, 0)) }
+            return length(single, percent: false, negative: false, auto: false)
         case .direction:
             switch keyword {
             case "ltr": return .direction(.ltr)
@@ -765,38 +802,86 @@ enum CSSPropertyParser {
         }
     }
 
-    /// A `calc()` subtree and its type: a number, or a length that may include a percentage. A
-    /// number depends on nothing, so a number subtree is folded to its value as it is parsed.
+    /// A `calc()` subtree and its type (CSS Values 4 §10.7): a number, an angle, a resolution,
+    /// or a length that may include a percentage. The first three depend on nothing, so such a
+    /// subtree is folded to its value as it is parsed, an angle in degrees and a resolution in
+    /// dppx.
     private struct CalcNode {
+        enum Kind { case number, length, angle, resolution }
         var tree: CSSCalc
-        var hasPercent: Bool
-        var isNumber: Bool
-        func isLength(allowPercent: Bool) -> Bool { !isNumber && (allowPercent || !hasPercent) }
+        var kind: Kind
+        var hasPercent = false
+        var isNumber: Bool { kind == .number }
+        func isLength(allowPercent: Bool) -> Bool { kind == .length && (allowPercent || !hasPercent) }
 
-        static func number(_ value: Double) -> CalcNode { CalcNode(tree: .value(value, .number), hasPercent: false, isNumber: true) }
+        static func number(_ value: Double) -> CalcNode { folded(value, .number) }
+        static func folded(_ value: Double, _ kind: Kind) -> CalcNode { CalcNode(tree: .value(value, .number), kind: kind) }
 
-        /// A number subtree's value.
-        var number: Double? {
-            guard isNumber, case .value(let value, .number) = tree else { return nil }
+        /// A folded subtree's value.
+        var value: Double? {
+            guard kind != .length, case .value(let value, .number) = tree else { return nil }
             return value
         }
 
+        /// A number subtree's value.
+        var number: Double? { isNumber ? value : nil }
+
         /// This times `factor`, one product of a length and a number however many factors it had.
         func scaled(by factor: Double) -> CalcNode {
-            if let number { return .number(number * factor) }
+            if let value { return .folded(value * factor, kind) }
             if case .product(let length, let previous) = tree {
-                return CalcNode(tree: .product(length, previous * factor), hasPercent: hasPercent, isNumber: false)
+                return CalcNode(tree: .product(length, previous * factor), kind: kind, hasPercent: hasPercent)
             }
-            return CalcNode(tree: .product(tree, factor), hasPercent: hasPercent, isNumber: false)
+            return CalcNode(tree: .product(tree, factor), kind: kind, hasPercent: hasPercent)
         }
     }
 
     /// A math function that resolves to a `<number>` (CSS Values 4 §10.9), which may stand
     /// wherever a number does: its value, with NaN censored to 0 (§10.9.2) and an infinity left
     /// for the caller to clamp to the range it allows (§10.12). Nil for anything else.
-    static func calcNumber(_ component: CSSComponent) -> Double? {
-        guard case .function = component, let value = calc(component, depth: 0)?.number else { return nil }
+    static func calcNumber(_ component: CSSComponent) -> Double? { calcValue(component, .number) }
+
+    /// `calcNumber` for a math function that resolves to an `<angle>`, in degrees.
+    static func calcAngle(_ component: CSSComponent) -> Double? { calcValue(component, .angle) }
+
+    /// `calcNumber` for a math function that resolves to a `<resolution>`, in dppx.
+    static func calcResolution(_ component: CSSComponent) -> Double? { calcValue(component, .resolution) }
+
+    private static func calcValue(_ component: CSSComponent, _ kind: CalcNode.Kind) -> Double? {
+        guard case .function = component, let node = calc(component, depth: 0), node.kind == kind,
+              let value = node.value else { return nil }
         return value.isNaN ? 0 : value
+    }
+
+    /// `calcNumber` for a math function that resolves to a `<percentage>` alone, such as
+    /// `calc(50%)`, where a percentage stands with nothing to resolve it against (a color
+    /// channel): its value in percent. The parser types a percentage as a length, so this is
+    /// one whose every term is a percentage.
+    static func calcPercentage(_ component: CSSComponent) -> Double? {
+        guard case .function = component, let node = calc(component, depth: 0), node.kind == .length, node.hasPercent,
+              let value = node.tree.evaluated({ $1 == .percent ? $0 : nil }) else { return nil }
+        return value.isNaN ? 0 : value
+    }
+
+    /// An angle in degrees, by its unit (CSS Values 4 §7.1); nil for any other unit.
+    static func degrees(_ value: Double, unit: String) -> Double? {
+        switch unit.lowercased() {
+        case "deg": value
+        case "rad": value * 180 / .pi
+        case "grad": value * 0.9
+        case "turn": value * 360
+        default: nil
+        }
+    }
+
+    /// A resolution in dots per CSS pixel, by its unit (CSS Values 4 §7.4); nil for any other unit.
+    static func dotsPerPixel(_ value: Double, unit: String) -> Double? {
+        switch unit.lowercased() {
+        case "dppx", "x": value
+        case "dpi": value / 96
+        case "dpcm": value * 2.54 / 96
+        default: nil
+        }
     }
 
     /// `calcNumber` where an `<integer>` is accepted: rounded to the nearest integer, a half
@@ -806,15 +891,18 @@ enum CSSPropertyParser {
     }
 
     /// `<calc-value>` (CSS Values 4 §10.8): a number, a dimension, a percentage, a constant, a
-    /// parenthesised sum or a nested math function.
+    /// parenthesized sum or a nested math function. A dimension is a length, an angle or a
+    /// resolution, by its unit.
     private static func calc(_ component: CSSComponent, depth: Int) -> CalcNode? {
         guard depth < 8 else { return nil }
         switch component {
         case .token(.number(let value, _, _)): return .number(value)
         case .token(.dimension(let value, let unit, _, _)):
-            guard let unit = CSSUnit(unit) else { return nil }
-            return CalcNode(tree: .value(value, unit), hasPercent: false, isNumber: false)
-        case .token(.percentage(let value)): return CalcNode(tree: .value(value, .percent), hasPercent: true, isNumber: false)
+            if let length = CSSUnit(unit) { return CalcNode(tree: .value(value, length), kind: .length) }
+            if let angle = degrees(value, unit: unit) { return .folded(angle, .angle) }
+            if let resolution = dotsPerPixel(value, unit: unit) { return .folded(resolution, .resolution) }
+            return nil
+        case .token(.percentage(let value)): return CalcNode(tree: .value(value, .percent), kind: .length, hasPercent: true)
         case .token(.ident(let name)):
             // `<calc-keyword>`, numbers all.
             switch name.lowercased() {
@@ -835,23 +923,24 @@ enum CSSPropertyParser {
                 let nodes = parts.map { sum($0, depth: depth + 1) }
                 guard nodes.allSatisfy({ $0 != nil }) else { return nil }
                 let values = nodes.map { $0! }
-                guard Set(values.map(\.isNumber)).count == 1, name != "clamp" || values.count == 3 else { return nil }
-                if values[0].isNumber {
+                let kind = values[0].kind
+                guard values.allSatisfy({ $0.kind == kind }), name != "clamp" || values.count == 3 else { return nil }
+                if kind != .length {
                     // NaN in any argument makes the result NaN (§10.9.2).
-                    let numbers = values.map { $0.number! }
-                    guard !numbers.contains(where: \.isNaN) else { return .number(.nan) }
+                    let numbers = values.map { $0.value! }
+                    guard !numbers.contains(where: \.isNaN) else { return .folded(.nan, kind) }
                     switch name {
-                    case "min": return .number(numbers.min()!)
-                    case "max": return .number(numbers.max()!)
-                    default: return .number(Swift.max(numbers[0], Swift.min(numbers[1], numbers[2])))
+                    case "min": return .folded(numbers.min()!, kind)
+                    case "max": return .folded(numbers.max()!, kind)
+                    default: return .folded(Swift.max(numbers[0], Swift.min(numbers[1], numbers[2])), kind)
                     }
                 }
                 let percent = values.contains { $0.hasPercent }
                 let trees = values.map(\.tree)
                 switch name {
-                case "min": return CalcNode(tree: .min(trees), hasPercent: percent, isNumber: false)
-                case "max": return CalcNode(tree: .max(trees), hasPercent: percent, isNumber: false)
-                default: return CalcNode(tree: .clamp(trees[0], trees[1], trees[2]), hasPercent: percent, isNumber: false)
+                case "min": return CalcNode(tree: .min(trees), kind: .length, hasPercent: percent)
+                case "max": return CalcNode(tree: .max(trees), kind: .length, hasPercent: percent)
+                default: return CalcNode(tree: .clamp(trees[0], trees[1], trees[2]), kind: .length, hasPercent: percent)
                 }
             default: return nil
             }
@@ -859,7 +948,7 @@ enum CSSPropertyParser {
         }
     }
 
-    /// `<calc-sum>`: products joined by `+` and `-`, all numbers or all lengths.
+    /// `<calc-sum>`: products joined by `+` and `-`, all of one type.
     private static func sum(_ components: [CSSComponent], depth: Int) -> CalcNode? {
         guard !components.isEmpty, components.count <= 64 else { return nil }
         var terms: [CalcNode] = []
@@ -875,10 +964,11 @@ enum CSSPropertyParser {
             index = end + 1
             guard index < components.count else { return nil }
         }
-        guard Set(terms.map(\.isNumber)).count == 1 else { return nil }
+        let kind = terms[0].kind
+        guard terms.allSatisfy({ $0.kind == kind }) else { return nil }
         if terms.count == 1 { return terms[0] }
-        if terms[0].isNumber { return .number(terms.reduce(0) { $0 + $1.number! }) }
-        return CalcNode(tree: .sum(terms.map(\.tree)), hasPercent: terms.contains { $0.hasPercent }, isNumber: false)
+        if kind != .length { return .folded(terms.reduce(0) { $0 + $1.value! }, kind) }
+        return CalcNode(tree: .sum(terms.map(\.tree)), kind: .length, hasPercent: terms.contains { $0.hasPercent })
     }
 
     /// `<calc-product>`: values joined by `*` and `/`. One side of `*` and the right side of `/`
@@ -893,7 +983,7 @@ enum CSSPropertyParser {
                   let operand = calc(components[index + 1], depth: depth) else { return nil }
             if let factor = operand.number {
                 if op.isDelim("/") {
-                    result = result.number.map { .number($0 / factor) } ?? result.scaled(by: 1 / factor)
+                    result = result.value.map { .folded($0 / factor, result.kind) } ?? result.scaled(by: 1 / factor)
                 } else {
                     result = result.scaled(by: factor)
                 }
@@ -964,28 +1054,63 @@ enum CSSPropertyParser {
         }
     }
 
-    /// Whether a `filter` list inverts colors: `none`, or filter functions of which `invert()`
-    /// counts at 50% or more (each such one flips the result). Other functions are not drawn.
+    /// Whether a `filter` list inverts colors: `none`, or filter functions and `url()`
+    /// references (Filter Effects 1), of which `invert()` counts at 50% or more (each such
+    /// one flips the result). The others are not drawn, but each is read in full, so that a
+    /// function the reader does not know, or arguments its function does not take, make the
+    /// declaration invalid and an earlier one stays (CSS 2.2 §4.2).
     private static func filterInverts(_ c: [CSSComponent]) -> Bool? {
         if c.count == 1, c[0].ident == "none" { return false }
         guard !c.isEmpty else { return nil }
         var inverts = false
         for component in c {
+            if case .token(.url) = component { continue }
             guard case .function(let name, let arguments) = component else { return nil }
-            guard name == "invert" else { continue }
-            let amount: Double
-            switch arguments.significant.first {
-            case nil: amount = 1
-            case .token(.number(let value, _, _))?: amount = value
-            case .token(.percentage(let value))?: amount = value / 100
-            case let other?:
-                guard let value = calcNumber(other) else { return nil }
-                amount = max(value, 0)
+            let parts = arguments.significant
+            switch name {
+            case "url":
+                guard isImage(component) else { return nil }
+            case "invert", "grayscale", "opacity", "sepia", "brightness", "contrast", "saturate":
+                // `[ <number [0,∞]> | <percentage [0,∞]> ]?`, 1 when left out; a math function
+                // is clamped to the range.
+                var amount = 1.0
+                if let only = parts.first {
+                    guard parts.count == 1 else { return nil }
+                    switch only {
+                    case .token(.number(let value, _, _)): amount = value
+                    case .token(.percentage(let value)): amount = value / 100
+                    default:
+                        guard let value = calcNumber(only) ?? calcPercentage(only).map({ $0 / 100 }) else { return nil }
+                        amount = max(value, 0)
+                    }
+                    guard amount >= 0 else { return nil }
+                }
+                if name == "invert", min(amount, 1) >= 0.5 { inverts.toggle() }
+            case "blur":
+                guard parts.count <= 1, parts.allSatisfy({ length($0, percent: false, negative: false, auto: false) != nil }) else {
+                    return nil
+                }
+            case "hue-rotate":
+                guard parts.count <= 1, parts.allSatisfy(isAngle) else { return nil }
+            case "drop-shadow":
+                guard isDropShadow(parts) else { return nil }
+            default:
+                return nil
             }
-            guard amount >= 0 else { return nil }
-            if min(amount, 1) >= 0.5 { inverts.toggle() }
         }
         return inverts
+    }
+
+    /// `drop-shadow()`'s arguments: a color, which may be left out, before or after two or
+    /// three lengths, the third a blur radius that is not negative.
+    private static func isDropShadow(_ parts: [CSSComponent]) -> Bool {
+        var lengths = parts[...]
+        if let first = lengths.first, color(first) != nil { lengths = lengths.dropFirst() }
+        else if let last = lengths.last, color(last) != nil { lengths = lengths.dropLast() }
+        guard (2...3).contains(lengths.count) else { return false }
+        return lengths.enumerated().allSatisfy { index, part in
+            length(part, percent: false, negative: index < 2, auto: false) != nil
+        }
     }
 
     private static func smallCaps(_ keyword: String) -> Bool? {
@@ -1080,18 +1205,35 @@ enum CSSPropertyParser {
         "slashed-zero", "jis78", "jis83", "jis90", "jis04", "simplified", "traditional", "full-width",
         "proportional-width", "ruby", "sub", "super", "text", "emoji", "unicode", "historical-forms"]
 
+    /// The functions of `font-variant-alternates` (CSS Fonts 4 §6.8), by whether they take a
+    /// list of `@font-feature-values` names or one.
+    private static let alternateFunctions: [String: Bool] = [
+        "stylistic": false, "styleset": true, "character-variant": true, "swash": false, "ornaments": false, "annotation": false]
+
     private static func fontVariant(_ c: [CSSComponent]) -> Pairs? {
         var caps = false
+        var functions: Set<String> = []
         for component in c {
             guard let keyword = component.ident else {
-                if case .function = component { continue } // stylistic(), swash()…
-                return nil
+                // `stylistic()`, `swash()` and their kin, each once, with the names it takes.
+                guard case .function(let name, let arguments) = component, let takesList = alternateFunctions[name],
+                      functions.insert(name).inserted else { return nil }
+                let names = takesList ? arguments.commaSeparated : [arguments.significant]
+                guard names.allSatisfy({ $0.count == 1 && isCustomIdent($0[0]) }) else { return nil }
+                continue
             }
             if (keyword == "normal" || keyword == "none") && c.count == 1 { continue }
             if let value = smallCaps(keyword) { caps = value; continue }
             guard variantKeywords.contains(keyword) else { return nil }
         }
         return [(.fontVariantCaps, .flag(caps))]
+    }
+
+    /// `<custom-ident>` (CSS Values 4 §4.2): an identifier that is not a CSS-wide keyword or
+    /// `default`.
+    private static func isCustomIdent(_ component: CSSComponent) -> Bool {
+        guard let name = component.ident else { return false }
+        return wideKeyword(name) == nil && name != "default"
     }
 
     // MARK: Other shorthands
@@ -1163,10 +1305,9 @@ enum CSSPropertyParser {
             case "inside" where position == nil: position = .inside
             case "outside" where position == nil: position = .outside
             default:
-                if case .token(.url) = component, !image { image = true; continue }
-                if case .function(let name, _) = component, !image, name.hasSuffix("gradient") || name == "url" || name == "image" {
-                    image = true; continue
-                }
+                // `list-style-image`'s image, read as a background's is (`isImage`), though it is
+                // not drawn: a gradient prefixed for another engine is none.
+                if !image, isImage(component) { image = true; continue }
                 guard type == nil, let value = listStyleType(component) else { return nil }
                 type = value
             }
@@ -1352,53 +1493,61 @@ enum CSSPropertyParser {
         return (significant, nil)
     }
 
+    // A channel, a hue or an alpha is a literal or a math function of its type (CSS Values 4
+    // §10), which is clamped to the channel's range as an out-of-range literal is, NaN as 0.
+
+    /// A `<number>`: a number token, or a math function that comes to one.
+    private static func numberValue(_ component: CSSComponent) -> Double? {
+        if case .token(.number(let value, _, _)) = component { return value }
+        return calcNumber(component)
+    }
+
+    /// A `<percentage>`, in percent: a percentage token, or a math function that comes to one.
+    private static func percentageValue(_ component: CSSComponent) -> Double? {
+        if case .token(.percentage(let value)) = component { return value }
+        return calcPercentage(component)
+    }
+
     private static func alphaValue(_ component: CSSComponent?) -> CGFloat? {
         guard let component else { return 1 }
-        switch component {
-        case .token(.number(let value, _, _)): return CGFloat(min(max(value, 0), 1))
-        case .token(.percentage(let value)): return CGFloat(min(max(value / 100, 0), 1))
-        case .token(.ident("none")): return 0
-        default: return nil
-        }
+        if component.ident == "none" { return 0 }
+        guard let value = numberValue(component) ?? percentageValue(component).map({ $0 / 100 }) else { return nil }
+        return CGFloat(min(max(value, 0), 1))
     }
 
     private static func rgbFunction(_ arguments: [CSSComponent]) -> ComputedStyle.Color? {
         guard let (channels, alphaComponent) = colorArguments(arguments), let alpha = alphaValue(alphaComponent) else { return nil }
         var values: [CGFloat] = []
         for channel in channels {
-            switch channel {
-            case .token(.number(let value, _, _)): values.append(CGFloat(min(max(value, 0), 255) / 255))
-            case .token(.percentage(let value)): values.append(CGFloat(min(max(value, 0), 100) / 100))
-            case .token(.ident(let value)) where value.lowercased() == "none": values.append(0)
-            default: return nil
-            }
+            if channel.ident == "none" { values.append(0) }
+            else if let value = numberValue(channel) { values.append(CGFloat(min(max(value, 0), 255) / 255)) }
+            else if let value = percentageValue(channel) { values.append(CGFloat(min(max(value, 0), 100) / 100)) }
+            else { return nil }
         }
         return ComputedStyle.Color(red: values[0], green: values[1], blue: values[2], alpha: alpha)
     }
 
+    /// A `<hue>` in degrees: a number or an angle. An infinite one, which only a math function
+    /// gives, points nowhere, and is 0.
     private static func hue(_ component: CSSComponent) -> Double? {
+        let value: Double
         switch component {
-        case .token(.number(let value, _, _)): return value
-        case .token(.dimension(let value, let unit, _, _)):
-            switch unit.lowercased() {
-            case "deg": return value
-            case "rad": return value * 180 / .pi
-            case "grad": return value * 0.9
-            case "turn": return value * 360
-            default: return nil
-            }
-        case .token(.ident(let value)) where value.lowercased() == "none": return 0
-        default: return nil
+        case .token(.number(let number, _, _)): value = number
+        case .token(.dimension(let number, let unit, _, _)):
+            guard let angle = degrees(number, unit: unit) else { return nil }
+            value = angle
+        case _ where component.ident == "none": return 0
+        default:
+            guard let angle = calcNumber(component) ?? calcAngle(component) else { return nil }
+            value = angle
         }
+        return value.isFinite ? value : 0
     }
 
     private static func fraction(_ component: CSSComponent) -> Double? {
-        switch component {
-        case .token(.percentage(let value)): min(max(value / 100, 0), 1)
-        case .token(.number(let value, _, _)): min(max(value / 100, 0), 1)
-        case .token(.ident(let value)) where value.lowercased() == "none": 0
-        default: nil
-        }
+        if component.ident == "none" { return 0 }
+        guard let value = percentageValue(component) ?? numberValue(component) else { return nil }
+        return min(max(value / 100, 0), 1)
     }
 
     private static func hslFunction(_ arguments: [CSSComponent]) -> ComputedStyle.Color? {

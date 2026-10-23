@@ -136,6 +136,35 @@ final class LostEntryTests: XCTestCase {
         }
     }
 
+    func testALostEntryWhoseFlaggedNameIsNotUTF8IsCountedAndNotNamed() throws {
+        // A name that bit 11 declares UTF-8 and that is not refuses an entry that is read, which is
+        // named by its bytes (#207). Lost, it has no path to give: the entry is counted, and its
+        // name is not given as a path, empty or otherwise (#779). The book's last record has one.
+        var entries = Fixture.storedEntries(try Fixture.files())
+        entries.append(Fixture.StoredEntry("OPS/extra.css", "p {}"))
+        var flagged = Fixture.StoredEntry("OPS/", "body {}")
+        flagged.name = Data("OPS/caf".utf8) + Data([0xE9]) + Data(".css".utf8) // café in Latin-1
+        XCTAssertEqual(flagged.flags & 0x0800, 0x0800)
+        entries.append(flagged)
+        let data = Fixture.storedArchive(entries)
+        XCTAssertThrowsError(try EPUBPublication.open(data: data), "read, it refuses the book") {
+            XCTAssertEqual($0 as? EPUBPublicationError, .invalidArchive("Entry name not UTF-8: OPS/caf%E9.css"))
+        }
+        let names = entries.map { String(validating: $0.name, as: UTF8.self) }
+        for lost in 1...3 {
+            let end = data.count - 22
+            let counted = replacing((end + 8)..<(end + 12), of: data, with: le(UInt16(entries.count - lost)) + le(UInt16(entries.count - lost)))
+            let named = names.suffix(lost).compactMap { $0 }
+            XCTAssertEqual(try ArchiveBounds.check(counted, names: .max).lostEntries, EPUBLostEntries(count: lost, paths: named), "\(lost) lost")
+            XCTAssertEqual(try ArchiveBounds.check(counted, names: 1).lostEntries, EPUBLostEntries(count: lost, paths: Array(named.prefix(1))),
+                           "\(lost) lost, one name")
+            // The book opens without the entries it loses where the spine needs none of them.
+            if lost < 3 {
+                XCTAssertEqual(try EPUBPublication.open(data: counted).lostEntries, EPUBLostEntries(count: lost, paths: named), "\(lost) lost, opened")
+            }
+        }
+    }
+
     func testLostEntriesAreFoundWithinTheBytesWhateverTheyHold() throws {
         // A book is untrusted input: wherever iteration ends and whatever the count, no read
         // leaves the bytes.

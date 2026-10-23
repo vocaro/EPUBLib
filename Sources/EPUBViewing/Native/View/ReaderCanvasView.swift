@@ -683,6 +683,8 @@ import AppKit
         // Read before the columns' new text puts their insertion points at its start.
         if pageEntry == nil { pageEntry = placeStillEntered() }
         enteredPlace = nil
+        // Read before a column the new spread hides loses the focus it has.
+        let focused = focusedColumn
         #endif
         shownPage = (section, firstPage)
         while columns.count < spread.columns.count {
@@ -696,6 +698,7 @@ import AppKit
         }
         isApplyingSelection = false
         #if os(macOS)
+        keepFocus(from: focused)
         if let entry = pageEntry {
             pageEntry = nil
             enterPage(at: entry)

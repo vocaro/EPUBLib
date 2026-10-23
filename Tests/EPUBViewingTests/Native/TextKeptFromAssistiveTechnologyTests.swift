@@ -123,19 +123,20 @@ import UIKit
     }
 
     /// A table cell's text is marked as it is written, in a table kept from assistive
-    /// technology and in a cell of a shown one. Its words, which VoiceOver reads and a copy of
-    /// its row takes, still hold the kept ones (#551).
-    func testATableCellsKeptWordsAreMarkedAndStillInItsWords() throws {
+    /// technology and in a cell of a shown one. VoiceOver reads a cell's words without the kept
+    /// ones, and a copy of its row, a selection of it and search take them (#551).
+    func testATableCellsKeptWordsAreLeftOutOfWhatVoiceOverReadsOfItAndCopied() throws {
         let section = try H.build("""
             <table aria-hidden="true"><tr><td>Kept cell</td><td>Kept too</td></tr></table>\
-            <table><tr><td>Plain <span aria-hidden="true">kept</span> cell</td><td>Next</td></tr></table>
+            <table><tr><td>Plain <span aria-hidden="true">kept</span> cell</td><td>Next</td></tr>\
+            <tr><td>un<span aria-hidden="true">believ</span>able</td><td><span aria-hidden="true">Kept alone</span></td></tr></table>
             """, css: H.reset)
         var rows: [TableRowAttachment] = []
         section.string.enumerateAttribute(.attachment, in: NSRange(location: 0, length: section.string.length)) { value, _, _ in
             if let row = value as? TableRowAttachment { rows.append(row) }
         }
-        XCTAssertEqual(rows.count, 2)
-        let cells = rows.map { $0.table.cells[0].content }
+        XCTAssertEqual(rows.count, 3)
+        let cells = rows.prefix(2).map { $0.table.cells[0].content }
         for (cell, word) in zip(cells, ["Kept cell", "kept"]) {
             let range = (cell.string as NSString).range(of: word)
             XCTAssertNotNil(cell.attribute(.readerUnspoken, at: range.location, effectiveRange: nil), word)
@@ -143,8 +144,21 @@ import UIKit
             XCTAssertTrue(cell.readerHiddenCharacters(in: NSRange(location: 0, length: cell.length)).contains(range),
                           "a cell's text area gives \(word) to an assistive client as spaces")
         }
-        XCTAssertEqual(rows.map(\.cellWords), [["Kept cell", "Kept too"], ["Plain kept cell", "Next"]],
-                       "what VoiceOver reads of each cell, which is also what a copy of its row takes (#551)")
+        XCTAssertEqual(rows.map(\.cellWords), [["", ""], ["Plain cell", "Next"], ["un able", ""]],
+                       "what VoiceOver reads of each cell: kept words between two shown ones read as one space")
+        XCTAssertEqual(rows.map(\.spokenEquivalent), ["\t", "Plain cell\tNext", "un able\t"])
+        XCTAssertEqual(rows.map(\.textEquivalent), ["Kept cell\tKept too", "Plain kept cell\tNext", "unbelievable\tKept alone"],
+                       "what a selection of the row reads")
+        XCTAssertEqual(rows.map(\.copyTextEquivalent), ["Kept cell\tKept too", "Plain kept cell\tNext", "unbelievable\tKept alone"],
+                       "what a copy of the row takes")
+        XCTAssertEqual(rows.map(\.saysNothing), [true, false, false], "a row of kept words alone has nothing to say")
+        XCTAssertEqual(section.string.readerPlainText(), "Kept cell\tKept too\nPlain kept cell\tNext\nunbelievable\tKept alone")
+        XCTAssertEqual(section.string.readerPlainText(spoken: true), "\t\nPlain cell\tNext\nun able\t")
+        XCTAssertEqual(section.mappedText(in: 0..<section.string.length),
+                       "Kept cell\tKept too\nPlain kept cell\tNext\nunbelievable\tKept alone")
+        // Search finds them.
+        XCTAssertEqual(try batch("believ", in: section).results.count, 1)
+        XCTAssertEqual(try batch("Kept alone", in: section).results.count, 1)
     }
 
     /// The room the kept words take, and so every line and page, is theirs as it is without
@@ -261,6 +275,35 @@ import UIKit
         assertNoKeptWord(value, "the value")
         XCTAssertTrue(value.contains("he night came."))
     }
+
+    /// The row of a table used for layout is a group called by its cells' words, and a row of a
+    /// table of data its table, named by that row's: none of them kept (#551). A cell's text
+    /// area gives kept characters as spaces, and its selected text leaves them out.
+    func testOnMacATableCellsKeptWordsAreNotInWhatItsRowIsCalled() async throws {
+        let view = try await tablesHost().view
+        let rich = try XCTUnwrap(view.accessibilityAttributedString(for: view.shownCharacters))
+        var elements: [NSAccessibilityElement] = []
+        rich.enumerateAttribute(.accessibilityAttachment, in: NSRange(location: 0, length: rich.length)) { value, _, _ in
+            if let element = value as? NSAccessibilityElement { elements.append(element) }
+        }
+        XCTAssertEqual(elements.map { $0.accessibilityRole() }, [.group, .table, .table])
+        XCTAssertEqual(elements.map { $0.accessibilityLabel() }, ["Left words, Right words", "Name, Note", "Alder tree"],
+                       "what the row's group and the table at each row are called")
+        let table = try XCTUnwrap(elements.last as? ReaderTableElement)
+        let rows = try XCTUnwrap(table.accessibilityRows() as? [NSAccessibilityElement])
+        XCTAssertEqual(rows.compactMap { $0.accessibilityChildren() }.joined().count, 4, "every cell of the table, the one of kept words alone too")
+        let mounted = (view.tableInteraction?.cells ?? [:]).sorted { ($0.key.location, $0.key.cell) < ($1.key.location, $1.key.cell) }.map(\.value)
+        XCTAssertEqual(mounted.count, 6)
+        for cell in mounted {
+            assertNoUnheardWord(cell.accessibilityValue(), "a cell's text area")
+            cell.cellSelection = cell.shownCharacters
+            assertNoUnheardWord(cell.accessibilitySelectedText(), "the selected text of a cell's text area")
+        }
+        XCTAssertEqual(mounted.map { $0.accessibilitySelectedText() ?? "nil" }, ["Left  words", "Right  words", "Name", "Note", "Alder  tree", ""])
+        XCTAssertEqual(mounted.map { $0.cellText.readerPlainText(in: $0.cellSelection) },
+                       ["Left unheard words", "Right Unheard picture words", "Name", "Note", "Alder unheard words tree", "Unheard alone"],
+                       "what a copy of each cell's selection takes")
+    }
     #else
     private func described(_ element: UIAccessibilityElement) -> String {
         let traits = element.accessibilityTraits
@@ -283,5 +326,93 @@ import UIKit
         XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/two.xhtml"))
         XCTAssertEqual(view.accessibilityValue, Self.spoken)
     }
+
+    /// The row of a table used for layout is a line of its cells' words, and a table of data a
+    /// table of cells, each its words: none of them kept, nor in the names of the actions that
+    /// select a cell's words (#551). A cell of kept words alone says nothing and has nothing to
+    /// select, and keeps its place in the grid.
+    func testOnIPhoneAndIPadATableCellsKeptWordsAreNotInItsElementOrItsRowsLine() async throws {
+        let view = try await tablesHost().view
+        let elements = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
+        XCTAssertEqual(elements.count, 4, "the lines before and after, the row's line and the table of data")
+        let words = { (element: UIAccessibilityElement) in element.accessibilityLabel?.trimmingCharacters(in: .newlines) }
+        XCTAssertEqual(words(elements[1]), "Left words\tRight words", "the row's line")
+        let actions = (elements[1].accessibilityCustomActions ?? []).map(\.name).filter { $0.hasPrefix("Select") }
+        XCTAssertEqual(actions, ["Select Table Text: Left  words", "Select Table Text: Right  words"])
+        let table = try XCTUnwrap(elements[2] as? UIAccessibilityContainerDataTable & UIAccessibilityElement)
+        let cells = try XCTUnwrap(table.accessibilityElements as? [UIAccessibilityElement])
+        XCTAssertEqual(cells.map(words), ["Name", "Note", "Alder tree", nil], "each cell's element")
+        XCTAssertEqual(cells.map { ($0.accessibilityCustomActions ?? []).map(\.name).filter { $0.hasSuffix("Cell Text") } },
+                       [["Select Cell Text"], ["Select Cell Text"], ["Select Cell Text"], []])
+        for element in elements + cells {
+            assertNoUnheardWord(element.accessibilityLabel, "what VoiceOver reads")
+            for action in element.accessibilityCustomActions ?? [] { assertNoUnheardWord(action.name, "an action's name") }
+        }
+        assertNoUnheardWord(view.accessibilityValue, "the page's value")
+    }
     #endif
+
+    // MARK: Table cells
+
+    /// A table used for layout and a table of data, each with words kept from assistive
+    /// technology in a cell, the first with a picture kept so in another, the second with a
+    /// cell of kept words alone. Every word kept begins "unheard" or "Unheard", and no other.
+    private static let tables = """
+        <p>Words before.</p>\
+        <table role="presentation"><tr><td>Left <span aria-hidden="true">unheard</span> words</td>\
+        <td>Right <img src="p.png" alt="Unheard picture" aria-hidden="true"/> words</td></tr></table>\
+        <table><tr><th>Name</th><th>Note</th></tr>\
+        <tr><td>Alder <span aria-hidden="true">unheard words</span> tree</td><td><span aria-hidden="true">Unheard alone</span></td></tr></table>\
+        <p>Words after.</p>
+        """
+    /// What a selection of the whole section and a copy of it take: every kept word.
+    private static let tablesCopied = "Words before.\nLeft unheard words\tRight Unheard picture words\nName\tNote\n"
+        + "Alder unheard words tree\tUnheard alone\nWords after."
+
+    private func tablesSection() throws -> SectionText {
+        try H.build(Self.tables, css: H.reset + "img { width: 20px; height: 20px }",
+                    files: ["p.png": RichFixture.image(width: 40, height: 40)])
+    }
+
+    /// A host showing `tables` on one page, with the text views of its cells.
+    private func tablesHost() async throws -> (host: CanvasHost, view: ReaderTextView) {
+        let (host, view) = try host(try tablesSection())
+        for _ in 0..<40 where (view.tableInteraction?.cells.count ?? 0) < 6 {
+            host.layOut()
+            try await host.settle(50)
+            view.refreshTableInteractions()
+        }
+        return (host, view)
+    }
+
+    private func assertNoUnheardWord(_ text: String?, _ message: String, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertFalse((text ?? "").localizedCaseInsensitiveContains("unheard"), "\(message): \((text ?? "").debugDescription)", file: file, line: line)
+    }
+
+    /// A selection of the section, Copy and the selection a host is told of take the kept words
+    /// in a table's cells, and VoiceOver is given none of them (#551).
+    func testCopyAndTheSelectionAHostIsToldOfKeepATableCellsKeptWords() async throws {
+        let section = try tablesSection()
+        XCTAssertEqual(section.mappedText(in: 0..<section.string.length), Self.tablesCopied)
+        XCTAssertEqual(section.string.readerPlainText(), Self.tablesCopied)
+        assertNoUnheardWord(section.string.readerPlainText(spoken: true), "what VoiceOver is given")
+        let (host, view) = try await tablesHost()
+        view.selectedRange = NSRange(location: 0, length: section.string.length)
+        XCTAssertEqual(host.canvas.selectionText(for: view), Self.tablesCopied)
+        host.canvas.textViewSelectionDidChange(view)
+        try await host.settle()
+        XCTAssertEqual((host.recorder.selections.last ?? nil)?.text, Self.tablesCopied, "the selection a host is told of")
+        #if os(macOS)
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        XCTAssertTrue(view.writeSelection(to: pasteboard, type: .string))
+        XCTAssertEqual(pasteboard.string(forType: .string), Self.tablesCopied)
+        #else
+        let pasteboard = try XCTUnwrap(UIPasteboard(name: UIPasteboard.Name("org.epublib.tests.kept-cells.\(UUID().uuidString)"), create: true))
+        defer { UIPasteboard.remove(withName: pasteboard.name) }
+        view.pasteboard = pasteboard
+        view.copy(nil)
+        XCTAssertEqual(pasteboard.string, Self.tablesCopied)
+        #endif
+    }
 }

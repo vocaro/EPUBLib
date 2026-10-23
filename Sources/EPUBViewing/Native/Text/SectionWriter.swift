@@ -636,7 +636,10 @@ final class SectionWriter {
         if let type = type?.lowercased(), type.hasPrefix("image/") { return true }
         guard let reference, !reference.isEmpty else { return false }
         if let mediaType = state.mediaType(of: reference) { return mediaType.hasPrefix("image/") }
-        let path = reference.split(separator: "#").first.map(String.init) ?? reference
+        // The path ends at the first `#`, found as its byte: as a `Character`, one before a
+        // combining mark is another character, and the fragment would be read as the file name's.
+        let bytes = reference.utf8
+        let path = String(decoding: bytes[..<(bytes.firstIndex(of: 0x23) ?? bytes.endIndex)], as: UTF8.self) // #
         return ContentSemantics.imageExtensions.contains((path as NSString).pathExtension.lowercased())
     }
 
@@ -825,7 +828,7 @@ final class SectionWriter {
                            left: left, right: right, textIndent: resolve(style.textIndent),
                            lineHeightMultiple: multiple, lineHeight: cssLineHeight, hyphenate: style.hyphens == .auto,
                            characterWrap: style.whiteSpace == .pre,
-                           tabInterval: InlineStyling.tabInterval(font), preservesTabs: style.whiteSpace.preservesSpaces)
+                           tabInterval: InlineStyling.tabInterval(style, font: font), preservesTabs: style.whiteSpace.preservesSpaces)
     }
 
     private func resolve(_ length: ComputedStyle.Length) -> CGFloat {
@@ -1014,6 +1017,8 @@ final class SectionWriter {
             key.direction = paragraph.format.direction
             key.spacingBefore = max(0, paragraph.spacingBefore)
             key.maximumLineHeight = SpokenLabelAttachment.lineHeight
+            // It holds only labels, but has its box's interval as every paragraph does.
+            key.tabInterval = paragraph.format.tabInterval
             return styling.paragraphStyle(key)
         }
         let format = paragraph.format
@@ -2037,7 +2042,7 @@ private struct BlockFormat {
     var lineHeight: CGFloat?
     var hyphenate: Bool
     var characterWrap: Bool
-    /// `tab-size` in points: eight spaces of the box's font, and never zero.
+    /// `tab-size` in points (`InlineStyling.tabInterval`), and never zero.
     var tabInterval: CGFloat
     /// `white-space` keeps the box's own tabs (`pre`, `pre-wrap`, `break-spaces`).
     var preservesTabs: Bool
