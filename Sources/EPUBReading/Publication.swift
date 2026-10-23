@@ -751,26 +751,40 @@ private final class XMLTree: NSObject, XMLParserDelegate {
         // clears them after it, which would leave a host's own messages to standard error.
         return LibXML2Messages.silenced { parser.parse() } ? delegate.root : nil
     }
+    /// A qualified name's prefix and local part, as text extraction splits one: at its first
+    /// colon, where a name stands on each side. libxml2 reports a name that Namespaces in XML
+    /// forbids with a namespace error and reads on, and `XMLParser` hands the name on as written
+    /// (#644). One that begins or ends with its colon has no prefix and is read whole
+    /// (`:navPoint`, `script:`, `:`), and the rest of one with more colons is its local name, as
+    /// libxml2 reads it (`b:c` of `a:b:c`). So `xmlns:` declares nothing, and `xmlns:a:b` a prefix
+    /// no name can use.
+    private static func split(_ name: String) -> (prefix: String, local: String) {
+        guard let colon = name.firstIndex(of: ":"), colon != name.startIndex,
+              name.index(after: colon) != name.endIndex else { return ("", name) }
+        return (String(name[..<colon]), String(name[name.index(after: colon)...]))
+    }
     func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?,
                 qualifiedName: String?, attributes: [String: String]) {
         count += 1
         guard stack.count < 64, count <= 100_000 else { parser.abortParsing(); return }
-        let local = String(name.split(separator: ":").last ?? Substring(name))
-        func isDeclaration(_ key: String) -> Bool { key == "xmlns" || key.hasPrefix("xmlns:") }
+        // An element is matched by its local name alone. One that Namespaces in XML forbids
+        // (`:navPoint`, `script:`, `a:b:c`) is an unknown element, not the one its last piece names.
+        let local = Self.split(name).local
+        func isDeclaration(_ key: String) -> Bool { key == "xmlns" || Self.split(key).prefix == "xmlns" }
         var namespaces = scopes.last ?? ["xml": XMLNamespace.xml]
         // XMLParser gives no document order, and a dictionary's changes from run to run. Two
         // prefixes for one namespace give two attributes one name, which Namespaces in XML forbids
         // and XMLParser reads on; of those, the one whose qualified name sorts last is kept (#213).
         let attributes = attributes.sorted { $0.key < $1.key }
         for (key, value) in attributes where isDeclaration(key) {
-            namespaces[key == "xmlns" ? "" : String(key.dropFirst(6))] = value
+            namespaces[key == "xmlns" ? "" : Self.split(key).local] = value
         }
         var attrs: [XMLNode.AttributeName: String] = [:]
         for (key, value) in attributes where !isDeclaration(key) {
             // Unprefixed attributes are in no namespace, whatever the default one is.
-            let parts = key.split(separator: ":", maxSplits: 1)
-            if parts.count == 2, let uri = namespaces[String(parts[0])] {
-                attrs[.init(namespace: uri, local: String(parts[1]))] = value
+            let (prefix, local) = Self.split(key)
+            if !prefix.isEmpty, let uri = namespaces[prefix] {
+                attrs[.init(namespace: uri, local: local)] = value
             } else {
                 attrs[.init(namespace: "", local: key)] = value
             }

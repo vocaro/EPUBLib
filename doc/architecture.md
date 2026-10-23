@@ -317,6 +317,13 @@ disclosed:
   or label, or is not read, as does one that names EUC-KR `ks_c_5601-1987` or `korean`, which the
   parser reads as Windows 949. A C0 control character XML forbids, copied from PDF text into a title, reads as a
   space in an ASCII-compatible document, and so as one of the run of whitespace it stands in.
+  A name that Namespaces in XML forbids, which the parser reports and reads on, does not refuse
+  the document. One that begins or ends with its colon is read whole (`<:navPoint>`,
+  `<rootfile:>`), and one with a second colon is split at its first, so that the local name of
+  `<a:b:navPoint>` is `b:navPoint`; each is an unknown element, not the one its last piece names,
+  as libxml2's XML parser reads it. An attribute's name is split the same way, as text
+  extraction splits one, so `:epub:type` is not `epub:type` and `xmlns:` declares nothing
+  ([#644](https://github.com/vocaro/EPUBLib/issues/644)).
 
 `EPUBWriting` holds what it writes to the stricter rules: a path with a colon is refused, and so
 is a navigation or stylesheet href with white space round it, a query, a leading `/` or a step
