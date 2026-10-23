@@ -65,6 +65,9 @@ import SwiftUI
     var division: CGRect? { didSet { if division != oldValue { applyConfiguration() } } }
 
     var pageControls = EPUBPageControls() { didSet { if pageControls != oldValue { applyConfiguration() } } }
+    /// From `View.epubReaderPageTurnAnimation(_:)`, and the person's Reduce Motion setting.
+    var pageTurnAnimation = EPUBPageTurnAnimation.none { didSet { if pageTurnAnimation != oldValue { applyConfiguration() } } }
+    var reducesMotion = false { didSet { if reducesMotion != oldValue { applyConfiguration() } } }
     /// The host's controls that the reader hides and shows, from `View.epubReaderHidesControls`.
     var controlsHiding: EPUBReaderControlsHiding? { didSet { if controlsHiding != oldValue { applyConfiguration() } } }
 
@@ -192,6 +195,8 @@ import SwiftUI
         configuration.division = division
         configuration.pageMargins = style.typography.pageMargins.map { $0.isFinite ? min(max(CGFloat($0), 0), 4) : 1 } ?? 1
         configuration.pageControls = pageControls
+        configuration.pageTurnAnimation = pageTurnAnimation
+        configuration.reducesMotion = reducesMotion
         configuration.selectionActionTitle = action?.title
         configuration.selectionActionImage = action?.systemImage ?? "text.quote"
         configuration.togglesControls = controlsHiding?.controls != nil
@@ -1080,8 +1085,8 @@ extension NativeSession: ReaderCanvasDelegate {
         tasks.append(Task { [weak self] in
             guard let text = await self?.book.build(index), let self, self.isCurrent(ticket),
                   self.pageChanges == changes else { return }
-            self.canvas?.show(ReaderTextPosition(section: index, offset: forward ? 0 : text.string.length), selecting: nil,
-                              entry: .firstLine)
+            self.canvas?.showTurned(ReaderTextPosition(section: index, offset: forward ? 0 : text.string.length),
+                                    forward: forward)
         })
     }
 }
@@ -1101,6 +1106,8 @@ private struct NativeSurface: View {
     let session: NativeSession
     @Environment(\.epubReaderDivision) private var division
     @Environment(\.epubReaderPageControls) private var pageControls
+    @Environment(\.epubReaderPageTurnAnimation) private var pageTurnAnimation
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.epubReaderControlsHiding) private var controlsHiding
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -1118,10 +1125,14 @@ private struct NativeSurface: View {
                     updateSystemAccessibility()
                     session.division = division
                     session.pageControls = pageControls
+                    session.pageTurnAnimation = pageTurnAnimation
+                    session.reducesMotion = reduceMotion
                     session.controlsHiding = controlsHiding
                 }
                 .onChange(of: division) { session.division = division }
                 .onChange(of: pageControls) { session.pageControls = pageControls }
+                .onChange(of: pageTurnAnimation) { session.pageTurnAnimation = pageTurnAnimation }
+                .onChange(of: reduceMotion) { session.reducesMotion = reduceMotion }
                 .onChange(of: controlsHiding) { session.controlsHiding = controlsHiding }
                 .onChange(of: colorScheme) { session.updateSystemAppearance(isDark: colorScheme == .dark) }
                 .onChange(of: dynamicTypeSize) { session.updateSystemTextSize(dynamicTypeSize) }
