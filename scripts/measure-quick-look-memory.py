@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Measure the memory and time of Quick Look thumbnails and previews of EPUB books (#695).
 
-Runs `QuickLookMemoryTests` from a release build: on the Mac in a fresh process for each book
-and call, and in a disposable iOS simulator in one process for each call over every book.
+Runs `QuickLookMemoryTests` from a release build: on the Mac in one process for each call over
+every book, then in a fresh process for each of the largest books and each call; and in a
+disposable iOS simulator in one process for each call over every book.
 Packs the W3C reading-system tests, which are expanded directories, into EPUB files first.
 Run it as exclusive work, so no other build or test shares the machine:
 
@@ -51,15 +52,27 @@ def rows(output):
     return [line.split("QUICKLOOK ", 1)[1].split("\t") for line in output.splitlines() if line.startswith("QUICKLOOK ")]
 
 
-def run_mac(books, calls, out, timeout):
+def run_mac(books, calls, out, timeout, fresh):
+    """One process for each call over every book, then a fresh process for each of the `fresh`
+    largest books and each call."""
     subprocess.run(["swift", "build", "-c", "release", "--build-tests", "-Xswiftc", "-enable-testing", "-j", "4"],
                    cwd=root, check=True)
     bundle = root / ".build" / "release" / "EPUBViewingTests.xctest"
-    results = []
+    command = ["xcrun", "xctest", "-XCTest", "EPUBViewingTests.QuickLookMemoryTests/testQuickLookMemory", str(bundle)]
+    results, single = [], []
     for call in calls:
-        for book in books:
+        environment = dict(os.environ, EPUBLIB_QUICK_LOOK_INPUTS=":".join(str(book) for book in books), EPUBLIB_QUICK_LOOK_CALL=call)
+        result = subprocess.run(command, env=environment, capture_output=True, text=True)
+        (out / f"mac-{call}.log").write_text(result.stdout + result.stderr)
+        found = rows(result.stdout + result.stderr)
+        summary = [line for line in (result.stdout + result.stderr).splitlines() if line.startswith("QUICKLOOK-SUMMARY")]
+        print(f"mac {call}: exit {result.returncode}, {len(found)} of {len(books)} books; {summary[-1] if summary else 'no summary'}",
+              flush=True)
+        results += found
+    largest = sorted(books, key=lambda book: book.stat().st_size, reverse=True)[:fresh]
+    for call in calls:
+        for book in largest:
             environment = dict(os.environ, EPUBLIB_QUICK_LOOK_INPUTS=str(book), EPUBLIB_QUICK_LOOK_CALL=call)
-            command = ["xcrun", "xctest", "-XCTest", "EPUBViewingTests.QuickLookMemoryTests/testQuickLookMemory", str(bundle)]
             try:
                 result = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=timeout)
                 found = rows(result.stdout + result.stderr)
@@ -67,10 +80,11 @@ def run_mac(books, calls, out, timeout):
                     found = [[book.name, call, f"failed: exit {result.returncode}", "", "", "", "", "", "", ""]]
             except subprocess.TimeoutExpired:
                 found = [[book.name, call, f"unmeasured: process exceeded {timeout} s", "", "", "", "", "", "", ""]]
-            results += found
-            print("mac\t" + "\t".join(found[0]), flush=True)
+            single += found
+            print("mac fresh\t" + "\t".join(found[0]), flush=True)
     write(out / "mac.tsv", results)
-    return results
+    write(out / "mac-fresh.tsv", single)
+    return results, single
 
 
 def run_simulator(books, calls, out, runtime):
@@ -137,7 +151,8 @@ def summarize(label, results):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--mac", action="store_true", help="measure on this Mac, a fresh process per book and call")
+    parser.add_argument("--mac", action="store_true", help="measure on this Mac: one process per call, then fresh ones")
+    parser.add_argument("--fresh", type=int, default=12, help="the largest books measured in a fresh Mac process each")
     parser.add_argument("--simulator", action="store_true", help="measure in a disposable iPhone 17 Pro simulator")
     parser.add_argument("--books", nargs="*", type=Path, default=[], help="further EPUB files or directories of them")
     parser.add_argument("--no-w3c", action="store_true", help="leave out the W3C tests")
@@ -161,7 +176,9 @@ def main():
     print(f"commit {commit}; {len(books)} books; output {out}", flush=True)
     calls = args.call or CALLS
     if args.mac:
-        summarize("mac", run_mac(books, calls, out, args.timeout))
+        shared, fresh = run_mac(books, calls, out, args.timeout, args.fresh)
+        summarize("mac", shared)
+        summarize("mac fresh", fresh)
     if args.simulator:
         summarize("simulator", run_simulator(books, calls, out, args.runtime))
     return 0
