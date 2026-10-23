@@ -60,7 +60,8 @@ final class BookReader {
     func install(_ book: EPUBPublication, engine: any EPUBReaderEngine) throws {
         let token = generation
         publication = book
-        if let data = UserDefaults.standard.data(forKey: "position.\(book.id)") {
+        // Saved under the book's persistentID, or under an identity it had before.
+        if let data = book.publicationIDs.lazy.compactMap({ UserDefaults.standard.data(forKey: "position.\($0)") }).first {
             savedPosition = try? JSONDecoder().decode(EPUBLocation.self, from: data)
         }
         session = try engine.makeSession(publication: book,
@@ -111,7 +112,7 @@ final class BookReader {
 
     func clearPosition() {
         guard let publication else { return }
-        UserDefaults.standard.removeObject(forKey: "position.\(publication.id)")
+        for id in publication.publicationIDs { UserDefaults.standard.removeObject(forKey: "position.\(id)") }
         savedPosition = nil
         notice = "Bookmark cleared."
     }

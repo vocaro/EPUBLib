@@ -12,6 +12,9 @@ public struct EPUBEngineBookmark: Codable, Equatable, Sendable {
 /// Portable fields describe a reading position. `bookmark` restores an engine's precise position.
 /// Engines must reject incompatible bookmarks; matching text/href is a separate, potentially approximate operation.
 public struct EPUBLocation: Codable, Equatable, Sendable {
+    /// The book's `EPUBPublication.persistentID`: its unique identifier, or the SHA-256 of its
+    /// content when it has none. One saved before that identity (#679) carries the book's file
+    /// hash, its `id`. `EPUBPublication.publicationIDs` lists every value that names the book.
     public var publicationID: String
     /// URL-encoded archive-relative reference, compatible with `.navigate(href:)`.
     public var href: String?

@@ -9,7 +9,38 @@ import ZIPFoundation
 /// An immutable snapshot. Parsing and every engine read the same bytes even if the source file changes.
 /// Opening validates ZIP paths, declared sizes, CRCs and actual expanded sizes before returning.
 public struct EPUBPublication: Sendable {
+    /// The SHA-256 of the bytes the book was opened from, in hexadecimal: its file's or, for a
+    /// book unpacked into a folder, those of every file the folder holds, each with its path. Any
+    /// change to them changes it, so it names this copy of the book. Key a saved position on
+    /// `persistentID`, which outlasts such changes.
     public let id: String
+    /// The identity to key a saved position, bookmark or highlight on, which every location the
+    /// reader emits carries as its `publicationID` (#679). It is the package's
+    /// `uniqueIdentifier`, which EPUB 3.3 §5.5.3.1.1 asks its makers to keep through minor
+    /// revisions such as an edit of the metadata, and so the same in a copy downloaded again,
+    /// zipped again, whose metadata was edited or unpacked into a folder. Another edition has
+    /// another unique identifier, and another `persistentID`. A package without one has the
+    /// SHA-256 of its content, in hexadecimal: each resource it holds, by its path, and the order
+    /// of its spine, but not the package document, so that an edit of its metadata leaves it.
+    ///
+    /// Two books that give one unique identifier have one `persistentID`: EPUB Reading Systems 3.3
+    /// §5.2 has a reading system not depend on a unique identifier naming one publication alone.
+    /// A position saved in the one is restored in the other as far as its CFI resolves there, and
+    /// `releaseIdentifier`, `id` and the metadata tell the two apart.
+    public let persistentID: String
+    /// The `dc:identifier` that the package's `unique-identifier` names, read as a metadata value;
+    /// nil when it names none, or one without a value.
+    public let uniqueIdentifier: String?
+    /// The unique identifier, `@` and the package's last modification date, its `dcterms:modified`
+    /// (EPUB 3.3 §5.5.5): the release identifier EPUB 3.0.1 §4.1.2 defined, the same for one
+    /// version of a book and another for the next. nil when the package lacks either.
+    public let releaseIdentifier: String?
+    /// The publication IDs a location saved in this book may carry, in the order to look a saved
+    /// position up under: `persistentID`; the SHA-256 of the content where `persistentID` is the
+    /// unique identifier, for a position saved before the package gave one; and `id`, which
+    /// locations carried before `persistentID`. The reader restores a location, and draws a
+    /// highlight, that carries any of them.
+    public let publicationIDs: [String]
     /// The first `dc:title` that has a value and, in document order, every `dc:creator`,
     /// `dc:language` and `dc:identifier` that has one. A value is the element's text with each
     /// run of ASCII whitespace read as one space and none left at either end, so one its
@@ -47,7 +78,8 @@ public struct EPUBPublication: Sendable {
     public let cover: EPUBResource?
     /// The direction pages advance in; `default` leaves it to the reading system.
     public let pageProgression: EPUBPageProgression
-    /// Original EPUB bytes, for engines with their own container implementation.
+    /// Original EPUB bytes, for engines with their own container implementation. Empty for a book
+    /// unpacked into a folder, which has no archive: read its files with `data(at:)`.
     public let archiveData: Data
     private let contents: [String: Data]
     /// All declared IDs, including missing and remote hops. They are never fetched. By the ID's
@@ -87,9 +119,21 @@ public struct EPUBPublication: Sendable {
 
     /// Synchronous for CLI/background use. Call off the main actor for large books.
     /// `onProgress` receives cumulative expanded bytes on the importing thread; keep it brief.
+    ///
+    /// `url` names an EPUB file or a book unpacked into a folder (`org.idpf.epub-folder`), as
+    /// Apple Books keeps one on the Mac. A folder is read as an archive's entries are, with the
+    /// same limits and refusals, but `mimetype` may be missing from it (`PublicationFolder`).
     public static func open(at url: URL, limits: EPUBImportLimits = .init(),
                             onProgress: (@Sendable (Int) -> Void)? = nil) throws -> Self {
         guard url.isFileURL else { throw EPUBPublicationError.unsafePath(url.absoluteString) }
+        if let folder = PublicationFolder(url) {
+            try Task.checkCancellation()
+            try limits.admit(archiveBytes: 0)
+            let files = try folder.files(limits: limits, onProgress: onProgress)
+            return try open(contents: files, mimetypeRequired: false, limits: limits,
+                            id: { Self.digest(files.map { (path: $0.key, data: $0.value) }) },
+                            archiveData: Data(), lostEntries: nil)
+        }
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         guard limits.archiveBytes > 0, limits.archiveBytes < Int.max else {
@@ -187,7 +231,21 @@ public struct EPUBPublication: Sendable {
             guard crc == entry.checksum else { throw EPUBPublicationError.invalidArchive("CRC: \(path)") }
             contents[path] = bytes
         }
-        guard isEPUBMimetype(contents["mimetype"]) else { throw EPUBPublicationError.notEPUB }
+        return try open(contents: contents, mimetypeRequired: true, limits: limits,
+                        id: { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() },
+                        archiveData: data, lostEntries: directory.lostEntries)
+    }
+
+    /// The book in `contents`, the files of an archive or a folder by path. `id` is the
+    /// publication's `id`, asked for once the book is read. A folder may lack `mimetype`, which
+    /// EPUB 3.3 §4.2.2 reserves for an OCF ZIP container; one it holds must name EPUB, as in an
+    /// archive.
+    private static func open(contents: [String: Data], mimetypeRequired: Bool, limits: EPUBImportLimits,
+                             id: () -> String, archiveData data: Data, lostEntries: EPUBLostEntries?) throws -> Self {
+        var contents = contents
+        guard (!mimetypeRequired && contents["mimetype"] == nil) || isEPUBMimetype(contents["mimetype"]) else {
+            throw EPUBPublicationError.notEPUB
+        }
         func xml(_ path: String) throws -> XMLNode {
             guard let bytes = contents[path] else { throw EPUBPublicationError.missingResource(path) }
             guard bytes.count <= limits.xmlBytes else { throw EPUBPublicationError.limitExceeded(path) }
@@ -221,6 +279,13 @@ public struct EPUBPublication: Sendable {
         func values(_ name: String) -> [String] {
             metadataElements.filter { $0.name == name }.map(\.text).filter { !$0.isEmpty }
         }
+        let identifiers = metadataElements.filter { $0.name == "identifier" }
+        // The identifier `unique-identifier` names, by its exact code units once each is read as
+        // an XML ID is. A package without the attribute names none, not the first identifier
+        // that has no `id`.
+        let unique = opf.identifier("unique-identifier").flatMap { id in
+            identifiers.first { $0.identifier("id").map { EPUBElementID($0) } == EPUBElementID(id) }
+        }
         // Paths obfuscated as fonts with a key the package does not give. A font is left out, as
         // a file the archive lacks is, rather than refusing a book over a typeface. Anything else
         // is encryption this package cannot undo: `unproven` holds the paths not named as fonts,
@@ -228,13 +293,6 @@ public struct EPUBPublication: Sendable {
         var undecoded: Set<String> = [], unproven: Set<String> = []
         if contents["META-INF/encryption.xml"] != nil {
             let encryption = try xml("META-INF/encryption.xml")
-            let identifiers = metadataElements.filter { $0.name == "identifier" }
-            // The identifier `unique-identifier` names, by its exact code units once each is read as
-            // an XML ID is. A package without the attribute names none, not the first identifier
-            // that has no `id`.
-            let unique = opf.identifier("unique-identifier").flatMap { id in
-                identifiers.first { $0.identifier("id").map { EPUBElementID($0) } == EPUBElementID(id) }
-            }
             // IDPF's key is made from the unique identifier as written, less "specifically, the
             // Unicode code points U+0020, U+0009, U+000D and U+000A" (EPUB 3.3 §4.4.3) and nothing
             // else: white space outside ASCII is part of it, at its ends too. Each is removed as its
@@ -441,14 +499,51 @@ public struct EPUBPublication: Sendable {
         let coverID = metadataElements.first {
             $0.name == "meta" && $0.attribute("name") == "cover"
         }?.identifier("content")
-        return Self(id: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+        // The identities a saved position is kept under (#679). The unique identifier is read as a
+        // metadata value is, its ASCII whitespace collapsed and none at its ends, as EPUB 3.0.1
+        // §4.1.2 has a release identifier joined without white space. The last modification date
+        // is the `dcterms:modified` that refines nothing.
+        let uniqueIdentifier = unique.map(\.text).flatMap { $0.isEmpty ? nil : $0 }
+        let modified = metadataElements.first {
+            $0.name == "meta" && $0.attribute("property") == "dcterms:modified" && $0.attribute("refines") == nil && !$0.text.isEmpty
+        }?.text
+        // The content, by each resource's path and bytes, and the spine's order. A path is taken in
+        // normalization form C, so that one the file system holds decomposed, as HFS+ kept every
+        // name, gives the same.
+        var resourcePaths: [String: String] = [:]
+        for resource in resources { resourcePaths[resource.path.precomposedStringWithCanonicalMapping] = resource.path }
+        let content = digest(resourcePaths.map { (path: $0.key, data: contents[$0.value] ?? Data()) },
+                             spine: spine.map(\.resource.path.precomposedStringWithCanonicalMapping))
+        let id = id()
+        var publicationIDs: [String] = []
+        for candidate in [uniqueIdentifier ?? content, content, id] where !publicationIDs.contains(candidate) {
+            publicationIDs.append(candidate)
+        }
+        return Self(id: id, persistentID: publicationIDs[0], uniqueIdentifier: uniqueIdentifier,
+            releaseIdentifier: uniqueIdentifier.flatMap { identifier in modified.map { identifier + "@" + $0 } },
+            publicationIDs: publicationIDs,
             metadata: EPUBMetadata(title: values("title").first ?? "", authors: values("creator"),
                                    languages: values("language"), identifiers: values("identifier")),
-            resources: resources, lostEntries: directory.lostEntries, spine: spine, tableOfContents: toc, landmarks: landmarks,
+            resources: resources, lostEntries: lostEntries, spine: spine, tableOfContents: toc, landmarks: landmarks,
             pageList: pages.isEmpty ? nil : pages,
             cover: resources.first { $0.properties.contains("cover-image") } ?? coverID.flatMap { byID[$0] },
             pageProgression: EPUBPageProgression(rawValue: spineNode.attribute("page-progression-direction") ?? "") ?? .default,
             archiveData: data, contents: contents, manifestByID: declared)
+    }
+
+    /// The SHA-256 of `files` and `spine`, in hexadecimal: each file in the order of its path's
+    /// UTF-8, as its path's UTF-8 and its bytes, then each spine path. Each is preceded by its
+    /// length, and each list by its count, so that no two inputs give the same bytes to hash.
+    static func digest(_ files: [(path: String, data: Data)], spine: [String] = []) -> String {
+        var hash = SHA256()
+        func add(_ count: Int) { withUnsafeBytes(of: UInt64(count).littleEndian) { hash.update(bufferPointer: $0) } }
+        func add(_ bytes: Data) { add(bytes.count); hash.update(data: bytes) }
+        let files = files.map { (path: Data($0.path.utf8), data: $0.data) }.sorted { $0.path.lexicographicallyPrecedes($1.path) }
+        add(files.count)
+        for file in files { add(file.path); add(file.data) }
+        add(spine.count)
+        for path in spine { add(Data(path.utf8)) }
+        return hash.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     /// Whether the `mimetype` entry names an EPUB. White space around the media type and a

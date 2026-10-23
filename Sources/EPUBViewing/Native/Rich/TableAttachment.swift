@@ -191,6 +191,32 @@ final class TableRowAttachment: ReaderAttachment {
         table.draw(row: row, layout: layout, fragment: slice, in: context)
     }
 
+    /// Paints a highlight from `start` to `end`, places in this row's table (nil for its first
+    /// cell's start and its last cell's end), on the words this row, or this continuation of
+    /// it, draws, where `draw` draws them: none in a cell before the start's or after the
+    /// end's, and in a table nested in a cell, its part on that table's own words, at any depth
+    /// (`TableCellLayout.drawHighlight`).
+    func drawHighlight(from start: ReaderTablePosition?, to end: ReaderTablePosition?, color: CGColor,
+                       in context: CGContext, size: CGSize, viewportHeight: CGFloat) {
+        guard size.width > 0, size.height > 0 else { return }
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.clip(to: CGRect(origin: .zero, size: size))
+        let layout = layout(width: size.width, viewportHeight: viewportHeight)
+        let slice = fragment ?? layout.fragments(ofRow: row, maximumHeight: .greatestFiniteMagnitude)[0]
+        context.scaleBy(x: layout.scale * slice.fitScale, y: layout.scale * slice.fitScale)
+        context.translateBy(x: layout.originX, y: -slice.top)
+        for entry in slice.cells {
+            if let start, entry.cell < start.cell { continue }
+            if let end, entry.cell > end.cell { continue }
+            let cell = table.cells[entry.cell]
+            let first = start?.cell == entry.cell ? start : nil, last = end?.cell == entry.cell ? end : nil
+            let parts = cell.highlightParts(lower: first?.offset ?? 0, upper: last?.offset ?? cell.content.length, start: first, end: last)
+            layout.cellText[entry.cell].drawHighlight(run: parts.run, nested: parts.nested, color: color,
+                                                      inLines: entry.lines, at: layout.contentFrames[entry.cell].origin)
+        }
+    }
+
     override func image(for bounds: CGRect, attributes: [NSAttributedString.Key: Any], location: any NSTextLocation,
                         textContainer: NSTextContainer?) -> PlatformImage? {
         render(bounds.size, container: textContainer)
@@ -233,6 +259,9 @@ final class TableRowAttachment: ReaderAttachment {
         var textOrigin: CGPoint
         var width: CGFloat
         var scale: CGFloat
+        /// The layout that draws the cell, and the lines of it this continuation holds.
+        var cellLayout: TableCellLayout
+        var lines: Range<Int>
     }
 
     func interactionCells(size: CGSize, viewportHeight: CGFloat) -> [InteractionCell] {
@@ -252,7 +281,7 @@ final class TableRowAttachment: ReaderAttachment {
             return InteractionCell(cell: entry.cell, text: cell.interactionText,
                 characters: NSRange(location: cell.lines[first].characters.location,
                     length: cell.lines[last].characters.upperBound - cell.lines[first].characters.location),
-                frame: frame, textOrigin: origin, width: content.width, scale: scale)
+                frame: frame, textOrigin: origin, width: content.width, scale: scale, cellLayout: cell, lines: entry.lines)
         }
     }
 

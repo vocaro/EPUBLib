@@ -282,12 +282,28 @@ import XCTest
         do {
             try await EPUBEngineContract.verify(engine: NativeEngine(),
                 publication: EPUBPublication.open(data: Fixture.epub()),
-                firstHref: "OPS/one.xhtml", secondHref: "OPS/two.xhtml", text: "Opening words are visible.") { session in
+                firstHref: "OPS/one.xhtml", secondHref: "OPS/two.xhtml", text: "ordinary reading text") { session in
                     let window = ReaderTestWindow(session: session)
                     return { window.close() }
                 }
         } catch let error as EPUBEngineContract.Failure {
             XCTFail(error.description)
+        }
+    }
+
+    /// With one result every step shows that result, so the verifier refuses the phrase
+    /// rather than pass steps and wraps that did not move the current match.
+    func testReusableEngineContractRefusesAPhraseWithOneResult() async throws {
+        do {
+            try await EPUBEngineContract.verify(engine: NativeEngine(),
+                publication: EPUBPublication.open(data: Fixture.epub()),
+                firstHref: "OPS/one.xhtml", secondHref: "OPS/two.xhtml", text: "Opening words are visible.") { session in
+                    let window = ReaderTestWindow(session: session)
+                    return { window.close() }
+                }
+            XCTFail("The verifier passed a phrase with one result")
+        } catch let error as EPUBEngineContract.Failure {
+            XCTAssertEqual(error.description, "Provide a phrase with two or more search results, so steps and wraps can move the current match")
         }
     }
 
@@ -359,7 +375,7 @@ import XCTest
         XCTAssertEqual(selection.location.bookmark?.engineID, EPUBReader.identifier)
         canvasRequestsSelectionAction(session)
         XCTAssertEqual(selected?.text, selection.text)
-        XCTAssertEqual(selected?.location.publicationID, session.publication.id)
+        XCTAssertEqual(selected?.location.publicationID, session.publication.persistentID)
 
         let saved = try XCTUnwrap(locations(events()).last)
         XCTAssertEqual(saved.href, "OPS/two.xhtml")
