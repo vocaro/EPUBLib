@@ -86,6 +86,27 @@ neither passed nor failed: run those tests again when the host is quieter. The M
 is `.build/validation/mac.log`. The script checks bound a run of fake tools only against a
 hang, at two minutes (`HANG_SECONDS` in `scripts/tests/support.py`).
 
+Some tests are measured only at normal memory pressure. A verifier wait that is meant to run
+out, as when `ControlsCoverageContractTests` and `EngineContractTests` check that a broken
+engine is refused, reaches its limit on every run. So under memory pressure it is unmeasured
+every time, in a simulator too, whose test process reads the host's level. On 2026-10-23 five
+of them were unmeasured on the iPhone simulator, in a gate and again alone, and passed in a rerun
+during which the level read 1 throughout
+([the record](https://github.com/vocaro/EPUBLib/issues/601#issuecomment-6377013285)). Rerun
+them with the level logged beside the run:
+
+```sh
+( while sleep 2; do echo "$(date +%T) $(sysctl -n kern.memorystatus_vm_pressure_level)"; done ) > pressure.log &
+python3 scripts/eng run ios-tests -- -only-testing:EPUBViewingTests/ControlsCoverageContractTests \
+  -only-testing:EPUBViewingTests/EngineContractTests
+kill %1
+```
+
+A test that fails in a gate and passes alone may still race. Repeat its class through the same
+lane with `-test-iterations 5 -run-tests-until-failure` after `--`, and file what fails only
+under load as a defect. `LayoutPageTests`' closing test failed once that way and then passed five
+repetitions on both simulators ([#860](https://github.com/vocaro/EPUBLib/issues/860)).
+
 Record host activity beside the results as context, as that section describes. The idle-CPU
 recipe [reported in #62](https://github.com/vocaro/EPUBLib/issues/62#issuecomment-6155249383)
 is a heuristic from one session, not a gate requirement or an acceptance cutoff.
