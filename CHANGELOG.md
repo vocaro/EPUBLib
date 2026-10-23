@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Put a spread's gutter on iPhone Duo's fold without the host, by having `EPUBReaderView` read the fold's `.division` reserved region from iOS 27.1, flat or partly folded, with a frame from `epubReaderDivision(_:)` still winning ([#686](https://github.com/vocaro/EPUBLib/issues/686)).
 - Leave the words and pictures a book keeps from assistive technology out of what VoiceOver reads of a table cell, on iPhone and iPad in a cell's element, a row's line and its actions and on Mac in what a row is called and a cell's selected text, while a selection and a copy of the row keep them ([#551](https://github.com/vocaro/EPUBLib/issues/551))
 - Name the language of a picture's words to VoiceOver, that of its `img`, `object`, `embed` or `svg` element, so that a heading or a cell whose picture's words outweigh its own is read in their language ([#548](https://github.com/vocaro/EPUBLib/issues/548))
 

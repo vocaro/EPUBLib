@@ -341,7 +341,7 @@ import XCTest
     }
 
     /// `View.epubReaderDivision(_:)`: "Reserves a vertical division of the reader … Horizontal
-    /// divisions and nil reserve nothing."
+    /// divisions reserve nothing." With no fold found, nil reserves nothing either.
     func testAReservedDivisionReachesTheMountedReaderAndChangesLive() async throws {
         let reader = try SessionCoverageReader(SessionCoverageBook.chapters(), mounted: false)
         let window = SessionCoverageStageWindow(session: reader.session)
@@ -375,6 +375,164 @@ import XCTest
         try await reader.wait("the midpoint") { reader.isVisible(mid) }
         XCTAssertEqual(reader.events.filter { $0 == .ready }.count, 1)
         XCTAssertTrue(reader.locations.dropFirst(relocations).allSatisfy { $0.href == "OPS/two.xhtml" })
+    }
+
+    /// Sizes like the Duo simulator's displays (iOS 27.1), whose pixels simctl gives as
+    /// 2007×2853 inside and 1398×2034 outside, at three pixels a point: the inner display held as
+    /// a book is wide.
+    private static let duoInner = CGSize(width: 951, height: 669)
+    private static let duoOuter = CGSize(width: 466, height: 678)
+
+    /// A stage window at the inner display's size, showing the midpoint of chapter two.
+    private func openOnTheInnerDisplay(_ data: Data) async throws -> (SessionCoverageReader, SessionCoverageStageWindow, ReaderTextPosition) {
+        let reader = try SessionCoverageReader(data, mounted: false)
+        let window = SessionCoverageStageWindow(session: reader.session, size: Self.duoInner)
+        addTeardownBlock { @MainActor in reader.close(); window.close() }
+        window.resize(to: Self.duoInner)
+        try await reader.wait("the inner display's width") { reader.session.canvas?.bounds.width == Self.duoInner.width }
+        try await reader.settle()
+        let mid = try reader.anchor("mid", section: 2)
+        try await reader.session.send(.navigate(href: "OPS/two.xhtml#mid"))
+        try await reader.wait("the midpoint") { reader.isVisible(mid) }
+        return (reader, window, mid)
+    }
+
+    private func assertSpread(_ canvas: ReaderCanvasView, keepsOff fold: CGRect, _ label: String,
+                              file: StaticString = #filePath, line: UInt = #line) {
+        let frames = canvas.textViews.map(\.frame)
+        XCTAssertEqual(frames.count, 2, "\(label): a page each side of the fold", file: file, line: line)
+        XCTAssertTrue(frames.allSatisfy { $0.maxX <= fold.minX || $0.minX >= fold.maxX },
+                      "\(label): text crosses the fold at \(fold): \(frames)", file: file, line: line)
+        XCTAssertEqual(Set(frames.map { $0.midX < fold.midX }).count, 2, "\(label): \(frames)", file: file, line: line)
+    }
+
+    /// `EPUBReaderView` finds iPhone Duo's fold itself, from its `.division` reserved region, and
+    /// keeps text off it as it keeps text off a frame from `View.epubReaderDivision(_:)` (#686).
+    /// The regions are given here, as the system reports them; `DuoFoldTests` reads the system's
+    /// on a Duo simulator.
+    func testTheReaderFindsAnUprightFoldItselfAndAFrameTheHostGivesWins() async throws {
+        for (label, data) in [("left to right", try SessionCoverageBook.chapters()),
+                              ("right to left", try SessionCoverageBook.chapters(spine: " page-progression-direction=\"rtl\""))] {
+            let (reader, window, mid) = try await openOnTheInnerDisplay(data)
+            let canvas = try XCTUnwrap(reader.session.canvas)
+            XCTAssertNil(canvas.configuration.division, "\(label): no fold reported and no frame from the host")
+
+            // Flat, the system reports the fold inactive: the spread's gutter is on it.
+            let fold = CGRect(x: canvas.bounds.midX - 12, y: 0, width: 24, height: canvas.bounds.height)
+            window.stage.foldRegions = [ReaderFold.Region(frame: fold, isActive: false)]
+            try await reader.wait("\(label): the fold found") { canvas.configuration.division == fold }
+            try await reader.wait("\(label): the midpoint beside the fold") { reader.isVisible(mid) }
+            assertSpread(canvas, keepsOff: fold, "\(label), flat")
+            let frames = canvas.textViews.map(\.frame), shown = reader.session.visibleRange
+
+            // Partly folded, the same fold is active, and nothing on the page moves.
+            window.stage.foldRegions = [ReaderFold.Region(frame: fold, isActive: true)]
+            try await Task.sleep(for: .milliseconds(300))
+            XCTAssertEqual(canvas.configuration.division, fold, label)
+            XCTAssertEqual(canvas.textViews.map(\.frame), frames, "\(label): partly folded")
+            XCTAssertEqual(reader.session.visibleRange, shown, "\(label): partly folded")
+
+            // A frame the host gives wins. Nil gives the fold back to the reader, and
+            // `CGRect.null` reserves nothing.
+            let hinge = CGRect(x: canvas.bounds.midX + 30, y: 0, width: 10, height: canvas.bounds.height)
+            window.stage.division = hinge
+            try await reader.wait("\(label): the host's frame") { canvas.configuration.division == hinge }
+            assertSpread(canvas, keepsOff: hinge, "\(label), the host's frame")
+            window.stage.division = nil
+            try await reader.wait("\(label): the fold again") { canvas.configuration.division == fold }
+            window.stage.division = .null
+            try await reader.wait("\(label): nothing reserved") { canvas.configuration.division == .null }
+            XCTAssertNil(ReaderCanvasGeometry.usableDivision(canvas.configuration.division, in: canvas.bounds), label)
+            window.stage.division = nil
+
+            // Held upright, or in the laptop pose, the fold runs across the reader, and the
+            // reader reserves nothing (#724).
+            let across = CGRect(x: 0, y: canvas.bounds.midY - 12, width: canvas.bounds.width, height: 24)
+            window.stage.foldRegions = [ReaderFold.Region(frame: across, isActive: true)]
+            try await reader.wait("\(label): no upright fold") { canvas.configuration.division == nil }
+            try await reader.wait("\(label): the midpoint") { reader.isVisible(mid) }
+            XCTAssertEqual(reader.events.filter { $0 == .ready }.count, 1, label)
+            reader.close()
+            window.close()
+        }
+    }
+
+    /// Closing iPhone Duo takes the reader to the outer display, which has no fold, and opening
+    /// it brings it back to the fold (#686). The first line of the page last turned to stays on
+    /// screen through each, also when the phone is closed while a turn slides (#688), and the
+    /// spread it opens to is the one it closed on.
+    func testClosingAndOpeningTheDuoKeepTheFirstLineOnScreen() async throws {
+        for (label, data) in [("left to right", try SessionCoverageBook.chapters()),
+                              ("right to left", try SessionCoverageBook.chapters(spine: " page-progression-direction=\"rtl\""))] {
+            let (reader, window, _) = try await openOnTheInnerDisplay(data)
+            let since = reader.events.count
+            let canvas = try XCTUnwrap(reader.session.canvas)
+            let open = [ReaderFold.Region(frame: CGRect(x: canvas.bounds.midX - 12, y: 0, width: 24, height: canvas.bounds.height),
+                                          isActive: false)]
+            let fold = open[0].frame
+            func close() { window.stage.foldRegions = []; window.resize(to: Self.duoOuter) }
+            func reopen() { window.stage.foldRegions = open; window.resize(to: Self.duoInner) }
+            window.stage.foldRegions = open
+            try await reader.wait("\(label): the fold found") { canvas.configuration.division == fold }
+            try await reader.session.send(.nextPage)
+            try await reader.settle()
+            assertSpread(canvas, keepsOff: fold, "\(label), open")
+            let spread = try XCTUnwrap(reader.session.visibleRange)
+
+            for turn in 0..<2 {
+                close()
+                try await reader.wait("\(label): closed \(turn)") {
+                    canvas.bounds.width == Self.duoOuter.width && canvas.configuration.division == nil && reader.isVisible(spread.start)
+                }
+                XCTAssertEqual(canvas.textViews.count, 1, "\(label): one page on the outer display")
+                reopen()
+                try await reader.wait("\(label): opened \(turn)") {
+                    canvas.bounds.width == Self.duoInner.width && canvas.configuration.division == fold && reader.isVisible(spread.start)
+                }
+                try await reader.settle()
+                assertSpread(canvas, keepsOff: fold, "\(label), opened \(turn)")
+                XCTAssertEqual(reader.session.visibleRange, spread, "\(label): the spread it closed on, opened \(turn)")
+            }
+
+            // A page turned to on the outer display keeps its first line through opening and closing.
+            close()
+            try await reader.wait("\(label): closed") { canvas.bounds.width == Self.duoOuter.width && reader.isVisible(spread.start) }
+            try await reader.session.send(.nextPage)
+            try await reader.settle()
+            let page = try XCTUnwrap(reader.session.visibleRange)
+            XCTAssertGreaterThan(page.start, spread.start, label)
+            reopen()
+            try await reader.wait("\(label): opened on the outer page's first line") {
+                canvas.bounds.width == Self.duoInner.width && canvas.configuration.division == fold && reader.isVisible(page.start)
+            }
+            assertSpread(canvas, keepsOff: fold, "\(label), opened on the outer page")
+            close()
+            try await reader.wait("\(label): the same outer page") {
+                canvas.bounds.width == Self.duoOuter.width && reader.session.visibleRange == page
+            }
+
+            // Closed while a turn slides: the relayout ends the slide, and the first line of the
+            // page turned to stays on screen.
+            window.stage.pageTurnAnimation = .slide
+            reopen()
+            try await reader.wait("\(label): opened to slide") {
+                canvas.bounds.width == Self.duoInner.width && canvas.configuration.division == fold
+                    && canvas.configuration.pageTurnAnimation == .slide
+            }
+            try await reader.settle()
+            let before = try XCTUnwrap(reader.session.visibleRange)
+            try await reader.session.send(.nextPage)
+            try await reader.wait("\(label): the page slides") { canvas.visibleRange != before && canvas.pageTransition != nil }
+            let turned = try XCTUnwrap(canvas.visibleRange)
+            close()
+            try await reader.wait("\(label): closed while sliding") {
+                canvas.bounds.width == Self.duoOuter.width && canvas.pageTransition == nil && reader.isVisible(turned.start)
+            }
+            XCTAssertEqual(canvas.textViews.count, 1, "\(label): one page after the slide")
+            XCTAssertTrue(reader.locations(since: since).allSatisfy { $0.href == "OPS/two.xhtml" }, label)
+            reader.close()
+            window.close()
+        }
     }
 
     func testTheSelectionActionsTitleAndImageReachTheMountedReader() async throws {

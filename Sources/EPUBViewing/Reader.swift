@@ -38,16 +38,29 @@ public extension EPUBReaderSession {
 }
 
 /// Mount exactly once per session. Hosts may add `EPUBReaderToolbar` or supply their own chrome.
+///
+/// From iOS 27.1 the view finds iPhone Duo's fold itself, from its `.division` reserved region,
+/// and reserves it as `View.epubReaderDivision(_:)` does.
 public struct EPUBReaderView: View {
     private let session: any EPUBReaderSession
+    @Environment(\.epubReaderDivision) private var hostDivision
+    @State private var foundDivision: CGRect?
     public init(session: any EPUBReaderSession) { self.session = session }
-    public var body: some View { session.makeView() }
+    public var body: some View {
+        session.makeView()
+            .modifier(ReaderFoldReader(found: $foundDivision))
+            .environment(\.epubReaderDivision, ReaderFold.division(host: hostDivision, found: foundDivision))
+    }
 }
 
 public extension View {
     /// Reserves a vertical division of the reader, such as a fold or hinge, in the coordinate
     /// space of the `EPUBReaderView` it is applied to. In paginated flow a spread puts its gutter
-    /// on the division; text never crosses it. Horizontal divisions and nil reserve nothing.
+    /// on the division; text never crosses it. Horizontal divisions reserve nothing.
+    ///
+    /// From iOS 27.1 the reader finds iPhone Duo's fold without this modifier, whether the phone
+    /// lies flat or is partly folded. A frame given here wins over the fold it finds; nil, the
+    /// default, leaves the reader to find it, and `CGRect.null` reserves nothing.
     func epubReaderDivision(_ frame: CGRect?) -> some View { environment(\.epubReaderDivision, frame) }
 }
 
