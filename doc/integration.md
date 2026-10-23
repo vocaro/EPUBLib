@@ -378,6 +378,68 @@ not rebuild text, repaginate, clear selection or highlights, or emit a relocatio
 current wheel gesture/cooldown and pending edge press are reset. Host commands and
 accessibility use the same page/viewport operation regardless of direct-input configuration.
 
+## Quick Look extensions
+
+A Quick Look thumbnail extension and a preview extension each call the library for what they
+show, and draw nothing of their own. `EPUBThumbnail` draws the cover at the size Quick Look asks
+for, or a title page when the book has no cover; `EPUBPreview` reads the cover, title, authors
+and opening sections, and `EPUBPreviewView` shows them, the opening in the package's reader. Each
+opens the book reading only what it shows, within `EPUBImportLimits.quickLook`; what that costs
+and where its limits are is in the [native viewer](native-viewer.md#quick-look). Each extension's
+principal class is all an app writes:
+
+<!-- snippet:quickLook -->
+```swift
+/// A Quick Look thumbnail extension's principal class.
+final class BookThumbnailProvider: QLThumbnailProvider {
+    override func provideThumbnail(for request: QLFileThumbnailRequest,
+                                   _ handler: @escaping (QLThumbnailReply?, Error?) -> Void) {
+        do {
+            let thumbnail = try EPUBThumbnail(contentsOf: request.fileURL, maximumSize: request.maximumSize,
+                                              scale: request.scale)
+            handler(QLThumbnailReply(contextSize: thumbnail.size) { context in thumbnail.draw(in: context) }, nil)
+        } catch {
+            handler(nil, error)
+        }
+    }
+}
+
+#if os(macOS)
+/// A Quick Look preview extension's principal class.
+final class BookPreviewController: NSViewController, QLPreviewingController {
+    override func loadView() { view = NSView() }
+
+    func preparePreviewOfFile(at url: URL) async throws {
+        let preview = try await Task.detached { try EPUBPreview(contentsOf: url) }.value
+        let host = NSHostingView(rootView: EPUBPreviewView(preview: preview))
+        host.frame = view.bounds
+        host.autoresizingMask = [.width, .height]
+        view.addSubview(host)
+    }
+}
+#else
+/// A Quick Look preview extension's principal class.
+final class BookPreviewController: UIViewController, QLPreviewingController {
+    func preparePreviewOfFile(at url: URL) async throws {
+        let preview = try await Task.detached { try EPUBPreview(contentsOf: url) }.value
+        let host = UIHostingController(rootView: EPUBPreviewView(preview: preview))
+        addChild(host)
+        host.view.frame = view.bounds
+        host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(host.view)
+        host.didMove(toParent: self)
+    }
+}
+#endif
+```
+<!-- /snippet -->
+
+`EPUBThumbnail.draw(in:)` draws in Core Graphics coordinates, with the origin at the lower left,
+as `QLThumbnailReply(contextSize:drawing:)` gives its block; in a context made current for
+UIKit, flip it first. An app that has the book open already, to show its own library, makes either
+from the publication: `EPUBThumbnail(publication:maximumSize:scale:)` and
+`EPUBPreview(publication:)`.
+
 ## Privacy manifest
 
 A host declares nothing for EPUBLib in its privacy manifest. Apple has an app give a reason for

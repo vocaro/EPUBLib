@@ -32,6 +32,8 @@ against the older book did not carry over ([#168](https://github.com/vocaro/EPUB
 ## Publication model
 
 Opening copies the archive into a bounded snapshot and checks every archive entry before returning.
+A Quick Look thumbnail or preview opens a book on demand instead, inflating only the entries
+that describe it and each other entry when it is first read ([native viewer](native-viewer.md#quick-look)).
 Archive paths are decoded ZIP paths; the container's rootfile path and manifest/navigation hrefs
 are URL references. An entry's name is read as UTF-8 when its bytes are well-formed UTF-8, with or
 without the ZIP language-encoding flag (general-purpose bit 11), which `zip` and `ditto` on a Mac

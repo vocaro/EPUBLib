@@ -1178,6 +1178,40 @@ What the probe saw, what was fixed and what is still unverified is on
 [#51](https://github.com/vocaro/EPUBLib/issues/51#issuecomment-6159295619) ([second
 part](https://github.com/vocaro/EPUBLib/issues/51#issuecomment-6159295950)).
 
+### Quick Look memory
+
+For [#695](https://github.com/vocaro/EPUBLib/issues/695),
+`scripts/measure-quick-look-memory.py` measures the memory and time of a Quick Look thumbnail and
+preview of every book given ([native viewer](native-viewer.md#quick-look)). It packs the W3C
+reading-system tests, which are directories, into EPUB files under
+`.build/quick-look-memory/w3c-epub-tests` (`mimetype` first and stored, the rest deflated, as the
+corpus tests pack them), takes further books with `--books`, and runs the opt-in
+`QuickLookMemoryTests` from a release build. On the Mac (`--mac`) each book and call has a fresh
+process; in a disposable iPhone 17 Pro simulator (`--simulator`), which it creates, boots
+headlessly and deletes by UDID, each call has one process for every book. It is a whole-machine
+measurement, so run it exclusively:
+
+```sh
+eval "$(bash scripts/fetch-corpora.sh)"
+python3 scripts/eng admit --exclusive -- python3 scripts/measure-quick-look-memory.py --mac --simulator \
+  --books ~/Library/Caches/EPUBLib/corpora/gutenberg-2026-10-14
+```
+
+A thumbnail is made at 512 points and 2 pixels a point, the size of Finder's largest icons, and
+drawn. A preview is read off the main actor, then its view is mounted in an 800 by 600 window,
+or the simulator's screen, until its reader is ready and has built the opening; one not built
+within 30 seconds is unmeasured. Each row, in `mac.tsv` and `simulator.tsv` under a directory
+named for the run, gives the book, the call and its outcome, the archive's size, the process's
+footprint before the call, the most it rose during the call, sampled every millisecond so a
+shorter spike can be missed, the kernel's lifetime peak footprint after it
+(`ledger_phys_footprint_peak`), the memory pressure level before and after, and the call's
+milliseconds. A row whose pressure was not normal (1) is unmeasured. In a fresh process the
+lifetime peak bounds that book's call with the test runner's own footprint; in the simulator's
+one process it bounds every book's. Neither is an extension's limit, which only a device
+enforces. The test needs `EPUBLIB_QUICK_LOOK_INPUTS` (files or directories, separated by colons)
+and takes `EPUBLIB_QUICK_LOOK_CALL` (`thumbnail` or `preview`) and `EPUBLIB_QUICK_LOOK_REPORT`, with
+`TEST_RUNNER_` before each in a simulator.
+
 ### VoiceOver's own code on Mac
 
 What VoiceOver does with an element can be read in its own code, without running it or
