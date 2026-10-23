@@ -83,9 +83,10 @@ the issues and the release notes, and the same day had the VoiceOver document fo
 - How to run or repeat something goes in [testing](doc/testing.md), VoiceOver sessions
   included. A probe's script and inputs go under
   [Probes and recorded inputs](doc/testing.md#probes-and-recorded-inputs).
-- What was run, and a release's verification, go where the shared
+- What was run goes in a comment on the issue, as the shared
   [documentation and evidence ownership](https://github.com/vocaro/apple-engineering/blob/main/guides/maintenance.md#documentation-and-evidence-ownership)
-  rules put them: in a comment on the issue, and in the release's GitHub release notes.
+  rules say. A release's GitHub release notes say what changed and assume its gate passed; they
+  do not describe the run ([releasing](https://github.com/vocaro/apple-engineering/blob/main/guides/releasing.md)).
 - A changelog entry is one sentence and a link to its issue, at the top of "Unreleased" in
   [CHANGELOG.md](CHANGELOG.md). What changed in detail is on the issue.
 
