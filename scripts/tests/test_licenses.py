@@ -14,7 +14,8 @@ UPSTREAM = {
     "ZIPFoundation": {"LICENSE": "ZIPFoundation MIT\n"},
     "MathMLLayout": {"LICENSE": "MathMLLayout MIT\n", "doc/licenses/SRE-NOTICE.txt": "SRE notice\n",
                      "Sources/Kept.swift": "// not copied\n"},
-    "StaticSVG": {"LICENSE": "StaticSVG MIT\n", "Resvg/dependencies.json": "[]\n",
+    "StaticSVG": {"LICENSE": "StaticSVG MIT\n", "THIRD_PARTY_NOTICES.md": "StaticSVG notices\n",
+                  "Resvg/dependencies.json": "[]\n",
                   "Resvg/Licenses/resvg-0.48.1/LICENSE-MIT": "resvg MIT\n"},
 }
 # Where each copy sits in Sources/EPUBCore/Licenses.
@@ -23,6 +24,7 @@ COPIES = {
     "MathMLLayout/LICENSE.txt": ("MathMLLayout", "LICENSE"),
     "MathMLLayout/SRE-NOTICE.txt": ("MathMLLayout", "doc/licenses/SRE-NOTICE.txt"),
     "StaticSVG/LICENSE.txt": ("StaticSVG", "LICENSE"),
+    "StaticSVG/THIRD_PARTY_NOTICES.md": ("StaticSVG", "THIRD_PARTY_NOTICES.md"),
     "StaticSVG/dependencies.json": ("StaticSVG", "Resvg/dependencies.json"),
     "StaticSVG/Licenses/resvg-0.48.1/LICENSE-MIT": ("StaticSVG", "Resvg/Licenses/resvg-0.48.1/LICENSE-MIT"),
 }
@@ -97,7 +99,7 @@ class LicenseCheckTests(unittest.TestCase):
     def test_copies_of_the_pinned_files_pass(self):
         result = self.check()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Verified 8 license and notice files of 5 components", result.stdout)
+        self.assertIn("Verified 9 license and notice files of 5 components", result.stdout)
 
     def test_a_changed_missing_or_unpinned_copy_fails(self):
         licenses = self.root / "Sources/EPUBCore/Licenses"
@@ -123,6 +125,16 @@ class LicenseCheckTests(unittest.TestCase):
         self.pin()
         self.assertFails(f"StaticSVG: no revision {'0' * 40} in {self.checkouts / 'StaticSVG'}: "
                          f"fatal: not a tree object")
+
+    def test_a_notice_file_at_a_packages_top_that_nothing_copies_fails(self):
+        # As StaticSVG's THIRD_PARTY_NOTICES.md was before #699's review; a file under a folder
+        # whose name says license is code, and is not one.
+        self.revisions["ZIPFoundation"] = self.commit("ZIPFoundation", {"NOTICE": "ZIPFoundation notice\n",
+                                                                        "Sources/LicenseKit.swift": "// code\n"})
+        self.pin()
+        self.assertFails(f"ZIPFoundation: NOTICE at {self.revisions['ZIPFoundation']} is a license or notice"
+                         " file nothing copies")
+        self.assertNotIn("LicenseKit", self.check().stderr)
 
     def test_the_root_license_and_foliate_license_are_held(self):
         self.write("LICENSE", "EPUBLib MIT, changed\n")

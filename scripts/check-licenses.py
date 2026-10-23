@@ -3,9 +3,10 @@
 
 An app shows the license and notice texts of EPUBLib and of the code its products contain from
 EPUBCore's resource bundle (#699). Each copy must be, byte for byte, its project's file at the
-revision Package.resolved pins, read from that dependency's checkout, under the name given here.
-The folders must be the components that doc/third-party-notices.md names, at the versions
-pinned. Run it after `swift build` or `swift test`, which check the dependencies out.
+revision Package.resolved pins, read from that dependency's checkout, under the name given here,
+and every license or notice file at the top of a pinned package must be copied. The folders must
+be the components that doc/third-party-notices.md names, at the versions pinned. Run it after
+`swift build` or `swift test`, which check the dependencies out.
 """
 import argparse
 import hashlib
@@ -21,13 +22,14 @@ LICENSES = Path('Sources/EPUBCore/Licenses')
 PACKAGES = {
     'zipfoundation': ('ZIPFoundation', {'LICENSE': 'LICENSE'}),
     'mathmllayout': ('MathMLLayout', {'LICENSE.txt': 'LICENSE', '': 'doc/licenses/'}),
-    'staticsvg': ('StaticSVG', {'LICENSE.txt': 'LICENSE', 'dependencies.json': 'Resvg/dependencies.json',
-                                'Licenses/': 'Resvg/Licenses/'}),
+    'staticsvg': ('StaticSVG', {'LICENSE.txt': 'LICENSE', 'THIRD_PARTY_NOTICES.md': 'THIRD_PARTY_NOTICES.md',
+                                'dependencies.json': 'Resvg/dependencies.json', 'Licenses/': 'Resvg/Licenses/'}),
 }
 # foliate-js is ported, not a dependency: its license at the commit the port follows.
 FOLIATE_COMMIT = '78914aef4466eb960965702401634c2cb348e9b1'
 FOLIATE_FILES = {'LICENSE': '5930571b73151702a913179ef5f96313ad7d25d3'}
 COMPONENTS = {'EPUBLib', 'foliate-js', *(component for component, _ in PACKAGES.values())}
+NOTICE_NAMES = re.compile(r'(LICEN[CS]E|NOTICE|COPYING|COPYRIGHT|THIRD[-_]?PARTY)', re.IGNORECASE)
 
 
 def blob(data):
@@ -62,6 +64,11 @@ def pinned_files(checkout, revision, sources):
             expected[copy] = tree[source]
         else:
             missing.append(f'{checkout.name}: no {source} at {revision}')
+    # A license or notice file at the package's top, such as StaticSVG's THIRD_PARTY_NOTICES.md,
+    # is one its redistribution terms name: copy it, or say here why not.
+    missing += [f'{checkout.name}: {path} at {revision} is a license or notice file nothing copies'
+                for path in sorted(tree) if '/' not in path and NOTICE_NAMES.match(path)
+                and path not in sources.values()]
     return expected, missing
 
 

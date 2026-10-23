@@ -33,6 +33,9 @@ final class PackageLicenseTests: XCTestCase {
             for text in crate.texts { XCTAssertNotNil(texts["StaticSVG/\(text)"], text) }
         }
         XCTAssertTrue(texts.keys.contains { $0.hasPrefix("StaticSVG/Licenses/rust-") && $0.hasSuffix("/COPYRIGHT-library.html") })
+        // StaticSVG's notices name the files an app linking it must include: its license, that
+        // file itself and the crates' texts.
         XCTAssertNotNil(texts["StaticSVG/LICENSE.txt"])
+        XCTAssertNotNil(texts["StaticSVG/THIRD_PARTY_NOTICES.md"])
     }
 }

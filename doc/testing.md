@@ -219,8 +219,12 @@ ended at that test's `started` line, and the sample had the test's frame on the 
 at the revision `Package.resolved` pins, so it runs after `swift build`. It compares Git blob
 hashes, byte for byte, and names each copy in `Sources/EPUBCore/Licenses` that differs, is missing
 or copies no pinned file, a folder the [third-party notices](third-party-notices.md) do not name,
-and a version there that is not the pin. When a pin moves, copy the new release's files over the
-old ones under the names the notices give, and change the version there.
+and a version there that is not the pin. It also names a license or notice file at the top of a
+pinned package (`LICENSE`, `NOTICE`, `COPYING`, `THIRD_PARTY_NOTICES` and the like) that nothing
+copies: StaticSVG's `THIRD_PARTY_NOTICES.md`, which its redistribution terms name, was left out
+until [#699](https://github.com/vocaro/EPUBLib/issues/699)'s review. When a pin moves, copy the
+new release's files over the old ones under the names the notices give, read its redistribution
+terms for any file they add, and change the version there.
 `PackageLicenseTests` reads every text through `EPUBLicense.all()` on the Mac and on both
 simulators.
 
