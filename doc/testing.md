@@ -1260,6 +1260,55 @@ What the probe saw, what was fixed and what is still unverified is on
 [#51](https://github.com/vocaro/EPUBLib/issues/51#issuecomment-6159295619) ([second
 part](https://github.com/vocaro/EPUBLib/issues/51#issuecomment-6159295950)).
 
+### Menu bar commands
+
+`EPUBReaderMenuCommands` ([reader controls](reader-controls.md#menu-bar-commands)) is checked
+three ways ([#697](https://github.com/vocaro/EPUBLib/issues/697)), and the probe's host carries
+it on both platforms.
+
+- `ReaderMenuCommandsTests` gives each command's name, which VoiceOver reads of its item, its
+  shortcut, when it is dimmed and what it submits, against a scripted session, and Find in a
+  mounted control strip and search pane. SwiftUI builds menus from `Commands` only in an app's
+  scene, so the tests read what the menu items read.
+
+  ```sh
+  python3 scripts/eng run swift-tests --expect 10 -- --filter ReaderMenuCommandsTests
+  python3 scripts/eng run ios-tests --expect 20 -- -only-testing:EPUBViewingTests/ReaderMenuCommandsTests
+  ```
+
+- `MenuCommandShortcuts`, a UI test in the probe's bundle, types the shortcuts on an iPad
+  simulator with `XCUIElement.typeKey`, through UIKit's keyboard dispatch and the app's menu, and
+  reads each effect from the host's status line: the text size, the reading modes, Find, and Find
+  Next and Find Previous after a search. Build the probe for a disposable iPad Air 13-inch (M4)
+  simulator as above, then run it alone:
+
+  ```sh
+  xcodebuild -project Examples/ControlsQualification/ControlsQualification.xcodeproj \
+    -scheme ControlsProbeIOS -destination "platform=iOS Simulator,id=$DEVICE" \
+    -derivedDataPath .build/qualification/derived test-without-building \
+    -only-testing:ControlsProbeIOS/MenuCommandShortcuts
+  ```
+
+  XCTest sends no press for Page Up, Page Down, Home or End there (above), so the Go menu's
+  shortcuts are not typed. UIKit built the app's main menu when the first key came, and that key
+  reached no item, so the test's first key is Actual Size, dimmed at the default size. The
+  simulator's log names an item the menu builder refused ("Inserted elements conflict with
+  existing elements"):
+
+  ```sh
+  xcrun simctl spawn "$DEVICE" log show --last 10m --predicate 'process == "ControlsQualification"' | grep -A8 conflict
+  ```
+
+  On a Mac the test skips: it would take the pointer and keyboard.
+- On the Mac the host's menu bar is read in the background through the accessibility API, as
+  [driving an owned app in the background](https://github.com/vocaro/apple-engineering/blob/main/guides/background-mac-testing.md#driving-an-owned-app-in-the-background)
+  says: built signed to run locally (`CODE_SIGN_IDENTITY=-`), launched without activation,
+  addressed by its PID, and quit. The driver is on
+  [#697](https://github.com/vocaro/EPUBLib/issues/697#issuecomment-6371832258). An app in the background has no window
+  in front, and so no reader for `@FocusedValue`: every item was in its place, by its name and
+  with its shortcut, and dimmed, and pressing one did nothing. Items enabled and run from the
+  Mac's menu bar need the host's window in front.
+
 ### VoiceOver's own code on Mac
 
 What VoiceOver does with an element can be read in its own code, without running it or

@@ -169,6 +169,8 @@ public struct EPUBReaderControl: View {
     private let group: EPUBReaderControlGroup
     private let inlineSearch: Bool
     @State private var showingSearch = false
+    /// The search group's name among the controls' Find targets (`EPUBReaderControls.find()`).
+    @State private var findTarget = UUID()
     @Environment(\.epubReaderControlsHiding) private var hiding
     public init(controls: EPUBReaderControls, group: EPUBReaderControlGroup, inlineSearch: Bool = false) {
         self.controls = controls; self.group = group; self.inlineSearch = inlineSearch
@@ -180,17 +182,21 @@ public struct EPUBReaderControl: View {
                 if controls.supports(.pagination) || controls.supports(.scrolling) { pages }
             case .search:
                 if controls.supports(.search) || controls.supports(.searchHighlight) {
-                    if inlineSearch { EPUBSearchField(controls: controls) }
-                    else {
-                        Button("Search", systemImage: "magnifyingglass") { showingSearch = true }
-                            .popover(isPresented: $showingSearch) {
-                                EPUBSearchField(controls: controls, onDismiss: { showingSearch = false }).padding()
-                                    // As a sheet the pane is offered the whole height and was centred
-                                    // in it: the field jumped to the top when results arrived and back
-                                    // to the middle on Clear Search. A popover keeps its ideal size.
-                                    .frame(maxHeight: .infinity, alignment: .top)
-                            }
+                    Group {
+                        if inlineSearch { EPUBSearchField(controls: controls, findTarget: findTarget) }
+                        else {
+                            Button("Search", systemImage: "magnifyingglass") { showingSearch = true }
+                                .popover(isPresented: $showingSearch) {
+                                    EPUBSearchField(controls: controls, onDismiss: { showingSearch = false }, findTarget: findTarget).padding()
+                                        // As a sheet the pane is offered the whole height and was centered
+                                        // in it: the field jumped to the top when results arrived and back
+                                        // to the middle on Clear Search. A popover keeps its ideal size.
+                                        .frame(maxHeight: .infinity, alignment: .top)
+                                }
+                        }
                     }
+                    // Find opens the pane, whose field then takes focus; the inline field takes it itself.
+                    .modifier(EPUBFindTarget(controls: controls, id: findTarget) { if !inlineSearch { showingSearch = true } })
                 }
             case .contents:
                 if controls.supports(.navigateHref) { contents }
@@ -234,15 +240,7 @@ public struct EPUBReaderControl: View {
                     get: { controls.status?.style.appearance ?? .system },
                     set: { appearance in controls.changeStyle { $0.appearance = appearance } }
                 )) {
-                    Text("System").tag(EPUBReaderAppearance.system)
-                    Text("Light").tag(EPUBReaderAppearance.light)
-                    Text("Dark").tag(EPUBReaderAppearance.dark)
-                    Text("Sepia").tag(EPUBReaderAppearance.sepia)
-                    Text("Black").tag(EPUBReaderAppearance.black)
-                    // The reader's own colours, once a host has given some.
-                    if controls.status?.style.customColors != nil || controls.status?.style.appearance == .custom {
-                        Text("Custom").tag(EPUBReaderAppearance.custom)
-                    }
+                    EPUBAppearanceChoices(controls: controls)
                 }
             }
             if controls.isBusy { Text("Applying commands…") }
@@ -329,7 +327,24 @@ private struct EPUBPageButton: View {
     }
 }
 
-private struct EPUBContentsItems: View {
+/// The appearances the Appearance picker offers, in the toolbar's menu and the menu bar's.
+struct EPUBAppearanceChoices: View {
+    let controls: EPUBReaderControls?
+    var body: some View {
+        Text("System").tag(EPUBReaderAppearance.system)
+        Text("Light").tag(EPUBReaderAppearance.light)
+        Text("Dark").tag(EPUBReaderAppearance.dark)
+        Text("Sepia").tag(EPUBReaderAppearance.sepia)
+        Text("Black").tag(EPUBReaderAppearance.black)
+        // The reader's own colors, once a host has given some.
+        if controls?.status?.style.customColors != nil || controls?.status?.style.appearance == .custom {
+            Text("Custom").tag(EPUBReaderAppearance.custom)
+        }
+    }
+}
+
+/// The contents entries, in the toolbar's Contents menu and the menu bar's Go menu.
+struct EPUBContentsItems: View {
     let controls: EPUBReaderControls
     let items: [EPUBNavigationItem]
     var body: some View {
@@ -358,6 +373,8 @@ private struct EPUBContentsItems: View {
 struct EPUBSearchField: View {
     @Bindable var controls: EPUBReaderControls
     var onDismiss: (() -> Void)? = nil
+    /// The search group this field belongs to: Find puts focus in the field when it names it.
+    var findTarget: UUID? = nil
     @FocusState private var focused: Bool
     /// Whether the field has focus once a search is submitted. On a Mac it does. On iPhone and
     /// iPad it gives focus up, in the control strip and in a search pane alike, which puts the
@@ -429,6 +446,15 @@ struct EPUBSearchField: View {
         // A search pane was just opened to type in. The inline field is always on screen: taking
         // focus as it appears raised the keyboard over the book as soon as it opened.
         .task { if onDismiss != nil { focused = true } }
+        // Find, for this field's group. A turn later, so that controls Find has just shown again
+        // are enabled to take it.
+        .onChange(of: controls.findRequests) {
+            guard let findTarget, controls.findTargets.last == findTarget else { return }
+            Task { @MainActor in
+                await Task.yield()
+                focused = true
+            }
+        }
     }
     @ViewBuilder private var belowField: some View {
         if onDismiss != nil {

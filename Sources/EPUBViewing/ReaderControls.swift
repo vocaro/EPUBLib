@@ -29,6 +29,11 @@ import Foundation
     /// Whether VoiceOver or Switch Control is running, which keeps the controls from hiding by
     /// themselves (`readerDidReadOn`). The platform's own answer, which a test takes in its place.
     @ObservationIgnored var assistiveTechnologyIsRunning: @MainActor () -> Bool = { EPUBReaderControls.assistiveTechnologyKeepsControls }
+    /// The supplied search controls on screen that Find can show (`find()`), in the order they
+    /// appeared. Find shows the last.
+    var findTargets: [UUID] = []
+    /// Counts Find requests. The search control `findTargets` ends with answers each.
+    var findRequests = 0
 
     public init(publication: EPUBPublication, session: any EPUBReaderSession) {
         self.publication = publication

@@ -83,6 +83,7 @@ struct ReaderScreen: View {
             }
         }
         .modifier(SampleControlsHiding(controls: hidesControls ? reader.controls : nil))
+        .modifier(SampleMenuCommands(controls: reader.controls))
         .fileImporter(isPresented: $importing, allowedContentTypes: [UTType(filenameExtension: "epub") ?? .data]) { result in
             switch result {
             case .success(let url): reader.open(url: url)
@@ -176,5 +177,13 @@ private struct SampleControlsHiding: ViewModifier {
     let controls: EPUBReaderControls?
     func body(content: Content) -> some View {
         if let controls { content.epubReaderHidesControls(controls) } else { content }
+    }
+}
+
+/// Has the menu bar's reader commands act on the open book's controls, once there is a book.
+private struct SampleMenuCommands: ViewModifier {
+    let controls: EPUBReaderControls?
+    func body(content: Content) -> some View {
+        if let controls { content.epubReaderMenuCommands(controls) } else { content }
     }
 }
