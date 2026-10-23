@@ -404,6 +404,56 @@ final class TableCoverageContentTests: XCTestCase {
         XCTAssertEqual(hinted.rows.map(\.height), [40])
     }
 
+    /// HTML §15.3.10: a table's `bgcolor`, `cellpadding`, `cellspacing` and `border`, a row's and a
+    /// cell's `bgcolor`, a cell's `nowrap` and a caption's `align="bottom"` are presentational
+    /// hints, which any author rule beats. The builder takes what the cascade computes, so a rule
+    /// that sets the default wins, `border-spacing: 2px` included, which is the user agent's own (#763).
+    func testAnAuthorRuleBeatsTheBackgroundPaddingBorderAndSpacingAttributes() throws {
+        typealias Case = (markup: String, css: String, check: (TableModel, Bool) -> Void)
+        let one = TableModel.Insets(top: 1, right: 1, bottom: 1, left: 1)
+        let cases: [Case] = [
+            ("<table><tr><td bgcolor='red'>a</td><td>b</td></tr></table>", "td { background: none }",
+             { table, hinted in XCTAssertEqual(table.cells[0].background != nil, hinted, "cell bgcolor") }),
+            ("<table><tr bgcolor='red'><td>a</td><td>b</td></tr></table>", "tr { background: none }",
+             { table, hinted in XCTAssertEqual(table.rows[0].background != nil, hinted, "row bgcolor") }),
+            ("<table bgcolor='red'><tr><td>a</td><td>b</td></tr></table>", "table { background: none }",
+             { table, hinted in XCTAssertEqual(table.background != nil, hinted, "table bgcolor") }),
+            ("<table cellpadding='5'><tr><td>a</td><td>b</td></tr></table>", "td { padding: 0 }",
+             { table, hinted in
+                 XCTAssertEqual(table.cells[0].padding, hinted ? TableModel.Insets(top: 5, right: 5, bottom: 5, left: 5) : TableModel.Insets(), "cellpadding")
+             }),
+            ("<table border='1'><tr><td>a</td><td>b</td></tr></table>", "td, table { border: none }",
+             { table, hinted in
+                 XCTAssertEqual(table.borders.widths, hinted ? one : TableModel.Insets(), "the table's border")
+                 XCTAssertEqual(table.cells[0].borders.widths, hinted ? one : TableModel.Insets(), "the cells' border")
+             }),
+            ("<table cellspacing='9'><tr><td>a</td><td>b</td></tr></table>", "table { border-spacing: 2px }",
+             { table, hinted in XCTAssertEqual(table.spacing, hinted ? CGSize(width: 9, height: 9) : CGSize(width: 2, height: 2), "cellspacing") }),
+            ("<table><tr><td nowrap=''>alpha beta gamma</td><td>b</td></tr></table>", "td { white-space: normal }",
+             { table, hinted in XCTAssertEqual(table.cells[0].minContent == table.cells[0].maxContent, hinted, "nowrap") }),
+        ]
+        for item in cases {
+            item.check(try TableCoverage.table(item.markup), true)
+            item.check(try TableCoverage.table(item.markup, css: item.css), false)
+        }
+        let caption = "<table><caption align='bottom'>Note</caption><tr><td>a</td><td>b</td></tr></table>"
+        XCTAssertEqual(try TableCoverage.section(caption).string.string, "\u{FFFC}\nNote", "caption align")
+        XCTAssertEqual(try TableCoverage.section(caption, css: "caption { caption-side: top }").string.string, "Note\n\u{FFFC}", "caption align")
+    }
+
+    /// HTML §15.3.10: a table's `border` is read by the rules for parsing non-negative integers,
+    /// for the table and for its cells alike, and is 1 where it is not one: `" 0"` and `"+0"`
+    /// rule nothing, `"+2"` and `"2px"` are 2, and `"-1"` is 1 (#143).
+    func testTheBorderAttributeIsANonNegativeIntegerForTheTableAndItsCells() throws {
+        for (value, width) in [(" 0", 0), ("+0", 0), ("-0", 0), ("0px", 0), ("+2", 2), ("2px", 2), (" 3 ", 3), ("-1", 1)] as [(String, CGFloat)] {
+            let table = try TableCoverage.table("<table border='\(value)'><tr><td>a</td><td>b</td></tr></table>")
+            XCTAssertEqual(table.borders.widths, TableModel.Insets(top: width, right: width, bottom: width, left: width), "border=\(value.debugDescription)")
+            let cell: CGFloat = width > 0 ? 1 : 0
+            XCTAssertEqual(table.cells[0].borders.widths, TableModel.Insets(top: cell, right: cell, bottom: cell, left: cell),
+                           "the cells of border=\(value.debugDescription)")
+        }
+    }
+
     /// CSS 2.2 §17.6.2: collapsed borders are centred on the grid lines, half inside each cell,
     /// there is no spacing, and the wider of a cell's and the table's border wins at the edge.
     func testCollapsedBordersAreSharedHalfInsideEachCell() throws {
@@ -467,19 +517,19 @@ final class TableCoverageContentTests: XCTestCase {
         XCTAssertEqual(rgb(table.cells[3].background), [0, 0, 1])
     }
 
-    func testLegacyColorAttributesAreHexWithOrWithoutAHashOrABasicName() {
-        func rgb(_ value: String?) -> [CGFloat]? { TableContent.color(value).map { [$0.red, $0.green, $0.blue] } }
-        XCTAssertEqual(rgb("#ff0000"), [1, 0, 0])
-        XCTAssertEqual(rgb("00FF00"), [0, 1, 0])
-        XCTAssertEqual(rgb("#00f"), [0, 0, 1])
-        XCTAssertEqual(rgb("  Navy "), [0, 0, 128 / 255.0])
-        XCTAssertEqual(rgb("grey"), rgb("gray"))
-        XCTAssertNil(rgb(nil))
-        XCTAssertNil(rgb(""))
-        XCTAssertNil(rgb("#12345"))
-        XCTAssertNil(rgb("#gggggg"))
-        XCTAssertNil(rgb("transparent"))
-        XCTAssertNil(rgb("#ff00001"))
+    /// A `bgcolor` reaches the table through the cascade, as hex with or without a hash or a
+    /// color name; what is no color leaves no background.
+    func testLegacyColorAttributesAreHexWithOrWithoutAHashOrAColorName() throws {
+        func rgb(_ value: String) throws -> [CGFloat]? {
+            let table = try TableCoverage.table("<table><tr><td bgcolor='\(value)'>a</td><td>b</td></tr></table>")
+            return table.cells[0].background?.components.map { Array($0.prefix(3)) }
+        }
+        XCTAssertEqual(try rgb("#ff0000"), [1, 0, 0])
+        XCTAssertEqual(try rgb("00FF00"), [0, 1, 0])
+        XCTAssertEqual(try rgb("#00f"), [0, 0, 1])
+        XCTAssertEqual(try rgb("  Navy "), [0, 0, 128 / 255.0])
+        XCTAssertEqual(try rgb("grey"), try rgb("gray"))
+        for value in ["", "#12345", "#gggggg", "#ff00001", "red; color: blue"] { XCTAssertNil(try rgb(value), value) }
     }
 
     func testDarkAppearanceDropsBookBackgroundsAndDrawsEveryLineInTheRuleColour() throws {

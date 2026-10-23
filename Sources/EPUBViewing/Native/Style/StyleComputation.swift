@@ -202,7 +202,7 @@ extension StyleResolver {
         style.isSmallCaps = parent.isSmallCaps; style.lineHeight = parent.lineHeight
         style.color = parent.color; style.textAlign = parent.textAlign; style.textIndent = parent.textIndent
         style.whiteSpace = parent.whiteSpace; style.textTransform = parent.textTransform
-        style.letterSpacing = parent.letterSpacing; style.wordSpacing = parent.wordSpacing
+        style.letterSpacing = parent.letterSpacing; style.wordSpacing = parent.wordSpacing; style.tabSize = parent.tabSize
         style.direction = parent.direction; style.writingMode = parent.writingMode
         style.listStyleType = parent.listStyleType; style.listStylePosition = parent.listStylePosition
         style.hyphens = parent.hyphens; style.isHidden = parent.isHidden
@@ -345,6 +345,7 @@ extension StyleResolver {
         case .textTransform: style.textTransform = source.textTransform
         case .letterSpacing: style.letterSpacing = source.letterSpacing
         case .wordSpacing: style.wordSpacing = source.wordSpacing
+        case .tabSize: style.tabSize = source.tabSize
         case .direction: style.direction = source.direction
         case .writingMode: style.writingMode = source.writingMode
         case .listStyleType: style.listStyleType = source.listStyleType
@@ -466,6 +467,14 @@ extension StyleResolver {
             style.letterSpacing = min(max(points(l, own), -style.fontSize), style.fontSize * 2)
         case (.wordSpacing, .length(let l)):
             style.wordSpacing = min(max(points(l, own), -style.fontSize), style.fontSize * 4)
+        case (.tabSize, .number(let spaces)):
+            style.tabSize = .spaces(min(max(CGFloat(spaces), StyleLimits.extent.lowerBound), StyleLimits.extent.upperBound))
+        case (.tabSize, .length(let l)):
+            // An absolute size scales with the reader's, as a font's does, so that tabbed columns
+            // keep their places in the text.
+            let context = LengthContext(em: style.fontSize, rem: rem, scale: typography.fontSize / 16,
+                                        resolvesViewport: true, fontStyle: style)
+            style.tabSize = .points(min(max(points(l, context), StyleLimits.extent.lowerBound), StyleLimits.extent.upperBound))
         case (.direction, .direction(let d)): style.direction = d
         case (.writingMode, .writingMode(let w)): style.writingMode = w
         case (.listStyleType, .listStyleType(let t)): style.listStyleType = t

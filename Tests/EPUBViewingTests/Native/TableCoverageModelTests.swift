@@ -44,16 +44,43 @@ final class TableCoverageModelTests: XCTestCase {
         XCTAssertEqual(frame.maxY, layout.cellFrames[try TableCoverage.cell("F", in: table)].maxY, accuracy: 0.01)
     }
 
-    /// HTML §4.9.11: `colspan` and `rowspan` are read with the rules for parsing non-negative
-    /// integers (§2.3.4.2): leading ASCII whitespace is skipped and the digits are read up to
-    /// the first character that is not one, so `" 2"`, `"2 "`, `"2px"` and `"2.9"` are all 2.
+    /// HTML §4.9.11: `colspan` and `rowspan`, and a `col`'s or `colgroup`'s `span` (§4.9.3, §4.9.4),
+    /// are read with the rules for parsing non-negative integers (§2.3.4.2): leading ASCII
+    /// whitespace is skipped and the digits are read up to the first character that is not one,
+    /// so `" 2"`, `"2 "`, `"2px"` and `"2.9"` are all 2.
     func testSpanAttributesAreReadAsHTMLNonNegativeIntegers() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/143")
-        for value in [" 2", "2 ", "\t2\n", "2px", "2.9", "+2", "02"] {
+        for value in [" 2", "2 ", "\t2\n", "2px", "2.9", "+2", "02", "2e3", " +2 cells"] {
             let columns = try TableCoverage.table("<table><tr><td colspan='\(value)'>A</td></tr><tr><td>B</td><td>C</td></tr></table>")
             XCTAssertEqual(TableCoverage.grid(columns).first, ["A@0x2"], "colspan=\(value.debugDescription)")
             let rows = try TableCoverage.table("<table><tr><td rowspan='\(value)'>A</td><td>B</td></tr><tr><td>C</td></tr></table>")
             XCTAssertEqual(TableCoverage.grid(rows), [["A@0/2", "B@1"], ["C@1"]], "rowspan=\(value.debugDescription)")
+            let spans = try TableCoverage.table("""
+            <table><colgroup span='\(value)' width='30'/><colgroup><col span='\(value)' width='20'/></colgroup><tr><td>a</td><td>b</td></tr></table>
+            """)
+            XCTAssertEqual(spans.columns, [.points(30), .points(30), .points(20), .points(20)], "span=\(value.debugDescription)")
+        }
+        // Digits past what any integer holds are still a number past HTML's bounds, which hold it.
+        let huge = String(repeating: "9", count: 40)
+        let bounded = try TableCoverage.table("<table><col span='\(huge)'/><tr><td colspan='\(huge)'>A</td></tr><tr><td>B</td><td>C</td></tr></table>")
+        XCTAssertEqual(bounded.columns.count, 1000, "a span is at most 1000")
+        XCTAssertEqual(TableCoverage.grid(bounded).first, ["A@0x2"], "a colspan past the bound reaches the last column")
+        let tall = try TableCoverage.table("<table><tr><td rowspan='\(huge)'>A</td><td>B</td></tr><tr><td>C</td></tr></table>")
+        XCTAssertEqual(TableCoverage.grid(tall), [["A@0/2", "B@1"], ["C@1"]], "a rowspan ends with its row group")
+    }
+
+    /// HTML §2.3.4.1 and §2.3.4.2, step by step: ASCII whitespace alone is skipped, one sign is
+    /// read, and the ASCII digits after it are the number; a negative number other than zero, or no
+    /// digit, is an error.
+    func testTheRulesForParsingNonNegativeIntegers() {
+        let numbers: [(String, Int)] = [("0", 0), ("7", 7), (" \t\n\u{C}\r42", 42), ("+3", 3), ("-0", 0), ("+0", 0), ("0012", 12),
+                                        ("12abc", 12), ("4.9", 4), ("1 000", 1), ("6\u{A0}", 6), ("9223372036854775807", .max),
+                                        (String(repeating: "9", count: 40), .max)]
+        for (value, number) in numbers {
+            XCTAssertEqual(PresentationalHints.nonNegativeInteger(value), number, value.debugDescription)
+        }
+        for value in ["", " ", "-1", "-12px", "+", "-", "+-1", "++1", "abc", ".5", "\u{A0}5", "\u{663}", "\u{FF15}", "\u{0B}5",
+                      "-" + String(repeating: "9", count: 40)] {
+            XCTAssertNil(PresentationalHints.nonNegativeInteger(value), value.debugDescription)
         }
     }
 

@@ -93,10 +93,15 @@ final class CSSSyntaxParserRecoveryCoverageTests: XCTestCase {
     }
 
     func testAStraySemicolonBetweenRulesBelongsToTheNextRulesPrelude() {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
         // §5.4.1 "consume a list of rules": only whitespace, CDO/CDC and at-keywords are special
         // at rule level, so `;` starts a qualified rule whose prelude is then an invalid selector.
         XCTAssertEqual(subjects("p { color: red }; q { color: red } i { color: red }"), ["p", "i"])
+        XCTAssertEqual(subjects("; p { color: red } q { color: red }"), ["q"])
+        XCTAssertEqual(subjects("@charset \"utf-8\"; p { color: red } ;; q { color: red }"), ["p"], "An at-rule's own semicolon ends it")
+        XCTAssertEqual(subjects("@media screen { p { color: red }; q { color: red } ; }"), ["p", "q"],
+                       "§5.4.4 \"consume a block's contents\" passes over a semicolon")
+        XCTAssertEqual(sheet("@import 'a.css';; @import 'b.css';").imports.map(\.path), ["OPS/css/a.css"],
+                       "The stray semicolon and the import are one qualified rule with no block")
     }
 
     func testAnInvalidOrUnknownAtRuleLeavesFollowingRulesAlone() {

@@ -137,6 +137,98 @@ final class SpokenLanguageTests: XCTestCase {
         XCTAssertEqual(table.cells.map(\.spokenLanguage), ["de", "fr"])
     }
 
+    /// A picture's words are in the language of the element they come from, as a formula's
+    /// `alttext` is (#548): an `img`'s `alt`, an `object`'s title, an inline SVG's title, and
+    /// the words shown as text where a picture cannot be drawn. So a cell or a heading in French
+    /// whose picture's words are longer than its own is French, where it named no language.
+    @MainActor func testAPicturesWordsAreInTheLanguageOfItsElement() throws {
+        let logo = "Le logo de la société Dupont"
+        let section = try BoxLayoutHarness.build("""
+            <div lang="de">\
+            <p lang="fr">Voici <img src="p.png" alt="\(logo)"/> ici.</p>\
+            <p>Ein <img src="p.png" alt="blaues Quadrat"/> hier.</p>\
+            <p lang="en">An <img src="p.png" alt="image légendée" lang="fr"/> here.</p>\
+            <p lang="fr">Objet <object data="p.png" type="image/png" title="Un objet dessiné"></object> après l’objet.</p>\
+            <p lang="fr">Dessin <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><title>Un carré bleu</title>\
+            <rect width="20" height="20" fill="#07c"/></svg> après le dessin.</p>\
+            <p lang="fr">Perdue <img src="missing.png" alt="Une image perdue"/> après la perte.</p>\
+            <p lang="und">Unbestimmt <img src="p.png" alt="Ohne Sprache"/> Ende.</p>\
+            <table><tr><td>Wort</td><td lang="fr"><img src="p.png" alt="\(logo)"/> Dupont</td></tr></table>\
+            <h2 lang="fr">Titre <img src="p.png" alt="\(logo)"/> fin</h2>\
+            </div>
+            """, css: BoxLayoutHarness.reset + "img, object { width: 20px; height: 20px }",
+            files: ["p.png": RichFixture.image(width: 40, height: 40)])
+        let text = section.string
+        var pictures: [(words: String, language: String?)] = []
+        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+            if let image = value as? ReaderImageAttachment { pictures.append((image.alt, image.textLanguage)) }
+        }
+        XCTAssertEqual(pictures.map(\.words), [logo, "blaues Quadrat", "image légendée", "Un objet dessiné", "Un carré bleu",
+                                               "Ohne Sprache", logo])
+        XCTAssertEqual(pictures.map(\.language), ["fr", "de", "fr", "fr", "fr", nil, "fr"],
+                       "the language of each picture's element, its own or inherited, and none for one undetermined")
+        func line(_ first: String, _ last: String) -> NSRange { range(of: first, in: text).union(range(of: last, in: text)) }
+        XCTAssertEqual(parts(text, line("Voici", "ici.")), ["fr:Voici \(logo) ici."])
+        XCTAssertEqual(parts(text, line("Ein", "hier.")), ["de:Ein blaues Quadrat hier."])
+        XCTAssertEqual(parts(text, line("An ", "here.")), ["en:An ", "fr:image légendée", "en: here."])
+        XCTAssertEqual(parts(text, line("Objet", "l’objet.")), ["fr:Objet Un objet dessiné après l’objet."])
+        XCTAssertEqual(parts(text, line("Dessin", "le dessin.")), ["fr:Dessin Un carré bleu après le dessin."])
+        // The words shown for a picture that cannot be drawn are set and read in its language.
+        XCTAssertEqual(text.attribute(InlineStyling.languageKey, at: range(of: "Une image perdue", in: text).location,
+                                      effectiveRange: nil) as? String, "fr")
+        XCTAssertEqual(parts(text, line("Perdue", "la perte.")), ["fr:Perdue Une image perdue après la perte."])
+        XCTAssertEqual(text.readerSpokenLanguages(in: line("Unbestimmt", "Ende.")).main, nil)
+
+        var rows: [TableRowAttachment] = []
+        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+            if let row = value as? TableRowAttachment { rows.append(row) }
+        }
+        let table = try XCTUnwrap(rows.first?.table)
+        XCTAssertEqual(table.cells.map(\.text), ["Wort", "\(logo) Dupont"])
+        XCTAssertEqual(table.cells.map(\.spokenLanguage), ["de", "fr"], "a cell read as one text, in French")
+        let heading = line("Titre", "fin")
+        XCTAssertEqual(text.readerSpokenLanguages(in: heading).main, "fr")
+        XCTAssertEqual(parts(text, heading), ["fr:Titre \(logo) fin"])
+    }
+
+    #if os(macOS)
+    /// On the Mac a picture's character carries the language of its words to an assistive
+    /// client, in a page's text area and in a table cell's, as a formula's does (#548); AppKit
+    /// gives the text around it the language its characters carry.
+    @MainActor func testOnMacAPicturesCharacterCarriesTheLanguageOfItsWords() async throws {
+        let section = try BoxLayoutHarness.build("""
+            <div lang="de"><p lang="fr">Voici <img src="p.png" alt="Un carré bleu"/> ici.</p>\
+            <p>Ein <img src="p.png" alt="blaues Quadrat"/> hier.</p>\
+            <table><tr><td lang="fr">Case <img src="p.png" alt="Un carré bleu"/> ici</td><td>Zelle</td></tr></table></div>
+            """, css: BoxLayoutHarness.reset + "img { width: 20px; height: 20px }",
+            files: ["p.png": RichFixture.image(width: 40, height: 40)])
+        let host = CanvasHost(FakeCanvasSource([section.string]), size: CGSize(width: 420, height: 600))
+        defer { host.close() }
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        let view = try XCTUnwrap(host.canvas.textViews.first)
+        for _ in 0..<40 where (view.tableInteraction?.cells.count ?? 0) < 2 {
+            host.layOut()
+            try await host.settle(50)
+            view.refreshTableInteractions()
+        }
+        let text = section.string.string as NSString
+        let rich = try XCTUnwrap(view.accessibilityAttributedString(for: view.shownCharacters))
+        func language(_ string: NSAttributedString, at location: Int) -> String? {
+            string.attribute(.accessibilityLanguage, at: location, effectiveRange: nil) as? String
+        }
+        let pictures = [text.range(of: "Voici").location + 6, text.range(of: "Ein").location + 4]
+        XCTAssertEqual(pictures.map { (rich.attribute(.accessibilityAttachment, at: $0, effectiveRange: nil) as? NSAccessibilityElement)?.accessibilityLabel() },
+                       ["Un carré bleu", "blaues Quadrat"])
+        XCTAssertEqual(pictures.map { language(rich, at: $0) }, ["fr", "de"], "each picture's character in the language of its words")
+        let cell = try XCTUnwrap(view.tableInteraction?.cells.first { $0.key.cell == 0 }?.value)
+        let words = cell.cellText.string as NSString
+        let inCell = try XCTUnwrap(cell.accessibilityAttributedString(for: NSRange(location: 0, length: cell.shownCharacters.length)))
+        let picture = words.range(of: "\u{FFFC}").location
+        XCTAssertNotNil(inCell.attribute(.accessibilityAttachment, at: picture, effectiveRange: nil))
+        XCTAssertEqual(language(inCell, at: picture), "fr", "and in a table cell's")
+    }
+    #endif
+
     func testWhiteSpaceAndEvenCountsChangeNoVoice() {
         let spaced = ReaderSpokenLanguages([("Words", "en"), (" ", "fr"), ("more", "en"), ("\n", nil)])
         XCTAssertEqual(spaced.runs, [.init(length: 11, language: "en")])
