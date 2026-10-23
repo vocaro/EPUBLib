@@ -1906,13 +1906,13 @@ as they did.
   Each page is a column whose text view is the page's fitted size, its one character an image
   that fills it (`ReaderCanvasGeometry.fixedPageFrames`, `ReaderFixedSpread`). A turn moves by
   the spread, forward to what the next linear section shows and back to what the one before
-  shows; the visible range runs from the first page's section to the end of the last's. A page not
-  built yet leaves its slot empty and is asked for (`wantsSection`), and the spread is shown
-  again once it is; a page taken for one until it was built and that flows makes the spreads
-  after it pair anew. The edge zones turn the page over a page's image as they do over text
-  (a tap or click elsewhere on it opens the image inspector, as on any image), and VoiceOver on
-  iPhone and iPad says "Page N" for a page turn it makes, N the first page's place among the
-  book's linear sections.
+  shows; the visible range runs from the first page's section to the end of the last's. A
+  page not built yet leaves its slot empty and is asked for (`wantsSection`), and the spread
+  is shown again once it is. A pre-paginated section is taken for a page until it is built;
+  one that then flows makes the spreads after it pair anew. The edge zones turn the page over
+  a page's image as they do over text (a tap or click elsewhere on it opens the image
+  inspector, as on any image), and VoiceOver on iPhone and iPad says "Page N" for a page turn
+  it makes, N the first page's place among the book's linear sections.
 - **Continuous scroll.** One column at most 720 wide, centred, with the same outer margin. On
   iOS the text view has `contentInsetAdjustmentBehavior = .automatic`, `contentInset` top 48
   and bottom 64 on top of the live safe area, `textContainerInset` only horizontal, and
