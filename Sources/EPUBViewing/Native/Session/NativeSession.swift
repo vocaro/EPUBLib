@@ -145,6 +145,7 @@ import SwiftUI
         configuration.isDark = shownIsDark
         configuration.isRightToLeft = publication.pageProgression == .rtl
         configuration.division = division
+        configuration.pageMargins = style.typography.pageMargins.map { $0.isFinite ? min(max(CGFloat($0), 0), 4) : 1 } ?? 1
         configuration.pageControls = pageControls
         configuration.selectionActionTitle = action?.title
         configuration.selectionActionImage = action?.systemImage ?? "text.quote"
@@ -588,6 +589,11 @@ import SwiftUI
 
     private func applyStyle(_ newStyle: EPUBReaderStyle) throws {
         guard newStyle.fontSize.isFinite else { throw EPUBReaderError.invalidCommand("Nonfinite font size") }
+        let typography = newStyle.typography
+        guard [typography.lineHeight, typography.paragraphSpacing, typography.letterSpacing, typography.wordSpacing,
+               typography.pageMargins].allSatisfy({ $0?.isFinite ?? true }) else {
+            throw EPUBReaderError.invalidCommand("A typography setting is not a finite number")
+        }
         style = newStyle
         updatePresentation()
     }
@@ -606,7 +612,7 @@ import SwiftUI
             $0.effectiveAppearance = effectiveIsDark ? .dark : .light
         }
         applyConfiguration()
-        let typography = NativeTypography(fontSize: style.fontSize, isDark: effectiveIsDark)
+        let typography = NativeTypography(fontSize: style.fontSize, isDark: effectiveIsDark).with(text: ReaderTextSettings(style.typography))
         if typography != book.typography {
             book.setTypography(typography)
             buildBook(from: visibleRange?.start.section ?? initialSection,

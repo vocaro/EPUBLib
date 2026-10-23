@@ -28,6 +28,9 @@ struct NativeTypography: Equatable, Hashable, Sendable {
         self.fontSize = min(max(fontSize, Self.minimumFontSize), Self.maximumFontSize)
         self.isDark = isDark
     }
+
+    /// The host's font, spacing, alignment and hyphenation (`ReaderTextSettings`).
+    var text = ReaderTextSettings()
 }
 
 /// The reader's own colors. Book colors apply in light appearance only; dark appearance uses

@@ -1736,6 +1736,55 @@ continues to describe the authored spine resource.
     declaration that holds one is dropped. Registered custom properties (`@property`, CSS
     Properties and Values API 1) are not: the rule is ignored, and every custom property takes
     any value and inherits.
+- **Reading adjustments.** `EPUBReaderStyle.typography` sets the font, line height, paragraph
+  spacing, letter and word spacing, page margins, alignment and hyphenation of book text
+  ([#673](https://github.com/vocaro/EPUBLib/issues/673)). Each value is part of the
+  typography a section is built for, apart from the margins, which are the canvas's, so a
+  change rebuilds the text, which keeps its characters, or lays the columns out again, and the
+  reader keeps its place as it does for a text size. Lengths are in ems: letter and word
+  spacing add to the font's own, and the paragraph spacing is a `p`'s top and bottom margin,
+  which collapse between paragraphs (CSS 2.2 §8.3.1). `ReaderTextSettings` bounds each value.
+  - **The switch off** (`overridesBookStyles`, the default). The values set are a user style
+    sheet (CSS Cascade 4 §6.2): normal declarations of the user origin, between the user
+    agent's and the book's, on the root element (family, line height, letter and word
+    spacing, alignment, hyphenation) and on `p` (its margins). The book's declarations win
+    wherever it makes them, and its `revert` rolls back to the settings (§7.3.4); what it leaves
+    to inheritance takes them. So a book's own fonts and spacing are unchanged, and a book
+    with no styles of its own reads as the settings say. A letter or word spacing declared on
+    the root is inherited as a length (CSS Text 3 §8), so a heading's is the root's, not its
+    own ems.
+  - **The switch on.** Each value set is given to every element the settings reach, after the
+    cascade, over whatever the book declares, `!important` included: its family first, with
+    the element's own families after it; line height; letter and word spacing in the element's
+    own ems; hyphenation; and a `p`'s margins. Alignment replaces only ragged or justified
+    lines (`start`, `justify`, or the start side's physical value), so a centred heading or a
+    signature set to the end side keeps its place. This is what a reader's "publisher
+    defaults" switch turned off does; Readium CSS's user settings, with their per-element
+    selectors, are the same idea.
+  - **What is left alone.** In both modes an element the settings must not change, and all it
+    holds, is styled from the book's styles alone, exactly as with no settings: `pre`,
+    `listing`, `plaintext`, `xmp`, and an element that keeps white space where its parent does
+    not, whose columns are the book's; `code`, `kbd`, `samp` and `tt`; a table; MathML and SVG,
+    which lay themselves out; and a box the book sizes or places: a float, an absolutely
+    positioned box, or one with a height or maximum height other than a percentage, whose text
+    is set to fit it, a drop cap among them. The root and the body are never left alone, so a
+    book that sizes them to the page, or keeps white space throughout as a plain text made a
+    book can, is still set. Every other style records the inherited values the book alone gives
+    it (`ReaderTextTrace`), and an element left alone inherits those. With a setting set, each
+    element is cascaded and computed twice, for the book's styles and for the settings'.
+  - **Fonts.** `.serif`, `.sansSerif`, `.monospace` and `.rounded` are the system's designs;
+    `.named` finds an installed family, or one the app registers for its process, by name, as
+    a book's `font-family` does (`FontRegistry`). A family that is not available leaves the
+    element's own. An installed family has the next family in the list that resolves as its
+    cascade list, so a character it lacks, Greek in a Latin font, is drawn in the font the text
+    would have had (CSS Fonts 4 §5), and only then in the system's fallback fonts. This holds
+    for a book's installed families too; its `@font-face` faces and the system designs keep the
+    system's fallback alone. The package bundles no font
+    ([#692](https://github.com/vocaro/EPUBLib/issues/692)).
+  - **Margins.** `pageMargins` scales the outer side margins, 3.5% of the page's width each
+    side ([Layout](#layout)); 0 removes them. A column stays at most 720 points wide, the gap
+    between two columns and the top and bottom margins stay as they are, and a wider margin can
+    turn a two-column spread into one column.
 - **Building** is per section and lazy for first paint: the opening section builds first and
   the session emits `.ready` once it is on screen, built for the appearance the reader opens
   in; the rest build in the background in parallel. Images decode lazily, downsampled to
@@ -1849,7 +1898,9 @@ as they did.
   and its content width, 93% of the width, is more than 720 (about 775 pt wide); otherwise one.
   The outer horizontal margin is at least 3.5% of the width each side, columns are at most 720
   wide (the content area is centred when that caps it), the column gap is 7.53% of the content
-  width (foliate's `g / (1 − g)` with g = 7%), and the top and bottom margins are 48.
+  width (foliate's `g / (1 − g)` with g = 7%), and the top and bottom margins are 48. A host's
+  `pageMargins` scales the outer margin, and the content width and column count with it; the
+  gap keeps its width ([Reading adjustments](#decisions)).
 - **Keyboard.** On iPhone and iPad, while a keyboard is up over the reader's window, pages
   keep the height they were laid out at without it, and the canvas cuts off their foot where
   a host has made the reader shorter, as the keyboard covers it. The area kept is the last one
