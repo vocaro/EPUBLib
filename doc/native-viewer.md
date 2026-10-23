@@ -287,7 +287,14 @@ continues to describe the authored spine resource.
   escaped CSS property names; it only receives the prepared drawing. The original node, depth,
   local-reference expansion and cycle checks run before omission.
   Pattern fills and illustrations exceeding the rendering limits show their title, description or
-  drawing text instead. Title and description provide the image's accessible label. No WebKit.
+  drawing text instead. Title and description provide the image's accessible label. An inline SVG
+  that holds only what SVG 2 never renders (§3.2.1: `defs`, a `symbol` no `use` draws,
+  gradients, `title`, `desc`, `metadata`, `style` and the others) and elements of other
+  namespaces, such as a sprite sheet of symbols, shows nothing, as a browser draws nothing for
+  it: no picture, no words in its place and no `svg` disclosure. The room a browser keeps blank
+  for such a drawing is not kept, and an `<img>` or `<object>` whose SVG file is such a drawing
+  is still shown as one that cannot be drawn
+  ([#136](https://github.com/vocaro/EPUBLib/issues/136)). No WebKit.
   EPUBLib reads the archive, resolves references and picks manifest fallbacks and fonts for
   StaticSVG, which reads nothing else; it extracts inline SVG from the content document, lays out
   and inspects the attachment, and turns StaticSVG's diagnostics into the section's disclosures.
@@ -1322,12 +1329,16 @@ continues to describe the authored spine resource.
         start of the next row's paragraph, and Read All, which had said a phrase with
         nothing in it for the row's paragraph, says nothing of it.
       - **Which rows.** What a row has to hold to be passed over is nothing: no words,
-        and nothing besides but spaces and decoration, in the cells a page shows of it,
-        and in a table inside one of its cells likewise
-        (`TableRowAttachment.saysNothing`). A row that shows a picture nobody describes
-        is still its group, "text image text image group". A row that holds a link is
-        not passed over whatever the link holds, because a link has to be reachable, and
-        neither is one that holds a rule or a formula.
+        and nothing besides but spaces and what assistive technology passes over
+        (`NSAttributedString.passesOver`), in the cells a page shows of it, and in a
+        table inside one of its cells likewise (`TableRowAttachment.saysNothing`). That
+        is decoration, a picture, a rule or a formula the book keeps from assistive
+        technology, and anything `visibility: hidden` hides, which nobody reads
+        ([#774](https://github.com/vocaro/EPUBLib/issues/774)). A row that shows a
+        picture nobody describes is still its group, "text image text image group". A
+        row that holds a link is not passed over whatever the link holds, because a link
+        has to be reachable, and neither is one that holds a rule or a formula that is
+        read: a row of a formula is a group called by the formula's words.
       - **Inside a table of data** the row is still a row. VoiceOver goes into the table
         at a row of words, and its table navigation goes through this row's cells as
         through any others: "Tree empty cell", for a cell of decoration as for a cell
@@ -1669,7 +1680,10 @@ continues to describe the authored spine resource.
   data has them: “ ” in Brazilian Portuguese and Turkish, « » in European Portuguese,
   «bonjour «toi»» in French, with no space added inside them, as Firefox, whose table is made
   from CLDR, shows them. Arabic and Hebrew take CLDR's marks, where Apple's locale data has
-  the typewriter `"` and `'` ([#133](https://github.com/vocaro/EPUBLib/issues/133)).
+  the typewriter `"` and `'` ([#133](https://github.com/vocaro/EPUBLib/issues/133)). The
+  inner pair stands for every `q` below the first, as the last pair of any `quotes` list does
+  (CSS 2.2 §12.3.2): «a„b„c““» in Russian, where the outer marks came back at the third
+  level ([#776](https://github.com/vocaro/EPUBLib/issues/776)).
   - **Where it stands.** An inline box is written in its line, and white space collapses
     across it as across the book's text. A block box is a paragraph of its own. A box that
     floats or is positioned is written in its line, with the disclosure of the boxes left in
@@ -2743,11 +2757,11 @@ row whose cells are all hidden reads nothing. A tap or a double click on a hidde
 room opens nothing, and the inspector does not open for it whatever asks. Two places still
 offer it, and do nothing when chosen: the Inspect Image of a text item's menu on iPhone and
 iPad, and of a table cell's menu ([#775](https://github.com/vocaro/EPUBLib/issues/775)). On
-the Mac a row of a table that is not data, whose cells hold a hidden formula or rule and
-nothing else, is a group with no name, where a row of hidden text or hidden pictures alone is
-passed over ([#774](https://github.com/vocaro/EPUBLib/issues/774)). A note's popover on
-iPhone and iPad gives VoiceOver UIKit's own text accessibility, which these changes do not
-reach ([#550](https://github.com/vocaro/EPUBLib/issues/550)).
+the Mac a row whose cells hold nothing but hidden text, pictures, formulas or rules, or
+formulas the book keeps from assistive technology, has nothing to say and is passed over, as
+a row of decoration is ([#774](https://github.com/vocaro/EPUBLib/issues/774)). A note's
+popover on iPhone and iPad gives VoiceOver UIKit's own text accessibility, which these changes
+do not reach ([#550](https://github.com/vocaro/EPUBLib/issues/550)).
 
 ### Text kept from assistive technology
 
