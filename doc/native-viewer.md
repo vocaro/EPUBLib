@@ -3148,6 +3148,31 @@ The following are the defaults. Host commands and accessibility actions stay ena
   ([#746](https://github.com/vocaro/EPUBLib/issues/746)). Once the book is built no turn
   asks for a section's end. On iOS the scroll view's content has the whole text's height
   already.
+  Where the host chose a page-turn animation, `.slide` or `.dissolve` alike, the text of a
+  turn in continuous scroll scrolls there in 0.3 s, eased in and out, from where it was drawn
+  ([#622](https://github.com/vocaro/EPUBLib/issues/622)). The step is taken at once, as with
+  no animation, and the scroll view put back where it was drawn; `ReaderScrollStep` then
+  moves it a frame at a time, as the platform's own animated scroll does, so the lines it
+  passes are laid out and drawn on the way, and the last frame puts it where the step did.
+  What the step reports is where it lands, not where the text is on its way: the anchor, the
+  visible range, the relocation and `readerState` (its Next and Previous among them) are the
+  step's end as the turn returns, and so is what VoiceOver is told. The issue asked for them
+  at the end of the animation; reporting them at once is what a turn of pages does
+  ([#688](https://github.com/vocaro/EPUBLib/issues/688)), and a host reading the state after a
+  turn finds it whether or not the text is still moving. A turn made while a step is in motion
+  is taken from where that step ends, and its text goes on from where it is drawn, so keys
+  pressed quickly scroll on without a jump; a key held down, which steps faster than the text
+  moves, has it go on from two screens before where the step lands at most. Anything else
+  that moves the scroll view or reads it from the screen ends the step where it would have
+  ended first: a position shown, a layout for a new size or visible height, text built again,
+  a change of flow or of the animation, a touch or a drag on iPhone and iPad, a click, the
+  wheel or the trackpad on Mac, and any scrolling the reader did not do. A turn steps at once
+  with no animation chosen, under Reduce Motion, for a turn an assistive technology asks for
+  by name (VoiceOver's scroll, and on Mac its Scroll Forward and Scroll Backward actions), and
+  whenever VoiceOver is running: VoiceOver is told where a step lands as it is taken and its
+  cursor goes to a line there, which UIKit scrolls into view where the text has not yet
+  reached it, and that would undo part of a step back. A turn of pages keeps its animation
+  under VoiceOver, since only a picture over the page turned to moves.
 - Page turn animation ([#688](https://github.com/vocaro/EPUBLib/issues/688)):
   `View.epubReaderPageTurnAnimation(_:)` chooses how a page turns in paginated flow
   ([integration](integration.md#animating-page-turns)). `.none`, the default, replaces one page
@@ -3158,8 +3183,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   Every turn in pages has it: an edge tap or click, a swipe, a key, the wheel and trackpad,
   VoiceOver's actions, scroll and reading on, the selected passage's continuation, the host's
   commands, and a turn into a section not yet built, which comes in once it is
-  (`showTurned`). Continuous scroll scrolls as before whichever is chosen
-  ([#622](https://github.com/vocaro/EPUBLib/issues/622)).
+  (`showTurned`). In continuous scroll either one scrolls the text of a page turn, as above.
   The columns hold the page turned to as soon as the turn returns, as with no animation: the
   delegate is told at once, VoiceOver is told and its cursor sent as above, and the selection
   and highlights are those of the turn with none. Only what is drawn over them moves
