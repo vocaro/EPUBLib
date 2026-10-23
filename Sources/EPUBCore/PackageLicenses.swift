@@ -1,7 +1,7 @@
 import Foundation
 
-/// A license or notice text that an app built with EPUBLib carries in its acknowledgments, as the
-/// project that wrote it named it.
+/// A license or notice file that an app built with EPUBLib shows in its acknowledgments, under the
+/// name its project gave it (#699).
 ///
 /// The package holds EPUBLib's license and those of the code its products contain: ZIPFoundation,
 /// the foliate-js code the viewer ports, MathMLLayout with the MathCAT and Speech Rule Engine
