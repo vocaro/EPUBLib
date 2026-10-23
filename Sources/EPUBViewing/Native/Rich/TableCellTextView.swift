@@ -377,7 +377,11 @@ typealias TableNativeTextView = UITextView
             .offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
     }
 
-    override func accessibilitySelectedText() -> String? { cellText.readerPlainText(in: NSIntersectionRange(cellSelection, shownCharacters)) }
+    /// The selected words VoiceOver is given: none that the book keeps from it (#551), which a
+    /// copy of the selection still takes.
+    override func accessibilitySelectedText() -> String? {
+        cellText.readerPlainText(in: NSIntersectionRange(cellSelection, shownCharacters), spoken: true)
+    }
     override func accessibilitySelectedTextRange() -> NSRange { relativeAccessibilityRange(cellSelection) }
     override func setAccessibilitySelectedTextRange(_ range: NSRange) {
         guard let full = fullAccessibilityRange(range) else { return }

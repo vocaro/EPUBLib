@@ -87,8 +87,7 @@ the issues and the release notes, and the same day had the VoiceOver document fo
   [documentation and evidence ownership](https://github.com/vocaro/apple-engineering/blob/main/guides/maintenance.md#documentation-and-evidence-ownership)
   rules put them: in a comment on the issue, and in the release's GitHub release notes.
 - A changelog entry is one sentence and a link to its issue, at the top of "Unreleased" in
-  [CHANGELOG.md](CHANGELOG.md). Where there is no issue, link the pull request. What changed
-  in detail is on the issue.
+  [CHANGELOG.md](CHANGELOG.md). What changed in detail is on the issue.
 
 ## Labels
 

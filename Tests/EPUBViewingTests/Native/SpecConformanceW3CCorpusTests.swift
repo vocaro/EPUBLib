@@ -58,12 +58,13 @@ import UIKit
                 + " | \(disclosed.joined(separator: ",")) | \(detail)")
         }
         // A split archive's first segment is no archive: RS 3.3 section 4.2 treats it as in error.
+        // It has no end record, which is in the last segment, and is refused as bytes with none are.
         for segment in try Corpus.splitArchiveSegments(under: rootURL) {
             var refusal = "opened"
             do { _ = try await Task.detached { try EPUBPublication.open(at: segment) }.value }
             catch let error as EPUBPublicationError { refusal = "refused: \(error)" }
             catch { refusal = "refused: \(error)" }
-            XCTAssertTrue(refusal.hasPrefix("refused: invalidArchive"), "\(segment.lastPathComponent): \(refusal)")
+            XCTAssertEqual(refusal, "refused: notArchive", segment.lastPathComponent)
             lines.append("\(segment.lastPathComponent) | epub-rs#confreq-zip-mult | in scope | \(refusal) | | |")
         }
         let report = lines.joined(separator: "\n")

@@ -25,13 +25,18 @@ import XCTest
     /// enough that hidden in a line they leave it one line: they keep their room.
     private static let unread = "unseen English words"
 
+    /// A picture's words in French, more letters than the French beside them.
+    private static let logo = "Le logo de la société Dupont"
+
     /// A German book, by its package, with French and English in it: a section of lines,
     /// headings, links, a formula and a picture, one that opens with a line of English and
     /// French and holds a rule, a table used for layout and a table of data, and one of words
     /// that are not read, which would outweigh the French around them: English that
     /// `visibility: hidden` hides, in a line and in a cell, and a picture the book keeps from
     /// assistive technology in a heading. That one holds a rule kept from assistive technology
-    /// too, which is all its link holds. Each takes one page of an iPhone.
+    /// too, which is all its link holds. The last has a heading and a cell of a table of data
+    /// in French, each with a picture whose words are longer than its own (#548). Each takes one
+    /// page of an iPhone.
     private static func book() throws -> EPUBPublication {
         try EPUBPublication.open(data: SessionCoverageBook.epub([
             SessionCoverageBook.Section("sprachen", """
@@ -58,6 +63,11 @@ import XCTest
                 <a href="notes.xhtml"><hr aria-hidden="true"/></a>\
                 <table><tr><th>Wort</th><th lang="fr">Mot</th></tr><tr><td>Satz</td><td lang="fr">Oui<span style="visibility: hidden" lang="en">\(unread)</span></td></tr></table>\
                 <p>Ende.</p>
+                """),
+            SessionCoverageBook.Section("bilder", """
+                <h2 lang="fr">Titre <img src="square.svg" alt="\(logo)"/> fin</h2>\
+                <table><tr><th>Bild</th><th lang="fr">Image</th></tr><tr><td>Marke</td><td lang="fr"><img src="square.svg" alt="\(logo)"/> Dupont</td></tr></table>\
+                <p>Letzte Bilder.</p>
                 """),
             SessionCoverageBook.Section("notes", "<h1>Notes</h1><p>The linked note.</p>")],
             manifest: "<item id=\"square\" href=\"square.svg\" media-type=\"image/svg+xml\"/>",
@@ -118,8 +128,8 @@ import XCTest
             // An authored reading is in the language of the text around the formula.
             Spoken(label: "x plus deux", language: "fr", traits: [.staticText, .image], actions: page),
             Spoken(label: " ici.", language: "fr", actions: page),
-            // A picture's words are not given a language (#548).
-            Spoken(label: "Ein blaues Quadrat", language: nil, traits: [.staticText, .image],
+            // A picture's words are in the language of its element, here the package's (#548).
+            Spoken(label: "Ein blaues Quadrat", language: "de", traits: [.staticText, .image],
                    actions: page + ["Inspect Image: Ein blaues Quadrat"]),
             Spoken(label: " steht hier.", language: "de", actions: page),
             Spoken(label: "Words of no determined language.", language: nil, actions: page),
@@ -163,6 +173,23 @@ import XCTest
         ]
     }
 
+    /// The fourth section's items, with the actions `page` adds to each: a picture's words are
+    /// in the language of its element, so the heading and the cell they outweigh are French
+    /// (#548), where they named none.
+    private static func pictures(page: [String]) -> [Spoken] {
+        [
+            Spoken(label: "Titre ", language: "fr", level: 2, traits: [.staticText, .header], actions: page),
+            Spoken(label: logo, language: "fr", level: 2, traits: [.staticText, .image, .header],
+                   actions: page + ["Inspect Image: \(logo)"]),
+            Spoken(label: " fin", language: "fr", level: 2, traits: [.staticText, .header], actions: page),
+            Spoken(label: "Bild", language: "de", actions: page + ["Select Cell Text"]),
+            Spoken(label: "Image", language: "fr", actions: page + ["Select Cell Text"]),
+            Spoken(label: "Marke", language: "de", actions: page + ["Select Cell Text"]),
+            Spoken(label: "\(logo) Dupont", language: "fr", actions: page + ["Inspect Image: \(logo)", "Select Cell Text"]),
+            Spoken(label: "Letzte Bilder.", language: "de", actions: page),
+        ]
+    }
+
     /// `items` as a page lists them: VoiceOver reading on past the last turns the page (#468).
     private static func turning(_ items: [Spoken]) -> [Spoken] {
         var items = items
@@ -190,6 +217,11 @@ import XCTest
         try await reader.wait("the third section") { canvas.visibleRange?.start.section == 2 }
         try await reader.wait("the cells' text views") { view.tableInteraction?.cells.isEmpty == false }
         XCTAssertEqual(try items(of: view).map(spoken), Self.turning(Self.unread(page: turns)))
+
+        XCTAssertEqual(canvas.turnPage(forward: true), .turned)
+        try await reader.wait("the fourth section") { canvas.visibleRange?.start.section == 3 }
+        try await reader.wait("the cells' text views") { view.tableInteraction?.cells.isEmpty == false }
+        XCTAssertEqual(try items(of: view).map(spoken), Self.turning(Self.pictures(page: turns)))
     }
 
     func testEachElementOfContinuousScrollNamesTheLanguageOfItsWords() async throws {
@@ -214,6 +246,8 @@ import XCTest
         func withoutActions(_ items: [Spoken]) -> [Spoken] { items.map { var item = $0; item.actions = []; return item } }
         let unread = withoutActions(Self.unread(page: []))
         XCTAssertEqual(withoutActions(Array(listed.dropFirst(expected.count).prefix(unread.count))), unread)
+        let pictures = withoutActions(Self.pictures(page: []))
+        XCTAssertEqual(withoutActions(Array(listed.dropFirst(expected.count + unread.count).prefix(pictures.count))), pictures)
     }
 
     /// The element under VoiceOver's cursor, taken to the next page and back by its own page

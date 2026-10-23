@@ -168,7 +168,7 @@ struct CSSComplexSelector: Hashable, Sendable {
 
     /// Compounds from the subject (rightmost) leftwards.
     var compounds: [CSSCompoundSelector]
-    /// `combinators[i]` joins `compounds[i]` to `compounds[i + 1]`, its left neighbour.
+    /// `combinators[i]` joins `compounds[i]` to `compounds[i + 1]`, its left neighbor.
     var combinators: [CSSCombinator]
     /// Packed (ids, classes, types), 10 bits each.
     var specificity: UInt32
@@ -386,36 +386,50 @@ struct CSSSelectorParser {
 
     enum Failure: Error { case invalid, tooComplex }
 
+    /// The pseudo-class whose argument a selector list is. Such a list holds no pseudo-element
+    /// (a `<complex-real-selector-list>`, Selectors 4 §4 and §14.4), and in `:is()`, `:where()`
+    /// and `:not()` a default namespace does not reach the subject's compound unless it has a
+    /// type or universal selector (§4.2, §4.3), as Chromium also reads them.
+    enum Argument {
+        /// `:is()`, `:where()` and `:not()`.
+        case logical
+        /// `:nth-child(… of S)` and `:nth-last-child(… of S)`.
+        case positional
+    }
+
     let namespaces: CSSNamespaces
 
     /// A selector list; throws when any selector is invalid, which drops the whole rule.
-    func parseList(_ components: [CSSComponent], depth: Int = 0) throws(Failure) -> [CSSComplexSelector] {
+    /// `argument` is nil for a list of its own: a rule's prelude or `selector()`.
+    func parseList(_ components: [CSSComponent], depth: Int = 0, argument: Argument? = nil) throws(Failure) -> [CSSComplexSelector] {
         let parts = components.split(separator: .token(.comma), omittingEmptySubsequences: false)
         guard parts.count <= Self.maximumSelectors else { throw .tooComplex }
         var result: [CSSComplexSelector] = []
-        for part in parts { result.append(try parseComplex(Array(part), depth: depth).selector) }
+        for part in parts { result.append(try parseComplex(Array(part), depth: depth, argument: argument).selector) }
         return result
     }
 
     /// A forgiving list (`:is()`, `:where()`): invalid selectors are dropped individually.
-    func parseForgivingList(_ components: [CSSComponent], depth: Int) throws(Failure) -> [CSSComplexSelector] {
+    func parseForgivingList(_ components: [CSSComponent], depth: Int, argument: Argument) throws(Failure) -> [CSSComplexSelector] {
         let parts = components.split(separator: .token(.comma), omittingEmptySubsequences: false)
         guard parts.count <= Self.maximumSelectors else { throw .tooComplex }
         var result: [CSSComplexSelector] = []
         for part in parts {
-            do { result.append(try parseComplex(Array(part), depth: depth).selector) }
+            do { result.append(try parseComplex(Array(part), depth: depth, argument: argument).selector) }
             catch .tooComplex { throw .tooComplex }
             catch {}
         }
         return result
     }
 
-    private func parseComplex(_ components: [CSSComponent], depth: Int) throws(Failure) -> (selector: CSSComplexSelector, specificity: CSSSpecificity) {
+    private func parseComplex(_ components: [CSSComponent], depth: Int, argument: Argument?) throws(Failure)
+        -> (selector: CSSComplexSelector, specificity: CSSSpecificity) {
         var index = 0
         var compounds: [CSSCompoundSelector] = []
         var combinators: [CSSCombinator] = []
         var specificity = CSSSpecificity()
         var subjectPseudoElement: CSSPseudoElement?
+        var subjectHasType = false
         func skipWhitespace() -> Bool {
             var skipped = false
             while index < components.count, components[index].isWhitespace { index += 1; skipped = true }
@@ -424,10 +438,12 @@ struct CSSSelectorParser {
         _ = skipWhitespace()
         while true {
             guard index < components.count else { throw .invalid }
-            let (compound, compoundSpecificity, pseudoElement) = try parseCompound(components, &index, depth: depth)
+            let (compound, compoundSpecificity, pseudoElement, hasType) = try parseCompound(components, &index, depth: depth)
+            if argument != nil, pseudoElement != nil { throw .invalid }
             compounds.append(compound)
             specificity = specificity + compoundSpecificity
             subjectPseudoElement = pseudoElement
+            subjectHasType = hasType
             guard compounds.count <= Self.maximumCompounds else { throw .tooComplex }
             let hadWhitespace = skipWhitespace()
             guard index < components.count else { break }
@@ -441,6 +457,7 @@ struct CSSSelectorParser {
             if pseudoElement != nil { throw .invalid }
             _ = skipWhitespace()
         }
+        if argument == .logical, !subjectHasType { compounds[compounds.count - 1].namespace = .any }
         return (CSSComplexSelector(compounds: compounds.reversed(), combinators: combinators.reversed(),
                                    specificity: specificity.packed, pseudoElement: subjectPseudoElement,
                                    identity: combinators.contains(.subsequentSibling) ? CSSSelectorIdentity() : nil), specificity)
@@ -481,12 +498,22 @@ struct CSSSelectorParser {
         return (nil, first)
     }
 
+    /// A compound selector, the pseudo-element it ends with and whether it has a type or
+    /// universal selector.
     private func parseCompound(_ components: [CSSComponent], _ index: inout Int, depth: Int) throws(Failure)
-        -> (CSSCompoundSelector, CSSSpecificity, CSSPseudoElement?) {
+        -> (CSSCompoundSelector, CSSSpecificity, CSSPseudoElement?, Bool) {
         var compound = CSSCompoundSelector()
         var specificity = CSSSpecificity()
         var pseudoElement: CSSPseudoElement?
         var hasType = false
+        var count = 0
+        // The nesting selector, which may stand even before a type selector (CSS Nesting 1 §3.1).
+        // Outside a nested rule, which this parser never reads, it is `:scope`, the root
+        // element here, with no specificity (§3.2), as Chromium keeps it.
+        while index < components.count, components[index].isDelim("&") {
+            compound.simple.append(.pseudo(.root)); index += 1; count += 1
+            guard count <= Self.maximumSimpleSelectors else { throw .tooComplex }
+        }
         if let (prefix, name) = qualifiedName(components, &index, allowUniversal: true) {
             compound.namespace = try namespaceConstraint(prefix: prefix)
             if name != "*" {
@@ -497,10 +524,12 @@ struct CSSSelectorParser {
         } else {
             compound.namespace = try namespaceConstraint(prefix: nil)
         }
-        var count = 0
         loop: while index < components.count {
             let component = components[index]
             switch component {
+            case .token(.delim("&")):
+                guard pseudoElement == nil else { throw .invalid }
+                compound.simple.append(.pseudo(.root)); index += 1
             case .token(.hash(let value, let isID)):
                 guard isID, pseudoElement == nil else { throw .invalid }
                 compound.simple.append(.id(EPUBElementID(value))); specificity.a += 1; index += 1
@@ -517,8 +546,13 @@ struct CSSSelectorParser {
                     index += 1
                     guard index < components.count else { throw .invalid }
                     switch components[index] {
-                    case .token(.ident(let name)) where pseudoElement == nil: pseudoElement = Self.pseudoElement(name.lowercased())
-                    case .token(.ident), .function: pseudoElement = .other
+                    case .token(.ident(let name)):
+                        let lower = name.lowercased()
+                        guard Self.pseudoElements.contains(lower) || lower.hasPrefix("-webkit-") else { throw .invalid }
+                        pseudoElement = pseudoElement == nil ? Self.pseudoElement(lower) : .other
+                    case .function(let name, _):
+                        guard Self.functionalPseudoElements.contains(name) else { throw .invalid }
+                        pseudoElement = .other
                     default: throw .invalid
                     }
                     index += 1
@@ -553,7 +587,7 @@ struct CSSSelectorParser {
         }
         // A pseudo-element written alone (`::before`) is that of `*` (Selectors 4 §3.7).
         guard hasType || count > 0 || pseudoElement != nil else { throw .invalid }
-        return (compound, specificity, pseudoElement)
+        return (compound, specificity, pseudoElement, hasType)
     }
 
     /// A pseudo-element by its lowercased name.
@@ -564,6 +598,23 @@ struct CSSSelectorParser {
         default: .other
         }
     }
+
+    /// The pseudo-elements Chromium knows, lowercased. Only `::before` and `::after` are
+    /// rendered, but a rule for another stays valid, as does one for any `::-webkit-` name,
+    /// which Chromium keeps. Any other is invalid, and so is its selector list (Selectors 4
+    /// §3.9: "UAs must treat as invalid any pseudo-elements … for which they have no usable
+    /// level of support").
+    private static let pseudoElements: Set<String> = [
+        "before", "after", "first-line", "first-letter", "marker", "selection", "placeholder", "backdrop",
+        "file-selector-button", "cue", "spelling-error", "grammar-error", "target-text", "search-text",
+        "details-content", "view-transition", "scroll-marker", "scroll-marker-group", "column", "picker-icon", "checkmark",
+    ]
+
+    /// The functional pseudo-elements Chromium knows (`::part()`, `::highlight()`…).
+    private static let functionalPseudoElements: Set<String> = [
+        "cue", "part", "slotted", "highlight", "view-transition-group", "view-transition-image-pair",
+        "view-transition-old", "view-transition-new", "scroll-button", "picker",
+    ]
 
     private static func simplePseudoClass(_ name: String) -> CSSPseudoClass? {
         switch name {
@@ -582,7 +633,9 @@ struct CSSSelectorParser {
              "out-of-range", "required", "optional", "read-write", "placeholder-shown", "autofill",
              "-webkit-autofill", "playing", "paused", "fullscreen", "modal", "popover-open", "local-link",
              "user-invalid", "user-valid", "blank", "current", "past", "future", "host", "open", "closed",
-             "first", "left", "right":
+             "first", "left", "right", "buffering", "muted", "seeking", "stalled", "volume-locked",
+             "picture-in-picture", "xr-overlay", "target-current", "has-slotted", "active-view-transition",
+             "-webkit-drag", "-webkit-full-page-media", "-webkit-full-screen", "-webkit-full-screen-ancestor":
             .never
         default: nil
         }
@@ -601,19 +654,19 @@ struct CSSSelectorParser {
         }
         switch name {
         case "not":
-            let list = try parseList(arguments, depth: try nested())
+            let list = try parseList(arguments, depth: try nested(), argument: .logical)
             return (.not(list), maximum(list))
         case "is", "matches", "-webkit-any", "-moz-any":
-            let list = try parseForgivingList(arguments, depth: try nested())
+            let list = try parseForgivingList(arguments, depth: try nested(), argument: .logical)
             return (.matchesAny(list), maximum(list))
         case "where":
-            return (.matchesAny(try parseForgivingList(arguments, depth: try nested())), CSSSpecificity())
+            return (.matchesAny(try parseForgivingList(arguments, depth: try nested(), argument: .logical)), CSSSpecificity())
         case "nth-child", "nth-last-child":
             var anb = arguments
             var of: [CSSComplexSelector]?
             if let ofIndex = arguments.firstIndex(where: { $0.ident == "of" }) {
                 anb = Array(arguments[..<ofIndex])
-                let list = try parseList(Array(arguments[(ofIndex + 1)...]), depth: try nested())
+                let list = try parseList(Array(arguments[(ofIndex + 1)...]), depth: try nested(), argument: .positional)
                 // Each `of` level re-matches its list against every sibling, so nesting them
                 // multiplies the work per level; one level is all real stylesheets use.
                 guard !list.contains(where: \.usesSelectorPositions) else { throw .tooComplex }
@@ -642,7 +695,7 @@ struct CSSSelectorParser {
             case "ltr": return (.dir(.ltr), classSpecificity)
             default: throw .invalid
             }
-        case "has", "host", "host-context", "nth-col", "nth-last-col", "state", "current", "heading":
+        case "has", "host", "host-context", "nth-col", "nth-last-col", "state", "current", "heading", "active-view-transition-type":
             return (.never, classSpecificity)
         default:
             throw .invalid

@@ -56,11 +56,12 @@ struct ImageSizing: Equatable, Sendable {
         return CGSize(width: max(1, min(size.width, lineWidth)), height: max(1, min(size.height, heightLimit)))
     }
 
-    /// CSS sizes, with an element's `width`/`height` attributes as hints where CSS says `auto`.
-    init(intrinsic: CGSize, style: ComputedStyle, widthHint: String? = nil, heightHint: String? = nil, fontSize: CGFloat? = nil) {
+    /// The computed sizes, in which an element's `width` and `height` attributes are presentational
+    /// hints that any author rule beats, `auto` included (HTML §15.4.3, and SVG 2 for an `svg`).
+    init(intrinsic: CGSize, style: ComputedStyle) {
         self.intrinsic = intrinsic
-        width = style.width == .auto ? Self.length(widthHint, fontSize: fontSize ?? style.fontSize) ?? .auto : style.width
-        height = style.height == .auto ? Self.length(heightHint, fontSize: fontSize ?? style.fontSize) ?? .auto : style.height
+        width = style.width
+        height = style.height
         minWidth = style.minWidth; minHeight = style.minHeight
         maxWidth = style.maxWidth; maxHeight = style.maxHeight
     }
@@ -145,11 +146,18 @@ final class ReaderImageAttachment: ReaderAttachment {
     /// Reader appearance, kept with the attachment through layout clones and table draws.
     let isDark: Bool
     let cache: ReaderImageCache
+    /// The BCP 47 language the image's words are in: that of the element they come from, the
+    /// nearest `xml:lang` or `lang` else the package's (`MathSpeech.contentLanguage`), as a
+    /// formula's `alttext` is; nil where it names no voice (#548). The words an SVG file gives
+    /// for itself are taken to be in the language of the element that shows it.
+    let language: String?
 
     init(source: ReaderImageSource, sizing: ImageSizing, alternative: ImageAlternative, style: ComputedStyle,
-         contentRect: CGRect? = nil, isDark: Bool = false, isHiddenFromAssistiveTechnology: Bool = false, cache: ReaderImageCache) {
+         contentRect: CGRect? = nil, isDark: Bool = false, isHiddenFromAssistiveTechnology: Bool = false,
+         language: String? = nil, cache: ReaderImageCache) {
         self.source = source; self.sizing = sizing; self.alternative = alternative; self.contentRect = contentRect
         self.isHiddenFromAssistiveTechnology = isHiddenFromAssistiveTechnology
+        self.language = language
         isBlock = style.display.isBlockLevel
         verticalAlign = style.verticalAlign
         fontSize = style.fontSize
@@ -182,6 +190,7 @@ final class ReaderImageAttachment: ReaderAttachment {
     /// book keeps from it or that `visibility: hidden` hides.
     var spokenAlt: String { isHiddenFromAssistiveTechnology || isHidden ? "" : alt }
     override var spokenEquivalent: String { spokenAlt }
+    override var textLanguage: String? { language }
 
     #if os(iOS)
     override var accessibilityLabel: String? {

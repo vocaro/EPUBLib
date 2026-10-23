@@ -130,9 +130,12 @@ import UIKit
         book.add("none", body: image)
         book.add("width", head: "<meta name=\"viewport\" content=\"width=600\"/>", body: image)
         book.add("device", head: "<meta name=\"viewport\" content=\"width=device-width, height=device-height\"/>", body: image)
+        book.add("french", head: Self.viewport(300, 400), body: "<img src=\"plate.png\" alt=\"Une planche\" xml:lang=\"fr\" lang=\"fr\"/>")
         let build = try SpecConformanceBuild(book)
         XCTAssertEqual(build.sections.map { $0.fixedPage?.size }, [CGSize(width: 1000, height: 600), CGSize(width: 300, height: 400),
-                                                                  CGSize(width: 600, height: 800), CGSize(width: 300, height: 400)])
+                                                                  CGSize(width: 600, height: 800), CGSize(width: 300, height: 400),
+                                                                  CGSize(width: 300, height: 400)])
+        XCTAssertEqual(build[4].specImages.first?.language, "fr", "the page's image keeps the language of its words")
     }
 
     // MARK: The page

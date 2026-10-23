@@ -296,7 +296,7 @@ struct ReaderTableFragment: Equatable {
                         slice.addAttribute(.attachment, value: ReaderImageAttachment(source: image.source, sizing: sizing,
                             alternative: image.alternative, style: style, contentRect: image.contentRect,
                             isDark: image.isDark, isHiddenFromAssistiveTechnology: image.isHiddenFromAssistiveTechnology,
-                            cache: image.cache), range: run)
+                            language: image.language, cache: image.cache), range: run)
                     }
                 }
                 if let original = attributes[.paragraphStyle] as? NSParagraphStyle {

@@ -42,7 +42,8 @@ struct FixedLayoutPage: Equatable, Sendable {
         style.invertsColors = image.invertsColors
         let page = ReaderImageAttachment(source: image.source, sizing: sizing, alternative: image.alternative, style: style,
                                          contentRect: image.contentRect, isDark: image.isDark,
-                                         isHiddenFromAssistiveTechnology: image.isHiddenFromAssistiveTechnology, cache: image.cache)
+                                         isHiddenFromAssistiveTechnology: image.isHiddenFromAssistiveTechnology,
+                                         language: image.language, cache: image.cache)
         var attributes = attributes
         // The image's own box, its paragraph's spacing and indents and the box plan around it
         // were for a flow that a page does not have.
