@@ -143,7 +143,7 @@ import XCTest
         }
         if bareResults {
             listed = listed.map {
-                EPUBSearchResult(index: $0.index, location: EPUBLocation(publicationID: book.id), spineIndex: $0.spineIndex, matchedText: text)
+                EPUBSearchResult(index: $0.index, location: EPUBLocation(publicationID: book.persistentID), spineIndex: $0.spineIndex, matchedText: text)
             }
         }
         if fault == .resultsOutOfOrder { listed.reverse() }
