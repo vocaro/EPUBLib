@@ -21,6 +21,8 @@ enum UserAgentStyleSheet {
     nav, section, details, summary, dir, dd, dl, dt, menu, ol, ul, fieldset, optgroup, frameset,
     frame { display: block; }
     li { display: list-item; }
+    details > summary:first-of-type { display: list-item; list-style: disclosure-closed inside; }
+    details[open] > summary:first-of-type { list-style-type: disclosure-open; }
     input, button, select, textarea, meter, progress { display: inline-block; }
     marquee { display: inline-block; text-align: initial; }
 

@@ -615,6 +615,7 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
             case .note(let href)?: "\(word): note link to \(href)"
             case .internal(let href)?: "\(word): internal link to \(href)"
             case .external(let href)?: "\(word): external link to \(href)"
+            case .disclosure(let id)?: "\(word): summary of details \(id)"
             case nil: "\(word): no link"
             }
         }

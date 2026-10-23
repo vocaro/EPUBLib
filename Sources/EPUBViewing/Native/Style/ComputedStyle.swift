@@ -40,6 +40,10 @@ struct ComputedStyle: Equatable, Sendable {
     enum ListStyleType: Equatable, Sendable {
         case none, disc, circle, square, decimal, decimalLeadingZero
         case lowerAlpha, upperAlpha, lowerRoman, upperRoman, lowerGreek
+        /// CSS Counter Styles' disclosure triangles, which a `details` element's `summary` shows
+        /// (HTML §15.3.10): pointing down when the details is open, and towards the line's end
+        /// when it is closed.
+        case disclosureOpen, disclosureClosed
         /// A `list-style-type: "…"` string marker.
         case string(String)
     }

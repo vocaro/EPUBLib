@@ -145,6 +145,20 @@ extension ReaderLinkHost {
         element.range = range
         element.setAccessibilityParent(element.listing ?? self)
         element.setAccessibilityTitle(title.isEmpty ? nil : title)
+        // A summary is a disclosure triangle that says whether its details is open, as HTML-AAM
+        // maps it on the Mac and Safari gives it; a press opens or closes it.
+        if ReaderLink.isDisclosure(url), let text = linkText, range.location < text.length {
+            let expanded = (text.attribute(.readerExpanded, at: range.location, effectiveRange: nil) as? Bool) == true
+            element.setAccessibilityRole(.disclosureTriangle)
+            element.setAccessibilitySubrole(nil)
+            element.setAccessibilityExpanded(expanded)
+            element.setAccessibilityValue(NSNumber(value: expanded ? 1 : 0))
+        } else {
+            element.setAccessibilityRole(.link)
+            element.setAccessibilitySubrole(.textLink)
+            element.setAccessibilityExpanded(false)
+            element.setAccessibilityValue(nil)
+        }
         // A picture in a link is followed, not enlarged, by a press: inspection stays an action.
         element.setAccessibilityCustomActions(announcedImages(in: range).map { image, _ in
             NSAccessibilityCustomAction(name: image.spokenAlt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.spokenAlt)") { [weak self] in

@@ -164,7 +164,7 @@ import SwiftUI
         // Text a newer build has replaced stays on screen, in the canvas's appearance, until the
         // canvas is given the newer: a section's, or continuous scroll's whole book.
         if let section = shown.section {
-            guard shown.text === book.section(section)?.string, let built = book.typography(ofSection: section) else {
+            guard shown.text === book.shownText(section), let built = book.typography(ofSection: section) else {
                 return canvas.configuration.isDark
             }
             return built.isDark
@@ -309,7 +309,36 @@ import SwiftUI
         let position = fragment.flatMap(text.document.element(id:))
             .map { text.renderedPosition(DOMPosition($0, 0)) }
             ?? ReaderTextPosition(section: text.spineIndex, offset: fragment.flatMap { text.anchors[$0] } ?? 0)
+        reveal(position)
         canvas?.show(position, selecting: nil)
+    }
+
+    // MARK: - Details
+
+    /// Opens or closes a details where the reader shows it (`ReaderDisclosure`): `open`, or
+    /// the other way from how it is shown. Its characters stay, so every position, search
+    /// result, highlight and selection stays where it is, and the canvas shows the same place
+    /// again: the page, or the line at the top of continuous scroll.
+    func setDisclosure(_ id: Int, inSection index: Int, open: Bool? = nil) {
+        guard !closed, let section = book.section(index),
+              let disclosure = section.disclosures.first(where: { $0.id == id }) else { return }
+        let shown = book.isOpen(disclosure, inSection: index)
+        let target = open ?? !shown
+        guard target != shown else { return }
+        book.setOpen(target, disclosure: id, inSection: index)
+        canvas?.reloadContent(keeping: nil)
+    }
+
+    /// Opens every details that hides `position` where the reader shows it, as a browser opens
+    /// the details round a fragment it goes to or a match it finds (HTML's ancestor details
+    /// revealing algorithm), and gives the canvas the text that shows it. False when none did.
+    @discardableResult private func reveal(_ position: ReaderTextPosition) -> Bool {
+        guard let section = book.section(position.section) else { return false }
+        let hiding = section.disclosures(hiding: position.offset).filter { !book.isOpen($0, inSection: position.section) }
+        guard !hiding.isEmpty else { return false }
+        for disclosure in hiding { book.setOpen(true, disclosure: disclosure.id, inSection: position.section) }
+        canvas?.reloadContent(keeping: position)
+        return true
     }
 
     /// The legacy bookmark remains the first segment. Reject contradictory or foreign ranges
@@ -362,6 +391,7 @@ import SwiftUI
             return
         }
         canvas?.clearSelection()
+        reveal(range.start)
         canvas?.show(range.start, selecting: nil)
     }
 
@@ -408,6 +438,7 @@ import SwiftUI
                 let range = range(of: match, in: section)
                 guard !SearchResultBuilder.isListed(range, in: section) else {
                     canvas?.clearSelection()
+                    reveal(range.start)
                     canvas?.show(range.start, selecting: highlight ? range : nil)
                     return
                 }
@@ -488,6 +519,7 @@ import SwiftUI
             if !canShow(section: first.start.section) { _ = await book.build(first.start.section) }
             if isCurrent(navigationTicket), pageChanges == changes {
                 canvas?.clearSelection()
+                reveal(first.start)
                 canvas?.showFound(first.start)
             }
         }
@@ -565,6 +597,7 @@ import SwiftUI
         if !canShow(section: position.section) { _ = await book.build(position.section) }
         guard isCurrent(ticket), pageChanges == changes else { return }
         canvas?.clearSelection()
+        reveal(position)
         canvas?.showFound(position)
     }
 
@@ -810,7 +843,9 @@ import SwiftUI
             if index != range.start.section { text += "\n" }
             let segment = ReaderTextRange(start: index == range.start.section ? range.start : ReaderTextPosition(section: index, offset: lower),
                 end: index == range.end.section ? range.end : ReaderTextPosition(section: index, offset: max(lower, upper)))
-            text += section.tablePassage(segment) ?? section.mappedText(in: lower..<max(lower, upper))
+            // As it is shown: what a closed details collapses is not taken (`readerHiddenText`).
+            text += section.tablePassage(segment)
+                ?? section.map.mappedText(in: lower..<max(lower, upper), from: book.shownText(index) ?? section.string)
         }
         return text
     }
@@ -823,7 +858,8 @@ import SwiftUI
 
 extension NativeSession: ReaderCanvasDataSource {
     var sectionCount: Int { book.count }
-    func text(forSection index: Int) -> NSAttributedString? { book.section(index)?.string }
+    /// A section's text as it is shown: with what each details it has closed holds collapsed.
+    func text(forSection index: Int) -> NSAttributedString? { book.shownText(index) }
     func selectionText(in range: ReaderTextRange) -> String? { passageText(range) }
     /// Page turns keep to the sections continuous scroll shows (`NativeBook.isOmitted`): every
     /// one when no spine item is linear. foliate-js stops such a book at the end of its first
@@ -879,6 +915,7 @@ extension NativeSession: ReaderCanvasDelegate {
     func canvasDidRequestSelectionAction(_ canvas: any ReaderCanvas) { performSelectionAction() }
 
     func canvas(_ canvas: any ReaderCanvas, didActivate link: ReaderLink, at position: ReaderTextPosition, rect: CGRect) {
+        if case .disclosure(let id) = link { return setDisclosure(id, inSection: position.section) }
         activateLink(link, from: rect)
     }
 
@@ -890,6 +927,9 @@ extension NativeSession: ReaderCanvasDelegate {
         switch link {
         case .external:
             emit(.notice("This reader does not open links outside the book."))
+            return nil
+        case .disclosure:
+            // A summary is in a section, which the canvas names (`canvas(_:didActivate:at:rect:)`).
             return nil
         case .internal(let href), .note(let href):
             guard let target = try? Self.target(of: href, in: publication) else { return nil }

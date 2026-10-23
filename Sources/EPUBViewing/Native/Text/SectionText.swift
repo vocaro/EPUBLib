@@ -33,6 +33,10 @@ struct SectionText: @unchecked Sendable {
     let notes: [EPUBElementID: NSAttributedString]
     /// `<head><title>`, whitespace-normalized; nil when absent or empty.
     let title: String?
+    /// The section's `details` elements that open and close on their `summary`, in document
+    /// order. `string` shows each open; the session shows the closed ones collapsed
+    /// (`ReaderDisclosures.render`).
+    let disclosures: [ReaderDisclosure]
     /// What the build withheld or simplified, and what laying the text out has found since.
     var report: SectionReport {
         var report = builtReport
@@ -45,11 +49,15 @@ struct SectionText: @unchecked Sendable {
 
     init(spineIndex: Int, href: String, document: ContentDocument, string: NSAttributedString, map: TextMap,
          anchors: [EPUBElementID: Int], notes: [EPUBElementID: NSAttributedString], title: String?, report: SectionReport,
-         layout: SectionLayoutRecord = SectionLayoutRecord()) {
+         layout: SectionLayoutRecord = SectionLayoutRecord(), disclosures: [ReaderDisclosure] = []) {
         self.spineIndex = spineIndex; self.href = href; self.document = document; self.string = string
         self.map = map; self.anchors = anchors; self.notes = notes; self.title = title
-        builtReport = report; self.layout = layout
+        builtReport = report; self.layout = layout; self.disclosures = disclosures
     }
+
+    /// The disclosures whose content holds `location`, outermost first: those that must be open
+    /// for it to be shown.
+    func disclosures(hiding location: Int) -> [ReaderDisclosure] { disclosures.filter { $0.hides(location) } }
 }
 
 /// What the layouts of a section's text find that its build could not know: text TextKit could
@@ -352,10 +360,17 @@ enum ReaderLink: Equatable, Sendable {
     case note(href: String)
     /// Anything outside the archive. Never opened.
     case external(String)
+    /// A `details` element's `summary`, which opens and closes it: the details is named by
+    /// its order in its section's document (`ReaderDisclosure.id`).
+    case disclosure(Int)
 
     private static let internalScheme = "epublib-internal:"
     private static let noteScheme = "epublib-note:"
     private static let externalScheme = "epublib-external:"
+    private static let disclosureScheme = "epublib-disclosure:"
+
+    /// Whether a link's URL is a summary's: VoiceOver is given it as a button, not a link.
+    static func isDisclosure(_ url: URL?) -> Bool { url?.absoluteString.hasPrefix(disclosureScheme) == true }
 
     var url: URL {
         switch self {
@@ -363,6 +378,7 @@ enum ReaderLink: Equatable, Sendable {
         case .note(let href): URL(string: Self.noteScheme + href)!
         case .external(let target):
             URL(string: Self.externalScheme + (target.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""))!
+        case .disclosure(let id): URL(string: Self.disclosureScheme + String(id))!
         }
     }
 
@@ -372,6 +388,8 @@ enum ReaderLink: Equatable, Sendable {
         else if value.hasPrefix(Self.noteScheme) { self = .note(href: String(value.dropFirst(Self.noteScheme.count))) }
         else if value.hasPrefix(Self.externalScheme) {
             self = .external(String(value.dropFirst(Self.externalScheme.count)).removingPercentEncoding ?? "")
+        } else if value.hasPrefix(Self.disclosureScheme), let id = Int(value.dropFirst(Self.disclosureScheme.count)) {
+            self = .disclosure(id)
         } else { return nil }
     }
 }
