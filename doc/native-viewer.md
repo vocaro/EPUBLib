@@ -1322,12 +1322,16 @@ continues to describe the authored spine resource.
         start of the next row's paragraph, and Read All, which had said a phrase with
         nothing in it for the row's paragraph, says nothing of it.
       - **Which rows.** What a row has to hold to be passed over is nothing: no words,
-        and nothing besides but spaces and decoration, in the cells a page shows of it,
-        and in a table inside one of its cells likewise
-        (`TableRowAttachment.saysNothing`). A row that shows a picture nobody describes
-        is still its group, "text image text image group". A row that holds a link is
-        not passed over whatever the link holds, because a link has to be reachable, and
-        neither is one that holds a rule or a formula.
+        and nothing besides but spaces and what assistive technology passes over
+        (`NSAttributedString.passesOver`), in the cells a page shows of it, and in a
+        table inside one of its cells likewise (`TableRowAttachment.saysNothing`). That
+        is decoration, a picture, a rule or a formula the book keeps from assistive
+        technology, and anything `visibility: hidden` hides, which nobody reads
+        ([#774](https://github.com/vocaro/EPUBLib/issues/774)). A row that shows a
+        picture nobody describes is still its group, "text image text image group". A
+        row that holds a link is not passed over whatever the link holds, because a link
+        has to be reachable, and neither is one that holds a rule or a formula that is
+        read: a row of a formula is a group called by the formula's words.
       - **Inside a table of data** the row is still a row. VoiceOver goes into the table
         at a row of words, and its table navigation goes through this row's cells as
         through any others: "Tree empty cell", for a cell of decoration as for a cell
@@ -2736,11 +2740,11 @@ row whose cells are all hidden reads nothing. A tap or a double click on a hidde
 room opens nothing, and the inspector does not open for it whatever asks. Two places still
 offer it, and do nothing when chosen: the Inspect Image of a text item's menu on iPhone and
 iPad, and of a table cell's menu ([#775](https://github.com/vocaro/EPUBLib/issues/775)). On
-the Mac a row of a table that is not data, whose cells hold a hidden formula or rule and
-nothing else, is a group with no name, where a row of hidden text or hidden pictures alone is
-passed over ([#774](https://github.com/vocaro/EPUBLib/issues/774)). A note's popover on
-iPhone and iPad gives VoiceOver UIKit's own text accessibility, which these changes do not
-reach ([#550](https://github.com/vocaro/EPUBLib/issues/550)).
+the Mac a row whose cells hold nothing but hidden text, pictures, formulas or rules, or
+formulas the book keeps from assistive technology, has nothing to say and is passed over, as
+a row of decoration is ([#774](https://github.com/vocaro/EPUBLib/issues/774)). A note's
+popover on iPhone and iPad gives VoiceOver UIKit's own text accessibility, which these changes
+do not reach ([#550](https://github.com/vocaro/EPUBLib/issues/550)).
 
 ### Text kept from assistive technology
 
