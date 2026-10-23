@@ -1097,7 +1097,7 @@ final class SectionWriter {
         var type = style.listStyleType
         let triangle = type == .disclosureOpen || type == .disclosureClosed
         let value: Int
-        if triangle || node.isHTML("summary") {
+        if node.isHTML("summary") {
             // A summary counts no item of a list (HTML §15.3.10: `counter-increment: list-item 0`).
             value = lists.last?.value ?? orphanList.value
         } else if let last = lists.indices.last {
