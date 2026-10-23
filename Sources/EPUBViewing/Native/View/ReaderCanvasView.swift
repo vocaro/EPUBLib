@@ -383,8 +383,8 @@ import AppKit
         let motion = ReaderPageMotion(old.pageTurnAnimation, reducesMotion: old.reducesMotion)
             != ReaderPageMotion(configuration.pageTurnAnimation, reducesMotion: configuration.reducesMotion)
         if motion || old.flow != configuration.flow || old.theme != configuration.theme { endPageTransition() }
-        if old.pageControls != configuration.pageControls || old.flow != configuration.flow
-            || old.togglesControls != configuration.togglesControls || motion {
+        if old.pageControls != configuration.pageControls || old.flow != configuration.flow || motion
+            || old.togglesControls != configuration.togglesControls {
             pointerDown = nil
             wheelTurner = ReaderWheelPageTurner()
             updateInputHandlers()
