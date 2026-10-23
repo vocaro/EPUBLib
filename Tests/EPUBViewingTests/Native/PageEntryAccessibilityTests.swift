@@ -240,6 +240,64 @@ import XCTest
         XCTAssertFalse(window.isVisible)
     }
 
+    /// A spread that hides the column with keyboard focus keeps the focus in the reader: a
+    /// window narrowed from two columns to one, and a turn to a section's last page alone.
+    /// AppKit takes the focus from a view it hides, and it went to the window, which left
+    /// VoiceOver, which stays in the column that has the focus, with no column to stay in. The
+    /// place entered takes it to its own column, and otherwise the first column shown takes it,
+    /// as after a turn (#599).
+    func testASpreadThatHidesTheColumnWithKeyboardFocusGivesItToAColumnShown() async throws {
+        let reader = reader(width: 1100, sections: [Self.numbered, CanvasText.body("A short last section.")])
+        let canvas = reader.canvas, window = reader.window
+        let target = try secondSpreadPlace(canvas)
+        canvas.show(target, selecting: nil)
+        let columns = canvas.textViews
+        XCTAssertEqual(columns.count, 2)
+        XCTAssertTrue(window.makeFirstResponder(columns[1]))
+        try assertEntered(canvas, at: target, "the place shown in the second column")
+
+        try await resize(reader, to: 600)
+        XCTAssertEqual(canvas.columns.map(\.isHidden), [false, true])
+        let shown = try assertEntered(canvas, at: target, "a resize to one column")
+        XCTAssertTrue(shown.column === columns[0])
+        XCTAssertTrue(window.firstResponder === columns[0], "focus is in \(String(describing: window.firstResponder))")
+
+        // With no place to enter, the first column shown takes it.
+        try await resize(reader, to: 1100)
+        XCTAssertTrue(window.firstResponder === columns[1], "focus went with the place to its column")
+        XCTAssertEqual(canvas.turnPage(forward: true), .turned)
+        XCTAssertTrue(window.makeFirstResponder(columns[1]))
+        try await resize(reader, to: 600)
+        XCTAssertEqual(canvas.columns.map(\.isHidden), [false, true])
+        assertFirstLines(canvas, "a resize to one column after a turn")
+        XCTAssertTrue(window.firstResponder === columns[0], "focus is in \(String(describing: window.firstResponder))")
+
+        // A turn from a spread of two pages to one of one, the first section's last or the
+        // short section after it, made by a host's command or by the keys.
+        try await resize(reader, to: 1100)
+        func lastSpreadOfTwoPages() {
+            canvas.show(ReaderTextPosition(section: 0, offset: Self.numbered.length - 1), selecting: nil, entry: .firstLine)
+            if canvas.columns[1].isHidden { XCTAssertEqual(canvas.turnPage(forward: false), .turned) }
+            XCTAssertEqual(canvas.columns.map(\.isHidden), [false, false])
+        }
+        for fromTheKeys in [false, true] {
+            let turn = fromTheKeys ? "a turn by the keys" : "a host's turn"
+            lastSpreadOfTwoPages()
+            XCTAssertTrue(window.makeFirstResponder(columns[1]))
+            XCTAssertEqual(fromTheKeys ? canvas.turnPageFromInput(forward: true) : canvas.turnPage(forward: true), .turned, turn)
+            XCTAssertEqual(canvas.columns.map(\.isHidden), [false, true], turn)
+            XCTAssertTrue(window.firstResponder === columns[0], "\(turn): focus is in \(String(describing: window.firstResponder))")
+        }
+
+        // Focus outside the columns stays there.
+        lastSpreadOfTwoPages()
+        XCTAssertTrue(window.makeFirstResponder(canvas))
+        XCTAssertEqual(canvas.turnPage(forward: true), .turned)
+        XCTAssertEqual(canvas.columns.map(\.isHidden), [false, true])
+        XCTAssertTrue(window.firstResponder === canvas)
+        XCTAssertFalse(window.isVisible)
+    }
+
     /// Once anything moves from the place, a relayout enters at the first line, as after a
     /// page turn: a click or VoiceOver moving the insertion point, in any column, a selection,
     /// keyboard focus taken to the column beside, and a change of flow.

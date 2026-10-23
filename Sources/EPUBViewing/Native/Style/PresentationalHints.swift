@@ -6,7 +6,8 @@ import Foundation
 /// declarations.
 enum PresentationalHints {
     static func declarations(for element: ContentNode, facts: ElementFacts, document: ContentDocument) -> [CSSDeclaration] {
-        guard !element.attributes.isEmpty else { return [] }
+        // A cell takes its table's `border` and `cellpadding` with no attribute of its own.
+        guard !element.attributes.isEmpty || element.isHTML("td") || element.isHTML("th") else { return [] }
         if element.namespace == ContentNamespace.svg, element.name == "svg" {
             var result: [CSSDeclaration] = []
             for name in ["width", "height"] {
@@ -74,6 +75,8 @@ enum PresentationalHints {
         }
         if name == "body", let color = attribute("text").flatMap(legacyColor) { add(&result, "color", color) }
         if (name == "td" || name == "th"), element.attribute("nowrap") != nil { add(&result, "white-space", "nowrap") }
+        // HTML §15.3.10: `caption[align=bottom i] { caption-side: bottom; }`, the whole value.
+        if name == "caption", element.attribute("align")?.lowercased() == "bottom" { add(&result, "caption-side", "bottom") }
 
         switch name {
         case "font":
@@ -88,14 +91,15 @@ enum PresentationalHints {
             }
             if let size = attribute("size").flatMap(fontSizeKeyword) { add(&result, "font-size", size) }
         case "table":
+            // HTML §15.3.10: a `border` that is not a non-negative integer is 1.
             if let border = attribute("border") {
-                let width = Int(border.prefix { $0.isNumber }) ?? 1
+                let width = nonNegativeInteger(border) ?? 1
                 if width > 0 { add(&result, "border", "\(min(width, 64))px outset") }
             }
             if let spacing = attribute("cellspacing").flatMap({ dimension($0) }), !spacing.hasSuffix("%") { add(&result, "border-spacing", spacing) }
         case "td", "th":
             if let table = enclosingTable(element, facts: facts, document: document) {
-                if let border = table.attribute("border"), (Int(border.prefix { $0.isNumber }) ?? 1) > 0 {
+                if let border = table.attribute("border"), (nonNegativeInteger(border) ?? 1) > 0 {
                     add(&result, "border", "1px inset")
                 }
                 if let padding = table.attribute("cellpadding").flatMap({ dimension($0) }), !padding.hasSuffix("%") {
@@ -103,7 +107,7 @@ enum PresentationalHints {
                 }
             }
         case "img":
-            if let border = attribute("border").flatMap({ Int($0.prefix { $0.isNumber }) }), border > 0 {
+            if let border = attribute("border").flatMap(nonNegativeInteger), border > 0 {
                 add(&result, "border", "\(min(border, 64))px solid")
             }
         case "br":
@@ -145,6 +149,27 @@ enum PresentationalHints {
         guard let amount = Double(number.hasSuffix(".") ? String(number.dropLast()) : number), amount.isFinite,
               !(ignoringZero && amount == 0) else { return nil }
         return rest.first == UInt8(ascii: "%") ? "\(amount)%" : "\(amount)px"
+    }
+
+    /// HTML's rules for parsing non-negative integers (§2.3.4.2, by way of §2.3.4.1's rules for
+    /// parsing integers): after ASCII white space, one `+` or `-`, then at least one ASCII digit,
+    /// read up to the first character that is not one; what follows is ignored. A negative number
+    /// other than zero is none, and so is a value with no digit. A number past `Int.max` is
+    /// `Int.max`, which every attribute's own bound holds.
+    static func nonNegativeInteger(_ value: String) -> Int? {
+        var rest = value.utf8.drop { $0 == 0x20 || $0 == 0x09 || $0 == 0x0A || $0 == 0x0C || $0 == 0x0D }
+        let isNegative = rest.first == UInt8(ascii: "-")
+        if isNegative || rest.first == UInt8(ascii: "+") { rest = rest.dropFirst() }
+        let digits = rest.prefix { (0x30...0x39).contains($0) }
+        guard !digits.isEmpty else { return nil }
+        var number = 0
+        for digit in digits {
+            let (tens, overflows) = number.multipliedReportingOverflow(by: 10)
+            let (sum, carries) = tens.addingReportingOverflow(Int(digit - 0x30))
+            if overflows || carries { number = .max; break }
+            number = sum
+        }
+        return isNegative && number != 0 ? nil : number
     }
 
     /// A legacy color attribute: a CSS color, or bare hex digits as old HTML wrote them.
