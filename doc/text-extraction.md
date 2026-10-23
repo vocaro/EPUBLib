@@ -179,6 +179,18 @@ unterminated CDATA section and a start tag's quoted attribute value that never e
 DOCTYPE as far as libxml2 reads it: to its first `>`, or, where a `PUBLIC` or `SYSTEM` it has
 not renamed comes before that `>`, through its quoted identifiers. A bracket in what it reads,
 quoted or not, or a DOCTYPE that never ends refuses the section (#293).
+Three of these refusals now withhold some sections whose text recovery read before
+[#226](https://github.com/vocaro/EPUBLib/pull/226): a tree with no body, a quoted attribute
+value that never ends and a CDATA section that never ends. Where #226 keeps a `<` that opens no
+tag as text, markup that recovery used to discard with everything up to the next `>` comes into
+view, and in these sections that markup never closes, or libxml2 builds no body from it. These
+are losses accepted against recovery before #226, as the reader withholds a section cut off
+inside markup ([#202](https://github.com/vocaro/EPUBLib/issues/202)): the cost is one section,
+of input broken in more than one way, on a path the caller opts into; reading on would mean
+guessing where markup that never closes ends, which is where a scan and a parser most easily
+disagree about what the bytes are, or what is the body of a tree that has none; and a browser
+showed the text read before #226 in fewer than half of the sections measured, 684 of 1,437
+([#256](https://github.com/vocaro/EPUBLib/issues/256)).
 Unsafe declarations, exceeded limits, cancellation and well-formed documents without the expected
 XHTML structure remain errors. A parser halt at its built-in nesting cap returns
 `limitExceeded("depth")` instead of partial text, even with a larger caller limit; both paths

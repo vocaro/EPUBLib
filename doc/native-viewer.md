@@ -3748,10 +3748,15 @@ Go: the native viewer is the bundled engine.
   rotor there. In paging on Mac the rotor's list and VoiceOver's move to the next heading
   were heard to go through the whole book the same day, on the hosted Mac
   ([VoiceOver testing](testing.md#voiceover-testing)). With VoiceOver's cursor on a link on Mac, the
-  move goes to the book's next heading in continuous scroll and stays on the page in
-  paging, where it goes back to the page's first heading when none follows the link; from
-  a link after the book's last heading it begins again with the first heading on screen
-  ([#454](https://github.com/vocaro/EPUBLib/issues/454)).
+  move goes to the book's next heading in both flows, on a later page in paging. Reading on
+  by word or by line then starts at the heading when the reader had to turn or scroll to
+  it, and where VoiceOver last read when it was on the page or on screen already. From a
+  link after the book's last heading the move begins again with the first heading on screen
+  or on the page. That is VoiceOver's own on macOS 27.0.1: only its search for elements was
+  found to end the move there, and VoiceOver asks a text that offers the search for its
+  other moves too, which then left the text or were asked without end, so the reader offers
+  none (`HeadingAccessibilityTests.testNeitherATextNorItsElementsOfferTheSearchForElements`;
+  "Input and accessibility", Headings; [#454](https://github.com/vocaro/EPUBLib/issues/454)).
 - Flex and grid alignment covers the single-column subset described above. Side-by-side row
   items, wrapping and reversed flex, multi-column and explicitly placed grids, `order` and
   inline flex or grid containers render as blocks in reading order with a disclosure. Within
