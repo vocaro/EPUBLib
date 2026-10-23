@@ -9,6 +9,10 @@ import XCUIAutomation
 /// per line) and `steps.txt` (one step per line); the log, tree dumps and screenshots go there.
 @MainActor final class ControlsProbe: XCTestCase {
     private var app: XCUIApplication!
+    /// The host's bundle identifier and launch arguments, which `target=host` operates again and
+    /// `target=relaunch` launches again.
+    private var host = ""
+    private var hostArguments: [String] = []
     private var out: URL!
     private var step = 0
     private var autoshot = true
@@ -25,11 +29,13 @@ import XCUIAutomation
                 .split(separator: "\n").map(String.init).filter { !$0.hasPrefix("#") }
         }
         #if os(macOS)
-        app = XCUIApplication(bundleIdentifier: "org.epubreaderlib.controlsqualification.mac")
+        host = "org.epubreaderlib.controlsqualification.mac"
         #else
-        app = XCUIApplication(bundleIdentifier: "org.epubreaderlib.controlsqualification")
+        host = "org.epubreaderlib.controlsqualification"
         #endif
+        app = XCUIApplication(bundleIdentifier: host)
         app.launchArguments = lines("args.txt")
+        hostArguments = app.launchArguments
         app.launch()
         note("launch", app.launchArguments.joined(separator: " "))
         #if os(iOS)
@@ -186,6 +192,41 @@ import XCUIAutomation
             RunLoop.current.run(until: Date().addingTimeInterval(2))
             note(command, "\(argument), window \(frame(app.windows.firstMatch.frame))")
             settle()
+        case "target":
+            // `target=com.apple.Preferences` operates another application of the simulator, such
+            // as Settings for a setting no simctl command makes; the steps after it touch, read
+            // and dump that application. `target=host` comes back to the host, which kept running,
+            // and `target=relaunch` launches the host again with its arguments, as a setting a
+            // running application does not follow needs.
+            #if os(iOS)
+            app = XCUIApplication(bundleIdentifier: ["host", "relaunch"].contains(argument) ? host : argument)
+            if argument == "relaunch" {
+                app.launchArguments = hostArguments
+                app.launch()
+            } else {
+                app.activate()
+            }
+            note(command, "\(argument): \(app.state == .runningForeground ? "in front" : "NOT IN FRONT")")
+            settle()
+            #else
+            note(command, "iOS only")
+            #endif
+        case "slider":
+            // `slider=0.25` moves the first slider on screen to that fraction of its track, and
+            // `slider=Name@0.25` the slider WORD names (see `find`); the line gives its value
+            // before and after.
+            #if os(iOS)
+            let parts = argument.split(separator: "@").map(String.init)
+            guard let position = Double(parts.last ?? "") else { return note(command, "BAD POSITION") }
+            let slider = parts.count == 2 ? app.sliders[parts[0]].firstMatch : app.sliders.firstMatch
+            guard slider.exists else { return note(command, "NO SLIDER") }
+            let before = slider.value as? String ?? "?"
+            slider.adjust(toNormalizedSliderPosition: position)
+            note(command, "\(describe(slider)): \(before) -> \(slider.value as? String ?? "?")")
+            settle()
+            #else
+            note(command, "iOS only")
+            #endif
         case "wait":
             RunLoop.current.run(until: Date().addingTimeInterval(Double(argument) ?? 1))
         case "waitfor", "waitgone":

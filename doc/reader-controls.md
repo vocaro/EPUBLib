@@ -199,18 +199,24 @@ complete reader of [#690](https://github.com/vocaro/EPUBLib/issues/690), when it
 the modifier itself and offers `whileReading` as its own option.
 
 Hidden, on iPhone and iPad the navigation bar, the bottom bar, the status bar and the home
-indicator go. On a Mac the window toolbar goes, as View > Hide Toolbar takes it, and View > Show
-Toolbar brings the controls back with it. An `EPUBReaderControlStrip` keeps its place and its
-height, with its groups unseen, disabled and hidden from assistive technology, and its search
-field gives up its focus and the keyboard. `.hideControls` is a Hide Controls button, offered
-only under the modifier: elsewhere it takes no place in a toolbar or a strip.
+indicator go. On a Mac the controls hide and show with the window toolbar, by the window's own
+command, View > Hide Toolbar and Show Toolbar (`NSWindow.toggleToolbarShown(_:)`, Option-Command-T):
+the toolbar going hides them all and its coming back shows them, and controls hidden or shown
+otherwise, as by Show Controls or VoiceOver coming on, take the toolbar with them by the same
+command. An `EPUBReaderControlStrip` keeps its place and its height, with its groups unseen,
+disabled and hidden from assistive technology, and its search field gives up its focus and the
+keyboard. `.hideControls` is a Hide Controls button on iPhone and iPad, offered only under the
+modifier: elsewhere, and on a Mac, whose window has that command, it takes no place in a toolbar
+or a strip.
 
 They hide by themselves as the person reads on with the reader's own input: a page turned by a
 key, a swipe, an edge tap or click or the wheel, and continuous scroll dragged by a finger or
 moved by a Mac's wheel or trackpad. A page button, a contents entry, a search, a host command
 and VoiceOver's own page turns leave them as they are. While VoiceOver or Switch Control is
 running they do not hide by themselves, since hidden controls are gone from what either can
-reach, and either coming on shows them. `whileReading: false` hides them only when asked.
+reach, and either coming on shows them. This is `whileReading`, true on iPhone and iPad and
+false on a Mac, where a window's toolbar hides on command and not because a page turned; a host
+can pass either. With `false` they hide only when asked.
 
 They come back:
 
@@ -221,10 +227,14 @@ They come back:
   double tap on a line reaches the reader as a touch at the line.
 - by VoiceOver's Magic Tap, a two-finger double tap, from any line of the reader or from the
   Show Controls button, which hides them again too, on iPhone and iPad.
-- by Option-Command-T, the shortcut of the Mac's own Show Toolbar, which the Hide Controls group
-  and the Show Controls button carry, whatever has keyboard focus. Hide Controls is disabled
-  while the controls are hidden: a hidden bar's items keep their shortcuts, and with both
-  enabled the key did nothing on an iPhone simulator.
+- by Option-Command-T. On iPhone and iPad the Hide Controls group and the Show Controls button
+  carry it, whatever has keyboard focus. Hide Controls is disabled while the controls are
+  hidden: a hidden bar's items keep their shortcuts, and with both enabled the key did nothing
+  on an iPhone simulator. On a Mac the key is the window's own Show Toolbar and Hide Toolbar,
+  and nothing in the window takes it before the menu. When the group and the button carried it
+  there as well, the window took it first, as AppKit offers a key equivalent to the key window
+  before the menu bar
+  (`ReaderControlsHidingTests.testOnAMacOptionCommandTIsLeftToTheWindowsToolbarCommand`).
 - by the Show Controls button, a chevron in the room the bars left, or over the hidden strip
   where no bar left room. It is drawn in the secondary label colour, with no glass, at more than
   the 3:1 a control's graphic needs against the background, in light and dark and with Increase
@@ -240,13 +250,14 @@ not go or come back at once: the navigation bar and the bottom bar each change t
 a layout of its own. When the room each left was measured and given back a layout behind it,
 the reader was laid out at five other frames in each round of hiding and showing on an iPhone
 17 Pro simulator (`ReaderControlsHidingTests.testHiddenBarsLeaveTheReaderItsFrame`). The room is
-the host's background, and only the bars are glass, over it. This holds for a reader in the safe
+the host's background, and only the bars are glass, over it. At either end of iOS 27's Liquid
+Glass Tint Amount (Settings > Appearance > Liquid Glass), the bar stood over the empty margin, and
+with the controls hidden the two screens were the same to the pixel. This holds for a reader in the safe
 area, as `EPUBReaderView` is unless the host has it ignore the safe area; one that ignores it
 runs under the bars as before, and was not checked.
 
 On a Mac a click in the middle of the text keeps its meaning, the insertion point VoiceOver
-starts at, and shows or hides nothing. Option-Command-T is View > Hide Toolbar's shortcut there
-too; which of the two takes it in an app with that menu was not checked.
+starts at, and shows or hides nothing.
 
 Migration: hosts with exhaustive switches over `EPUBReaderControlGroup` add `.hideControls`.
 

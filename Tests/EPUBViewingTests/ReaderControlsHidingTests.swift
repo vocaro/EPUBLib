@@ -288,6 +288,25 @@ import UIKit
         #endif
     }
 
+    /// Unasked, reading on hides the controls on iPhone and iPad and not on a Mac, where a
+    /// window's toolbar hides on command (View > Hide Toolbar) and not because a page turned.
+    func testByDefaultReadingOnHidesTheControlsOnIPhoneAndIPadAndNotOnAMac() async throws {
+        let publication = try EPUBPublication.open(data: Fixture.epub())
+        let session = try XCTUnwrap(try NativeEngine().makeSession(publication: publication, selectionAction: nil) { _ in } as? NativeSession)
+        let controls = EPUBReaderControls(publication: publication, session: session)
+        controls.assistiveTechnologyIsRunning = { false }
+        let host = Host(EPUBReaderView(session: session).epubReaderHidesControls(controls))
+        defer { session.close(); host.close() }
+        try await wait("ready") { session.readerState?.status.lifecycle == .ready && session.canvas?.configuration.togglesControls == true }
+        let canvas = try XCTUnwrap(session.canvas)
+        canvas.turnPageFromInput(forward: true)
+        #if os(macOS)
+        XCTAssertFalse(controls.controlsHidden, "a Mac hides its toolbar on command")
+        #else
+        XCTAssertTrue(controls.controlsHidden)
+        #endif
+    }
+
     /// Without the modifier the reader's taps, Magic Tap and page turns leave the host's
     /// controls alone, and the tap recognizer is off.
     func testWithoutTheModifierTheReaderLeavesTheControlsAlone() async throws {
@@ -402,8 +421,10 @@ import UIKit
         return nil
     }
     #else
-    /// Hidden, the window toolbar goes and the reader keeps the frame it had under it; shown
-    /// again, it returns over no text, the reader's frame unchanged at every layout between.
+    /// The window's own View > Hide Toolbar and Show Toolbar (`toggleToolbarShown`) hide and show
+    /// the controls with the toolbar, and controls hidden or shown otherwise take the toolbar with
+    /// them. Hidden, the reader keeps the frame it had under the toolbar; shown again, the toolbar
+    /// returns over no text, the reader's frame unchanged at every layout between.
     func testAHiddenToolbarLeavesTheReaderItsFrame() async throws {
         let publication = try EPUBPublication.open(data: Fixture.epub())
         let session = try XCTUnwrap(try NativeEngine().makeSession(publication: publication, selectionAction: nil) { _ in } as? NativeSession)
@@ -426,22 +447,55 @@ import UIKit
         let canvas = try XCTUnwrap(session.canvas)
         let pageArea = canvas.pageArea
         for round in 1...2 {
-            controls.hideControls()
-            try await wait("the toolbar to hide") { host.window.toolbar?.isVisible != true }
+            host.window.toggleToolbarShown(nil) // View > Hide Toolbar
+            try await wait("the controls to follow the toolbar") { controls.controlsHidden }
             try await settle()
+            XCTAssertEqual(host.window.toolbar?.isVisible, false)
             XCTAssertEqual(canvas.pageArea, pageArea, "round \(round): the pages kept their area while hidden")
-            controls.showControls()
-            try await wait("the toolbar to come back") { host.window.toolbar?.isVisible == true }
+            host.window.toggleToolbarShown(nil) // View > Show Toolbar
+            try await wait("the controls to follow the toolbar") { !controls.controlsHidden }
             try await settle(1.2)
+            XCTAssertEqual(host.window.toolbar?.isVisible, true)
             XCTAssertEqual(canvas.pageArea, pageArea, "round \(round): the pages kept their area shown again")
         }
-        XCTAssertEqual(Array(log.frames.dropFirst(before)).filter { !$0.equalTo(frame) }, [],
-                       "the reader was laid out at another frame on the way")
-        // The Mac's View > Show Toolbar brings the toolbar back, and with it the controls.
+        // Hidden and shown by the model, as by Show Controls or VoiceOver coming on.
         controls.hideControls()
         try await wait("the toolbar to hide") { host.window.toolbar?.isVisible != true }
-        host.window.toolbar?.isVisible = true
-        try await wait("the controls to follow the toolbar") { !controls.controlsHidden }
+        try await settle()
+        controls.showControls()
+        try await wait("the toolbar to come back") { host.window.toolbar?.isVisible == true }
+        try await settle(1.2)
+        XCTAssertEqual(Array(log.frames.dropFirst(before)).filter { !$0.equalTo(frame) }, [],
+                       "the reader was laid out at another frame on the way")
+    }
+
+    /// On a Mac, Option-Command-T is View > Hide Toolbar's and Show Toolbar's, the window's own
+    /// command: nothing in the window takes the key before the menu, shown or hidden.
+    func testOnAMacOptionCommandTIsLeftToTheWindowsToolbarCommand() async throws {
+        let publication = try EPUBPublication.open(data: Fixture.epub())
+        let session = try XCTUnwrap(try NativeEngine().makeSession(publication: publication, selectionAction: nil) { _ in } as? NativeSession)
+        let controls = EPUBReaderControls(publication: publication, session: session)
+        controls.assistiveTechnologyIsRunning = { false }
+        let host = Host(VStack(spacing: 0) {
+            EPUBReaderControlStrip(controls: controls, groups: [.pages, .hideControls])
+            EPUBReaderView(session: session)
+        }.epubReaderHidesControls(controls))
+        defer { session.close(); host.close() }
+        try await wait("ready") { session.readerState?.status.lifecycle == .ready && session.canvas != nil }
+        try await settle()
+        func optionCommandT() throws -> NSEvent {
+            try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .option], timestamp: 0,
+                                           windowNumber: host.window.windowNumber, context: nil, characters: "†",
+                                           charactersIgnoringModifiers: "t", isARepeat: false, keyCode: 17))
+        }
+        XCTAssertFalse(host.window.performKeyEquivalent(with: try optionCommandT()), "shown: the window took the key")
+        try await settle(0.3)
+        XCTAssertFalse(controls.controlsHidden)
+        controls.hideControls()
+        try await settle()
+        XCTAssertFalse(host.window.performKeyEquivalent(with: try optionCommandT()), "hidden: the window took the key")
+        try await settle(0.3)
+        XCTAssertTrue(controls.controlsHidden)
     }
     #endif
 }

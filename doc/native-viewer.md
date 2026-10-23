@@ -2831,7 +2831,8 @@ The following are the defaults. Host commands and accessibility actions stay ena
   is running, whose double tap on a line arrives as such a tap; VoiceOver's Magic Tap does the
   same from any line of the text. A page turned by a key, a swipe, an edge or the
   wheel, and continuous scroll dragged by a finger or moved by a Mac's wheel or trackpad, are
-  reading on, which hides them; a turn VoiceOver or the host asks for is not. Without the
+  reading on, which hides them where `whileReading` asks (by default on iPhone and iPad, not on
+  a Mac); a turn VoiceOver or the host asks for is not. Without the
   modifier the tap's recognizer is off and Magic Tap goes on to the app
   ([#696](https://github.com/vocaro/EPUBLib/issues/696)).
 - VoiceOver: the text offers the page turn itself, and reads in order from the text views.

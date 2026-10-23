@@ -3,7 +3,8 @@ import SwiftUI
 
 public enum EPUBReaderControlGroup: String, CaseIterable, Hashable, Sendable {
     case pages, search, contents, appearance, readingMode
-    /// Hide Controls: shown only under `epubReaderHidesControls(_:whileReading:)`, which hides them.
+    /// Hide Controls, on iPhone and iPad under `epubReaderHidesControls(_:whileReading:)`, which
+    /// hides them. On a Mac the window's View > Hide Toolbar is that command, and this is nothing.
     case hideControls
 }
 
@@ -18,9 +19,16 @@ public struct EPUBReaderToolbar: ToolbarContent {
                 placement: ToolbarItemPlacement = .automatic) {
         self.controls = controls; self.groups = groups; self.placement = placement
     }
+    private var offersHideControls: Bool {
+        #if os(macOS)
+        false
+        #else
+        hiding?.controls === controls
+        #endif
+    }
     public var body: some ToolbarContent {
-        // Hide Controls takes no place in a toolbar whose controls nothing hides.
-        ForEach(groups.filter { $0 != .hideControls || hiding?.controls === controls }, id: \.self) { group in
+        // Hide Controls takes no place in a toolbar whose controls nothing hides, nor on a Mac.
+        ForEach(groups.filter { $0 != .hideControls || offersHideControls }, id: \.self) { group in
             if group == .pages {
                 if controls.supports(.pagination) || controls.supports(.scrolling) {
                     #if os(macOS)
@@ -191,7 +199,9 @@ public struct EPUBReaderControl: View {
             case .readingMode:
                 if controls.supports(.pagination) && controls.supports(.scrolling) { readingMode }
             case .hideControls:
+                #if !os(macOS)
                 if hiding?.controls === controls { hideControls }
+                #endif
             }
         }
         .disabled(!controls.isReady)
@@ -243,8 +253,8 @@ public struct EPUBReaderControl: View {
             if let error = controls.commandError { Text(error) }
         }
     }
-    /// Under `epubReaderHidesControls`, which hides the bars and toolbar it is in. Disabled while
-    /// they are hidden, so that Show Controls has Option-Command-T: a hidden bar's items keep
+    /// Under `epubReaderHidesControls` on iPhone and iPad, which hides the bars it is in. Disabled
+    /// while they are hidden, so that Show Controls has Option-Command-T: a hidden bar's items keep
     /// their shortcuts, and with two for one key the hidden one took it.
     private var hideControls: some View {
         Button("Hide Controls", systemImage: "arrow.up.left.and.arrow.down.right") { controls.hideControls() }

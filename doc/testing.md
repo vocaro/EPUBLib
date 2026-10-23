@@ -1123,7 +1123,10 @@ in order, as `pages,contents,appearance,readingMode`) and `-QualificationStripRo
 its toolbar, and `-QualificationHidesWhileReading NO` has the controls hide only when asked
 ([hiding the controls](reader-controls.md#hiding-the-controls-while-reading)). The status line
 then ends in "controls hidden" or "controls shown", and states "contrast increased" and
-"transparency reduced" while those are on.
+"transparency reduced" while those are on. A step `target=com.apple.Preferences` has the steps
+after it operate the simulator's own Settings, for a setting no simctl command makes, such as
+iOS 27's Liquid Glass under Appearance, and `target=host` comes back to the host, which kept
+running.
 UIKit's own `-UIPreferredContentSizeCategoryName`, with a category the guide above names,
 gives the host a text size without a change to the simulator; on the iPhone SE the strip's
 frames at the largest size were those `signal=content_size` gave. For the iPhone Duo set

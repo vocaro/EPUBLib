@@ -29,7 +29,7 @@ public extension EPUBReaderControls {
     }
 
     /// Hides the controls when they show, and shows them when they are hidden: what a tap in the
-    /// middle of the page, VoiceOver's Magic Tap and Option-Command-T do.
+    /// middle of the page, VoiceOver's Magic Tap and, on iPhone and iPad, Option-Command-T do.
     func toggleControls() {
         if controlsHidden { showControls() } else { hideControls() }
     }
@@ -72,23 +72,41 @@ extension EnvironmentValues {
 }
 
 public extension View {
+    #if os(macOS)
+    /// Hides the reader's controls on command, and brings them back: on a Mac the window's own
+    /// View > Hide Toolbar and Show Toolbar, Option-Command-T, hide and show them all.
+    ///
+    /// Apply it to the view that holds the reader and its controls, after (outside) its
+    /// `.toolbar`, as `epubReaderPageControls(_:)` is. While `controls.controlsHidden` is true the
+    /// window toolbar is hidden, as View > Hide Toolbar hides it, and a control strip hides its
+    /// groups in place. The reader keeps the room the toolbar took, so the book is not laid out
+    /// again and no bar ever sits over its text, and a Show Controls button stands in that room.
+    ///
+    /// With `whileReading`, which is false on a Mac, the controls also hide as the person reads on:
+    /// a page turned by a key, an edge click or the wheel, or continuous scroll wheeled, except
+    /// while VoiceOver or Switch Control is running.
+    func epubReaderHidesControls(_ controls: EPUBReaderControls, whileReading: Bool = false) -> some View {
+        modifier(EPUBReaderControlsHidingModifier(controls: controls, whileReading: whileReading))
+    }
+    #else
     /// Hides the reader's controls while the book is read, and brings them back.
     ///
     /// Apply it to the view that holds the reader and its controls, after (outside) its
     /// `.toolbar`, as `epubReaderPageControls(_:)` is. While `controls.controlsHidden` is true it
-    /// hides the navigation bar, the bottom bar, the status bar and the home indicator on iPhone
-    /// and iPad, and the window toolbar on a Mac; a control strip hides its groups in place. The
-    /// reader keeps the room the bars took, so the book is not laid out again and no bar ever
-    /// sits over its text, and a Show Controls button stands in that room.
+    /// hides the navigation bar, the bottom bar, the status bar and the home indicator, and a
+    /// control strip hides its groups in place. The reader keeps the room the bars took, so the
+    /// book is not laid out again and no bar ever sits over its text, and a Show Controls button
+    /// stands in that room.
     ///
     /// With `whileReading` the controls hide as the person reads on: a page turned by a key, a
-    /// swipe, an edge tap or click or the wheel, or continuous scroll dragged or wheeled, except
-    /// while VoiceOver or Switch Control is running. A tap in the middle of the page shows them
-    /// and hides them again, as do VoiceOver's Magic Tap, Option-Command-T, and the Hide Controls
-    /// group (`EPUBReaderControlGroup.hideControls`) and Show Controls button.
+    /// swipe, an edge tap or the wheel, or continuous scroll dragged, except while VoiceOver or
+    /// Switch Control is running. A tap in the middle of the page shows them and hides them again,
+    /// as do VoiceOver's Magic Tap, Option-Command-T, and the Hide Controls group
+    /// (`EPUBReaderControlGroup.hideControls`) and Show Controls button.
     func epubReaderHidesControls(_ controls: EPUBReaderControls, whileReading: Bool = true) -> some View {
         modifier(EPUBReaderControlsHidingModifier(controls: controls, whileReading: whileReading))
     }
+    #endif
 }
 
 /// The room the bars take, kept for the reader while they are hidden.
@@ -239,8 +257,11 @@ private struct EPUBReaderControlsHidingModifier: ViewModifier {
 }
 
 #if os(macOS)
-/// Hides the window's toolbar while the controls are hidden, as the Mac's View > Hide Toolbar
-/// does, and shows the controls again when that menu's Show Toolbar brings the toolbar back.
+/// On a Mac the controls hide and show with the window toolbar, by the window's own command:
+/// View > Hide Toolbar and Show Toolbar, `NSWindow.toggleToolbarShown(_:)`, whose Option-Command-T
+/// nothing in the window takes. The toolbar going hides the controls, and coming back shows them;
+/// controls hidden or shown otherwise, as by Show Controls or VoiceOver coming on, take the
+/// toolbar with them by the same command.
 private struct EPUBWindowToolbarHiding: NSViewRepresentable {
     let controls: EPUBReaderControls
     let hidden: Bool
@@ -264,23 +285,24 @@ final class EPUBWindowToolbarView: NSView {
     }
 
     private func apply() {
-        guard let toolbar = window?.toolbar else { return }
-        if toolbar.isVisible == hidesToolbar { toolbar.isVisible = !hidesToolbar }
+        guard let window, let toolbar = window.toolbar else { return }
+        if toolbar.isVisible == hidesToolbar { window.toggleToolbarShown(nil) }
         guard observed?.toolbar !== toolbar else { return }
         observed = (toolbar, toolbar.observe(\.isVisible) { [weak self] toolbar, _ in
             let visible = toolbar.isVisible
             MainActor.assumeIsolated {
-                guard let self, visible, self.hidesToolbar else { return }
-                self.controls?.showControls()
+                guard let self, visible == self.hidesToolbar else { return }
+                if visible { self.controls?.showControls() } else { self.controls?.hideControls() }
             }
         })
     }
 }
 #endif
 
-/// Brings hidden controls back: by a tap or click, by Option-Command-T, and by VoiceOver's Magic
-/// Tap while it is on the button. It is drawn as a plain symbol in the secondary colour on the
-/// host's background, with no glass.
+/// Brings hidden controls back: by a tap or click, and on iPhone and iPad by Option-Command-T and
+/// by VoiceOver's Magic Tap while it is on the button. On a Mac that key is the window's Show
+/// Toolbar. It is drawn as a plain symbol in the secondary colour on the host's background, with
+/// no glass.
 struct EPUBShowControlsButton: View {
     let controls: EPUBReaderControls
     var body: some View {
@@ -295,16 +317,17 @@ struct EPUBShowControlsButton: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
-        .keyboardShortcut(EPUBReaderControls.toggleShortcut)
         .help("Show Controls")
         #if os(iOS)
+        .keyboardShortcut(EPUBReaderControls.toggleShortcut)
         .accessibilityAction(.magicTap) { controls.toggleControls() }
         #endif
     }
 }
 
 extension EPUBReaderControls {
-    /// Option-Command-T, the shortcut of the Mac's own Show Toolbar and Hide Toolbar.
+    /// Option-Command-T, the shortcut of the Mac's own Show Toolbar and Hide Toolbar, on iPhone
+    /// and iPad. A Mac leaves it to that command.
     static let toggleShortcut = KeyboardShortcut("t", modifiers: [.command, .option])
 }
 
