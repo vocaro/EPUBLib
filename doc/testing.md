@@ -10,7 +10,9 @@ bash scripts/check-all.sh
 ```
 
 The gate checks the hosted-run and VoiceOver session scripts, verifies module boundaries,
-compares documentation snippets with compiled Swift sources, runs the Mac tests and the full
+compares documentation snippets with compiled Swift sources, holds the license texts EPUBCore
+ships to their projects' files and to the [third-party notices](third-party-notices.md)
+([license texts](#license-texts)), runs the Mac tests and the full
 test suite on dedicated iPhone 17 Pro and iPad Air 13-inch (M4) simulators, reads the objects
 those runs compiled, StaticSVG's among them, and the resvg library StaticSVG's release supplies,
 for any API that an app would have to
@@ -37,9 +39,10 @@ cover queue refusals and dispatch arguments, per-session settings and Safari res
 session deadlines and reports, the list state used when restoring VoiceOver
 ([#433](https://github.com/vocaro/EPUBLib/issues/433)), simulator build revisions
 ([#504](https://github.com/vocaro/EPUBLib/issues/504)), where the scripts find the shared
-toolkit ([#701](https://github.com/vocaro/EPUBLib/issues/701)), and which symbols the privacy
+toolkit ([#701](https://github.com/vocaro/EPUBLib/issues/701)), which symbols the privacy
 manifest check counts as an API to declare
-([#685](https://github.com/vocaro/EPUBLib/issues/685)).
+([#685](https://github.com/vocaro/EPUBLib/issues/685)), and which license copies the license
+check refuses ([#699](https://github.com/vocaro/EPUBLib/issues/699)).
 They do not establish what VoiceOver reads or does; that uses the speech lanes below.
 
 These checks and `scripts/eng` need the [shared engineering toolkit](shared-engineering.md), a
@@ -182,6 +185,27 @@ A `swift test` that hangs can be made to say where:
 has the unbuffered run and the stack sample. On 2026-10-12, with a test made to wait twenty
 seconds, a plain run's log was empty ten seconds in, the log of a run with `NSUnbufferedIO=YES`
 ended at that test's `started` line, and the sample had the test's frame on the main thread.
+
+### License texts
+
+`scripts/check-licenses.py` reads each dependency's files from its checkout in `.build/checkouts`
+at the revision `Package.resolved` pins, so it runs after `swift build`. It compares Git blob
+hashes, byte for byte, and names each copy in `Sources/EPUBCore/Licenses` that differs, is missing
+or copies no pinned file, a folder the [third-party notices](third-party-notices.md) do not name,
+and a version there that is not the pin. When a pin moves, copy the new release's files over the
+old ones under the names the notices give, and change the version there.
+`PackageLicenseTests` reads every text through `EPUBLicense.all()` on the Mac and on both
+simulators.
+
+To see the texts as an app gets them, build one that depends on the package by revision, from a
+pushed commit, as the
+[distribution checks](https://github.com/vocaro/apple-engineering/blob/main/guides/packaging.md#swift-package-distribution-checks)
+describe. An XcodeGen project with a macOS and an iOS `application` target, each linking
+`EPUBViewing` from `https://github.com/vocaro/EPUBLib.git` at `revision:`, whose `main.swift`
+prints what `EPUBLicense.all()` gives and the bytes of each `text()`, is enough. Build both with
+`CODE_SIGNING_ALLOWED=NO` through `python3 scripts/eng admit --`, run the Mac app's executable,
+compare `EPUBLib_EPUBCore.bundle/Licenses` in each app with `Sources/EPUBCore/Licenses`
+(`diff -r`), and check that ZIPFoundation's bundle still holds its `PrivacyInfo.xcprivacy`.
 
 ## Coverage
 

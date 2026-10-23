@@ -6,6 +6,7 @@ python3 -m unittest discover -s scripts/tests -v
 python3 scripts/check-modules.py
 python3 scripts/check-docs.py
 swift build --target ReaderHostSupport
+python3 scripts/check-licenses.py
 swift test
 bash scripts/test-ios.sh
 python3 scripts/check-required-reason-apis.py

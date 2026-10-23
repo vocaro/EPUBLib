@@ -1,7 +1,8 @@
 # Architecture
 
 EPUBLib contains five independently selectable products. `EPUBCore` owns shared publication,
-resource, navigation and reader value types. `EPUBReading` owns immutable publications and
+resource, navigation and reader value types, and in its resource bundle the license texts of
+EPUBLib and the code its products contain ([third-party notices](third-party-notices.md)). `EPUBReading` owns immutable publications and
 bounded archive/metadata parsing; `EPUBText` adds structural extraction, including text and anchor
 positions from one libxml2 walk. `EPUBWriting` generates EPUB 3 package/navigation documents from
 explicit publication facts and streams file-backed resources into an OCF archive. These targets
