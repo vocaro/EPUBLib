@@ -342,12 +342,17 @@ import SwiftUI
     /// The spine section and decoded fragment an encoded publication href names, for
     /// `.navigate(href:)`, the text start and the controls' current contents entry alike. An
     /// empty fragment is none: `#` is the top of the document, whatever carries an empty id.
+    /// The href is split as URL parsing splits it, at its first `#` and then at each `/`, each
+    /// found as its byte and before anything is decoded: a `#` followed by a combining mark is
+    /// one `Character`, but it still begins the fragment, and an escaped slash is a character of
+    /// its segment, which no entry's name holds (`ResourceReference.decodedPath`).
     static func target(of href: String, in publication: EPUBPublication) throws -> (section: Int, fragment: String?) {
-        guard !href.isEmpty, !href.hasPrefix("#"), href.count <= 4_096 else {
+        let bytes = href.utf8
+        let hash = bytes.firstIndex(of: 0x23) ?? bytes.endIndex // #
+        guard hash != bytes.startIndex, href.count <= 4_096 else {
             throw NativeRefusal.emptyHref.error
         }
-        let parts = href.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
-        guard let path = String(parts[0]).removingPercentEncoding,
+        guard let path = ResourceReference.decodedPath(bytes[..<hash]),
               publication.resources.contains(where: { $0.path == path }),
               let components = URLComponents(string: href),
               components.scheme == nil, components.host == nil, components.query == nil else {
@@ -356,7 +361,7 @@ import SwiftUI
         guard let section = NativeFallbacks.spineIndex(for: path, in: publication) else {
             throw NativeRefusal.notASection.error
         }
-        let fragment = parts.count == 2 ? String(parts[1]).removingPercentEncoding : nil
+        let fragment = hash == bytes.endIndex ? nil : String(decoding: bytes[hash...].dropFirst(), as: UTF8.self).removingPercentEncoding
         return (section, fragment?.isEmpty == false ? fragment : nil)
     }
 

@@ -94,7 +94,9 @@ struct NativeRichContent: RichContentFactory {
         let nothing = { Self.altText(drawing.fallbackText, style: style, context: context) ?? NSAttributedString() }
         SVGContent.disclose(drawing, report: context.report)
         let widthHint = element.attribute("width"), heightHint = element.attribute("height")
-        if let image = SVGContent.wrappedImage(element), let reference = SVGContent.href(image), !reference.hasPrefix("#") {
+        // A reference to a fragment of the drawing's own document names no file. Its `#` is
+        // found as its byte: as a `Character`, one before a combining mark is another character.
+        if let image = SVGContent.wrappedImage(element), let reference = SVGContent.href(image), reference.utf8.first != 0x23 { // #
             let found: (source: ReaderImageSource, intrinsic: CGSize, svg: SVGDocument?)?
             if let url = Self.imageDataURL(reference) {
                 found = decodedImage(url, heldBy: image, style: style, context: context)

@@ -65,6 +65,15 @@ package enum ResourceReference {
         return names
     }
 
+    /// The archive path an encoded path names, its segments decoded as `resolve` decodes them
+    /// (`segments`). Nil when a segment does not decode, or holds a `/` once decoded, which no
+    /// entry's name can: `OPS%2Fone.xhtml` names a file of that name in the container root, not
+    /// `OPS/one.xhtml`.
+    package static func decodedPath(_ path: some Collection<UInt8>) -> String? {
+        guard let names = segments(path), !names.contains(where: { $0.utf8.contains(0x2F) }) else { return nil } // /
+        return names.joined(separator: "/")
+    }
+
     /// Resolves a local EPUB reference as EPUB Reading Systems 3.3 §4.1.1 has it parsed against
     /// the container root URL: white space round it is read past (`stripped`), a leading `/` names
     /// the root and `..` stops there, so no reference leaves the container. The reference is
