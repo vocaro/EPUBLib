@@ -78,8 +78,14 @@ accessibility size on an iPad mini on its side or a small iPhone upright. The pa
 the field stay on screen there, and a swipe on the strip brings the other groups up with the
 keyboard still up, wherever it starts: between the controls or on the field, a menu or the
 reading mode. With the room it needs the strip neither scrolls nor
-clips anything, and its frames are what they were before it could scroll. Its groups keep the
-height a stack gave them, so a label too long for its line is cut short and not wrapped. A
+clips anything. A label or a line under the search field that is too long for its line takes
+a second, as text at a larger Dynamic Type size does: on an upright iPhone SE at the largest
+accessibility size, Appearance is on two lines and a refused search's sentence on four.
+Before the strip could scroll each label kept to one line and was cut short, and Appearance
+read "Appearan…" there
+([#365](https://github.com/vocaro/EPUBLib/issues/365)). The strip's groups are 401 points
+tall there and scroll in the 365 the keyboard leaves them; with a refused search they are 642,
+and scroll in the 625 the screen leaves them. A
 strip with nothing in it that fills the width, such as one without `.search`, stays as wide as
 its groups. On a Mac the strip is as tall as its groups whatever it is offered: no keyboard
 takes its room and text is one size there, and a scroll view would put one more container round

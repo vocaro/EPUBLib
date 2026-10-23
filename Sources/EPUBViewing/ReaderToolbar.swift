@@ -518,11 +518,13 @@ struct EPUBControlStripFit: Layout {
 /// Holds the strip's groups inside its scroll view, which is exactly as wide as they are, and
 /// offers them what a scroll view does not.
 ///
-/// A scroll view offers its content no height, and a label that does not fit its line then
-/// takes a second. In a stack that offers the strip an equal share with the reader the groups
-/// had less height than that and each label kept to one line: on an iPhone SE upright at the
-/// largest text size the strip was 340 points tall there, and would be 401 with Appearance on
-/// two lines. So the groups are offered no height at all, and are as tall as they were.
+/// The groups are offered no limit of height, as a scroll view offers its content, and a label
+/// or a line of search feedback that does not fit its line takes a second, as text at a larger
+/// Dynamic Type size does. Before the strip could scroll a stack offered it an equal share of
+/// its height with the reader, which at the largest sizes is less than the groups need, and each
+/// label kept to one line and was cut short: on an iPhone SE upright at the largest text size,
+/// Appearance read "Appearan…" (issue 365). Where the strip has less room than its groups need,
+/// it scrolls them.
 ///
 /// The scroll view is a platform view: its edges are rounded to whole pixels, and its content
 /// is laid out in the width that leaves, which can be a fraction of a point less than the
@@ -532,6 +534,12 @@ struct EPUBControlStripFit: Layout {
 /// they are then no more than half a point wider than it, which is as much as the rounding
 /// takes. Groups that take the width they are offered, as those with a search field do, are
 /// offered what there is.
+///
+/// Its content's height is rounded to whole pixels too, and can be a fraction of a point less
+/// than the groups measure. A stack offered that gives up a line of its text, which is then cut
+/// short: on an upright iPhone SE at the largest text size a refused search's sentence lost its
+/// last line so, with the strip scrolling and a line's height empty under the reading mode. So
+/// the groups are placed with the height they were measured with, which is no limit.
 struct EPUBControlStripGroups: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         guard let groups = subviews.first else { return .zero }
@@ -540,15 +548,14 @@ struct EPUBControlStripGroups: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard let groups = subviews.first else { return }
-        let width = offer(proposal.width ?? bounds.width, to: groups).width
-        groups.place(at: bounds.origin, proposal: ProposedViewSize(width: width, height: bounds.height))
+        groups.place(at: bounds.origin, proposal: offer(proposal.width ?? bounds.width, to: groups))
     }
 
     private func offer(_ width: CGFloat?, to groups: LayoutSubview) -> ProposedViewSize {
         // Asked for their ideal size, the groups have no width to wrap a label in.
         guard let width else { return .unspecified }
-        let roomier = ProposedViewSize(width: width + 1, height: 0)
-        return groups.sizeThatFits(roomier).width <= width + 0.5 ? roomier : ProposedViewSize(width: width, height: 0)
+        let roomier = ProposedViewSize(width: width + 1, height: nil)
+        return groups.sizeThatFits(roomier).width <= width + 0.5 ? roomier : ProposedViewSize(width: width, height: nil)
     }
 }
 
