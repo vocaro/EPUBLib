@@ -84,6 +84,9 @@ struct NativeRichContent: RichContentFactory {
     }
 
     func svg(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
+        // Nothing to draw is no failure to draw: no picture, no words in its place and no notice
+        // (#136).
+        if SVGContent.drawsNothing(element) { return NSAttributedString() }
         // The content document's limits bound the element, so StaticSVG takes any it holds.
         guard let drawing = SVGContent.document(element) else {
             context.report.report.unsupportedElements["svg", default: 0] += 1
