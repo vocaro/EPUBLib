@@ -4,7 +4,8 @@ import XCTest
 @testable import EPUBViewing
 
 /// Layout may replace an image attachment to resolve its size. The replacement keeps the
-/// publisher's assistive visibility while its alternative remains available to Copy/search.
+/// publisher's assistive visibility while its alternative remains available to Copy/search,
+/// and the language its words are in (#548).
 @MainActor final class ImageAssistiveVisibilityCloneTests: XCTestCase {
     private let words = "Kept illustration words"
     private let visibility: [(markup: String, hidden: Bool)] = [
@@ -18,7 +19,7 @@ import XCTest
         for side in ["left", "right"] {
             for item in visibility {
                 let section = try RichMediaBook(body:
-                    "<p><img id='image' src='picture.png' alt='\(words)' \(item.markup)/></p><p>Following prose.</p>",
+                    "<p><img id='image' src='picture.png' alt='\(words)' lang='fr' \(item.markup)/></p><p>Following prose.</p>",
                     files: ["picture.png": RichMediaImages.solid(width: 240, height: 192)],
                     head: "<style>body,p{margin:0;padding:0}img{float:\(side);width:120px;height:96px}</style>").build()
                 let original = try XCTUnwrap(section.richMediaImages.first)
@@ -39,7 +40,7 @@ import XCTest
         let viewport = CGSize(width: 200, height: 200)
         for item in visibility {
             let section = try RichMediaBook(body:
-                "<p><img id='image' src='picture.png' alt='\(words)' \(item.markup) style='width:100px;height:400px'/></p>",
+                "<p><img id='image' src='picture.png' alt='\(words)' lang='fr' \(item.markup) style='width:100px;height:400px'/></p>",
                 files: ["picture.png": RichMediaImages.solid(width: 100, height: 400)]).build()
             let offset = try XCTUnwrap(section.anchors["image"])
             let paginator = ReaderPaginator(text: section.string, size: viewport)
@@ -75,6 +76,7 @@ import XCTest
         XCTAssertEqual(image.isPassedOverByAssistiveTechnology, hidden, file: file, line: line)
         XCTAssertEqual(image.textEquivalent, words, file: file, line: line)
         XCTAssertEqual(image.spokenEquivalent, hidden ? "" : words, file: file, line: line)
+        XCTAssertEqual(image.textLanguage, "fr", "the language of the element its words come from", file: file, line: line)
         XCTAssertEqual(text.readerPlainText(in: range, spoken: true), hidden ? "" : words, file: file, line: line)
         XCTAssertEqual(text.readerPlainText(in: range), words, "The selection/search projection keeps the words", file: file, line: line)
         XCTAssertEqual(text.readerCopyPlainText(in: range), words, file: file, line: line)

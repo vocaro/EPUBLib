@@ -15,7 +15,8 @@ import Foundation
 /// overstated the records and none is missing. Where it reaches the count, they are the records
 /// that follow. The names are those of the records that can be read from where iteration ended:
 /// every one after an entry whose local header is missing, one cut short whose name is whole,
-/// and none where what is there is no record.
+/// and none where what is there is no record. A record whose name bit 11 declares UTF-8 and is
+/// not is counted among the lost entries and not named (#779).
 enum LostEntries {
     /// The entries lost when ZIPFoundation's iteration ends at `position` in `bytes` having read
     /// `read` of the `counted` the end record gives, with no more than `limit` of their names.
@@ -35,10 +36,11 @@ enum LostEntries {
             let nameLength = u16(record + 28)
             guard nameLength <= count - record - 46 else { break }
             found += 1
-            if paths.count < limit {
-                // A name bit 11 declares UTF-8 that is not, which refuses an entry that is read,
-                // has no path to give.
-                paths.append(EntryName.path(name: bytes[(record + 46)..<(record + 46 + nameLength)], flags: UInt16(u16(record + 8))) ?? "")
+            // A name bit 11 declares UTF-8 that is not, which refuses an entry that is read, has no
+            // path to give: the entry is counted and not named.
+            if paths.count < limit,
+               let path = EntryName.path(name: bytes[(record + 46)..<(record + 46 + nameLength)], flags: UInt16(u16(record + 8))) {
+                paths.append(path)
             }
             let length = 46 + nameLength + u16(record + 30) + u16(record + 32)
             // The next record begins where this one ends, which the end of the archive cuts off.

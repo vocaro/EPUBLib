@@ -567,6 +567,28 @@ final class StyleResolverTests: XCTestCase {
         XCTAssertFalse(light.style("child").invertsColors, "Not inherited")
     }
 
+    /// Every function of a `filter` list is read, though only `invert()` is drawn (Filter
+    /// Effects 1): one the reader does not know, or arguments its function does not take, make
+    /// the declaration invalid, and the earlier one stays (CSS 2.2 §4.2; #643).
+    func testAFilterWithAFunctionTheReaderDoesNotKnowLeavesTheEarlierOne() throws {
+        let valid = ["blur(2px)", "blur()", "blur(0)", "blur(calc(1em + 1px))", "brightness(150%)", "contrast(2)", "grayscale(1)",
+                     "opacity(calc(50% + 10%))", "saturate()", "sepia(0.5)", "hue-rotate(90deg)", "hue-rotate(0)", "hue-rotate(calc(0.25turn))",
+                     "drop-shadow(1px 2px)", "drop-shadow(red 1px 2px 3px)", "drop-shadow(1px 2px 3px rgb(0 0 0 / 50%))", "url(#f)",
+                     #"url("f.svg#f")"#, "invert(0.2) blur(1px) url(#f)", "none"]
+        let invalid = ["bogus(1)", "-webkit-blur(1px)", "blur(10%)", "blur(-1px)", "blur(1px 2px)", "brightness(-1)", "contrast(1, 2)",
+                       "grayscale(red)", "opacity(1px)", "sepia(calc(1px))", "hue-rotate(10px)", "hue-rotate(10)", "drop-shadow(1px)",
+                       "drop-shadow(1px 2px -3px)", "drop-shadow(red 1px 2px blue)", "drop-shadow(1px 2px 3px 4px)", "blur",
+                       "url(#f) none", "none none", "invert(1) bogus(1)"]
+        let values = valid + invalid
+        let body = values.indices.map { "<p id=\"e\($0)\">x</p>" }.joined()
+        let css = values.enumerated().map { "#e\($0.offset) { filter: invert(1); filter: \($0.element) }" }.joined(separator: "\n")
+        let result = try styled(body, css: css)
+        for (index, value) in values.enumerated() {
+            XCTAssertEqual(result.style("e\(index)").invertsColors, index >= valid.count,
+                           index < valid.count ? "\(value) inverts nothing" : "\(value) is invalid, so the earlier inversion stays")
+        }
+    }
+
     func testPresentationalHints() throws {
         let result = try styled("""
             <p id="p" align="center">p</p><img id="img" src="x.png" width="120" height="50%" align="left" alt=""/>

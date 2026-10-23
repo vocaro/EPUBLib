@@ -134,12 +134,16 @@ struct GeneratedContentState {
         return String(decoding: kept, as: UTF16.self)
     }
 
+    /// The pair at `depth`: the first at depth 0 and, past the last pair, the last again (CSS 2.2
+    /// §12.3.2), for the language's two pairs of `auto` as for a list the book gives.
     private static func marks(_ quotes: ComputedStyle.Quotes, language: String?, depth: Int) -> (open: String, close: String) {
-        switch quotes {
-        case .auto: ContentSemantics.quotes(language: language, depth: depth)
-        case .none: ("", "")
-        case .pairs(let pairs):
-            pairs.isEmpty ? ("", "") : (pairs[min(depth, pairs.count - 1)].open, pairs[min(depth, pairs.count - 1)].close)
+        let pairs: [ComputedStyle.QuotePair] = switch quotes {
+        case .auto: ContentSemantics.quotes(language: language)
+        case .none: []
+        case .pairs(let pairs): pairs
         }
+        guard let last = pairs.indices.last else { return ("", "") }
+        let pair = pairs[min(depth, last)]
+        return (pair.open, pair.close)
     }
 }

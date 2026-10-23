@@ -82,6 +82,31 @@ final class CSSCascadeColorCoverageTests: XCTestCase {
         ])
     }
 
+    /// CSS Values 4 §10: a math function stands wherever its type does, so a channel, a hue or
+    /// an alpha may be one of the number, percentage or angle it takes, and is clamped to its
+    /// range as an out-of-range literal is, NaN as 0 (#760; web-platform-tests
+    /// css/css-color/parsing/color-valid-*.html and css/css-values/calc-in-color-001.html).
+    func testMathFunctionsInChannelsHuesAndAlphas() throws {
+        try assertColors([
+            ("rgb(calc(255 / 2) 0 0)", rgba(0.5, 0, 0, 1)), ("rgb(0 0 0 / calc(1 / 2))", rgba(0, 0, 0, 0.5)),
+            ("hsl(calc(120 + 60) 50% 50%)", rgba(0.25, 0.75, 0.75, 1)), ("rgb(calc(50%) 0 0)", rgba(0.5, 0, 0, 1)),
+            ("rgba(calc(255), min(0, 10), max(0, -10), calc(50%))", rgba(1, 0, 0, 0.5)),
+            ("rgb(calc(10% * 2) clamp(0%, 50%, 100%) calc(100% - 25%))", rgba(0.2, 0.5, 0.75, 1)),
+            ("hsl(calc(90deg * 2) calc(25% * 2) 50%)", rgba(0.25, 0.75, 0.75, 1)),
+            ("hsl(calc(0.25turn + 30deg) 100% 50% / calc(25% + 25%))", rgba(0, 1, 0, 0.5)),
+            ("hsla(calc(240), calc(100%), calc(50%), calc(0.3))", rgba(0, 0, 1, 0.3)),
+            ("hwb(calc(1turn / 3) calc(10% + 10%) calc(30))", rgba(0.2, 0.7, 0.2, 1)),
+            ("rgb(calc(300) calc(-5) calc(infinity))", rgba(1, 0, 1, 1)), ("rgb(calc(0 / 0) 0 0 / calc(-infinity))", rgba(0, 0, 0, 0)),
+            ("rgb(255 0 0 / calc(200%))", rgba(1, 0, 0, 1)), ("hsl(calc(infinity) 100% 50%)", rgba(1, 0, 0, 1)),
+            ("hsl(calc(0 / 0) 100% 50%)", rgba(1, 0, 0, 1)), ("hsl(calc(-infinity) 100% 50%)", rgba(1, 0, 0, 1)),
+        ])
+        // A math function of another type is no channel, hue or alpha, and the color is dropped.
+        let invalid = ["rgb(calc(10px) 0 0)", "rgb(calc(50% + 10) 0 0)", "rgb(calc(1deg) 0 0)", "rgb(calc(1x) 0 0)",
+                       "hsl(calc(10%) 50% 50%)", "hsl(calc(10px) 50% 50%)", "hsl(120 calc(1deg) 50%)", "hwb(calc(1dppx) 0% 0%)",
+                       "rgb(0 0 0 / calc(1px))", "rgb(calc(1 +) 0 0)", "rgb(calc() 0 0)", "rgb(bogus(1) 0 0)"]
+        for (value, color) in zip(invalid, try colors(invalid)) { XCTAssertEqual(color, rgba(0, 0, 1, 1), value) }
+    }
+
     func testInvalidColorsLeaveTheInheritedColor() throws {
         let invalid = ["#ab", "#abcde", "#abcdefa", "#abcdefabc", "#ggg", "abc", "#12 34", "rgb(255, 0)", "rgb()", "rgb(255 0 0 /)",
                        "rgb(255, 0 0)", "rgb(1,2,3,4,5)", "rgb(red, 0, 0)", "rgb(255 0 0 0.5)", "rgb(10px, 0, 0)", "hsl(120em 100% 50%)",
@@ -193,6 +218,7 @@ final class CSSCascadeColorCoverageTests: XCTestCase {
             "radial-gradient(farthest-side, red, blue)",
             "-webkit-radial-gradient(center, ellipse cover, #fff 0%, #000 100%)",
             "conic-gradient(from 90deg at 50% 50%, red, 25%, blue 0.5turn)",
+            "linear-gradient(calc(45deg + 0.25turn), red, blue)", "conic-gradient(from calc(1turn / 4), red, calc(25%), blue)",
             #"-webkit-image-set(url(a.png) 1x, "b.png" 2x type("image/png"))"#,
             "-webkit-cross-fade(url(a.png), url(b.png), 50%)",
         ]
@@ -215,7 +241,8 @@ final class CSSCascadeColorCoverageTests: XCTestCase {
             "linear-gradient(red, 10%, 20%, blue)", "linear-gradient(red 1px 2px 3px, blue)",
             "linear-gradient(in nowhere, red, blue)", "radial-gradient(circle 10px 20px, red, blue)",
             "radial-gradient(ellipse 10px, red, blue)", "radial-gradient(at 1px 2px 3px, red, blue)",
-            "conic-gradient(from 10px, red, blue)", "-webkit-gradient(linear, left top, left bottom, from(nothing))",
+            "conic-gradient(from 10px, red, blue)", "linear-gradient(calc(45px), red, blue)", "conic-gradient(from calc(1), red, blue)",
+            "-webkit-gradient(linear, left top, left bottom, from(nothing))",
             "-webkit-gradient(sideways, 0 0, 0 1, from(red), to(blue))", "image(url(a.png))", "element(#a)",
             "url(a.png) url(b.png)", "red, url(a.png)", "url(a.png),", "url(a.png) red blue",
             "repeat url(a.png) no-repeat", "repeat-x repeat-y", "scroll fixed", "border-box padding-box content-box",

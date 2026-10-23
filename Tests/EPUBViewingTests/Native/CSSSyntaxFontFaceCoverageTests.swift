@@ -85,7 +85,6 @@ final class CSSSyntaxFontFaceCoverageTests: XCTestCase {
     }
 
     func testALaterSrcDescriptorReplacesAnEarlierOne() {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
         // The two-`src` "bulletproof" pattern depends on CSS's ordinary rule that a later valid
         // declaration of a descriptor replaces an earlier one: the first `src` is for a browser
         // that cannot parse the second, and no other browser may read it.
@@ -93,5 +92,12 @@ final class CSSSyntaxFontFaceCoverageTests: XCTestCase {
             @font-face { font-family: Bullet; src: url(b.eot);
                          src: url("b.eot?#iefix") format("embedded-opentype"), url(b.woff2) format("woff2"), url(b.ttf) format("truetype") }
             """), [CSSFontFace(family: "bullet", sources: ["OPS/css/b.woff2", "OPS/css/b.ttf"])])
+        let replaced = CSSSyntaxSupport.sheet("""
+            @font-face { font-family: Remote; src: url(https://example.com/r.woff); src: url(r.ttf) }
+            @font-face { font-family: Local; src: url(l.ttf); src: url(https://example.com/l.woff) }
+            """)
+        XCTAssertEqual(replaced.fontFaces, [CSSFontFace(family: "remote", sources: ["OPS/css/r.ttf"])],
+                       "A remote src replaces an archive one as any other does")
+        XCTAssertEqual(replaced.remoteReferences, 1, "Only the src that stands would be fetched")
     }
 }

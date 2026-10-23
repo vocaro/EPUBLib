@@ -28,7 +28,8 @@ continues to describe the authored spine resource.
 
 1. **Document** (`ContentDocument`). libxml2 parses each spine item into an element/text tree
    that matches what an EPUB CFI sees: comments and processing instructions dropped, adjacent
-   text and CDATA merged. The full HTML named-reference set, including MathML names and
+   text and CDATA merged. An `xml-stylesheet` instruction before the root element of a document
+   read as XML is kept beside the tree for the sheet it names (**Style**). The full HTML named-reference set, including MathML names and
    two-scalar references, becomes numeric references before an XML parse, also in UTF-16.
    All eleven XHTML-family public identifiers accepted by WebKit retain that XML tree and
    its CFIs ([#101](https://github.com/vocaro/EPUBLib/issues/101)).
@@ -94,6 +95,27 @@ continues to describe the authored spine resource.
    cascade over a user-agent stylesheet, the book's archive-local stylesheets and `style`
    attributes produce a `ComputedStyle` per element: the CSS subset in `ComputedStyle.swift`.
    `@font-face` fonts load from the archive with CoreText. Nothing remote is fetched.
+   A section's sheets cascade in the order CSSOM §6 gives: those its `xml-stylesheet`
+   instructions name (Associating Style Sheets 1.0, by `href`, `type`, `media`, `title` and
+   `alternate`), then its `link rel="stylesheet"` and `style` elements in document order. A
+   section read as HTML has no such instruction, as in a browser. A `disabled` link is not
+   read, nor an alternate sheet without a title. Of the titled sheets only the preferred set
+   applies, alternate ones in it included: the set the last `<meta http-equiv="default-style">`
+   names, or else the first titled sheet that is not an alternate
+   ([#115](https://github.com/vocaro/EPUBLib/issues/115),
+   [#116](https://github.com/vocaro/EPUBLib/issues/116)). A sheet cut to its size bound decodes as
+   the whole sheet would, by its byte order mark or as UTF-8 or Windows Latin 1.
+   A sheet's rules are kept as Chromium keeps them. `@import` is read before any valid rule
+   but `@charset` and the `@layer` statements before the first import, and `@namespace` after
+   the imports and before the rest; a rule that is not valid moves neither, and a known
+   at-rule whose prelude its grammar does not take (`@supports bogus`, `@layer a, b { }`,
+   `@font-face x`) is dropped with all it holds
+   ([#603](https://github.com/vocaro/EPUBLib/issues/603)). A pseudo-element Chromium does not
+   know, but for any `::-webkit-` one, makes its selector list invalid, as any pseudo-element
+   does inside `:is()`, `:where()` (whose forgiving lists drop that argument alone), `:not()`
+   and `:nth-child(… of S)`. Inside the first three a default namespace does not reach the
+   subject's compound unless it has a type or universal selector (Selectors 4 §4), and `&`
+   outside a nested rule is the root element, with no specificity (CSS Nesting 1 §3).
    In a section read as HTML, `epub:type` is one attribute of that name in no namespace, as
    a browser's HTML parser makes it, and `[epub\:type]` matches it. A namespaced selector
    reaches it as in XHTML, by namespace: `[ops|type]` matches it when the sheet binds `ops` to
@@ -254,7 +276,10 @@ continues to describe the authored spine resource.
   [StaticSVG](https://github.com/vocaro/StaticSVG) and the resvg static renderer it bundles,
   including paths, text, gradients, transforms, clipping, local definitions and
   `viewBox`/`preserveAspectRatio`. SVG dimension attributes retain their CSS units
-  ([#117](https://github.com/vocaro/EPUBLib/issues/117)). A plain single-image wrapper retains
+  ([#117](https://github.com/vocaro/EPUBLib/issues/117)). They, and an `img`'s, `object`'s or
+  `embed`'s `width` and `height`, are presentational hints that any author rule beats,
+  `width: auto` included: an image is sized by what the cascade computes
+  ([#763](https://github.com/vocaro/EPUBLib/issues/763)). A plain single-image wrapper retains
   the raster-image fast path for the default centred meet fit: image percentages resolve in
   viewBox coordinates, and one omitted dimension follows the image's intrinsic ratio.
   Other aspect fits, transforms and nested viewports use the SVG renderer
@@ -280,14 +305,25 @@ continues to describe the authored spine resource.
   hides no delimiter ([#248](https://github.com/vocaro/EPUBLib/issues/248)). The serializer
   writes a tab or carriage return in an attribute value, and a carriage return in text, as a
   character reference, so the renderer reads a class list, text and the id an `href` names as
-  the book has them ([#249](https://github.com/vocaro/EPUBLib/issues/249)). An embedded font's
+  the book has them ([#249](https://github.com/vocaro/EPUBLib/issues/249)). A wrapper whose one
+  image names a fragment wraps no file and goes to the renderer, whatever follows its `#`, which
+  is found as its byte. StaticSVG 0.1.1's serializer still finds an `href`'s `#` by `Character`,
+  so it takes a reference such as `#&#x301;x` for a file's, leaves it out and discloses it as an
+  image ([#641](https://github.com/vocaro/EPUBLib/issues/641)). An embedded font's
   own family name, which comes from the book's font file, stands for the family a drawing names
   only when it holds nothing but letters, marks, digits, spaces and `-`, `_`, `.`, `&` and `+`.
   The renderer's direct entry point continues to refuse filters, including commented and
   escaped CSS property names; it only receives the prepared drawing. The original node, depth,
   local-reference expansion and cycle checks run before omission.
   Pattern fills and illustrations exceeding the rendering limits show their title, description or
-  drawing text instead. Title and description provide the image's accessible label. No WebKit.
+  drawing text instead. Title and description provide the image's accessible label. An inline SVG
+  that holds only what SVG 2 never renders (§3.2.1: `defs`, a `symbol` no `use` draws,
+  gradients, `title`, `desc`, `metadata`, `style` and the others) and elements of other
+  namespaces, such as a sprite sheet of symbols, shows nothing, as a browser draws nothing for
+  it: no picture, no words in its place and no `svg` disclosure. The room a browser keeps blank
+  for such a drawing is not kept, and an `<img>` or `<object>` whose SVG file is such a drawing
+  is still shown as one that cannot be drawn
+  ([#136](https://github.com/vocaro/EPUBLib/issues/136)). No WebKit.
   EPUBLib reads the archive, resolves references and picks manifest fallbacks and fonts for
   StaticSVG, which reads nothing else; it extracts inline SVG from the content document, lays out
   and inspects the attachment, and turns StaticSVG's diagnostics into the section's disclosures.
@@ -331,8 +367,13 @@ continues to describe the authored spine resource.
   do, so `not (bogus)` and `not all and (min-orientation: portrait)` apply nowhere, while
   `(color) or (bogus)` applies; a query that comes to unknown is `not all`, and the others in
   its list still count ([#114](https://github.com/vocaro/EPUBLib/issues/114)). A feature's
-  value is a literal: `calc()` and the lengths other than `px`, `em`, `rem` and the absolute
-  units are unknown.
+  value may be a math function of its type, clamped to the range the feature takes (CSS
+  Values 4 §10), and a length in any unit. Relative units are those of the initial values
+  (Media Queries 4 §1.3): an `em`, `rem` or `ic` of 16 pixels, an `ex` or `ch` of 8, the half
+  em CSS Values 4 takes where no font's measure is read, a `cap` of 0.7 em and an `lh` or `rlh`
+  of 1.2, as the reader resolves them without a face, and viewport units of the nominal
+  viewport, so `(min-width: calc(100px + 1em))`, `(min-width: 10vw)` and
+  `(resolution: calc(6x / 2))` are known ([#756](https://github.com/vocaro/EPUBLib/issues/756)).
 - **Appearance media.** `prefers-color-scheme` follows the reader's appearance only for what
   paints: `color`, `background-color`, the border colours, `text-decoration-color` and `filter`
   (`CSSProperty.followsAppearance`). Every other property in a rule for one appearance, and
@@ -437,10 +478,11 @@ continues to describe the authored spine resource.
   image link without a name. A hidden label reads nothing for an
   image or an inline SVG with a presentational role. Where such an image cannot be drawn,
   its words are shown in its place as text and read as text, and so are kept from VoiceOver
-  where `aria-hidden` keeps the image, as any text it keeps is. In a table cell the words of
-  such an image are still read: on iPhone and iPad in the cell's text, and on Mac in what
-  its row is called. They are the words a copy of the row takes
-  ([#551](https://github.com/vocaro/EPUBLib/issues/551)). Shown text with `aria-hidden` is
+  where `aria-hidden` keeps the image, as any text it keeps is. In a table cell such an image's
+  words are not read either: on iPhone and iPad not in the cell's element or the row's line,
+  and on Mac not in what its row is called. A copy of the row and a selection of it still
+  take them (`TableRowAttachment.textEquivalent`, and `spokenEquivalent` for VoiceOver,
+  [#551](https://github.com/vocaro/EPUBLib/issues/551)). Shown text with `aria-hidden` is
   kept from VoiceOver too, and a formula with it is passed over as such an image is
   ([Text kept from assistive technology](#text-kept-from-assistive-technology),
   [#552](https://github.com/vocaro/EPUBLib/issues/552)). An image is
@@ -667,12 +709,22 @@ continues to describe the authored spine resource.
   ([TextKit 1 and TextKit 2](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#textkit-1-and-textkit-2-apply-paragraph-indents-differently)),
   one image-drawn attachment per row so pages can break between any two rows; rows a rowspan
   joins, and the header, keep with the next row and share a page when they fit. `colspan`/
-  `rowspan` honoured (`rowspan="0"` spans one row, as WebKit does); a spanning cell is drawn in
-  each row it covers. A table, its columns, rows and cells take their sizes, and a cell where
-  its content sits, from the cascade, where `width`, `height` and `valign` are presentational
-  hints that an author rule beats (HTML §15.3.8): a table's width of zero and a cell's width
-  or height of zero are no size at all ([#121](https://github.com/vocaro/EPUBLib/issues/121)),
-  and a row group's alignment reaches its rows and their cells, which inherit it
+  `rowspan` honored (`rowspan="0"` spans one row, as WebKit does); a spanning cell is drawn in
+  each row it covers. They, a column's `span` and a table's `border` are read by HTML's rules
+  for parsing non-negative integers (§2.3.4.2): white space and a `+` before the digits, and
+  whatever follows them, are passed over, so `" 2"`, `"2px"` and `"2.9"` are 2; a `colspan`
+  or `span` that is not a number or is zero is 1 and one past 1,000 is 1,000, and a `rowspan`
+  ends with its row group ([#143](https://github.com/vocaro/EPUBLib/issues/143)). A table,
+  its columns, rows and cells take their sizes, backgrounds, borders, padding and spacing, a
+  cell where its content sits and whether its lines wrap, and a caption its side, from the
+  cascade alone, where `width`, `height`, `valign`, `bgcolor`, `border`, `cellpadding`,
+  `cellspacing`, `nowrap` and a caption's `align="bottom"` are presentational hints that any
+  author rule beats (HTML §15.3.8, §15.3.10), one that sets the default included:
+  `table { border-spacing: 2px }` beats `cellspacing`, and `td { padding: 0 }` beats
+  `cellpadding` ([#763](https://github.com/vocaro/EPUBLib/issues/763)). A table's width of zero
+  and a cell's width or height of zero are no size at all
+  ([#121](https://github.com/vocaro/EPUBLib/issues/121)), and a row group's alignment reaches
+  its rows and their cells, which inherit it
   ([#142](https://github.com/vocaro/EPUBLib/issues/142)). Consecutive columns spanned by exactly the same cells, and declared by no
   `col` or `colgroup`, are laid out as one (CSS Tables 3 §3.3.2, track merging): the 98 columns
   a title row's `colspan="100"` runs past over a two-column body add one border spacing to the
@@ -759,10 +811,12 @@ continues to describe the authored spine resource.
   A grid holds 200 columns and 20,000 cells. A cell whose `colspan` runs past the 200th column
   reaches the table's last column when it is the last cell of its row, and then takes one row
   whatever its `rowspan`. A cell the grid has no slot for follows the table as a paragraph of
-  its own in reading order, and the `.disclosure` says so: a cell with such a span that is not
-  the last of its row (the cells written after it keep their slots) or that follows another
-  cell left out of that row, a cell starting past the 200th column, and every cell past the
-  20,000th.
+  its own in reading order: a cell with such a span that is not the last of its row (the cells
+  written after it keep their slots) or that follows another cell left out of that row, a cell
+  starting past the 200th column, and every cell past the 20,000th. The `.disclosure` says that
+  part of the table is shown after it when one of those cells shows anything there; one that is
+  empty, or holds white space or hidden content alone, shows nothing and is not disclosed
+  ([#272](https://github.com/vocaro/EPUBLib/issues/272)).
   Visible cells have
   native text interaction surfaces aligned to their drawn glyphs: select and Copy cell text,
   invoke the host's selection action, follow internal links and open notes. A link outside the
@@ -1322,12 +1376,16 @@ continues to describe the authored spine resource.
         start of the next row's paragraph, and Read All, which had said a phrase with
         nothing in it for the row's paragraph, says nothing of it.
       - **Which rows.** What a row has to hold to be passed over is nothing: no words,
-        and nothing besides but spaces and decoration, in the cells a page shows of it,
-        and in a table inside one of its cells likewise
-        (`TableRowAttachment.saysNothing`). A row that shows a picture nobody describes
-        is still its group, "text image text image group". A row that holds a link is
-        not passed over whatever the link holds, because a link has to be reachable, and
-        neither is one that holds a rule or a formula.
+        and nothing besides but spaces and what assistive technology passes over
+        (`NSAttributedString.passesOver`), in the cells a page shows of it, and in a
+        table inside one of its cells likewise (`TableRowAttachment.saysNothing`). That
+        is decoration, a picture, a rule or a formula the book keeps from assistive
+        technology, and anything `visibility: hidden` hides, which nobody reads
+        ([#774](https://github.com/vocaro/EPUBLib/issues/774)). A row that shows a
+        picture nobody describes is still its group, "text image text image group". A
+        row that holds a link is not passed over whatever the link holds, because a link
+        has to be reachable, and neither is one that holds a rule or a formula that is
+        read: a row of a formula is a group called by the formula's words.
       - **Inside a table of data** the row is still a row. VoiceOver goes into the table
         at a row of words, and its table navigation goes through this row's cells as
         through any others: "Tree empty cell", for a cell of decoration as for a cell
@@ -1669,7 +1727,10 @@ continues to describe the authored spine resource.
   data has them: “ ” in Brazilian Portuguese and Turkish, « » in European Portuguese,
   «bonjour «toi»» in French, with no space added inside them, as Firefox, whose table is made
   from CLDR, shows them. Arabic and Hebrew take CLDR's marks, where Apple's locale data has
-  the typewriter `"` and `'` ([#133](https://github.com/vocaro/EPUBLib/issues/133)).
+  the typewriter `"` and `'` ([#133](https://github.com/vocaro/EPUBLib/issues/133)). The
+  inner pair stands for every `q` below the first, as the last pair of any `quotes` list does
+  (CSS 2.2 §12.3.2): «a„b„c““» in Russian, where the outer marks came back at the third
+  level ([#776](https://github.com/vocaro/EPUBLib/issues/776)).
   - **Where it stands.** An inline box is written in its line, and white space collapses
     across it as across the book's text. A block box is a paragraph of its own. A box that
     floats or is positioned is written in its line, with the disclosure of the boxes left in
@@ -1708,19 +1769,35 @@ continues to describe the authored spine resource.
     element's own properties the same way, all but what paints.
   - **Disclosed.** What is not shown has the `.disclosure` that "some text or images this
     book's styling adds before or after its content are not shown": an image in `content`
-    (`url()`, `image-set()`, a gradient), `leader()`, `target-counter()`, `target-counters()`,
+    (`url()`, `image-set()`, `cross-fade()`, a gradient: one **Values the reader cannot read**
+    takes), `leader()`, `target-counter()`, `target-counters()`,
     `target-text()`, `contents`, and an `attr()` with a type or a fallback; the generated
     content of a table laid out as a grid and of its rows and row groups, where that of its
     cells and captions is shown; and what passes a bound of 1,048,576 UTF-16 units of
     generated text in one section, which only a hostile stylesheet reaches.
+- **Values the reader cannot read.** A declaration with a value the reader cannot read is
+  ignored, as CSS 2.2 §4.2 requires, and the one before it stays, though what the property
+  sets is not drawn. So every layer of `background` is read in full
+  ([#120](https://github.com/vocaro/EPUBLib/issues/120)), and an image in `background`,
+  `list-style` or `content` is one WebKit reads: `url()`, `image-set()`, `cross-fade()` and the
+  gradients, standard or prefixed `-webkit-`, with arguments their grammar takes, and neither a
+  gradient prefixed for another engine nor `image()` or `element()`. Every function of a
+  `filter` is read with its arguments, and `font-variant` takes only the functions of
+  `font-variant-alternates`, each once with the names it takes
+  ([#643](https://github.com/vocaro/EPUBLib/issues/643)).
 - **Calculations.** `calc()`, `min()`, `max()` and `clamp()` follow CSS Values 4 §10 for
-  numbers, lengths and percentages ([#122](https://github.com/vocaro/EPUBLib/issues/122)).
+  numbers, lengths, percentages, angles and resolutions
+  ([#122](https://github.com/vocaro/EPUBLib/issues/122),
+  [#760](https://github.com/vocaro/EPUBLib/issues/760),
+  [#756](https://github.com/vocaro/EPUBLib/issues/756)).
   - **Factors and divisors.** Any sub-expression that is a number can be a factor on either
     side of `*` or a divisor after `/`: a parenthesised sum, a nested function or a constant
     (`e`, `pi`, `infinity`, `-infinity`, `NaN`). A number depends on nothing, so it is worked
     out when the value is parsed.
   - **Typed arithmetic.** A product of two lengths, and a division by a length, are invalid
-    ([#761](https://github.com/vocaro/EPUBLib/issues/761)).
+    ([#761](https://github.com/vocaro/EPUBLib/issues/761)). The terms of a sum and the
+    arguments of `min()`, `max()` and `clamp()` are of one type, a percentage counting as a
+    length. An angle or a resolution depends on nothing, and is worked out as a number is.
   - **Infinity and NaN.** Division by zero gives an infinity, and zero by zero gives NaN, which
     `min()`, `max()` and `clamp()` return whatever their other arguments. At the top of a value,
     an infinity becomes the end of the range the property allows (`StyleLimits`) and NaN
@@ -1729,13 +1806,30 @@ continues to describe the authored spine resource.
     does:
     - `line-height`;
     - `font-weight`, in `font` and `@font-face` too;
-    - `filter: invert()`;
+    - the amounts of `filter`'s functions;
     - `order`, `flex-grow` and `flex`;
-    - `repeat()` counts and counter values.
+    - `repeat()` counts and counter values;
+    - `tab-size`;
+    - a color's channels, hue and alpha;
+    - a media feature's number, integer or ratio.
     
     Where an integer is wanted it is rounded to the nearest, a half upward. Out of range it is
-    clamped to the range rather than refused, as an out-of-range literal is. Colour channels
-    take literals only ([#760](https://github.com/vocaro/EPUBLib/issues/760)).
+    clamped to the range rather than refused, as an out-of-range literal is.
+  - **Where other types go.** One that comes to a percentage alone, such as `calc(50%)`,
+    stands where a percentage does with nothing to resolve it against: in a color's channels
+    and alpha, in the amounts of `filter`'s functions and in a conic gradient's stops. One that
+    comes to an angle stands in a hue, in `hue-rotate()` and in a gradient's angle, and one that
+    comes to a resolution in a media feature's `resolution`. A hue that comes to an infinity,
+    which no literal is, is taken as 0.
+- **Tabs.** A preserved tab advances to the next multiple of its block's `tab-size` (CSS Text 3
+  §4.2), which is inherited: a number of the block's spaces, each with the block's letter and
+  word spacing, or a length, which scales with the reader's size as a font size does, so that
+  tabbed columns keep their places in the text
+  ([#378](https://github.com/vocaro/EPUBLib/issues/378)). The interval is never under a point,
+  so a `tab-size` of 0 still leaves a tab somewhere to go, as layout needs (**Security**), and
+  one wider than the column is laid out too. TextKit keeps one interval for a
+  paragraph, so an inline box's own `tab-size` is not read; and in the paragraph an outside
+  list marker opens, the interval is the marker's width unless the item keeps its tabs.
 - **Custom properties.** Custom properties (`--name`) and `var()` follow CSS Custom
   Properties for Cascading Variables 1 ([#119](https://github.com/vocaro/EPUBLib/issues/119)).
   A custom property is declared on any element, `:root` and pseudo-elements included, in a
@@ -2321,7 +2415,14 @@ as they did.
   while its window settles, or while its text is built for its style, keeps it. A click,
   VoiceOver's moves by line, which move the insertion point, a selection, or focus taken to
   the column beside ends it, and a relayout after that keeps the first line, as a page turn
-  does ([#594](https://github.com/vocaro/EPUBLib/issues/594)). A move of VoiceOver's own cursor
+  does ([#594](https://github.com/vocaro/EPUBLib/issues/594)). A spread that hides the column
+  with keyboard focus, or with it in a table cell's text area, as a window narrowed from two
+  columns to one does and a turn to a spread of one page, gives the focus to the column that
+  holds the place it enters, and otherwise to its first column, as a page turn made in the
+  second column does (`ReaderCanvasView.keepFocus`). AppKit takes the focus from a view it
+  hides: it went to the window, which left the reader without keyboard focus and VoiceOver
+  with no column to stay in. What VoiceOver says at such a resize has not been heard
+  ([#599](https://github.com/vocaro/EPUBLib/issues/599)). A move of VoiceOver's own cursor
   that changes neither the insertion point nor focus goes unseen, and a relayout after one
   takes VoiceOver back to the place's line. A position with no character of its own, as a
   section's end, is on no line, and its page keeps the first. Nothing else reads the
@@ -2756,11 +2857,11 @@ row whose cells are all hidden reads nothing. A tap or a double click on a hidde
 room opens nothing, and the inspector does not open for it whatever asks. Two places still
 offer it, and do nothing when chosen: the Inspect Image of a text item's menu on iPhone and
 iPad, and of a table cell's menu ([#775](https://github.com/vocaro/EPUBLib/issues/775)). On
-the Mac a row of a table that is not data, whose cells hold a hidden formula or rule and
-nothing else, is a group with no name, where a row of hidden text or hidden pictures alone is
-passed over ([#774](https://github.com/vocaro/EPUBLib/issues/774)). A note's popover on
-iPhone and iPad gives VoiceOver UIKit's own text accessibility, which these changes do not
-reach ([#550](https://github.com/vocaro/EPUBLib/issues/550)).
+the Mac a row whose cells hold nothing but hidden text, pictures, formulas or rules, or
+formulas the book keeps from assistive technology, has nothing to say and is passed over, as
+a row of decoration is ([#774](https://github.com/vocaro/EPUBLib/issues/774)). A note's
+popover on iPhone and iPad gives VoiceOver UIKit's own text accessibility, which these changes
+do not reach ([#550](https://github.com/vocaro/EPUBLib/issues/550)).
 
 ### Text kept from assistive technology
 
@@ -2781,7 +2882,8 @@ stay, and kept words between two shown ones read as one space.
   kept words alone is no heading.
 - **On the Mac.** Each kept character but a break is given to an assistive client as a space,
   as a hidden one is, in the value, the strings, the rich text and the selected text of a
-  page, of continuous scroll, of a note and of a table cell's text area. A heading of kept
+  page, of continuous scroll and of a note, and in the value, the strings and the rich text
+  of a table cell's text area, whose selected text leaves them out. A heading of kept
   words alone has no level, and a line of kept words alone, as a row of stars is, is a line of
   spaces, which no session has moved onto yet.
 - **Links.** A link of kept words alone stays a link, without a name, as one that is all a
@@ -2791,11 +2893,16 @@ stay, and kept words between two shown ones read as one space.
 - **Formulas and lost pictures.** A formula with `aria-hidden` on it or round it is passed
   over as a picture kept so is, and its words are copied. The words shown where a picture
   kept by `aria-hidden` cannot be drawn are kept text.
-- **Table cells.** VoiceOver still reads kept words where it reads a cell's words, on iPhone
-  and iPad in the cell's element and on the Mac in what its row is called, because those
-  words are also what a copy of the row takes
-  ([#551](https://github.com/vocaro/EPUBLib/issues/551)). On the Mac the cell's own text
-  area gives them as spaces.
+- **Table cells.** A cell's words are read without the kept ones, as a line's are
+  (`TableMeasure.spokenText`): on iPhone and iPad in the cell's element of a table of data,
+  in the row's line of any other table and in the names of the actions that select a cell's
+  words; on the Mac in what a row's group is called, in the name of the table at a row of a
+  table of data and in the selected text of a cell's text area, which gives them as spaces
+  in its value. A cell of kept words alone says nothing and offers nothing to select, and a
+  row of such cells has nothing to say. A selection of the row, a copy of it and search
+  still take them: a row has words to copy (`textEquivalent`) apart from the words VoiceOver
+  is given (`spokenEquivalent`), as an image has
+  ([#551](https://github.com/vocaro/EPUBLib/issues/551)).
 
 ### Flex and grid alignment
 
@@ -3421,8 +3528,16 @@ The following are the defaults. Host commands and accessibility actions stay ena
   language, and a heading keeps its level over the whole label. A cell of a table of data
   is read as one text, in the language most of it is in, and so is the name of a header
   cell VoiceOver says before it: a part of a cell in another language is not set apart. A
-  picture's words name no language ([#548](https://github.com/vocaro/EPUBLib/issues/548)),
-  and the reader's word for a rule, which is none of the book's, names none. A note's
+  picture's words are in the language of the element they come from, the `img`, `object`,
+  `embed` or `svg` (or an SVG `image` whose `alt` names it), looked up as a formula's
+  `alttext` is (`ReaderImageAttachment.language`), and so are the words shown as text where
+  a picture cannot be drawn. Words an SVG file gives for itself, its title where the book
+  gave no `alt`, are taken to be in the language of the element that shows it. So a heading
+  or a cell in French whose picture's words are longer than its own names French, where it
+  named none, and on Mac the picture's character in a page's text area or a cell's carries
+  the language as a formula's does
+  ([#548](https://github.com/vocaro/EPUBLib/issues/548)). The reader's word for a rule,
+  which is none of the book's, names none. A note's
   popover keeps UIKit's own elements. In the simulator lane VoiceOver speaks a line of
   French, one of German and one of Spanish each in a voice for its language, and "He said
   bonjour mes amis and left." in three parts, the middle one in its French voice; without
@@ -3445,7 +3560,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
 | Command | Behaviour |
 | --- | --- |
 | `nextPage` / `previousPage` | Page turn (paginated) or one viewport (scrolled); stops at the book's ends; skips nonlinear sections as foliate-js did, unless no section is linear. |
-| `navigate(href:)` | An encoded spine or resource href with optional fragment; unknown or non-local hrefs throw `invalidCommand`. |
+| `navigate(href:)` | An encoded spine or resource href with optional fragment, split at its `#` and `/`s by byte before any part is decoded, so an escaped slash names no file; unknown or non-local hrefs throw `invalidCommand`. |
 | `restore(location)` | Same publication, engine ID and `epublib-cfi-v1` format or `incompatibleLocation`; validates/resolves every bookmark segment and shows the first segment's start. Does not select text or add a highlight. |
 | `locate(text, highlight)` | First match in reading order with foliate's matcher that renders and shows, as a search result does. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A passage found only in content that renders nothing (`display: none`, a hidden note) or that `visibility: hidden` hides is shown where its first match is, wherever that sits in its section, and is never selected. A miss emits `.notice("The passage could not be found in this book.")`. Clears search highlights. |
 | `searchHighlight` / `clearSearch` | Draws every match across the book and lists the rendered ones as `EPUBSearchResults` with no current match / removes and withdraws them. |

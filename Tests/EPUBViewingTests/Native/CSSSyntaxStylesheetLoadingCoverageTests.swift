@@ -216,7 +216,6 @@ final class CSSSyntaxStylesheetLoadingCoverageTests: XCTestCase {
     }
 
     func testOnlyThePreferredTitledStyleSheetSetApplies() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
         // HTML §4.6.7 link type "stylesheet" and CSSOM §6.2 "add a CSS style sheet": the first
         // titled, non-alternate sheet names the preferred set; a sheet with another title is
         // disabled. Untitled sheets are persistent and always apply.
@@ -236,8 +235,40 @@ final class CSSSyntaxStylesheetLoadingCoverageTests: XCTestCase {
         XCTAssertEqual(result.style("a").fontWeight, 400)
     }
 
+    func testEveryTitledSheetJoinsTheSetItsTitleNamesAndAnAlternateOneAppliesWithIt() throws {
+        // CSSOM §6.1: a titled `style` is in a set as a titled link is, an alternate sheet whose
+        // set is the preferred one applies with it, titles are compared case-sensitively, and
+        // an untitled alternate sheet, which HTML does not allow, never applies.
+        let (ids, result) = try marked(head: """
+            <style>#base { clear: both }</style>
+            <style title="Day">#day { clear: both }</style>
+            <link rel="stylesheet" title="Night" href="night.css"/>
+            <link rel="alternate stylesheet" title="Day" href="alternate-day.css"/>
+            <link rel="alternate stylesheet" title="Night" href="alternate-night.css"/>
+            <link rel="alternate stylesheet" href="untitled.css"/>
+            <style title="day">#lower { clear: both }</style>
+            <link rel="stylesheet" title="Day " href="spaced.css"/>
+            """, ids: ["base", "day", "night", "alternateDay", "alternateNight", "untitled", "lower", "spaced"],
+                                       sheets: ["night.css": "night", "alternate-day.css": "alternateDay", "alternate-night.css": "alternateNight",
+                                                "untitled.css": "untitled", "spaced.css": "spaced"])
+        XCTAssertEqual(ids, ["base", "day", "alternateDay"])
+        XCTAssertEqual(result.report.unreadableResources, 0)
+    }
+
+    func testADefaultStylePragmaNamesThePreferredSet() throws {
+        // HTML §4.2.5.3: `<meta http-equiv="default-style">` changes the preferred set's name to
+        // its content whenever it is read, after a titled sheet as before one; an empty one does not.
+        let (ids, _) = try marked(head: """
+            <link rel="stylesheet" title="Day" href="day.css"/>
+            <meta http-equiv="Default-Style" content="Night"/>
+            <link rel="alternate stylesheet" title="Night" href="night.css"/>
+            <style title="Night">#inline { clear: both }</style>
+            <meta http-equiv="default-style" content=""/>
+            """, ids: ["day", "night", "inline"], sheets: ["day.css": "day", "night.css": "night"])
+        XCTAssertEqual(ids, ["night", "inline"])
+    }
+
     func testADisabledLinkIsNotApplied() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
         // HTML §4.2.4: "The disabled attribute is a boolean attribute that is used to disable an
         // explicitly enabled style sheet"; scripts never run here, so it can never be re-enabled.
         let section = StyleTestSupport.xhtml(body: #"<p id="a">a</p>"#, head: """
@@ -245,10 +276,20 @@ final class CSSSyntaxStylesheetLoadingCoverageTests: XCTestCase {
             """)
         let result = try CSSSyntaxSupport.styled(section: section, files: ["day.css": "p { text-align: left }", "night.css": "p { text-align: right }"])
         XCTAssertEqual(result.style("a").textAlign, .left)
+        // HTML's stylesheet link type: a disabled link is never fetched, so it neither names the
+        // preferred set nor fails to load. `style` has no `disabled` attribute.
+        let (ids, other) = try marked(head: """
+            <link rel="stylesheet" href="empty.css" disabled=""/>
+            <link rel="stylesheet" href="missing.css" disabled="disabled"/>
+            <link rel="stylesheet" href="night.css" title="Night" disabled="disabled"/>
+            <link rel="stylesheet" href="day.css" title="Day"/>
+            <style disabled="disabled">#style { clear: both }</style>
+            """, ids: ["empty", "night", "day", "style"], sheets: ["empty.css": "empty", "night.css": "night", "day.css": "day"])
+        XCTAssertEqual(ids, ["day", "style"])
+        XCTAssertEqual(other.report.unreadableResources, 0)
     }
 
     func testAStylesheetAssociatedByAnXMLStylesheetProcessingInstructionApplies() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/115")
         // Associating Style Sheets with XML documents 1.0 §4, which HTML's XML syntax and CSSOM
         // §6.4 require of user agents; foliate-js rewrote these hrefs so that WebKit loaded them.
         let section = """
@@ -260,8 +301,86 @@ final class CSSSyntaxStylesheetLoadingCoverageTests: XCTestCase {
         XCTAssertEqual(CSSSyntaxSupport.marked(result), ["a"])
     }
 
+    func testXMLStylesheetInstructionsApplyFirstAsTheirPseudoAttributesSay() throws {
+        // Associating Style Sheets 1.0 §2 and CSSOM §6.4: an instruction in the prolog with an
+        // `href` associates a sheet, before the document's own in the cascade; `type`, `media`,
+        // `title` and `alternate` decide whether it applies as a link's attributes do (#115).
+        let ids = ["first", "second", "print", "xsl", "night", "alternateDay", "alternateUntitled", "referenced", "unquoted", "twice", "glued",
+                   "other", "link", "after"]
+        let section = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <?xml-stylesheet href="first.css"?>
+            <!-- A comment between them -->
+            <?xml-stylesheet  type="text/css"	href='second.css' media="screen" title="Day" charset="utf-8"?>
+            <?xml-stylesheet href="print.css" media="print"?>
+            <?xml-stylesheet href="xsl.css" type="text/xsl"?>
+            <?xml-stylesheet href="night.css" title="Night"?>
+            <?xml-stylesheet href="alternate-day.css" title="Day" alternate="yes"?>
+            <?xml-stylesheet href="alternate-untitled.css" alternate="yes"?>
+            <?xml-stylesheet href="a&amp;b&#x2E;css" title="D&#97;y" alternate="no"?>
+            <?xml-stylesheet href=unquoted.css?>
+            <?xml-stylesheet href="twice.css" href="twice.css"?>
+            <?xml-stylesheet href="glued.css"title="Day"?>
+            <?xml-stylesheet type="text/css"?>
+            <?other-instruction href="other.css"?>
+            <html xmlns="http://www.w3.org/1999/xhtml"><head><title>T</title><link rel="stylesheet" href="link.css"/></head><body>\
+            \(ids.map { #"<p id="\#($0)">x</p>"# }.joined())<p id="order">o</p><p id="sequence">s</p></body></html>
+            <?xml-stylesheet href="after.css"?>
+            """
+        var files = Dictionary(uniqueKeysWithValues: ids.map { ("\($0 == "referenced" ? "a&b" : $0).css", "#\($0) { clear: both }") })
+        files["alternate-day.css"] = "#alternateDay { clear: both }"
+        files["alternate-untitled.css"] = "#alternateUntitled { clear: both }"
+        files["first.css"]! += " #order { text-align: right } #sequence { text-align: right }"
+        files["second.css"]! += " #sequence { text-align: center }"
+        files["link.css"]! += " #order { text-align: left }"
+        let result = try CSSSyntaxSupport.styled(section: section, files: files)
+        XCTAssertFalse(result.document.recoveredAsHTML)
+        XCTAssertEqual(CSSSyntaxSupport.marked(result), ["first", "second", "alternateDay", "referenced", "link"])
+        XCTAssertEqual(result.style("order").textAlign, .left, "An instruction's sheet precedes the document's links")
+        XCTAssertEqual(result.style("sequence").textAlign, .center, "Instructions cascade in document order")
+        XCTAssertEqual(result.report.unreadableResources, 0)
+    }
+
+    func testAnXMLStylesheetInstructionStylesAnSVGDocumentButNotOneReadAsHTML() throws {
+        let svg = """
+            <?xml version="1.0"?>
+            <?xml-stylesheet href="css/drawing.css" type="text/css"?>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect id="r" width="10" height="10"/></svg>
+            """
+        let book = try StyleTestSupport.publication(section: StyleTestSupport.xhtml(body: ""), files: ["css/drawing.css": Data("#r { clear: both }".utf8)])
+        let drawing = try ContentDocument.parse(Data(svg.utf8), path: "OPS/drawing.svg", asContent: false)
+        var report = SectionReport()
+        let sheets = SectionStyles.load(for: drawing, publication: book, report: &report)
+        XCTAssertEqual(sheets.map { $0.rules.count }, [1])
+        XCTAssertEqual(report, SectionReport())
+        // A section with no XHTML namespace is read as HTML, where `<?` opens a comment.
+        let section = """
+            <?xml-stylesheet href="pi.css"?>
+            <html><head><title>T</title></head><body><p id="a">a</p></body></html>
+            """
+        let html = try CSSSyntaxSupport.styled(section: section, files: ["pi.css": "#a { clear: both }"])
+        XCTAssertTrue(html.document.recoveredAsHTML)
+        XCTAssertEqual(CSSSyntaxSupport.marked(html), [])
+    }
+
+    func testAnXMLStylesheetInstructionReadsItsPseudoAttributes() {
+        let parsed = ContentStylesheetInstruction(#"title="a &lt;&#x26;&#38;&gt; b" href = 'x.css' media="print" type="text/css" alternate="yes""#)
+        XCTAssertEqual(parsed?.href, "x.css")
+        XCTAssertEqual(parsed?.title, "a <&&> b")
+        XCTAssertEqual(parsed?.media, "print")
+        XCTAssertEqual(parsed?.type, "text/css")
+        XCTAssertEqual(parsed?.isAlternate, true)
+        XCTAssertEqual(ContentStylesheetInstruction(#"href="x.css" alternate="YES""#)?.isAlternate, false, "Only yes is yes")
+        XCTAssertEqual(ContentStylesheetInstruction(#"href="""#)?.href, "")
+        XCTAssertEqual(ContentStylesheetInstruction(#"href="x.css" unknown="1""#)?.href, "x.css", "An unknown pseudo-attribute is passed over")
+        for malformed in [#"title="x""#, "", #"href="x.css" title"#, #"href="x.css" title="#, #"href="x.css"#, #"href="a<b.css""#,
+                          #"href="a&b.css""#, #"href="&bogus;""#, #"href="&#0;""#, #"href="&#x110000;""#, #"href="&#xZ;""#, #"href='x.css""#,
+                          #"href="x.css"title="t""#, #"="x.css""#, #"href "x.css""#] {
+            XCTAssertNil(ContentStylesheetInstruction(malformed), malformed)
+        }
+    }
+
     func testAByteOrderMarkIsNotStyleTextInASheetCutToTheSizeBound() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
         // The sheet's two rules come first; only the comment after them crosses the bound.
         let rules = "#a { clear: both } #b { clear: both }"
         let padding = "/*" + String(repeating: "x", count: SectionStyles.maximumSheetBytes) + "*/"
@@ -272,6 +391,29 @@ final class CSSSyntaxStylesheetLoadingCoverageTests: XCTestCase {
         let marked = try CSSSyntaxSupport.styled(section: section, files: ["big.css": Data([0xEF, 0xBB, 0xBF]) + Data((rules + padding).utf8)])
         XCTAssertEqual(CSSSyntaxSupport.marked(marked), ["a", "b"], "The byte order mark must not become part of the first selector")
         XCTAssertTrue(marked.report.stylesTruncated)
+    }
+
+    func testASheetCutToTheSizeBoundDecodesAsAWholeOneDoes() throws {
+        // By its byte order mark as UTF-16, as Windows Latin 1 where it is not UTF-8, and as
+        // UTF-8 where the bound falls inside a character.
+        func utf16(_ text: String) -> Data {
+            Data([0xFF, 0xFE]) + Data(text.utf16.flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8)] })
+        }
+        let rules = "#a { clear: both } .é { clear: both }/*"
+        let bound = SectionStyles.maximumSheetBytes
+        let section = StyleTestSupport.xhtml(body: #"<p id="a">a</p><p id="b" class="é">b</p>"#, head: #"<link rel="stylesheet" href="big.css"/>"#)
+        // The bound falls between the two halves of a surrogate pair, and inside a two-byte character.
+        let wideRules = (bound - 2 - 2 * rules.utf16.count) / 2 % 2 == 1 ? rules : " " + rules
+        let wide = utf16(wideRules + String(repeating: "\u{1F600}", count: bound / 4 + 1) + "*/")
+        let latin = Data("#a { clear: both } .".utf8) + Data([0xE9]) + Data(" { clear: both }/*".utf8) + Data(repeating: 0xE9, count: bound) + Data("*/".utf8)
+        let narrowRules = (bound - rules.utf8.count) % 2 == 1 ? rules : " " + rules
+        let cut = Data((narrowRules + String(repeating: "é", count: bound / 2 + 1) + "*/").utf8)
+        for (name, data) in [("UTF-16", wide), ("Windows Latin 1", latin), ("UTF-8 cut inside a character", cut)] {
+            XCTAssertGreaterThan(data.count, SectionStyles.maximumSheetBytes, name)
+            let result = try CSSSyntaxSupport.styled(section: section, files: ["big.css": data])
+            XCTAssertEqual(CSSSyntaxSupport.marked(result), ["a", "b"], name)
+            XCTAssertTrue(result.report.stylesTruncated, name)
+        }
     }
 
     func testStylesheetBytesDecodeFromUTF8UTF16AndLatin1() throws {

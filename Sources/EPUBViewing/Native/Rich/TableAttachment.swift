@@ -56,27 +56,38 @@ final class TableRowAttachment: ReaderAttachment {
         return (constraints.minimumTableWidth, constraints.maximumTableWidth)
     }
 
-    /// The cells that start in this row, joined by tabs. The rows' own line breaks separate rows,
-    /// and the caption is a paragraph of its own.
-    override var textEquivalent: String { cellWords.joined(separator: "\t") }
+    /// The cells that start in this row, joined by tabs, as a selection reads them: with the
+    /// words of a picture and the text that the book keeps from assistive technology. The rows'
+    /// own line breaks separate rows, and the caption is a paragraph of its own.
+    override var textEquivalent: String { words(spoken: false).map(\.words).joined(separator: "\t") }
+
+    /// `textEquivalent` as VoiceOver is given it: `cellWords`, without those words (#551).
+    override var spokenEquivalent: String { cellWords.joined(separator: "\t") }
 
     /// The words of each cell read where this row stands, in column order: the cells that
     /// start in a whole row, and each cell a continuation holds lines of, by those lines. A
-    /// cell without words is there with none.
+    /// cell without words is there with none. They are what VoiceOver reads: nothing of what
+    /// the book keeps from assistive technology (`TableMeasure.spokenText`).
     var cellWords: [String] { spokenCellWords.map(\.words) }
 
     /// `cellWords`, each with the index of its cell in the table's cells.
-    var spokenCellWords: [(cell: Int, words: String)] {
+    var spokenCellWords: [(cell: Int, words: String)] { words(spoken: true) }
+
+    /// The words of each cell where this row stands, each with the index of its cell: what
+    /// VoiceOver reads where `spoken`, and otherwise what a selection reads.
+    private func words(spoken: Bool) -> [(cell: Int, words: String)] {
         if let fragment, let layout = fragmentLayout {
             return fragment.cells.sorted { table.cells[$0.cell].column < table.cells[$1.cell].column }.map { entry in
-                return (entry.cell, layout.cellText[entry.cell].spokenText(inLines: entry.lines))
+                let text = layout.cellText[entry.cell]
+                return (entry.cell, spoken ? text.spokenText(inLines: entry.lines) : text.shownText(inLines: entry.lines))
             }
         }
         return table.rowCells[row].filter { table.cells[$0].row == row }
-            .sorted { table.cells[$0].column < table.cells[$1].column }.map { ($0, table.cells[$0].text) }
+            .sorted { table.cells[$0].column < table.cells[$1].column }
+            .map { ($0, spoken ? table.cells[$0].text : TableMeasure.text(table.cells[$0].content, spoken: false)) }
     }
 
-    /// The languages of `textEquivalent`: each cell's words in the language most of the cell
+    /// The languages of `spokenEquivalent`: each cell's words in the language most of the cell
     /// is in (`ReaderSpokenLanguages`).
     var spokenLanguages: ReaderSpokenLanguages {
         var parts: [(text: String, language: String?)] = []
@@ -88,10 +99,12 @@ final class TableRowAttachment: ReaderAttachment {
     }
 
     /// The row has nothing to say where it stands: its cells hold no words there, and nothing
-    /// but decoration besides, as a row that spaces out a table used for layout does, or images
-    /// and rules the book keeps from assistive technology. A link is something to follow
-    /// whatever it holds, and any other rule or a formula something to say, so a row that
-    /// holds one is not such a row.
+    /// besides but what assistive technology passes over (`NSAttributedString.passesOver`):
+    /// decoration, as in a row that spaces out a table used for layout, images, rules and
+    /// formulas the book keeps from assistive technology, and anything `visibility: hidden`
+    /// hides (`.readerHidden`), which nobody reads. A link is something to follow whatever it
+    /// holds, and any other rule or formula something to say, so a row that holds one is not
+    /// such a row.
     var saysNothing: Bool {
         guard cellWords.allSatisfy({ $0.allSatisfy(\.isWhitespace) }) else { return false }
         if let fragment, let layout = fragmentLayout {
@@ -108,11 +121,13 @@ final class TableRowAttachment: ReaderAttachment {
     private static func saysNothing(_ content: NSAttributedString, in range: NSRange) -> Bool {
         var silent = true
         content.enumerateAttributes(in: range) { attributes, _, stop in
+            let attachment = attributes[.attachment] as? NSTextAttachment
             if attributes[.link] != nil { silent = false }
-            else if let image = attributes[.attachment] as? ReaderImageAttachment { silent = image.isPassedOverByAssistiveTechnology }
-            else if let rule = attributes[.attachment] as? ReaderRuleAttachment { silent = rule.isHiddenFromAssistiveTechnology }
-            else if let row = attributes[.attachment] as? TableRowAttachment { silent = row.saysNothing }
-            else if attributes[.attachment] != nil { silent = false }
+            // A nested table is not hidden as a whole: each of its cells can be shown again.
+            else if let row = attachment as? TableRowAttachment { silent = row.saysNothing }
+            // Outside a link, which is something to follow, `passesOver` is this; what is
+            // hidden is no one's to read.
+            else if let attachment, attributes[.readerHidden] == nil { silent = NSAttributedString.isPassedOverAlone(attachment) }
             if !silent { stop.pointee = true }
         }
         return silent
