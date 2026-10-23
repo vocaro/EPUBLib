@@ -762,7 +762,13 @@ python3 scripts/run-voiceover-simulator.py --runtime com.apple.CoreSimulator.Sim
 
 With `-SampleSearch "Qtr Total"` in `--launch` the host searches as the book opens, which
 shows the first result and so opens the details; the same steps then read it open and its
-table. The book is not one of the [standard corpora](#corpus-runs): admitting DAISY's tests
+table. `DisclosureDAISYTests` reads the same book without VoiceOver, opening and closing the
+details through the summary's accessibility element, finding its table of data and searching
+into it, when `EPUBLIB_DAISY_EXTDESC` names the book, and is skipped otherwise:
+
+```sh
+EPUBLIB_DAISY_EXTDESC=/absolute/path/epub30-test-0350.epub swift test --filter DisclosureDAISYTests
+``` The book is not one of the [standard corpora](#corpus-runs): admitting DAISY's tests
 as one is the owner's to decide.
 
 ### Corpus teardown
