@@ -12,6 +12,9 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
             swipe.delegate = self
             addGestureRecognizer(swipe)
         }
+        let pan = ReaderPagePanRecognizer(target: self, action: #selector(panned(_:)))
+        pan.delegate = self
+        addGestureRecognizer(pan)
         let tap = ReaderEdgeTapRecognizer(target: self, action: #selector(tapped(_:)))
         tap.delegate = self
         tap.cancelsTouchesInView = false
@@ -28,13 +31,18 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
                                                name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
     }
 
-    /// Disabled recognizers cannot compete with a host gesture, even before recognition.
+    /// Disabled recognizers cannot compete with a host gesture, even before recognition. A swipe
+    /// that a page turn's animation follows is a pan (`ReaderPagePanRecognizer`), and with no
+    /// animation a swipe as before.
     func updateInputHandlers() {
+        let swipes = configuration.flow == .paginated && configuration.pageControls.touchSwipesEnabled
         for recognizer in gestureRecognizers ?? [] {
             if recognizer is ReaderMiddleTapRecognizer {
                 recognizer.isEnabled = configuration.togglesControls
             } else if recognizer is UISwipeGestureRecognizer {
-                recognizer.isEnabled = configuration.flow == .paginated && configuration.pageControls.touchSwipesEnabled
+                recognizer.isEnabled = swipes && pageMotion == nil
+            } else if recognizer is ReaderPagePanRecognizer {
+                recognizer.isEnabled = swipes && pageMotion != nil
             } else if recognizer is UITapGestureRecognizer {
                 recognizer.isEnabled = configuration.flow == .paginated && configuration.pageControls.edgeTapsEnabled
             }
@@ -101,6 +109,50 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         view.delegate = self
         addSubview(view)
         return view
+    }
+
+    /// A column that draws a page a swipe brings in, which nothing reads or touches.
+    func makePreviewColumn() -> ReaderTextView {
+        let view = ReaderTextView(pageColumn: true)
+        view.isUserInteractionEnabled = false
+        view.accessibilityElementsHidden = true
+        return view
+    }
+
+    /// A picture of the page on screen as it is drawn: each shown column's, where it stands on
+    /// the canvas. nil while nothing is shown. UIKit's snapshot of what is on screen, and where
+    /// it gives none, as for a column not yet drawn there, the column's layers drawn into an
+    /// image.
+    func pageSnapshot() -> PlatformView? {
+        let shown = columns.filter { !$0.isHidden }
+        guard !shown.isEmpty, bounds.width > 0, bounds.height > 0 else { return nil }
+        let picture = ReaderPageTransitionView(frame: bounds)
+        for column in shown {
+            let view = column.snapshotView(afterScreenUpdates: false) ?? drawnPicture(of: column)
+            view.frame = column.frame
+            picture.addSubview(view)
+        }
+        return picture
+    }
+
+    private func drawnPicture(of column: ReaderTextView) -> UIView {
+        let format = UIGraphicsImageRendererFormat(for: traitCollection)
+        format.opaque = false
+        let image = UIGraphicsImageRenderer(bounds: column.bounds, format: format).image { context in
+            column.layer.render(in: context.cgContext)
+        }
+        return UIImageView(image: image)
+    }
+
+    /// Puts what a page turn draws above the columns, and below what stands over the page: the
+    /// selection's continuation and the image inspector.
+    func addPageTransitionView(_ view: PlatformView) {
+        view.frame = bounds
+        if let top = subviews.last(where: { subview in columns.contains { $0 === subview } }) {
+            insertSubview(view, aboveSubview: top)
+        } else {
+            addSubview(view)
+        }
     }
 
     func makeScrollView() -> (PlatformView, ReaderTextView) {
@@ -275,6 +327,33 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
             towardsLeft: recognizer.direction == .left, isRightToLeft: configuration.isRightToLeft))
     }
 
+    /// A swipe that a page turn's animation follows (`beginPageDrag`): the page moves with the
+    /// finger, and turns when it lets go past half the width or flicks on, and goes back
+    /// otherwise. Where no drag could begin, a swipe that would turn turns as a swipe does.
+    @objc private func panned(_ recognizer: ReaderPagePanRecognizer) {
+        let offset = recognizer.translation(in: self).x
+        switch recognizer.state {
+        case .began:
+            recognizer.followsPage = beginPageDrag()
+            if recognizer.followsPage { dragPage(by: offset) }
+        case .changed:
+            if recognizer.followsPage { dragPage(by: offset) }
+        case .ended:
+            let turns = ReaderPageDrag.turns(offset: offset, velocity: recognizer.velocity(in: self).x, width: bounds.width)
+            if recognizer.followsPage {
+                endPageDrag(turns: turns, animated: true)
+            } else if turns {
+                turnPageFromInput(forward: ReaderPageDrag.forward(offset: offset, isRightToLeft: configuration.isRightToLeft))
+            }
+            recognizer.followsPage = false
+        case .cancelled, .failed:
+            if recognizer.followsPage { endPageDrag(turns: false, animated: true) }
+            recognizer.followsPage = false
+        default:
+            break
+        }
+    }
+
     /// A tap within a configured physical edge zone turns the page, unless it lands on a
     /// link, text is selected, or the touch was a long press (a selection beginning). The press
     /// is timed by the touch's own timestamps, from when it went down to when it lifted.
@@ -308,6 +387,11 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         }
         guard imageInspector == nil, configuration.flow == .paginated, !hasSelection, !isDraggingSelection else { return false }
         if gestureRecognizer is UISwipeGestureRecognizer { return configuration.pageControls.touchSwipesEnabled && !hasSelection }
+        if let pan = gestureRecognizer as? ReaderPagePanRecognizer {
+            // A page follows a swipe across it, not one up or down it.
+            let velocity = pan.velocity(in: self)
+            return configuration.pageControls.touchSwipesEnabled && pageMotion != nil && abs(velocity.x) > abs(velocity.y)
+        }
         if gestureRecognizer is UITapGestureRecognizer { return edgeTurn(at: gestureRecognizer.location(in: self)) != nil }
         return super.gestureRecognizerShouldBegin(gestureRecognizer)
     }
@@ -753,6 +837,12 @@ final class ReaderNoteViewController: UIViewController, UIPopoverPresentationCon
 
     func textView(_ textView: UITextView, menuConfigurationFor textItem: UITextItem,
                   defaultMenu: UIMenu) -> UITextItem.MenuConfiguration? { nil }
+}
+
+/// The canvas's swipe when a page turn is animated, which the page follows: a pan, which
+/// knows whether a drag of the page began with it.
+final class ReaderPagePanRecognizer: UIPanGestureRecognizer {
+    var followsPage = false
 }
 
 /// The canvas's edge-tap recognizer, which keeps when its touch lifted, as the touch gives it.
