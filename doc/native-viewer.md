@@ -28,7 +28,8 @@ continues to describe the authored spine resource.
 
 1. **Document** (`ContentDocument`). libxml2 parses each spine item into an element/text tree
    that matches what an EPUB CFI sees: comments and processing instructions dropped, adjacent
-   text and CDATA merged. The full HTML named-reference set, including MathML names and
+   text and CDATA merged. An `xml-stylesheet` instruction before the root element of a document
+   read as XML is kept beside the tree for the sheet it names (**Style**). The full HTML named-reference set, including MathML names and
    two-scalar references, becomes numeric references before an XML parse, also in UTF-16.
    All eleven XHTML-family public identifiers accepted by WebKit retain that XML tree and
    its CFIs ([#101](https://github.com/vocaro/EPUBLib/issues/101)).
@@ -94,6 +95,27 @@ continues to describe the authored spine resource.
    cascade over a user-agent stylesheet, the book's archive-local stylesheets and `style`
    attributes produce a `ComputedStyle` per element: the CSS subset in `ComputedStyle.swift`.
    `@font-face` fonts load from the archive with CoreText. Nothing remote is fetched.
+   A section's sheets cascade in the order CSSOM §6 gives: those its `xml-stylesheet`
+   instructions name (Associating Style Sheets 1.0, by `href`, `type`, `media`, `title` and
+   `alternate`), then its `link rel="stylesheet"` and `style` elements in document order. A
+   section read as HTML has no such instruction, as in a browser. A `disabled` link is not
+   read, nor an alternate sheet without a title. Of the titled sheets only the preferred set
+   applies, alternate ones in it included: the set the last `<meta http-equiv="default-style">`
+   names, or else the first titled sheet that is not an alternate
+   ([#115](https://github.com/vocaro/EPUBLib/issues/115),
+   [#116](https://github.com/vocaro/EPUBLib/issues/116)). A sheet cut to its size bound decodes as
+   the whole sheet would, by its byte order mark or as UTF-8 or Windows Latin 1.
+   A sheet's rules are kept as Chromium keeps them. `@import` is read before any valid rule
+   but `@charset` and the `@layer` statements before the first import, and `@namespace` after
+   the imports and before the rest; a rule that is not valid moves neither, and a known
+   at-rule whose prelude its grammar does not take (`@supports bogus`, `@layer a, b { }`,
+   `@font-face x`) is dropped with all it holds
+   ([#603](https://github.com/vocaro/EPUBLib/issues/603)). A pseudo-element Chromium does not
+   know, but for any `::-webkit-` one, makes its selector list invalid, as any pseudo-element
+   does inside `:is()`, `:where()` (whose forgiving lists drop that argument alone), `:not()`
+   and `:nth-child(… of S)`. Inside the first three a default namespace does not reach the
+   subject's compound unless it has a type or universal selector (Selectors 4 §4), and `&`
+   outside a nested rule is the root element, with no specificity (CSS Nesting 1 §3).
    In a section read as HTML, `epub:type` is one attribute of that name in no namespace, as
    a browser's HTML parser makes it, and `[epub\:type]` matches it. A namespaced selector
    reaches it as in XHTML, by namespace: `[ops|type]` matches it when the sheet binds `ops` to

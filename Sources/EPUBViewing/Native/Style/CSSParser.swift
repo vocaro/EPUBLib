@@ -90,14 +90,19 @@ enum CSSParser {
         }
     }
 
-    /// Parses a list of rules (§5.4.1). At top level, `<!--` and `-->` are ignored.
+    /// Parses a list of rules (§5.4.1). At top level, `<!--` and `-->` are ignored, and a `;` is
+    /// no separator but the start of a qualified rule's prelude, which no selector then makes
+    /// valid ("consume a stylesheet's contents"); in a block a `;` is passed over ("consume a
+    /// block's contents").
     static func rules(_ components: [CSSComponent], topLevel: Bool) -> [CSSRawRule] {
         var rules: [CSSRawRule] = []
         var index = 0
         while index < components.count {
             let component = components[index]
             switch component {
-            case .token(.whitespace), .token(.semicolon):
+            case .token(.whitespace):
+                index += 1
+            case .token(.semicolon) where !topLevel:
                 index += 1
             case .token(.cdo) where topLevel, .token(.cdc) where topLevel:
                 index += 1
