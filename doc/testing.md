@@ -1129,7 +1129,15 @@ keyboard's Search key, whose identifier is Search, in place of the search field'
 `tap=search` written for Return then now does nothing, and its line names `keyboard=search`.
 
 The probe's steps are documented where they are handled, in
-`Examples/ControlsQualification/UITests/ControlsProbe.swift`. Host arguments:
+`Examples/ControlsQualification/UITests/ControlsProbe.swift`. `key=` types a hardware key
+with `XCUIElement.typeKey`, through UIKit's own keyboard dispatch, after any of `shift+`,
+`command+`, `option+`, `control+` and `function+`. On 2026-10-22, on an iPad Air 13-inch (M4)
+simulator with iOS 27.0 (24A434) and Xcode 27.1 (27A9275), the reader received Right Arrow,
+Down Arrow and Space that way. It received no press at all for `key=home`, `key=end`,
+`key=pageup` or `key=pagedown`, with or without `function+`, so the probe cannot show those
+keys on iOS. The status line ends with the layout's page, counted from 1, as
+`layout page 2/22, section 1/5`, with `-` where a count is not known yet
+([#681](https://github.com/vocaro/EPUBLib/issues/681)). Host arguments:
 `-QualificationBook ltr|rtl|long`, `-QualificationHost toolbar|strip|navigator`,
 `-QualificationPlacement automatic|leading|bottom`, `-QualificationHostItems <count>`,
 `-QualificationFlow scrolled`, `-QualificationFontSize <points>`, `-QualificationTitle NO`,

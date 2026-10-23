@@ -182,6 +182,10 @@ extension EPUBPageAction {
         case (.paginated, .previous): "Previous Page"
         case (.scrolled, .next): "Scroll Forward"
         case (.scrolled, .previous): "Scroll Backward"
+        case (.paginated, .bookStart): "First Page"
+        case (.paginated, .bookEnd): "Last Page"
+        case (.scrolled, .bookStart): "Scroll to Beginning"
+        case (.scrolled, .bookEnd): "Scroll to End"
         }
     }
 }

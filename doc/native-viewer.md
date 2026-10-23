@@ -2378,6 +2378,32 @@ as they did.
   own and is laid out then, where its pages stayed 80 points down under a
   66-point toolbar until the window was resized
   ([#162](https://github.com/vocaro/EPUBLib/issues/162)).
+- **Page numbers.** `EPUBReaderStatus.layoutPage` gives the pages on screen in paginated flow:
+  the first one's index in the book and in its section, the book's and the section's page
+  counts, and how many pages the spread shows
+  ([#681](https://github.com/vocaro/EPUBLib/issues/681)). A page is one column of a spread. A
+  section starts on a spread's first column, so a spread that ends a section with an odd
+  number of pages shows one, and its empty column is no page. The book's pages are those of
+  the sections page turns reach (not a nonlinear one, unless no section is linear); a
+  nonlinear section shown by a link has its own index and count but no index in the book.
+  `ReaderPageCounter` paginates every section at the spread's column size with the paginator
+  the canvas shows pages from, so the count is of the pages turns pass: the section on screen
+  first, by finishing the canvas's own pagination, then the sections before it, which the
+  book index needs, then the rest, each with a pagination of its own that is dropped once its
+  pages are counted. It runs on the main actor, as layout does, for 6 ms at a time, then lets
+  the run loop serve input before it goes on, so a page turn waits for one slice at most and
+  never for the count; a resize's own pagination goes before it. What is not counted yet is
+  nil, and the status changes as counting goes on, without a `.relocated`. A new column size
+  drops every count; a section built again for a new typography is counted again, and only a
+  section built for the current one is counted. While the page on screen shows a section's
+  earlier build, as it does through a change of appearance until the sections in reach are
+  rebuilt ([#243](https://github.com/vocaro/EPUBLib/issues/243)), the status has no page. In
+  continuous scroll it is nil. Closing the reader stops the count and drops what it holds. On
+  iOS, text that ends with an attachment keeps that attachment alive after its whole layout is
+  gone, until text ending with another attachment is laid out. The counter lays out each
+  section's last page, so close then lays out a text that ends with an empty attachment
+  (`releaseLayoutResidue`). Without it, an iPhone simulator kept the picture that ended the
+  last section counted, with its SVG renderer, after the reader was closed.
 - **Right to left.** `page-progression-direction="rtl"` mirrors spreads, swipes and tap zones.
   Within a page, a box's sides by flow (`margin-inline-start`, `padding-inline`,
   `border-inline-end`) are the sides the element's own `direction` maps them to, and cascade
@@ -2854,6 +2880,22 @@ The following are the defaults. Host commands and accessibility actions stay ena
   wheel spun fast still turns a page each 450 ms
   ([#163](https://github.com/vocaro/EPUBLib/issues/163)).
 - Keys (all flows): Left/Page Up previous, Right/Page Down/Space next, Shift-Space previous.
+  Home and End go to the book's start and end (`EPUBPageAction.bookStart` and `.bookEnd`), as
+  `.goToStart` and `.goToEnd` do, and on the Mac Command-Up and Command-Down too, which a Mac
+  text view takes for a document's start and end; on the Mac they come as key equivalents, as
+  every bound chord with Command does. The book's start is the first section page turns reach,
+  its end the last; one not built yet is built and then shown. They are logical, as the turns
+  are, and no tap, swipe or wheel goes there
+  ([#681](https://github.com/vocaro/EPUBLib/issues/681)).
+  A key reaches the reader only through its responders. On iPhone and iPad UIKit focuses
+  nothing on its own. Before #681, on an iPad simulator, Right Arrow typed with
+  `XCUIElement.typeKey` turned no page, before or after a touch on the page. With the canvas
+  taking the focus it turns one, and Space does too. XCTest sends the app no press for Home or
+  End there ([reader controls probe](testing.md#reader-controls-probe)). The canvas now takes
+  the focus when it is shown and when a touch begins
+  on it (`ReaderTouchObserver`, which recognizes nothing), while no other view in its window
+  holds it (`takeKeyboardFocusIfFree`), so a field keeps its keyboard. A change of flow leaves
+  that focus on the canvas, where the Mac moves it to the first text view.
   In continuous scroll a page turn scrolls by one viewport less a line. A backward turn
   refines the newly shown text through the line that was first and keeps that line at the
   new screen's bottom, so estimates for tall images above a jumped-to position cannot skip
@@ -3284,6 +3326,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
 | `showSearchResult(result)` | Shows a listed result and makes it current; a result of a replaced or cleared search throws `invalidCommand`. |
 | `style` | Font size 12–96, scaled by the system text size first with `followsDynamicType` (below), System/Light/Dark appearance, flow. System is the default and tracks the host color scheme live; explicit modes stay fixed. Size or resolved appearance rebuilds the text; the position is kept across rebuilds and flow switches. |
 | `setHighlights` | Replaces drawn host highlights. |
+| `goToProgression(value)` | Shows the place `value` of the way through the book by `progression`'s own measure (section byte size, nonlinear sections weighing nothing): the section where that share of the bytes ends, at the same share of its characters, entered at its page's first line. 0 or less is the first linear section's start and 1 or more the last one's end, so `goToStart` and `goToEnd` show the first and last page, or the top and bottom of continuous scroll; on a boundary between sections the later one's start. A value that is not finite throws `invalidCommand`. The page shown reports a progression at or after `value`, measured at its end ([#681](https://github.com/vocaro/EPUBLib/issues/681)). |
 
 `.searchResultsChanged` reports the result list before `.searchChanged(.completed)`, then each
 change of the current match, and nil when a clear, another query, a failure or `.locate`
@@ -3297,7 +3340,10 @@ host's appearance (see Decisions), and the first `.relocated` reports the openin
 start, see Decisions). `.relocated` carries the section href, overall progression (by section byte
 size, as foliate-js computed it), the table-of-contents title for the position, the page-list
 entries it shows (see Decisions) and the visible range's CFIs. A nonlinear section counts nothing
-toward progression unless no section is linear (see Decisions). A selection's `.selectionChanged`
+toward progression unless no section is linear (see Decisions). The pages of the layout on
+screen are not in the location: `EPUBReaderStatus.layoutPage` has them, set before the
+`.relocated` of the same pages and changed again, with no event, as counting goes on
+([Layout](#layout), "Page numbers"). A selection's `.selectionChanged`
 event and host selection action carry the same complete passage: `text` omits nonlinear sections,
 and `location.rangeBookmarks` preserves all included documents. Its `page` names the entry in effect
 at its start and `pages` includes the entries it spans, omitting nonlinear pages. Save the entire

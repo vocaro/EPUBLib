@@ -363,6 +363,32 @@ another view on the matching page, such as the source PDF beside the book, move 
 only when its current page is not among `pages`: navigating to a marker partway down a screen
 shows the end of the page before it first.
 
+## Page X of Y and going through the book
+
+For "page 12 of 230" and the pages left in a chapter, read `layoutPage` from the session's
+`readerState?.status`, which SwiftUI observes. Its indices count from 0: the first page on
+screen is `index` in the book and `sectionIndex` in its section, of `count` and `sectionCount`
+pages, and the spread shows `shownCount` pages, 1 or 2. Show page `index + 1` of `count`, or
+pages 12–13 when two are shown, and `sectionCount - sectionIndex - shownCount` pages left in
+the section. The pages are those of the layout on screen, so they change with the reader's
+size and text size and are no part of a saved position; save `EPUBLocation` for that.
+
+The reader counts pages a little at a time without holding up page turns, and what it has not
+counted yet is nil: a section's count soon after it is shown, the book's index once the
+sections before it are counted, and its count once all are. After a resize or a text size
+change they are counted again. In continuous scroll `layoutPage` is nil; show
+`EPUBLocation.progression` as a percentage there, or wherever a count is nil. The status is
+set before the `.relocated` of the same pages, so a host can also read it there, and it changes
+again, with no event, as counting goes on.
+
+`.goToProgression(value)` shows the place `value` of the way through the book, as `progression`
+measures it, so a percentage control can send what it shows; `.goToStart` and `.goToEnd` show
+the first and last page. The page shown reports a progression at or after `value`, since a
+page's progression is measured at its end. Engines with these commands list
+`.goToProgression` among their capabilities. Home and End go to the book's start and end from
+the keyboard, and on the Mac Command-Up and Command-Down too
+([configuring page controls](#configuring-page-controls)).
+
 ## Adding an engine
 
 Implement `EPUBReaderEngine` and `EPUBReaderSession` in a separate module. Choose a stable engine
@@ -381,7 +407,8 @@ Run the shared [engine contract checks](testing.md#adapter-contract-tests) again
 Apply `epubReaderPageControls(_:)` to the retained `EPUBReaderView` for the bundled native
 reader. `EPUBPageControls()` keeps existing behavior: 56-point edge zones, iOS horizontal
 swipes, Mac wheel/trackpad turns, and Left/Page Up previous, Right/Page Down/Space next,
-Shift-Space previous. `.hostOnly` disables all direct page input; buttons can still send
+Shift-Space previous, Home the book's start and End its end, and on the Mac Command-Up the
+start and Command-Down the end. `.hostOnly` disables all direct page input; buttons can still send
 `.nextPage` / `.previousPage`, and VoiceOver page actions remain available: each line of a
 page offers them on iPhone and iPad, and each text area on Mac, in VoiceOver's Actions menu
 ([native viewer](native-viewer.md#input-and-accessibility)).
@@ -452,7 +479,12 @@ The modifier is specific to the native reader; other engines can choose their ow
   scrolled flow they move one viewport less a line. A single native responder path handles
   a key whether the canvas or a child text view has focus. The reader does not take focus
   from another control when bindings change; focus must be within the reader for a shortcut
-  to apply. On iOS the reader can receive hardware keys when its native text view has focus.
+  to apply. On the Mac the reader takes the focus when its window gives it to no other view.
+  On iPhone and iPad it takes the focus when it is shown and when it is touched, while no other
+  view in its window holds it, so an iPad keyboard's page keys reach it. A search field the
+  person is typing in keeps its focus and its keyboard; once it gives the focus up, a touch
+  on the page brings the keys back to the reader
+  ([#681](https://github.com/vocaro/EPUBLib/issues/681)).
 - Copy, Select All, Shift-arrow selection extension and other host/system chords remain
   native unless explicitly assigned. There are no library-reserved supported combinations,
   but OS-reserved or app-menu shortcuts may be consumed before delivery to the reader.

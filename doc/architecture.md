@@ -342,6 +342,13 @@ hrefs and location hrefs are encoded URL references; resource `path` is the deco
 Other engines may offer approximate navigation by href or quote; this is not automatic bookmark
 conversion. The package does not promise cross-engine page, search or selection equivalence.
 
+The pages of an engine's own layout are status, not location: an engine that counts them sets
+`EPUBReaderStatus.layoutPage` in paginated flow, before the `.relocated` of the same pages, and
+leaves it nil while it counts. `.goToProgression` takes the measure of `EPUBLocation.progression`,
+so a host can send back a progression it was given; an engine without it refuses the command
+with `.unsupported(.goToProgression)`, which the [contract checks](testing.md#adapter-contract-tests)
+hold every adapter to ([#681](https://github.com/vocaro/EPUBLib/issues/681)).
+
 ## Viewer isolation
 
 Books are untrusted and nothing in them executes: the viewer has no JavaScript engine and no web

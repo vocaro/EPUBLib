@@ -352,7 +352,10 @@ ownership of persistence, library/import management, selection actions and app-s
 
 Page-button help describes the configured native inputs. On Mac, default Next Page help
 lists Right Arrow, Page Down and Space, the right edge click, and wheel/trackpad directions;
-Previous Page lists Left Arrow, Page Up and Shift-Space with the opposite gestures. Keyboard
+Previous Page lists Left Arrow, Page Up and Shift-Space with the opposite gestures. Help for
+`EPUBPageAction.bookStart` and `.bookEnd` ("First Page" and "Last Page", or "Scroll to
+Beginning" and "Scroll to End" in continuous scroll) lists their keys alone, Home or End and
+on the Mac Command-Up or Command-Down Arrow: no gesture goes there. Keyboard
 hints say “With reader focus”: they do not apply while the search field or another host field
 has focus. On iPhone/iPad the help describes edge taps and horizontal touch swipes instead
 of mouse gestures, alongside any configured hardware keys. SwiftUI presents help on platforms

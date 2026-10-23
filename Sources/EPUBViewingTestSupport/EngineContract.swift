@@ -214,6 +214,7 @@ import Foundation
             // With the search cleared there is nothing to step through: accepted, without effect.
             (.searchResults, .nextSearchResult), (.searchResults, .previousSearchResult),
             (.highlights, .setHighlights([])),
+            (.goToProgression, .goToEnd), (.goToProgression, .goToProgression(0.5)), (.goToProgression, .goToStart),
         ]
         for (capability, command) in commands {
             if session.capabilities.contains(capability) { try await session.send(command) }

@@ -153,11 +153,17 @@ enum ReaderPageEntry: Equatable, Sendable {
     /// Whether a page turn may show a section's text as it is: false for one that must be built
     /// again first, which the canvas then asks for (`needsSection`), keeping the page it shows.
     func canShow(section index: Int) -> Bool
+    /// Whether a section's text is built for the current typography (`isCurrent(section:)` below).
+    func isCurrent(section index: Int) -> Bool
 }
 
 extension ReaderCanvasDataSource {
     func selectionText(in range: ReaderTextRange) -> String? { nil }
     func canShow(section index: Int) -> Bool { true }
+    /// Whether a section's text is built for the current typography, so its pages are the ones
+    /// the reader will show once every rebuild is in. A text kept, or shown (`canShow`), while
+    /// its rebuild runs is not. A source that never rebuilds its texts keeps this default.
+    func isCurrent(section index: Int) -> Bool { true }
 }
 
 @MainActor protocol ReaderCanvasDelegate: AnyObject {
@@ -176,10 +182,14 @@ extension ReaderCanvasDataSource {
     /// that must be built again before it is shown (`ReaderCanvasDataSource.canShow`): build it
     /// now, showing nothing, so that the next search finds what it holds.
     func canvas(_ canvas: any ReaderCanvas, wantsSection index: Int)
+    /// `ReaderCanvasView.layoutPage` changed without a new visible range: counting went on, or
+    /// the count was dropped for a new layout.
+    func canvasDidChangeLayoutPage(_ canvas: any ReaderCanvas)
 }
 
 extension ReaderCanvasDelegate {
     func canvas(_ canvas: any ReaderCanvas, wantsSection index: Int) {}
+    func canvasDidChangeLayoutPage(_ canvas: any ReaderCanvas) {}
 }
 
 /// The TextKit 2 surface: continuous scroll in a real scroll view, or columns paginated from the

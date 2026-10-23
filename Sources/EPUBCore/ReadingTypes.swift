@@ -167,6 +167,8 @@ public enum EPUBReaderCapability: String, Hashable, Sendable {
     /// `.previousSearchResult` and `.showSearchResult` commands. Requires `.search` or
     /// `.searchHighlight`. Engines that only highlight omit it and refuse those commands.
     case searchResults
+    /// `.goToProgression`, and with it `EPUBReaderCommand.goToStart` and `.goToEnd`.
+    case goToProgression
 }
 
 /// A host-owned highlight drawn while reading. `location.bookmark` names a passage in one
@@ -201,6 +203,20 @@ public enum EPUBReaderCommand: Equatable, Sendable {
     case style(EPUBReaderStyle)
     /// Replaces every drawn highlight. An empty array removes them.
     case setHighlights([EPUBHighlight])
+    /// Shows the place a fraction of the way through the book, as `EPUBLocation.progression`
+    /// measures it: 0 is the book's first page, 1 its last, and 0.5 the page holding the point
+    /// half way through. A value outside 0...1 is taken as the nearer end; a value that is not
+    /// finite is refused with `invalidCommand`. In paginated flow a location's progression is
+    /// measured at the end of what it shows, so the page shown reports a progression at or after
+    /// the one asked for, and its first character comes at or before it.
+    case goToProgression(Double)
+}
+
+public extension EPUBReaderCommand {
+    /// The book's first page, or the top of continuous scroll: `.goToProgression(0)`.
+    static let goToStart = Self.goToProgression(0)
+    /// The book's last page, or the bottom of continuous scroll: `.goToProgression(1)`.
+    static let goToEnd = Self.goToProgression(1)
 }
 
 public enum EPUBReaderError: Error, Equatable, Sendable {

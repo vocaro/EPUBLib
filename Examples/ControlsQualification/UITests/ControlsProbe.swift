@@ -126,16 +126,19 @@ import XCUIAutomation
             note(command, argument)
             settle()
         case "key":
-            // A hardware key, with modifiers as in `shift+tab` or `command+f`.
+            // A hardware key, with modifiers as in `shift+tab` or `command+f`. On an iOS 27 iPad
+            // simulator `home`, `end`, `pageup` and `pagedown` reached the host as no press at all,
+            // with `function+` or without, where `right` and `space` did (issue 681).
             var flags: XCUIElement.KeyModifierFlags = []
             var key = argument
-            for (name, flag) in [("shift+", XCUIElement.KeyModifierFlags.shift), ("command+", .command), ("option+", .option), ("control+", .control)]
+            for (name, flag) in [("shift+", XCUIElement.KeyModifierFlags.shift), ("command+", .command), ("option+", .option), ("control+", .control),
+                                 ("function+", .function)]
             where key.hasPrefix(name) {
                 flags.insert(flag); key.removeFirst(name.count)
             }
             let keys: [String: XCUIKeyboardKey] = ["return": .return, "tab": .tab, "escape": .escape, "space": .space, "delete": .delete,
                                                    "left": .leftArrow, "right": .rightArrow, "up": .upArrow, "down": .downArrow,
-                                                   "pageup": .pageUp, "pagedown": .pageDown]
+                                                   "pageup": .pageUp, "pagedown": .pageDown, "home": .home, "end": .end]
             app.typeKey(keys[key]?.rawValue ?? key, modifierFlags: flags)
             note(command, argument + " -> focus: " + focused())
             settle()

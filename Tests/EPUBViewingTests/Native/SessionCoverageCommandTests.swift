@@ -100,7 +100,8 @@ import XCTest
         defer { session.close(); window.close() }
         // `doc/architecture.md`: "sessions advertise every capability".
         XCTAssertEqual(session.capabilities, [.pagination, .scrolling, .typography, .selection, .bookmarks, .locateText,
-                                              .navigateHref, .searchHighlight, .highlights, .search, .searchResults])
+                                              .navigateHref, .searchHighlight, .highlights, .search, .searchResults,
+                                              .goToProgression])
         let state = try XCTUnwrap(session.readerState)
         XCTAssertEqual(state.status.capabilities, session.capabilities)
         func wait(_ label: String, until condition: () -> Bool) async throws {
