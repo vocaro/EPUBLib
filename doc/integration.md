@@ -566,7 +566,11 @@ struct PageTurnAnimationExample: View {
 
 - Every page turn has the animation chosen: an edge tap or click, a swipe, a key, the wheel or
   trackpad, VoiceOver's own page turns and the host's `.nextPage` and `.previousPage`.
-  Continuous scroll scrolls as before.
+- In continuous scroll either animation scrolls the text of a turn, a key's or `.nextPage` and
+  `.previousPage`, in 0.3 s in place of a jump. The relocation and `readerState` describe where
+  the turn lands as soon as it is made, while the text is still moving there. It steps at once
+  under Reduce Motion, while VoiceOver is running and for an assistive technology's own scroll
+  ([native viewer](native-viewer.md#input-and-accessibility)).
 - A swipe on iPhone and iPad follows the finger, and turns the page only when let go past half
   the width or flicked on; otherwise the page goes back and nothing is reported. On Mac a
   trackpad's swipe across the page does the same where the person has System Settings let a

@@ -1141,8 +1141,8 @@ private struct NativeSurface: View {
                 .onChange(of: legibilityWeight) { updateSystemAccessibility() }
                 #if os(iOS)
                 .accessibilityScrollAction { edge in
-                    if edge == .leading { submit(.previousPage) }
-                    if edge == .trailing { submit(.nextPage) }
+                    if edge == .leading { scrollForAccessibility(.previousPage) }
+                    if edge == .trailing { scrollForAccessibility(.nextPage) }
                 }
                 #endif
         }
@@ -1153,8 +1153,15 @@ private struct NativeSurface: View {
     }
 
     #if os(iOS)
-    private func submit(_ command: EPUBReaderCommand) {
-        Task { @MainActor in try? await session.send(command) }
+    /// An assistive technology's scroll, as VoiceOver's three-finger swipe: a page turn it asks
+    /// for by name, which in continuous scroll moves the text at once (`accessibilityTurns`).
+    private func scrollForAccessibility(_ command: EPUBReaderCommand) {
+        Task { @MainActor in
+            let canvas = session.canvas
+            canvas?.accessibilityTurns += 1
+            defer { canvas?.accessibilityTurns -= 1 }
+            try? await session.send(command)
+        }
     }
     #endif
 }
