@@ -280,7 +280,11 @@ continues to describe the authored spine resource.
   hides no delimiter ([#248](https://github.com/vocaro/EPUBLib/issues/248)). The serializer
   writes a tab or carriage return in an attribute value, and a carriage return in text, as a
   character reference, so the renderer reads a class list, text and the id an `href` names as
-  the book has them ([#249](https://github.com/vocaro/EPUBLib/issues/249)). An embedded font's
+  the book has them ([#249](https://github.com/vocaro/EPUBLib/issues/249)). A wrapper whose one
+  image names a fragment wraps no file and goes to the renderer, whatever follows its `#`, which
+  is found as its byte. StaticSVG 0.1.1's serializer still finds an `href`'s `#` by `Character`,
+  so it takes a reference such as `#&#x301;x` for a file's, leaves it out and discloses it as an
+  image ([#641](https://github.com/vocaro/EPUBLib/issues/641)). An embedded font's
   own family name, which comes from the book's font file, stands for the family a drawing names
   only when it holds nothing but letters, marks, digits, spaces and `-`, `_`, `.`, `&` and `+`.
   The renderer's direct entry point continues to refuse filters, including commented and
@@ -3446,7 +3450,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
 | Command | Behaviour |
 | --- | --- |
 | `nextPage` / `previousPage` | Page turn (paginated) or one viewport (scrolled); stops at the book's ends; skips nonlinear sections as foliate-js did, unless no section is linear. |
-| `navigate(href:)` | An encoded spine or resource href with optional fragment; unknown or non-local hrefs throw `invalidCommand`. |
+| `navigate(href:)` | An encoded spine or resource href with optional fragment, split at its `#` and `/`s by byte before any part is decoded, so an escaped slash names no file; unknown or non-local hrefs throw `invalidCommand`. |
 | `restore(location)` | Same publication, engine ID and `epublib-cfi-v1` format or `incompatibleLocation`; validates/resolves every bookmark segment and shows the first segment's start. Does not select text or add a highlight. |
 | `locate(text, highlight)` | First match in reading order with foliate's matcher that renders and shows, as a search result does. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A passage found only in content that renders nothing (`display: none`, a hidden note) or that `visibility: hidden` hides is shown where its first match is, wherever that sits in its section, and is never selected. A miss emits `.notice("The passage could not be found in this book.")`. Clears search highlights. |
 | `searchHighlight` / `clearSearch` | Draws every match across the book and lists the rendered ones as `EPUBSearchResults` with no current match / removes and withdraws them. |
