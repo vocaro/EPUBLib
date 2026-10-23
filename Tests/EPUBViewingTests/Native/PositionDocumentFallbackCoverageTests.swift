@@ -326,7 +326,7 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
                 readAsBefore += 1
                 let data = document("<br>"), rewritten = HTMLEntities.numericReferences(in: data)
                 let source = try ContentDocument.htmlSource(data, rewritten: rewritten, path: "generated.xhtml", limits: .init())
-                guard source.data == HTMLStraySigns.replaced(in: rewritten, limit: .max)?.data else {
+                guard source.data == HTMLStraySigns.replaced(in: rewritten, limit: .max).data else {
                     return XCTFail("\(label): the XML parser does not read the document, and the fallback decodes it")
                 }
             }
@@ -687,6 +687,131 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
         }
     }
 
+    /// The screen reads a processing instruction to `?>`, where libxml2's HTML parser ends it at
+    /// its first `>`, and a comment or CDATA opened in a style sheet to its end, where that parser
+    /// ends the raw text at `</style>`. It passed over the bytes up to that end. A NUL in text
+    /// that, left out, would join the bytes beside it into an earlier end would bring them into
+    /// its view, so `<!>` stands in its place, as between a DOCTYPE's `>` and a `[`: the parser
+    /// is never given what the screen refuses, and the text is what it is with the NUL left out
+    /// (#733).
+    func testANULWhoseRemovalWouldEndWhatTheScreenReadsIsKeptApart() throws {
+        let entity = "<!ENTITY e \"x\">", subset = "<!DOCTYPE x>[<!ATTLIST p title CDATA \"hidden\">]>"
+        let documents: [(String, String, String?)] = [
+            ("a processing instruction", "<p>a<?pi > ?\u{0}> \(entity) ?></p>", "a ?>  ?>"),
+            ("a processing instruction and an internal subset", "<p>a<?pi > ?\u{0}> \(subset) ?></p>", nil),
+            ("a comment in a style sheet", "<style><!-- </style> a -\u{0}-> \(entity) --></p>", "<!--  a -->  -->"),
+            ("CDATA in a style sheet", "<style><![CDATA[</style> ]]\u{0}> \(entity) ]]></p>", "<![CDATA[ ]]>  ]]>"),
+            // Each place a NUL can stand in each end, and NULs one after another.
+            ("a comment, between its hyphens", "<style><!-- </style> a -\u{0}-> \(entity) --></p>", nil),
+            ("a comment, before its >", "<style><!-- </style> a --\u{0}> \(entity) --></p>", nil),
+            ("a comment ended by --!>, before its !", "<style><!-- </style> a --\u{0}!> \(entity) --></p>", nil),
+            ("a comment ended by --!>, before its >", "<style><!-- </style> a --!\u{0}> \(entity) --></p>", nil),
+            ("a comment ended by --!>, between its hyphens", "<style><!-- </style> a -\u{0}-!> \(entity) --></p>", nil),
+            ("CDATA, between its brackets", "<style><![CDATA[</style> ]\u{0}]> \(entity) ]]></p>", nil),
+            ("NULs in a processing instruction's end", "<p>a<?pi > ?\u{0}\u{0}\u{0}> \(entity) ?></p>", "a ?>  ?>"),
+            ("NULs in a comment's end", "<style><!-- </style> a -\u{0}-\u{0}> \(entity) --></p>", "<!--  a -->  -->"),
+        ]
+        for (label, body, text) in documents {
+            let data = Data("<html><body>\(body)</body></html>".utf8)
+            XCTAssertEqual(XMLSafety.assess(data), .safe, "the screen refused \(label)")
+            let given = try ContentDocument.htmlSource(data, rewritten: data, path: "fallback.xhtml", limits: ContentLimits()).data
+            for asHTML in [false, true] {
+                XCTAssertEqual(XMLSafety.assessUTF8(given, doctypesAsHTML: asHTML), .safe, "\(label): the parser was given what the screen refuses, read as \(asHTML ? "HTML" : "XML")")
+            }
+            XCTAssertNotNil(given.range(of: Data("<!>".utf8)), "\(label): no `<!>` was written")
+            let document = try parse(data)
+            if let text { XCTAssertEqual(bodyText(document), text, label) }
+            XCTAssertFalse(document.nodes.contains { $0.attribute("title") != nil }, "\(label) declared an attribute")
+        }
+        // In prose, where it ends nothing the screen reads, `<!>` is nothing either: the tree is
+        // that of the text without the NUL, and so it is wherever no end is formed.
+        for (label, body) in [("a question", "<p>why?\u{0}> a<br>b</p>"), ("an arrow", "<p>a --\u{0}> b<br>c</p>"), ("brackets", "<p>a[[1]]\u{0}> b<br>c</p>"),
+                              ("a question and a space", "<p>why? \u{0}> a<br>b</p>"), ("one hyphen", "<p>a -\u{0}> b<br>c</p>"), ("one bracket", "<p>a]\u{0}> b<br>c</p>")] {
+            let twin = body.replacingOccurrences(of: "\u{0}", with: "")
+            XCTAssertEqual(model(try parse(page(body))), model(try parse(page(twin))), label)
+        }
+    }
+
+    /// CDATA in content is written as its text (#237), which joins the bytes on either side of
+    /// its delimiters. Where they would join into what the screen did not read there, `<!>` keeps
+    /// them apart, and libxml2 reads it as nothing: an internal subset after a DOCTYPE, an end of
+    /// a processing instruction, a comment or CDATA that the screen read on past, and a stray `<`
+    /// before what opens markup, which stays a sign (#743).
+    func testTheBytesBesideRecoveredCDATAAreKeptApartWhereTheyWouldJoin() throws {
+        let attribute = "<!ATTLIST p title CDATA \"hidden\">", entity = "<!ENTITY e \"x\">"
+        let documents: [(String, String, String?)] = [
+            ("an empty section between a DOCTYPE and a bracket", "<!DOCTYPE html><![CDATA[]]>[\(attribute)]><html><body><p>one<br>two</p></body></html>", "[]>onetwo"),
+            ("a bracket after a DOCTYPE", "<!DOCTYPE html><![CDATA[[]]>\(attribute)]><html><body><p>one<br>two</p></body></html>", "[]>onetwo"),
+            ("a processing instruction", "<html><body><p>a<?pi > ?<![CDATA[]]>> \(entity) ?><br></p></body></html>", "a ?>  ?>"),
+            ("a processing instruction, its end in the section", "<html><body><p>a<?pi > <![CDATA[?]]>> \(entity) ?><br></p></body></html>", "a ?>  ?>"),
+            ("a comment in a style sheet", "<html><body><style><!-- </style><p>a -<![CDATA[-]]>> \(entity) --><br></p></body></html>", "<!-- a -->  -->"),
+            ("a comment ended by --!>", "<html><body><style><!-- </style><p>a --<![CDATA[!]]>> \(entity) --><br></p></body></html>", "<!-- a --!>  -->"),
+            ("a declaration after a sign", "<html><body><p>a<<![CDATA[!ENTITY e \"x\"]]>> b<br></p></body></html>", "a<!ENTITY e \"x\"> b"),
+            ("a tag after a sign", "<html><body><p>a<<![CDATA[b]]>> c<br></p></body></html>", "a<b> c"),
+            ("a tag after a sign and an empty section", "<html><body><p>a<<![CDATA[]]>b> c<br></p></body></html>", "a<b> c"),
+        ]
+        for (label, markup, text) in documents {
+            let data = Data(markup.utf8)
+            let readings = [false, true].filter { XMLSafety.assess(data, doctypesAsHTML: $0) == .safe }
+            XCTAssertFalse(readings.isEmpty, "the screen refused \(label)")
+            let given = try ContentDocument.htmlSource(data, rewritten: data, path: "fallback.xhtml", limits: ContentLimits()).data
+            for asHTML in readings {
+                XCTAssertEqual(XMLSafety.assessUTF8(given, doctypesAsHTML: asHTML), .safe, "\(label): the parser was given what the screen refuses, read as \(asHTML ? "HTML" : "XML")")
+            }
+            let document = try parse(data)
+            if let text { XCTAssertEqual(bodyText(document), text, label) }
+            XCTAssertFalse(document.nodes.contains { $0.attribute("title") != nil || $0.isHTML("b") }, "\(label) declared an attribute or made an element")
+        }
+    }
+
+    /// The screen reads a document whose XML declaration is written in EBCDIC through IBM037, as
+    /// the XML parser does, and libxml2's HTML parser is given its bytes as they are, as UTF-8.
+    /// Those bytes are screened as UTF-8 too: an internal subset written in ASCII after the
+    /// declaration, which is no markup in EBCDIC, is refused, and a document with nothing to hide
+    /// is still shown. So is one written in ASCII that declares UTF-16, which the screen reads
+    /// through UTF-16 and the XML parser refuses as UTF-8 labeled UTF-16 (#743).
+    func testBytesReadAsTheyAreUnderADeclarationAreScreenedAsUTF8() throws {
+        let labeled = "<?xml version=\"1.0\" encoding=\"UTF-16\"?><!DOCTYPE html [<!ENTITY e \"hidden\">]><html><body><p>one<br>two &e;</p></body></html>"
+        for padding in ["", " "] {
+            let data = Data((labeled + padding).utf8)
+            // UTF-16 decodes only an even number of bytes, and the screen reads them as they are too
+            // where it does not.
+            guard XMLSafety.hasSafeDeclarations(data) else { continue }
+            assertThrows(.unsafeMarkup("fallback.xhtml"), "an internal subset under a declaration of UTF-16 in \(data.count) bytes") { try self.parse(data) }
+        }
+        XCTAssertTrue([labeled, labeled + " "].contains { XMLSafety.hasSafeDeclarations(Data($0.utf8)) }, "the screen refuses both, so this is no test of the fallback")
+        let declaration = Self.ebcdic("<?xml version=\"1.0\" encoding=\"IBM037\"?>")
+        XCTAssertEqual(Array(declaration.prefix(4)), [0x4C, 0x6F, 0xA7, 0x94])
+        let hidden = declaration + Data("<!DOCTYPE html [<!ENTITY e \"hidden\">]><html><body><p>one<br>two &e;</p></body></html>".utf8)
+        XCTAssertTrue(XMLSafety.hasSafeDeclarations(hidden), "the screen refuses these bytes, so this is no test of the fallback")
+        assertThrows(.unsafeMarkup("fallback.xhtml"), "an internal subset after an EBCDIC declaration") { try self.parse(hidden) }
+        for (label, data) in [("with a UTF-8 byte-order mark", Data([0xEF, 0xBB, 0xBF]) + hidden),
+                              ("an attribute", declaration + Data("<!DOCTYPE html>[<!ATTLIST p title CDATA \"hidden\">]><html><body><p>one<br>two</p></body></html>".utf8))] {
+            XCTAssertTrue(XMLSafety.hasSafeDeclarations(data), "\(label): the screen refuses these bytes, so this is no test of the fallback")
+            assertThrows(.unsafeMarkup("fallback.xhtml"), label) { try self.parse(data) }
+        }
+        let plain = try parse(declaration + Data("<html><body><p>one<br>two</p></body></html>".utf8))
+        XCTAssertTrue(plain.recoveredAsHTML)
+        XCTAssertTrue(bodyText(plain).hasSuffix("onetwo"), bodyText(plain).debugDescription)
+    }
+
+    /// `text`, of ASCII letters, digits, spaces and `<?=".>`, in IBM037, the EBCDIC that libxml2
+    /// reads a declaration's first bytes in.
+    private static func ebcdic(_ text: String) -> Data {
+        Data(text.utf8.map { byte -> UInt8 in
+            switch byte {
+            case 0x61...0x69: byte + 0x20 // a to i
+            case 0x6A...0x72: byte + 0x27 // j to r
+            case 0x73...0x7A: byte + 0x2F // s to z
+            case 0x41...0x49: byte + 0x80 // A to I
+            case 0x4A...0x52: byte + 0x87 // J to R
+            case 0x53...0x5A: byte + 0x8F // S to Z
+            case 0x30...0x39: byte + 0xC0 // 0 to 9
+            default: [0x20: 0x40, 0x3C: 0x4C, 0x3F: 0x6F, 0x3D: 0x7E, 0x22: 0x7F, 0x2E: 0x4B, 0x3E: 0x6E][byte]!
+            }
+        })
+    }
+
     /// The scan that reads NULs, against documents whose text and markup are known because they
     /// are assembled from pieces: a NUL put into text leaves the tree of the document without
     /// it, and one put into markup the tree of the document with U+FFFD written there. After a
@@ -753,18 +878,31 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
 
     /// Over generated markup of no particular shape, what the scan gives the parser is the
     /// document with each NUL left out, made U+FFFD, or made `<!>` between a `>` after a
-    /// DOCTYPE and a `[`, and nothing else changed. No NUL is left, and none is left out directly
-    /// after a `<` that is still a sign, nor between such a `>` and `[`.
+    /// DOCTYPE and a `[` or where leaving it out would form an end the screen reads, and nothing
+    /// else changed. No NUL is left, and none is left out directly after a `<` that is still a
+    /// sign, nor between such a `>` and `[`, nor where the bytes it stood between form such an
+    /// end, `?>`, `-->`, `--!>` or `]]>`.
     func testTheNULScanChangesNothingElseAndJoinsNoSignToAName() throws {
         let tokens = ["<", "<", ">", "\"", "'", "=", "/", " ", "a", "p", "!", "?", "-", "--", "\u{0}", "\u{0}", "\u{0}", "\u{E9}", "&lt;", "<p>", "</p>", "<p ", "<a href=", "title=\"",
                       "<br/>", "/>", "</", "<?", "<!", "<!--", "-->", "<![CDATA[", "]]>", "<!DOCTYPE", "style", "script", "<style", "</style", "<style>", "</style>", "<STYLE ",
-                      "<script>", "</script>", "<script />", "<title>", "</title>", "<html>", "<body>", "<table>", "<td>", "<div>", "</div>", "[", "[", "<!DOCTYPE html>", "<!doctype html>"]
+                      "<script>", "</script>", "<script />", "<title>", "</title>", "<html>", "<body>", "<table>", "<td>", "<div>", "</div>", "[", "[", "<!DOCTYPE html>", "<!doctype html>",
+                      "]", "]]", "--!", "?\u{0}>", "-\u{0}->", "]]\u{0}>", "--\u{0}!>"]
         var state: UInt64 = 2010
         func random(_ bound: Int) -> Int {
             state = state &* 6364136223846793005 &+ 1442695040888963407
             return Int((state >> 33) % UInt64(bound))
         }
-        var withNULs = 0, replacedNULs = 0, removedNULs = 0, apartNULs = 0
+        var withNULs = 0, replacedNULs = 0, removedNULs = 0, apartNULs = 0, endNULs = 0
+        let ends = ["?>", "-->", "--!>", "]]>"].map { Array($0.utf8) }
+        /// Whether the bytes that end `before` and begin `after` form one of `ends` where they meet.
+        func formEnd(_ before: ArraySlice<UInt8>, _ after: ArraySlice<UInt8>) -> Bool {
+            let joined = Array(before.suffix(3)) + Array(after.prefix(3)), meet = min(3, before.count)
+            return ends.contains { end in
+                joined.count >= end.count && (0...(joined.count - end.count)).contains { start in
+                    start < meet && start + end.count > meet && Array(joined[start..<(start + end.count)]) == end
+                }
+            }
+        }
         for round in 0..<30_000 {
             let markup = (round % 4 == 0 ? "<!DOCTYPE html>" : "") + (0...random(20)).map { _ in tokens[random(tokens.count)] }.joined()
             let input = Array(markup.utf8)
@@ -785,10 +923,14 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
                     index += 3; replacedNULs += 1
                 } else if output[index...].starts(with: Array("<!>".utf8)), apart(position) {
                     index += 3; apartNULs += 1
+                } else if output[index...].starts(with: Array("<!>".utf8)), !input[(position + 1)...].starts(with: Array("<!>".utf8)),
+                          formEnd(output[..<index], output[(index + 3)...]) {
+                    index += 3; endNULs += 1
                 } else {
                     removedNULs += 1
                     guard position == 0 || input[position - 1] != 0x3C else { return XCTFail("a NUL was left out after a sign in \(markup.debugDescription)") }
                     guard !apart(position) else { return XCTFail("a NUL was left out between a DOCTYPE's `>` and `[` in \(markup.debugDescription)") }
+                    guard !formEnd(output[..<index], output[index...]) else { return XCTFail("a NUL left out formed an end in \(markup.debugDescription)") }
                 }
             }
             guard index == output.count else { return XCTFail("bytes were added to \(markup.debugDescription)") }
@@ -802,6 +944,7 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
         XCTAssertGreaterThan(replacedNULs, 3_000)
         XCTAssertGreaterThan(removedNULs, 3_000)
         XCTAssertGreaterThan(apartNULs, 30)
+        XCTAssertGreaterThan(endNULs, 300)
     }
 
     /// A section whose file is cut off inside markup is withheld by the screen, before either
@@ -859,9 +1002,14 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
             }
             let data = Data((prolog + body).utf8)
             let rewritten = HTMLEntities.numericReferences(in: data)
-            let before = try XCTUnwrap(HTMLStraySigns.replaced(in: rewritten, limit: .max))
+            let before = HTMLStraySigns.replaced(in: rewritten, limit: .max)
             guard let source = try? ContentDocument.htmlSource(data, rewritten: rewritten, path: "generated.xhtml", limits: .init()) else {
-                return XCTFail("\((prolog + body).debugDescription) is refused by the fallback's own preparation")
+                // Bytes the screen refuses as the UTF-8 the parser is given, such as markup left open,
+                // are refused, also where the screen read them through a declared UTF-16 (#743).
+                guard [false, true].contains(where: { XMLSafety.assessUTF8(rewritten, doctypesAsHTML: $0) != .safe }) else {
+                    return XCTFail("\((prolog + body).debugDescription) is refused by the fallback's own preparation")
+                }
+                continue
             }
             guard source.data == before.data, source.placeholder == before.placeholder else {
                 return XCTFail("\((prolog + body).debugDescription) is given to the parser as other bytes than before")

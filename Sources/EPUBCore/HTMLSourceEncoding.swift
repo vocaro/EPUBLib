@@ -21,7 +21,9 @@ import libxml2
 /// - Otherwise the bytes as they are, `nil`, which each caller reads its own way: the reader as
 ///   UTF-8, with a replacement character for what is not, and extraction only when they are
 ///   UTF-8. So is a document that its declared encoding cannot decode, where the XML parser has
-///   no reading to agree with and the declaration is more likely wrong than the text.
+///   no reading to agree with and the declaration is more likely wrong than the text. Under a
+///   declaration, which the screen may have read them through, the reader screens them again
+///   as UTF-8 (#743).
 ///
 /// An HTML `<meta charset>` is not read. The XML parser does not read it either, and the same
 /// section must not change its characters for an unclosed tag.

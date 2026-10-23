@@ -38,8 +38,15 @@ continues to describe the authored spine resource.
    Unqualified HTML repairs remain readable but cannot issue or resolve CFIs: the reader
    discloses that saved positions and highlights are unavailable for those sections.
    For that parser a `<` that opens no markup (`x < y`, `p <.05`) is kept as text, as HTML
-   reads it; libxml2 alone discards what follows it
+   reads it; libxml2 alone discards what follows it through the next `>`, and makes an element
+   of `<.05`
    ([libxml2's HTML parser](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#libxml2s-html-parser-is-not-the-html-standard)).
+   Each such sign is given to the parser as a noncharacter it cannot read in the file: not
+   as itself, nor as a reference once its NULs are left out, nor as one libxml2 2.9.13
+   assembles in text from bytes that are not UTF-8, which it copies as they are and joins
+   across what it drops. Where those placeholders, two bytes longer than a sign, would take the
+   section past the byte limit, the signs are given as they are and read as before
+   ([#211](https://github.com/vocaro/EPUBLib/issues/211)).
    That parser is given UTF-8, so an unclosed tag does not change a section's characters:
    UTF-16 and UTF-32 are decoded first, told by the byte-order mark or NUL pattern the screen
    tells them by, and any other encoding by the name in the XML declaration as the XML parser
@@ -48,13 +55,21 @@ continues to describe the authored spine resource.
    cannot decode is read as UTF-8, with U+FFFD for what is not. Bytes that only a NUL tells
    as UTF-16 or UTF-32, and that hold no markup once decoded, are not a document and are
    withheld. What was decoded by a declared encoding is screened again, and what the parser
-   is given is held to the byte limit. Text extraction's recovery decodes with the same code,
-   `HTMLSourceEncoding` in EPUBCore, but refuses what is not UTF-8 where this shows U+FFFD
+   is given is held to the byte limit. So are bytes read as they are under an XML
+   declaration, which the screen may have read through the encoding it names: one written in
+   EBCDIC is read as IBM037 by the screen and the XML parser, and UTF-16 named in an ASCII
+   declaration as UTF-16 by the screen, and both as UTF-8 here, so an internal subset written in
+   ASCII after either is refused ([#743](https://github.com/vocaro/EPUBLib/issues/743)).
+   Text extraction's recovery decodes with the same code, `HTMLSourceEncoding` in EPUBCore, but
+   refuses what is not UTF-8 where this shows U+FFFD
    ([#247](https://github.com/vocaro/EPUBLib/issues/247)).
    HTML recovery escapes content CDATA as literal text and moves the parser's actual trailing
    nodes into its body before bounded tree conversion. This keeps text after `</html>` and CDATA characters in recovered
    sections without making those sections eligible for CFIs
-   ([#237](https://github.com/vocaro/EPUBLib/issues/237)).
+   ([#237](https://github.com/vocaro/EPUBLib/issues/237)). Where the bytes on either side of a
+   section's delimiters would join into what the screen did not read there, `<!>` keeps them
+   apart, as it does for NULs below: an end the screen reads, a `>` after a DOCTYPE and a `[`,
+   and a stray `<` and what follows it, which stays a sign (#743).
    A malformed numeric-reference prefix with no first digit (`&#`, `&#x`, `&#;`) remains
    literal in text and attributes; recovery and safety scans agree that a comment can end at
    `--!>`. Parsed-string restoration cannot create active markup
@@ -90,6 +105,12 @@ continues to describe the authored spine resource.
    the screen takes for a DOCTYPE's end. `<!>` holds no quote and no `-->`, `?>` or `]]>`, so
    it ends nothing the screen may be reading there (`<!---->` would end a comment the screen
    reads in a style sheet) ([#246](https://github.com/vocaro/EPUBLib/issues/246)).
+   A text NUL is `<!>` too where leaving it out would join the bytes beside it into `?>`,
+   `-->`, `--!>` or `]]>`. The screen reads a processing instruction to `?>`, which libxml2
+   ends at its first `>`, and a comment or CDATA opened in a style sheet to its end, where
+   libxml2 ends the raw text at `</style>`; such a join would end either sooner and bring into
+   the screen's view what it passed over. In prose `why?`, a NUL and `>` reads `why?>`
+   ([#733](https://github.com/vocaro/EPUBLib/issues/733)).
    A section whose file is cut off inside markup stays withheld, with its disclosure: the
    screen refuses markup left open at the end of the input before either parser runs.
    `XMLSafety` refuses entity declarations first. No DTD or network access, depth and node limits.
