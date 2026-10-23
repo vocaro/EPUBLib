@@ -1554,8 +1554,19 @@ workstation and counts as acceptance evidence: see [Hosted Mac sessions](#hosted
 A session on a workstation needs the owner's explicit authorization, and only for what a
 runner cannot do: someone listening, or stepping by hand
 ([where Mac sessions run](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#where-mac-sessions-run)
-has what such a session needs). Launch a fresh reader before each case; close previous
-verification instances first.
+has what such a session needs).
+
+With that authorization, the first step of the session is to reserve the owner's screen:
+`mac-foreground` in the host's device record, with the owner's approval window, as
+[attended Mac sessions](https://github.com/vocaro/apple-engineering/blob/main/guides/shared-host.md#attended-mac-sessions)
+shows, and `VOCARO_DEVICE_OWNER` set to the session named in the reservation. The runner checks
+it before its first key and again before each step, and refuses unless that session holds the
+entry, the entry is neither orphaned nor uncertain, and the approval has not ended. A refused
+session sends no more steps; the runner only closes a rotor or menu the steps left open and
+restores VoiceOver ([#818](https://github.com/vocaro/EPUBLib/issues/818)). Release the entry
+when the session ends. A hosted runner needs no reservation.
+
+Launch a fresh reader before each case; close previous verification instances first.
 
 ```sh
 open -na "$PWD/.build/voiceover/mac/Build/Products/Debug/VoiceOverVerificationMac.app" \
