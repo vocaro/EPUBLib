@@ -5,10 +5,12 @@ Runs `QuickLookMemoryTests` from a release build: on the Mac in one process for 
 every book, then in a fresh process for each of the largest books and each call; and in a
 disposable iOS simulator in one process for each call over every book.
 Packs the W3C reading-system tests, which are expanded directories, into EPUB files first.
-Run it as exclusive work, so no other build or test shares the machine:
+Build first as ordinary heavy work, then measure as exclusive work, so that no other build or
+test shares the machine while it measures:
 
     eval "$(bash scripts/fetch-corpora.sh)"
-    python3 scripts/eng admit --exclusive -- python3 scripts/measure-quick-look-memory.py --mac --simulator
+    python3 scripts/eng admit -- python3 scripts/measure-quick-look-memory.py --build-only
+    python3 scripts/eng admit --exclusive -- python3 scripts/measure-quick-look-memory.py --skip-build --mac --simulator
 
 `doc/testing.md`, "Quick Look memory", says what each column holds.
 """
@@ -24,6 +26,18 @@ import zipfile
 
 root = Path(__file__).resolve().parent.parent
 CALLS = ["thumbnail", "preview"]
+DERIVED = root / ".build" / "quick-look-memory" / "derived"
+SIMULATOR_BUILD = ["-scheme", "EPUBLib-Package", "-derivedDataPath", str(DERIVED), "-configuration", "Release",
+                   "ENABLE_TESTABILITY=YES", "CODE_SIGNING_ALLOWED=NO"]
+
+
+def build(out):
+    """The Mac's release test bundles, and the simulator's, each with testable imports."""
+    subprocess.run(["swift", "build", "-c", "release", "--build-tests", "-Xswiftc", "-enable-testing", "-j", "4"],
+                   cwd=root, check=True)
+    with open(out / "simulator-build.log", "w") as log:
+        subprocess.run(["xcodebuild", "build-for-testing", "-destination", "generic/platform=iOS Simulator"] + SIMULATOR_BUILD,
+                       cwd=root, stdout=log, stderr=subprocess.STDOUT, check=True)
 
 
 def pack_w3c(tests, target):
@@ -55,8 +69,6 @@ def rows(output):
 def run_mac(books, calls, out, timeout, fresh):
     """One process for each call over every book, then a fresh process for each of the `fresh`
     largest books and each call."""
-    subprocess.run(["swift", "build", "-c", "release", "--build-tests", "-Xswiftc", "-enable-testing", "-j", "4"],
-                   cwd=root, check=True)
     bundle = root / ".build" / "release" / "EPUBViewingTests.xctest"
     command = ["xcrun", "xctest", "-XCTest", "EPUBViewingTests.QuickLookMemoryTests/testQuickLookMemory", str(bundle)]
     results, single = [], []
@@ -96,24 +108,23 @@ def run_simulator(books, calls, out, runtime):
     try:
         subprocess.run(["xcrun", "simctl", "boot", device], check=True)
         subprocess.run(["perl", "-e", "alarm shift; exec @ARGV", "600", "xcrun", "simctl", "bootstatus", device, "-b"], check=True)
-        derived = root / ".build" / "quick-look-memory"
-        destination = ["-scheme", "EPUBLib-Package", "-destination", f"platform=iOS Simulator,id={device}",
-                       "-derivedDataPath", str(derived), "-configuration", "Release", "ENABLE_TESTABILITY=YES",
-                       "CODE_SIGNING_ALLOWED=NO", "-parallel-testing-enabled", "NO", "-collect-test-diagnostics", "never"]
-        with open(out / "simulator-build.log", "w") as log:
-            subprocess.run(["xcodebuild", "build-for-testing"] + destination, cwd=root, stdout=log, stderr=subprocess.STDOUT, check=True)
+        destination = ["-destination", f"platform=iOS Simulator,id={device}", "-parallel-testing-enabled", "NO",
+                       "-collect-test-diagnostics", "never"] + SIMULATOR_BUILD
         inputs = ":".join(str(book) for book in books)
         for call in calls:
-            environment = dict(os.environ, TEST_RUNNER_EPUBLIB_QUICK_LOOK_INPUTS=inputs, TEST_RUNNER_EPUBLIB_QUICK_LOOK_CALL=call)
+            report = out / f"simulator-{call}.report.tsv"
+            environment = dict(os.environ, TEST_RUNNER_EPUBLIB_QUICK_LOOK_INPUTS=inputs, TEST_RUNNER_EPUBLIB_QUICK_LOOK_CALL=call,
+                               TEST_RUNNER_EPUBLIB_QUICK_LOOK_REPORT=str(report))
             result = subprocess.run(["xcodebuild", "test-without-building", "-only-testing:EPUBViewingTests/QuickLookMemoryTests"] + destination,
                                     cwd=root, env=environment, capture_output=True, text=True)
             (out / f"simulator-{call}.log").write_text(result.stdout + result.stderr)
-            found = rows(result.stdout + result.stderr)
-            summary = [line for line in (result.stdout + result.stderr).splitlines() if line.startswith("QUICKLOOK-SUMMARY")]
+            lines = report.read_text().splitlines() if report.exists() else []
+            found = [line.split("\t") for line in lines[1:] if line and not line.startswith("#")]
+            summary = [line[2:] for line in lines if line.startswith("# QUICKLOOK-SUMMARY")]
             print(f"simulator {call}: exit {result.returncode}, {len(found)} of {len(books)} books; {summary[-1] if summary else 'no summary'}",
                   flush=True)
-            if "Executed 1 test" not in result.stdout + result.stderr:
-                print(f"simulator {call}: the test did not run once; see simulator-{call}.log", flush=True)
+            if result.returncode != 0 or not report.exists():
+                print(f"simulator {call}: no report, or the run failed; see simulator-{call}.log", flush=True)
             results += found
     finally:
         subprocess.run(["xcrun", "simctl", "shutdown", device], capture_output=True)
@@ -158,10 +169,12 @@ def main():
     parser.add_argument("--no-w3c", action="store_true", help="leave out the W3C tests")
     parser.add_argument("--call", choices=CALLS, action="append", help="measure only this call (repeatable)")
     parser.add_argument("--timeout", type=float, default=120, help="seconds each Mac process may take")
+    parser.add_argument("--build-only", action="store_true", help="build the Mac and simulator test bundles, and stop")
+    parser.add_argument("--skip-build", action="store_true", help="measure with the bundles built already")
     parser.add_argument("--runtime", default=os.environ.get("EPUB_SIM_RUNTIME", "com.apple.CoreSimulator.SimRuntime.iOS-27-0"))
     args = parser.parse_args()
-    if not (args.mac or args.simulator):
-        parser.error("choose --mac, --simulator or both")
+    if not (args.mac or args.simulator or args.build_only):
+        parser.error("choose --mac, --simulator or both, or --build-only")
     out = root / ".build" / "quick-look-memory" / datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     out.mkdir(parents=True)
     books = []
@@ -175,6 +188,10 @@ def main():
     commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True).stdout.strip()
     print(f"commit {commit}; {len(books)} books; output {out}", flush=True)
     calls = args.call or CALLS
+    if args.build_only or not args.skip_build:
+        build(out)
+    if args.build_only:
+        return 0
     if args.mac:
         shared, fresh = run_mac(books, calls, out, args.timeout, args.fresh)
         summarize("mac", shared)

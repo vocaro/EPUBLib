@@ -1250,11 +1250,12 @@ corpus tests pack them), takes further books with `--books`, and runs the opt-in
 every book, and then each of the 12 largest books (`--fresh`) has a fresh process for each call;
 in a disposable iPhone 17 Pro simulator (`--simulator`), which it creates, boots headlessly and
 deletes by UDID, each call has one process for every book. It is a whole-machine measurement, so
-run it exclusively:
+build first as ordinary heavy work and measure exclusively:
 
 ```sh
 eval "$(bash scripts/fetch-corpora.sh)"
-python3 scripts/eng admit --exclusive -- python3 scripts/measure-quick-look-memory.py --mac --simulator \
+python3 scripts/eng admit -- python3 scripts/measure-quick-look-memory.py --build-only
+python3 scripts/eng admit --exclusive -- python3 scripts/measure-quick-look-memory.py --skip-build --mac --simulator \
   --books ~/Library/Caches/EPUBLib/corpora/gutenberg-2026-10-14
 ```
 
