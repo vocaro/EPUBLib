@@ -19,7 +19,16 @@ import SwiftUI
 }
 
 @MainActor @Observable final class NativeSession: EPUBReaderSession {
-    static let passageNotFound = "the cited passage could not be found in this book"
+    /// What `.locate` says when it finds no passage.
+    static let passageNotFound = String(localized: "The passage could not be found in this book.", bundle: .module,
+                                        comment: "The reader was asked to show a passage of the book, such as a quotation, and the book does not have it.")
+    /// What `.restore` says when the position it was given cannot be found in the book.
+    static let savedPositionNotFound = String(localized: "The saved position could not be found in this book.", bundle: .module,
+                                              comment: "A saved reading position, such as a bookmark, could not be found in the book, as when the book has changed since it was saved.")
+    /// What `.setHighlights` says, once, when it cannot draw one or more of the highlights it was
+    /// given; `EPUBReaderStatus.undrawnHighlights` names them.
+    static let highlightsNotDrawn = String(localized: "Some highlights could not be shown.", bundle: .module,
+                                           comment: "One or more of the reader's saved highlights could not be shown, as when the book has changed since they were made or they belong to another book.")
     static let maximumQuoteLength = 4_096
     static let maximumSearchLength = 512
     /// What a link outside the book says when the host has turned links outside it off.
@@ -80,6 +89,8 @@ import SwiftUI
     @ObservationIgnored private var pageChanges = 0
     @ObservationIgnored private var highlights: [EPUBHighlight] = []
     @ObservationIgnored private var unresolvedHighlights: Set<String> = []
+    /// Whether the latest `.setHighlights` has given its one notice of highlights not drawn.
+    @ObservationIgnored private var undrawnHighlightsNoticed = false
     @ObservationIgnored private var searchMatches: [Int: [TextSearch.Match]] = [:]
     @ObservationIgnored private var searchGeneration = 0
     /// Rendered ranges never change with typography, so each is computed once, when its
@@ -394,7 +405,7 @@ import SwiftUI
         guard isCompatible(location) else { throw EPUBReaderError.incompatibleLocation }
         let ticket = beginNavigation()
         guard let targets = targets(for: location) else {
-            emit(.notice("the saved position could not be found in this book"))
+            emit(.notice(Self.savedPositionNotFound))
             return
         }
         var ranges: [ReaderTextRange] = []
@@ -402,14 +413,14 @@ import SwiftUI
             let section = await book.build(target.spineIndex)
             guard isCurrent(ticket) else { return }
             guard let range = range(of: target.localPath, in: section), targets.count == 1 || !range.isEmpty else {
-                emit(.notice("the saved position could not be found in this book"))
+                emit(.notice(Self.savedPositionNotFound))
                 return
             }
             ranges.append(range)
         }
         guard isCurrent(ticket) else { return }
         guard let range = ranges.first else {
-            emit(.notice("the saved position could not be found in this book"))
+            emit(.notice(Self.savedPositionNotFound))
             return
         }
         canvas?.clearSelection()
@@ -707,11 +718,15 @@ import SwiftUI
         })
     }
 
+    /// Each list replaces the last, and so does its account of what is not drawn: the status names
+    /// each highlight not drawn, and one notice says so however many there are (#698).
     private func setHighlights(_ list: [EPUBHighlight]) {
         highlights = list.filter { isCompatible($0.location) }
-        for rejected in list where !isCompatible(rejected.location) {
-            emit(.notice("a highlight belongs to another book or reader and was not drawn: \(rejected.id)"))
-        }
+        var undrawn: [String: EPUBHighlightFailure] = [:]
+        for rejected in list where !isCompatible(rejected.location) { undrawn[rejected.id] = .incompatibleLocation }
+        readerState?.modify { $0.undrawnHighlights = undrawn }
+        undrawnHighlightsNoticed = false
+        if !undrawn.isEmpty { noticeUndrawnHighlights() }
         unresolvedHighlights = []
         highlightRanges = [:]
         highlightTargets = [:]
@@ -767,9 +782,19 @@ import SwiftUI
         canvas.setHighlights(drawn)
     }
 
+    /// A highlight's passage is not in the book as built: at once, or when its section is built.
     private func reportUnresolved(_ highlight: EPUBHighlight) {
         guard unresolvedHighlights.insert(highlight.id).inserted else { return }
-        emit(.notice("a highlight's passage could not be found in this book: \(highlight.id)"))
+        readerState?.modify { $0.undrawnHighlights[highlight.id] = .passageNotFound }
+        noticeUndrawnHighlights()
+    }
+
+    /// The one notice of a list of highlights, given when the first of them is found not drawn.
+    /// The status names that highlight first, so a host that reads it on the notice finds it there.
+    private func noticeUndrawnHighlights() {
+        guard !undrawnHighlightsNoticed else { return }
+        undrawnHighlightsNoticed = true
+        emit(.notice(Self.highlightsNotDrawn))
     }
 
     // MARK: - Book callbacks

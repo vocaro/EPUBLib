@@ -263,7 +263,9 @@ ready (try again in a moment), that the book is closed, or that it cannot show t
 `String(describing:)` gives it. The reader's controls show `message` beside a refused command or
 search, and a host's own controls can show it as it is: a plain sentence too, which for a request
 the bundled reader refuses says why, and is otherwise `localizedDescription`. A failed search's
-accessibility value in the controls is "Search failed." followed by it.
+accessibility value in the controls is "Search failed." followed by it. An engine that wants a
+reader to see its own wording throws its own `LocalizedError`, whose `localizedDescription` the
+controls show; an `EPUBReaderError`'s detail is for developers.
 
 | The request | Message |
 | --- | --- |
@@ -276,11 +278,26 @@ accessibility value in the controls is "Search failed." followed by it.
 | `.style` with a font size that is not finite | That text size cannot be used. |
 | `.style` with a spacing or page margin that is not finite | That spacing or margin cannot be used. |
 
+The bundled reader's `.notice` text is a plain sentence too, which a host shows as it is:
+
+| What the reader could not do | Notice |
+| --- | --- |
+| `.restore` a position the book does not have, or does not have any more | The saved position could not be found in this book. |
+| `.locate` a passage the book does not hold | The passage could not be found in this book. |
+| Draw one or more highlights of a `.setHighlights` list | Some highlights could not be shown. |
+| Open a link outside the book ([below](#links-outside-the-book)) | This reader does not open links outside the book. *or* This reader opens only web and email links outside the book. |
+
+A list of highlights gives one notice however many of them are not drawn, when the first is found:
+at once, or when its section is built. The notice names none of them.
+`EPUBReaderStatus.undrawnHighlights` does, by `id`, with why (`EPUBHighlightFailure`): a location
+of another book or reader (`incompatibleLocation`), or a passage not in this book as the reader
+shows it (`passageNotFound`). It is set before the notice, and the next list replaces it.
+
 The messages are in English, in the string catalog of the module that throws them
 (`Localizable.xcstrings` in `EPUBCore`, `EPUBText` and `EPUBWriting`, and in `EPUBViewing` for the
-sentences above), each with a comment for its translator, and each is looked up in that module's
-resource bundle, which an app built with the package carries as it carries ZIPFoundation's. A
-translation added to a catalog reaches every host
+sentences above other than the two link notices), each with a comment for its translator, and
+each is looked up in that module's resource bundle, which an app built with the package carries as
+it carries ZIPFoundation's. A translation added to a catalog reaches every host
 ([#684](https://github.com/vocaro/EPUBLib/issues/684)).
 
 ## Resource paths
@@ -366,8 +383,10 @@ can span documents: `rangeBookmarks` contains the ordered per-document range CFI
 copying a location. Existing JSON without this optional field remains valid. `.restore` validates
 all segments and navigates to the passage's start; it does not recreate the native selection.
 Highlights restore every segment in paginated and scrolled flow and survive typography changes.
-The reader draws the complete annotation once all segments are available, or emits a `.notice`
-if any segment cannot be resolved; it never silently draws just its first section.
+The reader draws the complete annotation once all segments are available, or, if any segment
+cannot be resolved, names it in `EPUBReaderStatus.undrawnHighlights` and gives the list's one
+`.notice` ([When something fails](#when-something-fails)); it never silently draws just its first
+section.
 
 Paginated selections can span both columns. Copy and the host action receive the complete
 passage, including a located passage extending onto later pages; the viewer shows continuation

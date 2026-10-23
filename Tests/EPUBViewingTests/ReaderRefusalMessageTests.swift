@@ -149,7 +149,8 @@ import XCTest
         }
     }
 
-    /// Each sentence the controls show is in EPUBViewing's string catalog, with a comment for its
+    /// Each sentence the controls show, and each notice of the bundled reader's own
+    /// (`ReaderNoticeMessageTests`), is in EPUBViewing's string catalog, with a comment for its
     /// translator, and the catalog holds no other: a sentence missing from it could not be
     /// translated (#684).
     func testEverySentenceTheControlsShowIsInTheViewingStringCatalog() throws {
@@ -158,7 +159,7 @@ import XCTest
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(json["sourceLanguage"] as? String, "en")
         let catalog = try XCTUnwrap(json["strings"] as? [String: [String: Any]])
-        XCTAssertEqual(Set(catalog.keys), Set(Self.refusals.map(\.message) + ["Search failed. %@"]))
+        XCTAssertEqual(Set(catalog.keys), Set(Self.refusals.map(\.message) + ["Search failed. %@"] + ReaderNoticeMessageTests.sentences))
         for (key, entry) in catalog {
             XCTAssertFalse((entry["comment"] as? String ?? "").isEmpty, key)
         }

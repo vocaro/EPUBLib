@@ -138,7 +138,8 @@ import XCTest
         catch { XCTAssertEqual(error as? EPUBReaderError, .incompatibleLocation) }
         try await reader.session.send(.setHighlights([EPUBHighlight(id: "saved", location: passage)]))
         XCTAssertTrue(reader.session.drawnHighlights.isEmpty)
-        XCTAssertTrue(reader.events().contains { if case .notice(let text) = $0 { return text.contains("saved") }; return false })
+        XCTAssertTrue(reader.events().contains(.notice("Some highlights could not be shown.")))
+        XCTAssertEqual(reader.session.readerState?.status.undrawnHighlights, ["saved": .incompatibleLocation])
     }
 
     /// A location saved before `persistentID` carries the file's SHA-256, the book's `id`, and

@@ -3381,7 +3381,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
 | `nextPage` / `previousPage` | Page turn (paginated) or one viewport (scrolled); stops at the book's ends; skips nonlinear sections as foliate-js did, unless no section is linear. |
 | `navigate(href:)` | An encoded spine or resource href with optional fragment; unknown or non-local hrefs throw `invalidCommand`. |
 | `restore(location)` | Same publication, engine ID and `epublib-cfi-v1` format or `incompatibleLocation`; validates/resolves every bookmark segment and shows the first segment's start. Does not select text or add a highlight. |
-| `locate(text, highlight)` | First match in reading order with foliate's matcher that renders and shows, as a search result does. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A passage found only in content that renders nothing (`display: none`, a hidden note) or that `visibility: hidden` hides is shown where its first match is, wherever that sits in its section, and is never selected. A miss emits `.notice("the cited passage could not be found in this book")`. Clears search highlights. |
+| `locate(text, highlight)` | First match in reading order with foliate's matcher that renders and shows, as a search result does. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A passage found only in content that renders nothing (`display: none`, a hidden note) or that `visibility: hidden` hides is shown where its first match is, wherever that sits in its section, and is never selected. A miss emits `.notice("The passage could not be found in this book.")`. Clears search highlights. |
 | `searchHighlight` / `clearSearch` | Draws every match across the book and lists the rendered ones as `EPUBSearchResults` with no current match / removes and withdraws them. |
 | `search` | Draws and lists matches, opens the first rendered match in spine order and makes it the current match; no matches preserve the position. |
 | `nextSearchResult` / `previousSearchResult` | Shows the result after or before the current match, wrapping at the ends; the first or last when none is current. No effect without results. |
@@ -3414,8 +3414,10 @@ after typography changes.
 No partial annotation is drawn while a section is building or if any segment fails to resolve.
 An empty collection, a contradictory first bookmark, a foreign identity/format or malformed CFI
 is incompatible; unordered/duplicate document targets, nonlinear multi-document targets or
-unresolved CFIs emit one `.notice` per rejected highlight, as does a passage that renders
-nothing, wherever it sits in its section. `restore` similarly refuses an incompatible location
+unresolved CFIs leave a highlight undrawn, as does a passage that renders nothing, wherever it
+sits in its section. `EPUBReaderStatus.undrawnHighlights` names each highlight not drawn, an
+incompatible one too, by `id` with why, and the list gives one `.notice`, "Some highlights could
+not be shown.", however many there are (#698). `restore` similarly refuses an incompatible location
 or emits a notice without navigating for an unresolved collection, or one with a document whose
 part renders nothing.
 Sections requiring unqualified HTML tree repair do not emit bookmarks. Existing CFIs into
@@ -3444,7 +3446,8 @@ ordinary original-document CFIs
 remain unchanged ([#78](https://github.com/vocaro/EPUBLib/issues/78)).
 
 `.disclosure` text summarises the books' `SectionReport`s and is re-emitted when it changes. `.notice` reports
-refused links outside the book ([Security](#security)), unresolved CFIs and quotes, and highlights that could not be drawn.
+refused links outside the book ([Security](#security)), unresolved CFIs and quotes, and highlights that could not be drawn,
+each in a plain sentence that a host shows as it is ([integration](integration.md#when-something-fails)).
 
 `EPUBReaderStyle.followsDynamicType`, off by default, scales the chosen font size by the system
 text size before it is drawn: by the body text style's size at the mounted view's

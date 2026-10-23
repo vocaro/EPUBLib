@@ -184,7 +184,8 @@ public enum EPUBReaderCapability: String, Hashable, Sendable {
 
 /// A host-owned highlight drawn while reading. `location.bookmark` names a passage in one
 /// document; `location.rangeBookmarks` covers a multi-document selection precisely.
-/// Highlights the engine cannot resolve completely are not drawn and are reported with `.notice`.
+/// Highlights the engine cannot resolve completely are not drawn. The bundled reader names them,
+/// by `id`, in `EPUBReaderStatus.undrawnHighlights`, and gives one `.notice` for the list.
 public struct EPUBHighlight: Equatable, Sendable, Identifiable {
     public var id: String
     public var location: EPUBLocation

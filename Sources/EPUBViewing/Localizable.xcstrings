@@ -4,6 +4,9 @@
     "Search failed. %@" : {
       "comment" : "What a screen reader says of a search that failed, followed by why it failed, a sentence such as “The search is empty or longer than 512 characters.”"
     },
+    "Some highlights could not be shown." : {
+      "comment" : "One or more of the reader's saved highlights could not be shown, as when the book has changed since they were made or they belong to another book."
+    },
     "That part of the book cannot be found." : {
       "comment" : "The reader was asked to go to a part of the book that the book does not have, as by an entry in its contents that leads nowhere."
     },
@@ -22,8 +25,14 @@
     "That text size cannot be used." : {
       "comment" : "The reader was asked to show the book's text at a size that is not a number or is infinite."
     },
+    "The passage could not be found in this book." : {
+      "comment" : "The reader was asked to show a passage of the book, such as a quotation, and the book does not have it."
+    },
     "The passage to find is empty or longer than 4,096 characters." : {
       "comment" : "The reader was asked to find and show a passage, such as a quotation, that is empty or longer than the reader looks for."
+    },
+    "The saved position could not be found in this book." : {
+      "comment" : "A saved reading position, such as a bookmark, could not be found in the book, as when the book has changed since it was saved."
     },
     "The search is empty or longer than 512 characters." : {
       "comment" : "A search was refused because its text is empty or longer than the reader searches for."
