@@ -55,6 +55,11 @@ and the identifiers a font key is made from are read from the children of `metad
 they stand among them, from those of the `dc-metadata` and `x-metadata` elements that OPF 2.0.1
 §2.2 deprecates and has a reading system allow. EPUB 3 has neither, but a package that says it
 is EPUB 3 and has one is read the same ([#85](https://github.com/vocaro/EPUBLib/issues/85)).
+Inside `dc-metadata` a Dublin Core element is read by its name in any case of ASCII letters, as
+OEBPS 1.2 wrote `dc:Title` and `dc:Creator` before OPF 2.0.1 §1.4.3 had them lower case, so that
+a package converted lightly from such a book has its title, creators, languages and unique
+identifier, and its obfuscated fonts can be read. Anywhere else a name is matched as written
+([#608](https://github.com/vocaro/EPUBLib/issues/608)).
 Reading resource
 bytes does not execute document content. XML expansion and external entity resolution are refused. Declaration screening distinguishes
 actual DTD syntax from comments, CDATA, processing instructions and quoted identifiers. It decodes
@@ -81,7 +86,17 @@ characters or an object's fallback, and an image without them adds nothing. A la
 then is its link or heading's own `title`, read as a label is, when it has one: EPUB 3.3 §7.3 has
 a link or heading holding embedded content with no text alternative carry its label there, and
 foliate-js reads it
-([#83](https://github.com/vocaro/EPUBLib/issues/83)). White space outside
+([#83](https://github.com/vocaro/EPUBLib/issues/83)). A `br` in a label is a space, the line
+break it renders read in one line, so that the words either side of it do not run together; a
+`wbr` adds nothing. U+FEFF, a zero-width no-break space inside text, is left out of every value
+and label, its text and an attribute read into it alike, and of the identifier a font key is made
+from. Foundation XMLParser drops one that begins a piece of the text it hands over, or an
+attribute's value, and keeps one inside a piece: a piece begins at a character reference, where
+ASCII is followed by any other character and every 300 bytes or so of a run of those, and a CDATA
+section is one piece. Left out everywhere, a value does not depend on how or where the character
+was written; U+2060, the word joiner Unicode has in its place, is kept
+([#283](https://github.com/vocaro/EPUBLib/issues/283)). Content documents are read by another
+parser, which keeps it ([structural text](#structural-text)). White space outside
 ASCII, a no-break or an ideographic space among it, is the author's character and is kept
 inside and at the ends of a value that holds anything else, but a value that is nothing but
 white space of any kind is empty: some tools write a lone no-break space as a placeholder, and

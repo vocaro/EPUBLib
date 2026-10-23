@@ -223,7 +223,9 @@ misstates their sizes, contents entries that do not resolve, named character ref
 lower-case doctypes in navigation, control characters in navigation, white space in metadata
 values and navigation labels (ASCII whitespace stripped and collapsed however it is written,
 white space outside ASCII kept beside other content and a mark after a space kept, a value of
-nothing but white space of any kind empty),
+nothing but white space of any kind empty), U+FEFF left out of them wherever the parser splits
+the text, a `br` in a label read as a space, Dublin Core names in OEBPS 1.2's capitals inside
+`dc-metadata`,
 cancellation after expansion starts, and exact IDPF/Adobe font deobfuscation vectors. The font
 tests check the XOR prefix and the untouched suffix against independently specified keys.
 
