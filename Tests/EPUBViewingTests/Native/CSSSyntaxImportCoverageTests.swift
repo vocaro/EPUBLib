@@ -109,11 +109,83 @@ final class CSSSyntaxImportCoverageTests: XCTestCase {
     }
 
     func testAnImportAfterANamespaceRuleIsIgnored() {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
         // CSS Cascade 4 §2: "Any @import rules must precede all other valid at-rules and style
         // rules in a style sheet (ignoring @charset and @layer statement rules) … or else the
         // @import rule is invalid." CSS Namespaces §3 places @namespace after every @import.
         XCTAssertEqual(imports(#"@namespace epub "http://www.idpf.org/2007/ops"; @import "late.css"; p { clear: both }"#), [])
+        XCTAssertEqual(imports(#"@import "a.css"; @namespace svg "http://www.w3.org/2000/svg"; @import "b.css";"#), ["OPS/css/a.css"])
+        XCTAssertEqual(imports(#"@namespace svg; @import "a.css";"#), ["OPS/css/a.css"], "A malformed @namespace is no rule")
+        XCTAssertEqual(imports(#"@import "a.css"; @import "b.css"; @namespace svg "http://www.w3.org/2000/svg"; svg|a { clear: both }"#),
+                       ["OPS/css/a.css", "OPS/css/b.css"])
+    }
+
+    func testTheImportsEndWithExactlyTheRulesChromiumKeeps() {
+        // #603: the section of @import rules ends at the first rule that is valid, by the same
+        // tests that decide whether the rule is kept, as in Chromium.
+        let a = ["OPS/css/a.css"]
+        // Rules this parser once refused, which Chromium keeps.
+        XCTAssertEqual(imports("& { clear: both } @import 'a.css';"), [], "A top-level nesting selector")
+        XCTAssertEqual(imports("a:-webkit-full-screen { clear: both } @import 'a.css';"), [], "A -webkit- pseudo-class Chromium knows")
+        XCTAssertEqual(imports("p::-webkit-scrollbar { width: 0 } @import 'a.css';"), [], "Any ::-webkit- pseudo-element")
+        // Rules this parser once kept, which Chromium drops.
+        XCTAssertEqual(imports("p::no-such-element { clear: both } @import 'a.css';"), a, "An unknown pseudo-element")
+        XCTAssertEqual(imports("p:not(::before) { clear: both } @import 'a.css';"), a, "A pseudo-element inside :not()")
+        // Known at-rules with a prelude their grammar does not take.
+        for rule in ["@supports bogus {}", "@supports (clear: both) and {}", "@keyframes {}", "@keyframes a b {}", "@keyframes none {}",
+                     "@keyframes initial {}", "@keyframes '' {}", "@-webkit-keyframes 1 {}", "@font-face x {}", "@layer a, b {}",
+                     "@layer a b {}", "@layer a . b {}", "@layer inherit {}", "@page x y {}", "@page :bogus {}", "@page : first {}",
+                     "@counter-style {}", "@counter-style none {}", "@counter-style decimal {}", "@counter-style a b {}",
+                     "@font-feature-values {}", "@font-feature-values serif {}", "@font-feature-values Face, {}", "@property x {}",
+                     "@property -- {}", "@property --a --b {}", "@font-palette-values p {}", "@position-try x {}",
+                     "@container {}", "@container card {}", "@container none (min-width: 1px) {}", "@container (a) and (b) or (c) {}",
+                     "@container not (a) and (b) {}", "@scope .a {}", "@scope (.a) (.b) {}", "@scope (p::before) {}", "@scope (.a) to {}",
+                     "@scope (:bogus) {}", "@starting-style x {}", "@view-transition x {}", "@function f() {}", "@function --f(x) {}",
+                     "@function --f() returns {}"] {
+            XCTAssertEqual(imports("\(rule) @import 'a.css';"), a, rule)
+        }
+        // And the same at-rules with one it takes.
+        for rule in ["@supports (clear: both) {}", "@supports not (bogus: 1) {}", "@supports (bogus) {}", "@keyframes k {}",
+                     "@keyframes 'k' {}", "@-webkit-keyframes K {}", "@font-face {}", "@layer {}", "@layer a.b {}", "@page {}",
+                     "@page name {}", "@page :first {}", "@page name:left, :right {}", "@counter-style stars {}",
+                     #"@font-feature-values Face, "Other Face", Two Words {}"#, "@property --x {}", "@font-palette-values --p {}",
+                     "@position-try --x {}", "@container (min-width: 1px) {}", "@container card (min-width: 1px) and style(--x: 1) {}",
+                     "@container not (a) {}", "@container (a) or (b) or (c) {}", "@scope {}", "@scope (.a) {}", "@scope (.a) to (.b) {}",
+                     "@scope to (.b) {}", "@starting-style {}", "@view-transition {}", "@function --f() {}",
+                     "@function --f(--a <length>, --b) returns <length> {}", "@media bogus! {}", "@media {}"] {
+            XCTAssertEqual(imports("\(rule) @import 'a.css';"), [], rule)
+        }
+    }
+
+    func testALayerStatementMayPrecedeTheImportsButNotStandBetweenThem() {
+        // CSS Cascade 5 §2: "Any @import rules must precede all other valid at-rules and style
+        // rules in a style sheet (ignoring @charset and @layer statement rules)", and §6.4.2
+        // allows the statements only "before the first @import".
+        XCTAssertEqual(imports("@import 'a.css'; @layer x; @import 'b.css';"), ["OPS/css/a.css"])
+        XCTAssertEqual(imports("@layer x; @layer y.z, w; @import 'a.css'; @import 'b.css';"), ["OPS/css/a.css", "OPS/css/b.css"])
+        XCTAssertEqual(imports("@import 'a.css' print; @layer x; @import 'b.css';"), [], "An import that never applies is still a rule")
+        XCTAssertEqual(imports("@import 'a.css'; @layer x, initial; @import 'b.css';"), ["OPS/css/a.css", "OPS/css/b.css"],
+                       "A statement that names no layer is no rule")
+        XCTAssertEqual(imports("@import 'a.css'; @layer; @import 'b.css';"), ["OPS/css/a.css", "OPS/css/b.css"])
+        XCTAssertEqual(imports("@import bogus; @layer x; @import 'a.css';"), ["OPS/css/a.css"], "An import without a sheet is no rule")
+        XCTAssertEqual(imports("@import 'a.css' supports(); @layer x; @import 'b.css';"), ["OPS/css/b.css"],
+                       "Nor is one whose supports() does not parse")
+        XCTAssertEqual(imports("@namespace x 'u'; @layer x; @namespace y 'v'; y|p { clear: both } @import 'a.css';"), [])
+        XCTAssertEqual(CSSSyntaxSupport.subjects(sheet("@namespace x 'u'; @layer x; @namespace y 'v'; y|p { clear: both } p { clear: both }")), ["p"],
+                       "A layer statement after @namespace ends the namespaces too")
+        // A layer() that names no one layer is left to the media query list, which it spoils.
+        XCTAssertEqual(imports("@import 'a.css' layer(a, b); @import 'b.css' layer(x.y);"), ["OPS/css/b.css"])
+    }
+
+    func testARuleWithAnInvalidPreludeIsDroppedWithAllItHolds() {
+        let sheet = sheet("""
+            @layer a, b { p { clear: both } }
+            @supports bogus { q { clear: both } }
+            @font-face x { font-family: F; src: url(f.ttf) }
+            @layer a { i { clear: both } }
+            @font-face { font-family: G; src: url(g.ttf) }
+            """)
+        XCTAssertEqual(CSSSyntaxSupport.subjects(sheet), ["i"])
+        XCTAssertEqual(sheet.fontFaces.map(\.family), ["g"])
     }
 
     func testAnInvalidRuleBeforeAnImportDoesNotInvalidateIt() {

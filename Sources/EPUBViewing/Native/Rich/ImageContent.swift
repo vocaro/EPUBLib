@@ -56,11 +56,12 @@ struct ImageSizing: Equatable, Sendable {
         return CGSize(width: max(1, min(size.width, lineWidth)), height: max(1, min(size.height, heightLimit)))
     }
 
-    /// CSS sizes, with an element's `width`/`height` attributes as hints where CSS says `auto`.
-    init(intrinsic: CGSize, style: ComputedStyle, widthHint: String? = nil, heightHint: String? = nil, fontSize: CGFloat? = nil) {
+    /// The computed sizes, in which an element's `width` and `height` attributes are presentational
+    /// hints that any author rule beats, `auto` included (HTML §15.4.3, and SVG 2 for an `svg`).
+    init(intrinsic: CGSize, style: ComputedStyle) {
         self.intrinsic = intrinsic
-        width = style.width == .auto ? Self.length(widthHint, fontSize: fontSize ?? style.fontSize) ?? .auto : style.width
-        height = style.height == .auto ? Self.length(heightHint, fontSize: fontSize ?? style.fontSize) ?? .auto : style.height
+        width = style.width
+        height = style.height
         minWidth = style.minWidth; minHeight = style.minHeight
         maxWidth = style.maxWidth; maxHeight = style.maxHeight
     }

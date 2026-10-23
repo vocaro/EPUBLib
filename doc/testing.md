@@ -1812,10 +1812,25 @@ on, each line is read once and in order, and VoiceOver's log has "Element Scroll
 each turn, as under [Acceptance and evidence](#acceptance-and-evidence). A line left out, read
 twice, or read from a page other than the one on screen is the failure. A simulator's
 VoiceOver does not make its own Next Page there, and the swipe that follows the finger is
-VoiceOver's own one-finger gesture while it runs, so neither is heard. On a Mac the same
-comparison is a [hosted session](#hosted-mac-sessions) with `"launch=-SamplePageTurn slide"`
-among a session's own settings: a session of that setting alone is the page-boundary
-session, whose Next Page VoiceOver activates.
+VoiceOver's own one-finger gesture while it runs, so neither is heard. On the iPad, on
+2026-10-23:
+
+- `listen=4` heard the first line of the page turned to in only some runs, on `main` as well
+  as with the animation, so compare it across several runs.
+- Without an animation, reading on stopped a line or two in, at "Keyboard hidden" and
+  "Keyboard visible", in every run, `main`'s included. So no iPad baseline reads through
+  ([#832](https://github.com/vocaro/EPUBLib/issues/832)).
+
+On a Mac the same comparison is a [hosted session](#hosted-mac-sessions) with
+`"launch=-SamplePageTurn slide"` among a session's own settings. A session of that setting
+alone is the page-boundary session, whose Next Page VoiceOver activates. Before that, its
+`ax:next` turns the page with VoiceOver's cursor wherever it came to rest after the window was
+sized, which varies from run to run (on Clear Search in one run, on the text in another), and
+what VoiceOver says at that turn varies with it. To compare a host's turn, bring the cursor
+into the text first:
+`width=600 text_size=17 ax:focus=search ax:focus=0 in line nextline ax:next ax:lines line nextline`,
+with and without the setting. In four such sessions (run 39933961481), two of each,
+VoiceOver said the same at every step, and read the new page's first line at the turn.
 
 ### Continuous scroll
 
