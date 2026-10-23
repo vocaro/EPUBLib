@@ -22,6 +22,14 @@ public struct EPUBReaderStatus: Equatable, Sendable {
     /// `.searchResults`. nil unless `search` is `.completed`.
     public var searchResults: EPUBSearchResults?
     public var activeCommands = 0
+    /// The text size the engine draws, in points: `style.fontSize` times `dynamicTypeScale`,
+    /// within the sizes it draws (12–96 for the bundled reader). nil from an engine that does not
+    /// report it; the supplied controls then take `style.fontSize`.
+    public var effectiveFontSize: Double?
+    /// What the system text size multiplies `style.fontSize` by: the body text style's size at
+    /// the mounted view's Dynamic Type size over its size at the default (Large), 53 / 17 at the
+    /// largest accessibility size. 1 while `style.followsDynamicType` is off.
+    public var dynamicTypeScale: Double = 1
     public init(capabilities: Set<EPUBReaderCapability>) { self.capabilities = capabilities }
 }
 

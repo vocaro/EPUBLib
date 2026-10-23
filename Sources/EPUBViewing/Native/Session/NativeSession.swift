@@ -39,6 +39,12 @@ import SwiftUI
     private(set) var style = EPUBReaderStyle()
     @ObservationIgnored private(set) var systemIsDark = false
     private var effectiveIsDark: Bool { style.appearance == .system ? systemIsDark : style.appearance == .dark }
+    /// The mounted view's Dynamic Type size, kept while the style does not follow it.
+    @ObservationIgnored private(set) var systemTextSize: DynamicTypeSize = .large
+    /// What the style's font size is multiplied by before it is drawn (`followsDynamicType`).
+    private var dynamicTypeScale: CGFloat {
+        style.followsDynamicType ? NativeTypography.dynamicTypeScale(for: systemTextSize) : 1
+    }
     /// The host's reserved division, from `View.epubReaderDivision(_:)`.
     var division: CGRect? { didSet { if division != oldValue { applyConfiguration() } } }
 
@@ -100,6 +106,7 @@ import SwiftUI
         progress = NativeProgress(publication: publication)
         (initialSection, initialFragment) = Self.openingTarget(of: publication)
         book = NativeBook(publication: publication, typography: NativeTypography(), rich: rich)
+        readerState?.modify { $0.effectiveFontSize = Double(book.typography.fontSize) }
         book.onSectionBuilt = { [weak self] in self?.sectionBuilt($0) }
         book.onBookComplete = { [weak self] in self?.bookCompleted() }
         buildBook(from: initialSection)
@@ -159,6 +166,7 @@ import SwiftUI
         configuration.isDark = shownIsDark
         configuration.isRightToLeft = publication.pageProgression == .rtl
         configuration.division = division
+        configuration.pageMargins = style.typography.pageMargins.map { $0.isFinite ? min(max(CGFloat($0), 0), 4) : 1 } ?? 1
         configuration.pageControls = pageControls
         configuration.selectionActionTitle = action?.title
         configuration.selectionActionImage = action?.systemImage ?? "text.quote"
@@ -327,9 +335,11 @@ import SwiftUI
     }
 
     /// The legacy bookmark remains the first segment. Reject contradictory or foreign ranges
-    /// rather than silently restoring only part of a saved selection.
+    /// rather than silently restoring only part of a saved selection. A location saved in this
+    /// book carries one of its `publicationIDs`: its `persistentID`, which a copy downloaded or
+    /// zipped again, edited in its metadata or unpacked into a folder shares, or its `id` (#679).
     private func isCompatible(_ location: EPUBLocation) -> Bool {
-        guard location.publicationID == publication.id, let bookmark = location.bookmark else { return false }
+        guard publication.publicationIDs.contains(location.publicationID), let bookmark = location.bookmark else { return false }
         let bookmarks = location.rangeBookmarks ?? [bookmark]
         guard !bookmarks.isEmpty, bookmarks.first == bookmark else { return false }
         return bookmarks.allSatisfy {
@@ -524,7 +534,7 @@ import SwiftUI
             try Task.checkCancellation()
             guard !closed, ticket == searchGeneration else { return nil }
             let section = SearchResultBuilder.Section(
-                text: text, publicationID: publication.id, engineID: NativeEngine.identifier,
+                text: text, publicationID: publication.persistentID, engineID: NativeEngine.identifier,
                 bookmarkFormat: NativeEngine.bookmarkFormat, spine: spine, progress: progress)
             let firstIndex = results.count, limit = maximumSearchResults - results.count
             let batch = await Task.detached(priority: .userInitiated) {
@@ -600,6 +610,11 @@ import SwiftUI
 
     private func applyStyle(_ newStyle: EPUBReaderStyle) throws {
         guard newStyle.fontSize.isFinite else { throw EPUBReaderError.invalidCommand("Nonfinite font size") }
+        let typography = newStyle.typography
+        guard [typography.lineHeight, typography.paragraphSpacing, typography.letterSpacing, typography.wordSpacing,
+               typography.pageMargins].allSatisfy({ $0?.isFinite ?? true }) else {
+            throw EPUBReaderError.invalidCommand("A typography setting is not a finite number")
+        }
         style = newStyle
         updatePresentation()
     }
@@ -612,13 +627,25 @@ import SwiftUI
         if style.appearance == .system { updatePresentation() }
     }
 
+    /// The host's Dynamic Type size, as `updateSystemAppearance` takes its appearance: remembered
+    /// whatever the style, so turning `followsDynamicType` on uses the latest.
+    func updateSystemTextSize(_ size: DynamicTypeSize) {
+        guard !closed, systemTextSize != size else { return }
+        systemTextSize = size
+        if style.followsDynamicType { updatePresentation() }
+    }
+
     private func updatePresentation() {
+        let scale = dynamicTypeScale
+        let typography = NativeTypography(fontSize: style.fontSize * scale, isDark: effectiveIsDark)
+            .with(text: ReaderTextSettings(style.typography))
         readerState?.modify {
             $0.style = style
             $0.effectiveAppearance = effectiveIsDark ? .dark : .light
+            $0.effectiveFontSize = Double(typography.fontSize)
+            $0.dynamicTypeScale = Double(scale)
         }
         applyConfiguration()
-        let typography = NativeTypography(fontSize: style.fontSize, isDark: effectiveIsDark)
         if typography != book.typography {
             book.setTypography(typography)
             buildBook(from: visibleRange?.start.section ?? initialSection,
@@ -801,7 +828,7 @@ import SwiftUI
         // Only continuous scroll over the whole book shows a range across sections.
         let pages = progress.pages(in: range, isShown: { [book] in !book.isOmitted($0) }, anchor: anchor)
         return EPUBLocation(
-            publicationID: publication.id, href: publication.spine[index].resource.href,
+            publicationID: publication.persistentID, href: publication.spine[index].resource.href,
             progression: fraction.flatMap { progress.progression(section: index, fraction: $0) },
             title: fraction == nil ? nil : progress.title(at: titlePosition(of: range), anchor: anchor),
             quote: quote,
@@ -998,18 +1025,21 @@ private struct NativeSurface: View {
     @Environment(\.epubReaderDivision) private var division
     @Environment(\.epubReaderPageControls) private var pageControls
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         if !session.closed {
             NativeCanvasHost(session: session)
                 .onAppear {
                     session.updateSystemAppearance(isDark: colorScheme == .dark)
+                    session.updateSystemTextSize(dynamicTypeSize)
                     session.division = division
                     session.pageControls = pageControls
                 }
                 .onChange(of: division) { session.division = division }
                 .onChange(of: pageControls) { session.pageControls = pageControls }
                 .onChange(of: colorScheme) { session.updateSystemAppearance(isDark: colorScheme == .dark) }
+                .onChange(of: dynamicTypeSize) { session.updateSystemTextSize(dynamicTypeSize) }
                 #if os(iOS)
                 .accessibilityScrollAction { edge in
                     if edge == .leading { submit(.previousPage) }

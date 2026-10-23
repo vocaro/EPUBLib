@@ -368,7 +368,11 @@ import AppKit
             applyHighlights()
         }
         guard old.flow != configuration.flow || old.division != configuration.division
-                || old.isRightToLeft != configuration.isRightToLeft else { return }
+                || old.isRightToLeft != configuration.isRightToLeft else {
+            // New margins are a new column size, laid out as a resize is, keeping the position.
+            if old.pageMargins != configuration.pageMargins { layOutCanvas() }
+            return
+        }
         guard old.flow != configuration.flow else { return layOutCanvas() }
         #if os(macOS)
         pageEntry = nil
@@ -423,7 +427,7 @@ import AppKit
 
     private func layOutPages() {
         let target = ReaderCanvasGeometry.spread(in: pageArea, division: configuration.division,
-                                                 isRightToLeft: configuration.isRightToLeft)
+                                                 isRightToLeft: configuration.isRightToLeft, margins: configuration.pageMargins)
         guard let spread, shownPage != nil else {
             cancelPendingSpread()
             carrySelectionAcrossRelayout()
@@ -747,7 +751,7 @@ import AppKit
         withProgrammaticScroll { area = scrollColumnArea() }
         let column = ReaderCanvasGeometry.scrollColumn(
             in: CGRect(x: area.minX, y: bounds.minY, width: area.width, height: bounds.height),
-            division: configuration.division)
+            division: configuration.division, margins: configuration.pageMargins)
         defer { updateScrollViewport() }
         if let geometry = scrollGeometry, geometry.bounds == bounds, geometry.minX == column.minX,
            geometry.width == column.width { return }

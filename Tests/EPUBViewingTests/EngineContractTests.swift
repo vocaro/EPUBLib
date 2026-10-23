@@ -10,6 +10,8 @@ import XCTest
     enum Fault {
         case none, duplicateReady, noReady, acceptsCancellation, callbackAfterClose, timedCallbackAfterClose, callbackDuringClose
         case acceptsForeignBookmark, failureAfterReady
+        // Identity faults: locations that carry the file's hash, and a restore that refuses it (#679).
+        case fileIdentity, refusesEarlierIdentity
         // Search-result faults, for an engine with `Search.results`.
         case resultsAfterCompletion, noWrap, acceptsStaleResult, keepsResultsAfterClear, stepsAfterClear, timedStepsAfterClear
     }
@@ -58,7 +60,7 @@ import XCTest
     }
     private func relocate(_ href: String?) {
         guard let href else { return }
-        onEvent?(.relocated(.init(publicationID: book.id, href: href,
+        onEvent?(.relocated(.init(publicationID: fault == .fileIdentity ? book.id : book.persistentID, href: href,
             bookmark: .init(engineID: "contract.native", format: "href-v1", value: href))))
     }
     /// Sends 30 ms on, from a timer of the engine's own, which can end together with one of the
@@ -83,7 +85,7 @@ import XCTest
             return
         }
         let listed = book.spine.enumerated().map { index, item in
-            EPUBSearchResult(index: index, location: .init(publicationID: book.id, href: item.resource.href, quote: text),
+            EPUBSearchResult(index: index, location: .init(publicationID: book.persistentID, href: item.resource.href, quote: text),
                              spineIndex: index, sectionTitle: "Section \(index + 1)", matchedText: text)
         }
         results = EPUBSearchResults(query: text, results: listed, currentIndex: opensFirst ? 0 : nil)
@@ -100,11 +102,12 @@ import XCTest
         switch command {
         case .navigate(let href): relocate(href)
         case .restore(let location):
-            guard fault == .acceptsForeignBookmark || (location.publicationID == book.id &&
+            let identities = fault == .refusesEarlierIdentity ? [book.persistentID] : book.publicationIDs
+            guard fault == .acceptsForeignBookmark || (identities.contains(location.publicationID) &&
                 location.bookmark?.engineID == "contract.native" && location.bookmark?.format == "href-v1") else {
                 throw EPUBReaderError.incompatibleLocation
             }
-            onEvent?(.relocated(location))
+            relocate(location.href)
         case .nextPage, .previousPage: throw EPUBReaderError.unsupported(.pagination)
         case .locate: throw EPUBReaderError.unsupported(.locateText)
         case .search(let text):
@@ -175,7 +178,8 @@ import XCTest
                                  (.duplicateReady, "exactly once"), (.acceptsCancellation, "Pre-cancelled"),
                                  (.callbackAfterClose, "Callback after close"), (.timedCallbackAfterClose, "Callback after close"),
                                  (.callbackDuringClose, "Callback after close"),
-                                 (.acceptsForeignBookmark, "incompatibleLocation"), (.failureAfterReady, "failure")] {
+                                 (.acceptsForeignBookmark, "incompatibleLocation"), (.failureAfterReady, "failure"),
+                                 (.fileIdentity, "Wrong publication identity"), (.refusesEarlierIdentity, "saved under the book's id")] {
             do { try await verify(fault); XCTFail("Broken adapter passed: \(fault)") }
             catch let error as EPUBEngineContract.Failure { XCTAssertTrue(error.description.contains(expected), error.description) }
         }
@@ -194,7 +198,7 @@ import XCTest
         try await session.send(.searchHighlight(text: "Opening words"))
         XCTAssertTrue(events.contains(.searchChanged(.completed(query: "Opening words", hasMatches: true))))
         for command in [EPUBReaderCommand.nextSearchResult, .previousSearchResult,
-                        .showSearchResult(.init(index: 0, location: .init(publicationID: book.id), spineIndex: 0, matchedText: "Opening words"))] {
+                        .showSearchResult(.init(index: 0, location: .init(publicationID: book.persistentID), spineIndex: 0, matchedText: "Opening words"))] {
             do { try await session.send(command); XCTFail("Highlight-only engine accepted \(command)") }
             catch { XCTAssertEqual(error as? EPUBReaderError, .unsupported(.searchResults)) }
         }

@@ -12,6 +12,9 @@ public struct EPUBEngineBookmark: Codable, Equatable, Sendable {
 /// Portable fields describe a reading position. `bookmark` restores an engine's precise position.
 /// Engines must reject incompatible bookmarks; matching text/href is a separate, potentially approximate operation.
 public struct EPUBLocation: Codable, Equatable, Sendable {
+    /// The book's `EPUBPublication.persistentID`: its unique identifier, or the SHA-256 of its
+    /// content when it has none. One saved before that identity (#679) carries the book's file
+    /// hash, its `id`. `EPUBPublication.publicationIDs` lists every value that names the book.
     public var publicationID: String
     /// URL-encoded archive-relative reference, compatible with `.navigate(href:)`.
     public var href: String?
@@ -58,6 +61,12 @@ public struct EPUBReaderStyle: Equatable, Sendable {
     /// System follows the mounted view's color scheme, including live OS theme changes.
     public var appearance: EPUBReaderAppearance
     public var flow: EPUBReadingFlow
+    /// Scales `fontSize` by the system text size: Dynamic Type on iPhone and iPad, in the
+    /// mounted view's `dynamicTypeSize`, including changes while a book is open. `fontSize` is
+    /// then the size at the default text size (Large), and an engine draws it larger or smaller
+    /// as the body text style is, within the sizes it draws. Off by default, so `fontSize` is
+    /// what is drawn. `EPUBReaderStatus.effectiveFontSize` reports the size drawn.
+    public var followsDynamicType = false
     public init(fontSize: Double = 17, appearance: EPUBReaderAppearance = .system, flow: EPUBReadingFlow = .paginated) {
         self.fontSize = fontSize; self.appearance = appearance; self.flow = flow
     }
@@ -70,6 +79,82 @@ public struct EPUBReaderStyle: Equatable, Sendable {
     public var isDark: Bool {
         get { appearance == .dark }
         set { appearance = newValue ? .dark : .light }
+    }
+    /// The font, spacing, margins, alignment and hyphenation of book text. Its default sets
+    /// nothing: the book's styles and the reader's own defaults.
+    public var typography = Typography()
+}
+
+extension EPUBReaderStyle {
+    /// The reading adjustments a reader expects: font, spacing, margins, alignment and
+    /// hyphenation. Each value left nil keeps what the book and the reader give.
+    ///
+    /// With `overridesBookStyles` off, a value set takes the place of the reader's own default,
+    /// as a user style sheet does (CSS Cascade 4 §6.2), and the book's own declarations win
+    /// wherever it makes them. With it on, the values set apply to the book's text whatever
+    /// the book declares. Either way preformatted text, code, tables, MathML, SVG and boxes the
+    /// book sizes or places keep the styles the book gives them.
+    public struct Typography: Hashable, Codable, Sendable {
+        public enum FontFamily: Hashable, Codable, Sendable {
+            /// The reader's serif, the system's serif design (New York).
+            case serif
+            /// The system font (San Francisco).
+            case sansSerif
+            /// The system font's monospaced design.
+            case monospace
+            /// The system font's rounded design.
+            case rounded
+            /// An installed family, such as "Georgia", or one the app registers, such as a
+            /// bundled Atkinson Hyperlegible or OpenDyslexic: with `CTFontManagerRegisterFontsForURL`,
+            /// or listed under `UIAppFonts` (iOS) or `ATSApplicationFontsPath` (macOS) in its
+            /// Info.plist. Named by its family name, in any case. Characters it has no glyph for
+            /// are drawn in the font the text would otherwise have; a family that is not
+            /// available leaves that font.
+            case named(String)
+        }
+
+        public enum Alignment: String, CaseIterable, Codable, Sendable {
+            /// Ragged lines: left in left-to-right text.
+            case start
+            /// Lines filled to both edges.
+            case justified
+        }
+
+        public var fontFamily: FontFamily?
+        /// Line spacing as a multiple of the font size, as a unitless CSS `line-height`: the
+        /// reader's own is 1.4. Applied within 0.5–5.
+        public var lineHeight: Double?
+        /// The space above and below each paragraph (`p`), in ems of its text: the reader's own
+        /// is 1, and 0 runs paragraphs together. Adjoining paragraphs share it, as CSS collapses
+        /// their margins. Applied within 0–5.
+        public var paragraphSpacing: Double?
+        /// Space added between letters, in ems: 0 is the font's own spacing. Applied within
+        /// −0.25–1.
+        public var letterSpacing: Double?
+        /// Space added between words, in ems: 0 is the font's own spacing. Applied within
+        /// −0.25–2.
+        public var wordSpacing: Double?
+        /// The page's side margins as a multiple of the reader's own (3.5% of the page's width
+        /// each side): 0 removes them, 2 doubles them. A column stays at most 720 points wide.
+        /// Applied within 0–4. These are the reader's margins and apply whatever the switch says.
+        public var pageMargins: Double?
+        /// Ragged or justified lines. Text the book centres or sets to its end side stays so.
+        public var alignment: Alignment?
+        /// Whether words break at line ends where the language's hyphenation allows: CSS
+        /// `hyphens: auto`, the reader's own. false is `hyphens: manual`, which hyphenates no
+        /// word by itself.
+        public var hyphenation: Bool?
+        /// Whether the values set apply over the book's own declarations, rather than in place of
+        /// the reader's defaults only: a reader's "publisher defaults" switch turned off.
+        public var overridesBookStyles: Bool
+
+        public init(fontFamily: FontFamily? = nil, lineHeight: Double? = nil, paragraphSpacing: Double? = nil,
+                    letterSpacing: Double? = nil, wordSpacing: Double? = nil, pageMargins: Double? = nil,
+                    alignment: Alignment? = nil, hyphenation: Bool? = nil, overridesBookStyles: Bool = false) {
+            self.fontFamily = fontFamily; self.lineHeight = lineHeight; self.paragraphSpacing = paragraphSpacing
+            self.letterSpacing = letterSpacing; self.wordSpacing = wordSpacing; self.pageMargins = pageMargins
+            self.alignment = alignment; self.hyphenation = hyphenation; self.overridesBookStyles = overridesBookStyles
+        }
     }
 }
 
@@ -128,13 +213,12 @@ public enum EPUBReaderError: Error, Equatable, Sendable {
 }
 
 public extension EPUBReaderError {
+    /// What the reader's controls show for a refused command or search: `localizedDescription`,
+    /// except that `invalidCommand` and `engineFailure` give the engine's own detail.
     var message: String {
         switch self {
-        case .unsupported: "This reader does not support this action."
-        case .incompatibleLocation: "This saved position belongs to a different book or reader."
+        case .unsupported, .incompatibleLocation, .notReady, .closed: plainMessage
         case .invalidCommand(let message), .engineFailure(let message): message
-        case .notReady: "The reader is not ready."
-        case .closed: "This book is closed."
         }
     }
 }

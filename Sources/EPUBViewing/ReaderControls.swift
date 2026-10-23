@@ -160,6 +160,16 @@ import Foundation
     private func section(of href: String) -> (section: Int, fragment: String?)? {
         try? NativeSession.target(of: href, in: publication)
     }
+
+    /// `changeStyle`, and `then` once the engine has applied the style, as a text size step
+    /// says the size drawn (`stepTextSize`).
+    func changeStyle(_ change: @escaping @MainActor (inout EPUBReaderStyle) -> Void, then: @escaping @MainActor () -> Void) {
+        enqueue(then: then) { [weak self] in
+            var style = self?.status?.style ?? EPUBReaderStyle()
+            change(&style)
+            return .style(style)
+        }
+    }
 }
 
 extension EPUBPageAction {
