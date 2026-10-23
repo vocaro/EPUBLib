@@ -276,7 +276,8 @@ the same value. It holds the submitted `query`, the `results`, their `count`, th
 `currentIndex` / `current` match and `isTruncated`. Each `EPUBSearchResult` has its `index`,
 its section's `spineIndex` and `sectionTitle` (the contents entry in effect, else the
 document's own title), the `matchedText` as the book spells it, `contextBefore` /
-`contextAfter` from the same paragraph or table cell (about a line, cut at whole words;
+`contextAfter` from the same paragraph or table cell, in the book's own words without a list
+item's marker or other generated text (about a line, cut at whole words;
 `snippet` joins the three), and a `location` with the section `href`, overall `progression`,
 contents `title`, `quote`, page-list `page` and, in the bundled reader, a `bookmark` naming
 exactly the occurrence. Pass that location to `.restore` or keep it as an `EPUBHighlight`.
@@ -299,7 +300,14 @@ Three commands navigate, each requiring `.searchResults`:
 `controls.showNextSearchResult()`, `showPreviousSearchResult()` and `showSearchResult(_:)`
 submit them through the controls' FIFO queue; `canShowSearchResults` says whether there is
 anything to step through. Once the engine has shown the match, they have VoiceOver say it
-(`searchResultAnnouncement`), and its cursor stays on the control. A shown result is brought
+(`searchResultAnnouncement`), and its cursor stays on the control. `submitSearch()` does the
+same for the match `.search` opens, so the count comes with the first match: “Match 1 of 14,
+first match, Before the road: lantern hangs at the gate.” That is the one announcement where
+the search turns the page, as it is for a step: the bundled reader announces only a page that
+VoiceOver's own scroll turns. A search that opens no match says nothing: one that finds none,
+one that newer navigation kept from moving the reader, a refused or canceled one, and one by
+an engine that only highlights
+([#601](https://github.com/vocaro/EPUBLib/issues/601)). A shown result is brought
 into view in both flows and drawn in a stronger highlight than the other matches. Paging shows
 its page. Continuous scroll rests its line about a third of the way down the view, with the
 text before it above, or lower in a section's first lines, whose start is then at the top, so

@@ -1745,7 +1745,11 @@ continues to describe the authored spine resource.
     the book's characters alone, the same CFI with or without the styles that generate:
     a selection that takes in generated words is saved without them and comes back without
     them. Search reads the book's text, as foliate-js's did in WebKit, and finds nothing in
-    generated words, and a result's context leaves them out. The passage text a host is
+    generated words, and a result's context leaves them out, read through a table cell's own
+    map in a cell as through the section's in prose: in a cell it held a list item's marker,
+    and after a marker longer than the context it lost the item's first word, which it took
+    for one the context's cut had split
+    ([#735](https://github.com/vocaro/EPUBLib/issues/735)). The passage text a host is
     given (`.selectionChanged`, a location's `quote`, the text `.locate` looks for) and what
     Copy puts on the pasteboard are the book's own characters (the authored passage of
     [#128](https://github.com/vocaro/EPUBLib/issues/128)), as `Selection.toString()` gave

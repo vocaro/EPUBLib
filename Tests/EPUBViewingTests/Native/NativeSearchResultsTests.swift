@@ -408,6 +408,40 @@ import XCTest
         try await wait("first result visible") { self.isVisible(0, in: session) }
     }
 
+    /// The match a search made through the controls opens is said once, as a step's is, where
+    /// the search turns the page to it (#601). The reader says nothing of its own of a page a
+    /// command turns: it announces only a page VoiceOver's own scroll turns.
+    func testTheMatchASearchOpensIsSaidOnceWhereTheSearchTurnsThePage() async throws {
+        let (session, window, _) = try open(Self.book())
+        defer { session.close(); window.close() }
+        try await wait("built book and location") { session.book.isComplete && session.lastLocation != nil }
+        try await session.send(.navigate(href: "OPS/three.xhtml"))
+        XCTAssertEqual(session.visibleRange?.start.section, 2)
+        let canvas = try XCTUnwrap(session.canvas)
+        var said: [String] = []
+        #if os(iOS)
+        canvas.postToAccessibility = { notification, words in
+            if notification == .announcement { said.append("reader: \(words ?? "")") }
+        }
+        canvas.postAccessibilityNotification = { notification, words in
+            if notification == .announcement || notification == .pageScrolled { said.append("reader: \(words ?? "")") }
+        }
+        #else
+        canvas.postAccessibilityNotification = { _, notification, info in
+            if notification == .announcementRequested { said.append("reader: \(info[.announcement] ?? "")") }
+        }
+        #endif
+        let controls = EPUBReaderControls(publication: session.publication, session: session)
+        controls.postAnnouncement = { said.append($0) }
+        controls.searchText = "findneedle"
+        controls.submitSearch()
+        await controls.waitForCommands()
+        try await wait("first result visible") { self.isVisible(0, in: session) }
+        XCTAssertEqual(session.visibleRange?.start.section, 0, "the search turned the page from the third section to the first")
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(said, ["Match 1 of 6, first match, First Chapter: findneedle one, then more."])
+    }
+
     func testResultListIsBoundedAndSaysSo() async throws {
         let (session, window, events) = try open(Self.book())
         defer { session.close(); window.close() }

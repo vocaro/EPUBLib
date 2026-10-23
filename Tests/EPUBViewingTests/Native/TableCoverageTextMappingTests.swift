@@ -236,9 +236,9 @@ final class TableCoverageTextMappingTests: XCTestCase {
             XCTAssertEqual(depth(range.end.tableCell), nesting, "\(label): and so is its end")
             XCTAssertEqual(section.tablePassage(range), quote, "\(label): the passage is the match's words")
             let context = SearchResultBuilder.context(of: range, in: section)
-            // A cell's context before a list item's words also reads the item's generated
-            // marker, which is no part of this (#735).
-            XCTAssertTrue(context.before.hasSuffix(before), "\(label): the context before is the inner cell's, not \(context.before)")
+            // A list item's generated marker is no part of a cell's context, as it is none of
+            // prose's (#735).
+            XCTAssertEqual(context.before, before, "\(label): the context before is the inner cell's words")
             XCTAssertEqual(context.after, after, "\(label): and so is the context after")
             let dom = try XCTUnwrap(section.domRange(range), label)
             XCTAssertTrue(dom.start.node === match.start.node, "\(label): the range starts in the match's text node")

@@ -20,6 +20,11 @@ import UIKit
         var received: [EPUBReaderCommand] = []
         /// Refuses a chosen result, as an engine refuses one of a replaced search.
         var refusesResults = false
+        /// What `.search` completes with, as an engine publishes it before `send` returns: its
+        /// first match current where it opened one. nil leaves the state alone.
+        var searchFinds: EPUBSearchResults?
+        /// Refuses `.search`, as an engine refuses a query it cannot search for.
+        var refusesSearches = false
         /// `everyGroup` adds what Contents and Appearance need, so that a strip has all five groups.
         init(results: Bool = true, navigates: Bool = true, everyGroup: Bool = false) {
             var capabilities: Set<EPUBReaderCapability> = [.pagination, .scrolling, .searchHighlight]
@@ -37,9 +42,16 @@ import UIKit
             if refusesResults, case .showSearchResult = command {
                 throw EPUBReaderError.invalidCommand("That search result is no longer available")
             }
+            if refusesSearches, case .search = command {
+                throw EPUBReaderError.invalidCommand("The search is empty or longer than 512 characters.")
+            }
             readerState?.modify { status in
                 let results = status.searchResults
                 switch command {
+                case .search(let text), .searchHighlight(let text):
+                    guard let found = searchFinds else { break }
+                    status.searchResults = found
+                    status.search = .completed(query: text, hasMatches: !found.isEmpty)
                 case .nextSearchResult: status.searchResults?.currentIndex = results?.steppedIndex(forward: true)
                 case .previousSearchResult: status.searchResults?.currentIndex = results?.steppedIndex(forward: false)
                 case .showSearchResult(let result): status.searchResults?.currentIndex = result.index
@@ -223,6 +235,59 @@ import UIKit
         XCTAssertEqual(model.searchResultAnnouncement, "Match 1 of 1, only match, First Chapter: needle")
         session.publish(.completed(query: "needle", hasMatches: true), Self.results(40, current: 39, truncated: true))
         XCTAssertEqual(model.searchResultAnnouncement, "Match 40 of at least 40, last match, Later Chapter 19: needle one, then more.")
+    }
+
+    /// The match a search opens is said as a step's is, once the engine has shown it, with the
+    /// count in it: one announcement, also where the search turns the page, which says nothing
+    /// of its own (#601). A search that opens no match says nothing: one that finds none, one
+    /// that newer navigation kept from moving the reader, a refused or canceled one, one whose
+    /// results a search the host made meanwhile replaced, and one by an engine that only
+    /// highlights.
+    func testTheMatchASearchOpensIsAnnouncedOnceItIsShown() async throws {
+        let session = Session(), model = try controls(session)
+        var announced: [String] = []
+        model.postAnnouncement = { announced.append($0) }
+        session.searchFinds = Self.results(7, current: 0)
+        model.searchText = "needle"
+        model.submitSearch()
+        XCTAssertEqual(model.pendingSearches, 1, "it is still a search to the field's feedback")
+        await model.waitForCommands()
+        XCTAssertEqual(session.received, [.search(text: "needle")])
+        XCTAssertEqual(announced, ["Match 1 of 7, first match, First Chapter: needle one, then more."])
+        model.showNextSearchResult()
+        await model.waitForCommands()
+        XCTAssertEqual(announced.last, "Match 2 of 7, First Chapter: needle one, then more.", "a step goes on from the match opened")
+        XCTAssertEqual(announced.count, 2)
+
+        var other = Self.results(3, current: 0)
+        other.query = "other"
+        for (found, label) in [(EPUBSearchResults(query: "needle"), "no matches"), (Self.results(7), "none shown"),
+                               (other, "another search's results")] {
+            session.searchFinds = found
+            model.submitSearch()
+            await model.waitForCommands()
+            XCTAssertEqual(announced.count, 2, "\(label): nothing is said")
+        }
+        session.searchFinds = Self.results(7, current: 0)
+        session.refusesSearches = true
+        model.submitSearch()
+        await model.waitForCommands()
+        XCTAssertNotNil(model.commandError)
+        session.refusesSearches = false
+        model.submitSearch()
+        model.cancelPendingCommands()
+        try await Task.sleep(for: .milliseconds(50))
+        await model.waitForCommands()
+        XCTAssertEqual(announced.count, 2, "refused and canceled searches say nothing: \(announced)")
+
+        let highlighting = Session(navigates: false), highlighter = try controls(highlighting)
+        highlighter.postAnnouncement = { announced.append($0) }
+        highlighting.searchFinds = Self.results(7, current: 0)
+        highlighter.searchText = "needle"
+        highlighter.submitSearch()
+        await highlighter.waitForCommands()
+        XCTAssertEqual(highlighting.received, [.searchHighlight(text: "needle")])
+        XCTAssertEqual(announced.count, 2, "a search that only highlights opens no match and says nothing")
     }
 
     func testIndicatorTextStatesZeroPendingFailedCountAndEnds() throws {
