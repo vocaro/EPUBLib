@@ -365,6 +365,21 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
         }
     }
 
+    // Reading on, the scan may also write a declaration keyword of what it used to copy as
+    // comment: a CDATA section between its letters is flattened, and the declaration check
+    // refuses the result. That section, too, is read with the comment left open (#333).
+    func testAnAbruptlyClosedCommentBeforeAKeywordThatACDATASectionSplitsRefusesNothing() throws {
+        XCTAssertEqual(try recovered(page("<p>a</b> < <!--> b <!DO<![CDATA[]]>CTYPE html [</p><p>c --> d</p>")).text, "a < d")
+        XCTAssertEqual(try recovered(page("<p>a</b> < <!---> b <!EN<![CDATA[]]>TITY e 'v'></p><p>c --> d</p>")).text, "a < d")
+        // Read either way, a keyword is refused, as it is outside any comment.
+        for body in ["<p>a</b> < <!--> b <!DO<![CDATA[]]>CTYPE html [</p><p>c --> <!ENTITY e 'v'> d</p>",
+                     "<p>a</b> < b <!DO<![CDATA[]]>CTYPE html [</p><p>c --> d</p>"] {
+            XCTAssertThrowsError(try book(page(body)).textSection(at: 0, recoversMalformedMarkup: true), body) {
+                XCTAssertEqual($0 as? EPUBTextExtractionError, .malformedContent(path), body)
+            }
+        }
+    }
+
     // MARK: Self-closing html, head and body start tags, which reach libxml2 as written
 
     // libxml2 ignores a self-closing `<html/>`, `<head/>` or `<body/>` that is out of place and
