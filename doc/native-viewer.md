@@ -437,10 +437,11 @@ continues to describe the authored spine resource.
   image link without a name. A hidden label reads nothing for an
   image or an inline SVG with a presentational role. Where such an image cannot be drawn,
   its words are shown in its place as text and read as text, and so are kept from VoiceOver
-  where `aria-hidden` keeps the image, as any text it keeps is. In a table cell the words of
-  such an image are still read: on iPhone and iPad in the cell's text, and on Mac in what
-  its row is called. They are the words a copy of the row takes
-  ([#551](https://github.com/vocaro/EPUBLib/issues/551)). Shown text with `aria-hidden` is
+  where `aria-hidden` keeps the image, as any text it keeps is. In a table cell such an image's
+  words are not read either: on iPhone and iPad not in the cell's element or the row's line,
+  and on Mac not in what its row is called. A copy of the row and a selection of it still
+  take them (`TableRowAttachment.textEquivalent`, and `spokenEquivalent` for VoiceOver,
+  [#551](https://github.com/vocaro/EPUBLib/issues/551)). Shown text with `aria-hidden` is
   kept from VoiceOver too, and a formula with it is passed over as such an image is
   ([Text kept from assistive technology](#text-kept-from-assistive-technology),
   [#552](https://github.com/vocaro/EPUBLib/issues/552)). An image is
@@ -2761,7 +2762,8 @@ stay, and kept words between two shown ones read as one space.
   kept words alone is no heading.
 - **On the Mac.** Each kept character but a break is given to an assistive client as a space,
   as a hidden one is, in the value, the strings, the rich text and the selected text of a
-  page, of continuous scroll, of a note and of a table cell's text area. A heading of kept
+  page, of continuous scroll and of a note, and in the value, the strings and the rich text
+  of a table cell's text area, whose selected text leaves them out. A heading of kept
   words alone has no level, and a line of kept words alone, as a row of stars is, is a line of
   spaces, which no session has moved onto yet.
 - **Links.** A link of kept words alone stays a link, without a name, as one that is all a
@@ -2771,11 +2773,16 @@ stay, and kept words between two shown ones read as one space.
 - **Formulas and lost pictures.** A formula with `aria-hidden` on it or round it is passed
   over as a picture kept so is, and its words are copied. The words shown where a picture
   kept by `aria-hidden` cannot be drawn are kept text.
-- **Table cells.** VoiceOver still reads kept words where it reads a cell's words, on iPhone
-  and iPad in the cell's element and on the Mac in what its row is called, because those
-  words are also what a copy of the row takes
-  ([#551](https://github.com/vocaro/EPUBLib/issues/551)). On the Mac the cell's own text
-  area gives them as spaces.
+- **Table cells.** A cell's words are read without the kept ones, as a line's are
+  (`TableMeasure.spokenText`): on iPhone and iPad in the cell's element of a table of data,
+  in the row's line of any other table and in the names of the actions that select a cell's
+  words; on the Mac in what a row's group is called, in the name of the table at a row of a
+  table of data and in the selected text of a cell's text area, which gives them as spaces
+  in its value. A cell of kept words alone says nothing and offers nothing to select, and a
+  row of such cells has nothing to say. A selection of the row, a copy of it and search
+  still take them: a row has words to copy (`textEquivalent`) apart from the words VoiceOver
+  is given (`spokenEquivalent`), as an image has
+  ([#551](https://github.com/vocaro/EPUBLib/issues/551)).
 
 ### Flex and grid alignment
 
@@ -3401,8 +3408,16 @@ The following are the defaults. Host commands and accessibility actions stay ena
   language, and a heading keeps its level over the whole label. A cell of a table of data
   is read as one text, in the language most of it is in, and so is the name of a header
   cell VoiceOver says before it: a part of a cell in another language is not set apart. A
-  picture's words name no language ([#548](https://github.com/vocaro/EPUBLib/issues/548)),
-  and the reader's word for a rule, which is none of the book's, names none. A note's
+  picture's words are in the language of the element they come from, the `img`, `object`,
+  `embed` or `svg` (or an SVG `image` whose `alt` names it), looked up as a formula's
+  `alttext` is (`ReaderImageAttachment.language`), and so are the words shown as text where
+  a picture cannot be drawn. Words an SVG file gives for itself, its title where the book
+  gave no `alt`, are taken to be in the language of the element that shows it. So a heading
+  or a cell in French whose picture's words are longer than its own names French, where it
+  named none, and on Mac the picture's character in a page's text area or a cell's carries
+  the language as a formula's does
+  ([#548](https://github.com/vocaro/EPUBLib/issues/548)). The reader's word for a rule,
+  which is none of the book's, names none. A note's
   popover keeps UIKit's own elements. In the simulator lane VoiceOver speaks a line of
   French, one of German and one of Spanish each in a voice for its language, and "He said
   bonjour mes amis and left." in three parts, the middle one in its French voice; without

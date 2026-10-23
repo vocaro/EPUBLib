@@ -56,27 +56,38 @@ final class TableRowAttachment: ReaderAttachment {
         return (constraints.minimumTableWidth, constraints.maximumTableWidth)
     }
 
-    /// The cells that start in this row, joined by tabs. The rows' own line breaks separate rows,
-    /// and the caption is a paragraph of its own.
-    override var textEquivalent: String { cellWords.joined(separator: "\t") }
+    /// The cells that start in this row, joined by tabs, as a selection reads them: with the
+    /// words of a picture and the text that the book keeps from assistive technology. The rows'
+    /// own line breaks separate rows, and the caption is a paragraph of its own.
+    override var textEquivalent: String { words(spoken: false).map(\.words).joined(separator: "\t") }
+
+    /// `textEquivalent` as VoiceOver is given it: `cellWords`, without those words (#551).
+    override var spokenEquivalent: String { cellWords.joined(separator: "\t") }
 
     /// The words of each cell read where this row stands, in column order: the cells that
     /// start in a whole row, and each cell a continuation holds lines of, by those lines. A
-    /// cell without words is there with none.
+    /// cell without words is there with none. They are what VoiceOver reads: nothing of what
+    /// the book keeps from assistive technology (`TableMeasure.spokenText`).
     var cellWords: [String] { spokenCellWords.map(\.words) }
 
     /// `cellWords`, each with the index of its cell in the table's cells.
-    var spokenCellWords: [(cell: Int, words: String)] {
+    var spokenCellWords: [(cell: Int, words: String)] { words(spoken: true) }
+
+    /// The words of each cell where this row stands, each with the index of its cell: what
+    /// VoiceOver reads where `spoken`, and otherwise what a selection reads.
+    private func words(spoken: Bool) -> [(cell: Int, words: String)] {
         if let fragment, let layout = fragmentLayout {
             return fragment.cells.sorted { table.cells[$0.cell].column < table.cells[$1.cell].column }.map { entry in
-                return (entry.cell, layout.cellText[entry.cell].spokenText(inLines: entry.lines))
+                let text = layout.cellText[entry.cell]
+                return (entry.cell, spoken ? text.spokenText(inLines: entry.lines) : text.shownText(inLines: entry.lines))
             }
         }
         return table.rowCells[row].filter { table.cells[$0].row == row }
-            .sorted { table.cells[$0].column < table.cells[$1].column }.map { ($0, table.cells[$0].text) }
+            .sorted { table.cells[$0].column < table.cells[$1].column }
+            .map { ($0, spoken ? table.cells[$0].text : TableMeasure.text(table.cells[$0].content, spoken: false)) }
     }
 
-    /// The languages of `textEquivalent`: each cell's words in the language most of the cell
+    /// The languages of `spokenEquivalent`: each cell's words in the language most of the cell
     /// is in (`ReaderSpokenLanguages`).
     var spokenLanguages: ReaderSpokenLanguages {
         var parts: [(text: String, language: String?)] = []

@@ -42,8 +42,10 @@ struct NativeRichContent: RichContentFactory {
         if alternative == .missing, isObject || isEmbed { alternative = ImageAlternative(name: element.attribute("title")) }
         // What is shown when the image cannot be: its words, whatever the book says of its part.
         var alt = alternative.text
+        // Its words are in the language of the element they come from (#548).
+        let language = MathSpeech.contentLanguage(of: element, publication: context.publication)
         // An `<object>` falls back to its own content, an image to its alt text.
-        let fallback = { isObject ? nil : Self.altText(alt, style: style, context: context) }
+        let fallback = { isObject ? nil : Self.altText(alt, language: language, style: style, context: context) }
         guard let reference = reference?.trimmingCharacters(in: .whitespacesAndNewlines), !reference.isEmpty else { return fallback() }
         let found: (source: ReaderImageSource, intrinsic: CGSize, svg: SVGDocument?)?
         // The image's bytes where they are SVG, for its words and its disclosure if it is not drawn.
@@ -79,7 +81,7 @@ struct NativeRichContent: RichContentFactory {
         return attachment(ReaderImageAttachment(source: source, sizing: sizing, alternative: alternative, style: style,
                                                 isDark: context.typography.isDark,
                                                 isHiddenFromAssistiveTechnology: ContentSemantics.isHiddenFromAssistiveTechnology(element),
-                                                cache: images),
+                                                language: language, cache: images),
                           style: style, context: context)
     }
 
@@ -90,8 +92,10 @@ struct NativeRichContent: RichContentFactory {
             return Self.altText("Illustration unavailable", style: style, context: context)
         }
         let title = drawing.accessibleLabel ?? ""
+        // Its words are in the language of the drawing (#548).
+        let language = MathSpeech.contentLanguage(of: element, publication: context.publication)
         // Prefer authored title/description, then drawing labels, when it cannot be shown.
-        let nothing = { Self.altText(drawing.fallbackText, style: style, context: context) ?? NSAttributedString() }
+        let nothing = { Self.altText(drawing.fallbackText, language: language, style: style, context: context) ?? NSAttributedString() }
         SVGContent.disclose(drawing, report: context.report)
         let widthHint = element.attribute("width"), heightHint = element.attribute("height")
         if let image = SVGContent.wrappedImage(element), let reference = SVGContent.href(image), !reference.hasPrefix("#") {
@@ -117,7 +121,9 @@ struct NativeRichContent: RichContentFactory {
                 || (title.isEmpty && ContentSemantics.isHiddenFromAssistiveTechnology(image))
             return attachment(ReaderImageAttachment(source: source, sizing: sizing, alternative: alternative, style: style,
                                                     contentRect: placement, isDark: context.typography.isDark,
-                                                    isHiddenFromAssistiveTechnology: hidden, cache: images),
+                                                    isHiddenFromAssistiveTechnology: hidden,
+                                                    language: title.isEmpty ? MathSpeech.contentLanguage(of: image, publication: context.publication) : language,
+                                                    cache: images),
                               style: style, context: context)
         }
         let key = context.publication.id + "\u{0}" + context.document.path + "\u{0}\(element.order)"
@@ -134,7 +140,7 @@ struct NativeRichContent: RichContentFactory {
         return attachment(ReaderImageAttachment(source: source, sizing: sizing, alternative: ImageAlternative(name: title), style: style,
                                                 isDark: context.typography.isDark,
                                                 isHiddenFromAssistiveTechnology: ContentSemantics.isHiddenFromAssistiveTechnology(element),
-                                                cache: images),
+                                                language: language, cache: images),
                           style: style, context: context)
     }
 
@@ -246,12 +252,17 @@ struct NativeRichContent: RichContentFactory {
     }
 
     /// The words shown in place of an image that cannot be, in the image's style: a hidden
-    /// image's keep its room and are not drawn either.
-    private static func altText(_ alt: String, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
+    /// image's keep its room and are not drawn either. They are set and read in `language`,
+    /// the image's (`InlineStyling.languageKey`), as text around them is in its own; the
+    /// reader's own words are in none of the book's.
+    private static func altText(_ alt: String, language: String? = nil, style: ComputedStyle,
+                                context: RichContentContext) -> NSAttributedString? {
         guard !alt.isEmpty else { return nil }
-        return NSAttributedString(string: alt, attributes: [
+        var attributes: [NSAttributedString.Key: Any] = [
             .font: context.fonts.font(for: style),
             .foregroundColor: style.isHidden ? PlatformColor.clear : context.typography.theme.secondaryText,
-        ])
+        ]
+        if let language { attributes[InlineStyling.languageKey] = language }
+        return NSAttributedString(string: alt, attributes: attributes)
     }
 }

@@ -145,11 +145,18 @@ final class ReaderImageAttachment: ReaderAttachment {
     /// Reader appearance, kept with the attachment through layout clones and table draws.
     let isDark: Bool
     let cache: ReaderImageCache
+    /// The BCP 47 language the image's words are in: that of the element they come from, the
+    /// nearest `xml:lang` or `lang` else the package's (`MathSpeech.contentLanguage`), as a
+    /// formula's `alttext` is; nil where it names no voice (#548). The words an SVG file gives
+    /// for itself are taken to be in the language of the element that shows it.
+    let language: String?
 
     init(source: ReaderImageSource, sizing: ImageSizing, alternative: ImageAlternative, style: ComputedStyle,
-         contentRect: CGRect? = nil, isDark: Bool = false, isHiddenFromAssistiveTechnology: Bool = false, cache: ReaderImageCache) {
+         contentRect: CGRect? = nil, isDark: Bool = false, isHiddenFromAssistiveTechnology: Bool = false,
+         language: String? = nil, cache: ReaderImageCache) {
         self.source = source; self.sizing = sizing; self.alternative = alternative; self.contentRect = contentRect
         self.isHiddenFromAssistiveTechnology = isHiddenFromAssistiveTechnology
+        self.language = language
         isBlock = style.display.isBlockLevel
         verticalAlign = style.verticalAlign
         fontSize = style.fontSize
@@ -182,6 +189,7 @@ final class ReaderImageAttachment: ReaderAttachment {
     /// book keeps from it or that `visibility: hidden` hides.
     var spokenAlt: String { isHiddenFromAssistiveTechnology || isHidden ? "" : alt }
     override var spokenEquivalent: String { spokenAlt }
+    override var textLanguage: String? { language }
 
     #if os(iOS)
     override var accessibilityLabel: String? {
