@@ -225,6 +225,7 @@ enum TableContent {
         let style: ComputedStyle
         let context: RichContentContext
         var isDark: Bool { context.typography.isDark }
+        var theme: ReaderTheme { context.typography.theme }
         var captions: [ContentNode] = []
         var columns: [ComputedStyle.Length] = []
         var head: Group?, bodies: [Group] = [], feet: [Group] = []
@@ -425,8 +426,8 @@ enum TableContent {
 
         func stroke(_ border: ComputedStyle.Border, color element: ComputedStyle.Color?) -> TableModel.Stroke? {
             guard border.isVisible else { return nil }
-            let color = isDark ? ReaderPalette.rule(dark: true)
-                : (border.color ?? element)?.platformColor ?? ReaderPalette.text(dark: false)
+            let color = isDark ? theme.rule
+                : (border.color ?? element)?.platformColor ?? theme.text
             return TableModel.Stroke(width: border.width, style: border.style, color: color.cgColor)
         }
         func strokes(_ style: ComputedStyle) -> TableModel.Borders {
@@ -521,12 +522,12 @@ enum TableContent {
             // Presentational hints: `border`, `cellspacing`, `cellpadding`, `align`, `bgcolor`.
             let borderAttribute = table.attribute("border").map { Int($0.trimmingCharacters(in: .whitespaces)) ?? 1 }
             let cellPadding = table.attribute("cellpadding").flatMap { ImageSizing.length($0, fontSize: style.fontSize)?.points }
-            let defaultColor = isDark ? ReaderPalette.rule(dark: true) : (style.color?.platformColor ?? ReaderPalette.text(dark: false))
+            let defaultColor = isDark ? theme.rule : (style.color?.platformColor ?? theme.text)
             var tableBorders = strokes(style)
             let hinted = borderAttribute.map { $0 > 0 } ?? false
             if hinted, tableBorders.widths == TableModel.Insets() {
                 let line = TableModel.Stroke(width: CGFloat(min(borderAttribute ?? 1, 16)), style: .solid,
-                                             color: (isDark ? ReaderPalette.rule(dark: true) : PlatformColor(white: 0.5, alpha: 1)).cgColor)
+                                             color: (isDark ? theme.rule : PlatformColor(white: 0.5, alpha: 1)).cgColor)
                 tableBorders = TableModel.Borders(top: line, right: line, bottom: line, left: line)
             }
             // A hidden table draws no borders or background of its own; a row, a cell or content

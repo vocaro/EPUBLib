@@ -39,12 +39,18 @@ import SwiftUI
     private(set) var closed = false
     private(set) var style = EPUBReaderStyle()
     @ObservationIgnored private(set) var systemIsDark = false
-    private var effectiveIsDark: Bool { style.appearance == .system ? systemIsDark : style.appearance == .dark }
     /// The mounted view's Dynamic Type size, kept while the style does not follow it.
     @ObservationIgnored private(set) var systemTextSize: DynamicTypeSize = .large
     /// What the style's font size is multiplied by before it is drawn (`followsDynamicType`).
     private var dynamicTypeScale: CGFloat {
         style.followsDynamicType ? NativeTypography.dynamicTypeScale(for: systemTextSize) : 1
+    }
+    /// The system's Increase Contrast and Bold Text, as the mounted view's environment has them.
+    @ObservationIgnored private(set) var systemIncreasesContrast = false
+    @ObservationIgnored private(set) var systemBoldText = false
+    /// The colours the reader draws with: the style's theme, as Increase Contrast leaves it.
+    private var effectiveTheme: ReaderTheme {
+        ReaderTheme(style.colors(systemIsDark: systemIsDark), increasesContrast: systemIncreasesContrast)
     }
     /// The host's reserved division, from `View.epubReaderDivision(_:)`.
     var division: CGRect? { didSet { if division != oldValue { applyConfiguration() } } }
@@ -164,7 +170,7 @@ import SwiftUI
     private var configuration: ReaderCanvasConfiguration {
         var configuration = ReaderCanvasConfiguration()
         configuration.flow = style.flow
-        configuration.isDark = shownIsDark
+        configuration.theme = shownTheme
         configuration.isRightToLeft = publication.pageProgression == .rtl
         configuration.division = division
         configuration.pageMargins = style.typography.pageMargins.map { $0.isFinite ? min(max(CGFloat($0), 0), 4) : 1 } ?? 1
@@ -174,32 +180,33 @@ import SwiftUI
         return configuration
     }
 
-    /// The appearance of the text on screen, which the canvas draws in, so a page's text and its
-    /// background never disagree (#243). After a change of appearance the canvas keeps the old
-    /// one until it shows text built for the new (`showNewAppearanceIfReady`), and from then
-    /// on shows no text built for the old (`canShow`). An empty canvas takes the one asked for.
-    private var shownIsDark: Bool {
-        guard isReady, let canvas else { return effectiveIsDark }
+    /// The theme of the text on screen, which the canvas draws in, so a page's text and its
+    /// background never disagree (#243): Light and Dark, and as much Sepia, Black, custom colours
+    /// and Increase Contrast (#674). After a change of theme the canvas keeps the old one until
+    /// it shows text built for the new (`showNewAppearanceIfReady`), and from then on shows no
+    /// text built for the old (`canShow`). An empty canvas takes the one asked for.
+    private var shownTheme: ReaderTheme {
+        guard isReady, let canvas else { return effectiveTheme }
         guard let shown = canvas.shownText else {
             // The section about to be shown, as its newest build has it.
-            return book.typography(ofSection: visibleRange?.start.section ?? initialSection)?.isDark ?? effectiveIsDark
+            return book.typography(ofSection: visibleRange?.start.section ?? initialSection)?.theme ?? effectiveTheme
         }
-        // Text a newer build has replaced stays on screen, in the canvas's appearance, until the
+        // Text a newer build has replaced stays on screen, in the canvas's theme, until the
         // canvas is given the newer: a section's, or continuous scroll's whole book.
         if let section = shown.section {
             guard shown.text === book.section(section)?.string, let built = book.typography(ofSection: section) else {
-                return canvas.configuration.isDark
+                return canvas.configuration.theme
             }
-            return built.isDark
+            return built.theme
         }
-        return shown.text === book.bookText?.string ? book.typography.isDark : canvas.configuration.isDark
+        return shown.text === book.bookText?.string ? book.typography.theme : canvas.configuration.theme
     }
 
-    /// After a change of appearance the canvas keeps the old one until the sections on screen,
-    /// and those one page turn reaches from it, are built for the new. The page and the canvas
-    /// then change together, once, and the next turns need not wait for a build.
+    /// After a change of appearance or theme the canvas keeps the old one until the sections on
+    /// screen, and those one page turn reaches from it, are built for the new. The page and the
+    /// canvas then change together, once, and the next turns need not wait for a build.
     private func showNewAppearanceIfReady() {
-        guard isReady, let canvas, let range = visibleRange, shownIsDark != book.typography.isDark,
+        guard isReady, let canvas, let range = visibleRange, shownTheme != book.typography.theme,
               sections(inReachOf: range).allSatisfy(book.isCurrent) else { return }
         canvas.reloadContent(keeping: nil)
         applyConfiguration()
@@ -652,13 +659,24 @@ import SwiftUI
         if style.followsDynamicType { updatePresentation() }
     }
 
+    /// Increase Contrast and Bold Text apply in every appearance, so either changes an open
+    /// book's text whatever it is.
+    func updateSystemAccessibility(increasesContrast: Bool, boldText: Bool) {
+        guard !closed, systemIncreasesContrast != increasesContrast || systemBoldText != boldText else { return }
+        systemIncreasesContrast = increasesContrast
+        systemBoldText = boldText
+        updatePresentation()
+    }
+
     private func updatePresentation() {
+        let theme = effectiveTheme
         let scale = dynamicTypeScale
-        let typography = NativeTypography(fontSize: style.fontSize * scale, isDark: effectiveIsDark)
+        let typography = NativeTypography(fontSize: style.fontSize * scale, theme: theme, boldText: systemBoldText)
             .with(text: ReaderTextSettings(style.typography))
         readerState?.modify {
             $0.style = style
-            $0.effectiveAppearance = effectiveIsDark ? .dark : .light
+            $0.effectiveAppearance = theme.isDark ? .dark : .light
+            $0.effectiveColors = theme.colors
             $0.effectiveFontSize = Double(typography.fontSize)
             $0.dynamicTypeScale = Double(scale)
         }
@@ -762,7 +780,7 @@ import SwiftUI
         }
         if !isReady { becomeReadyIfPossible(); return }
         publishDisclosure()
-        if shownIsDark != book.typography.isDark { showNewAppearanceIfReady() }
+        if shownTheme != book.typography.theme { showNewAppearanceIfReady() }
         else if visibleRange?.start.section == index || visibleRange?.end.section == index, book.isCurrent(index) {
             canvas?.reloadContent(keeping: nil)
         }
@@ -890,12 +908,12 @@ extension NativeSession: ReaderCanvasDataSource {
     /// section; this departs from it on purpose, so the book reads through in either flow.
     func isLinear(section index: Int) -> Bool { !book.isOmitted(index) }
     var bookText: ReaderBookText? { book.bookText }
-    /// A section whose newest build is for another appearance than the canvas draws in is built
-    /// again before a turn shows it, unless that build is for the appearance asked for: showing
-    /// it is then the canvas's change of appearance (#243).
+    /// A section whose newest build is for another theme than the canvas draws in is built
+    /// again before a turn shows it, unless that build is for the theme asked for: showing it is
+    /// then the canvas's change of theme (#243).
     func canShow(section index: Int) -> Bool {
         guard let built = book.typography(ofSection: index), let canvas else { return true }
-        return built.isDark == canvas.configuration.isDark || book.isCurrent(index)
+        return built.theme == canvas.configuration.theme || book.isCurrent(index)
     }
     func isCurrent(section index: Int) -> Bool { book.isCurrent(index) }
 }
@@ -904,7 +922,7 @@ extension NativeSession: ReaderCanvasDelegate {
     func canvas(_ canvas: any ReaderCanvas, didShow range: ReaderTextRange, sectionProgress: Double) {
         if range != visibleRange { pageChanges += 1 }
         visibleRange = range
-        // A page of text built for the appearance asked for brings it to the canvas (`shownIsDark`).
+        // A page of text built for the theme asked for brings it to the canvas (`shownTheme`).
         applyConfiguration()
         guard isReady, !closed else { return }
         readerState?.modify {
@@ -965,7 +983,7 @@ extension NativeSession: ReaderCanvasDelegate {
                 guard self.isReady, self.isCurrent(ticket) else { return }
                 if let fragment = target.fragment, let note = text.notes[fragment] {
                     // The note is built with its section, for an appearance the page may not show yet.
-                    self.canvas?.presentNote(note, dark: self.book.typography.isDark, from: rect)
+                    self.canvas?.presentNote(note, theme: self.book.typography.theme, from: rect)
                 } else {
                     self.showNavigationTarget(text, fragment: target.fragment)
                 }
@@ -1053,6 +1071,10 @@ private struct NativeSurface: View {
     @Environment(\.epubReaderPageControls) private var pageControls
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// Increase Contrast, on iPhone, iPad and Mac.
+    @Environment(\.colorSchemeContrast) private var contrast
+    /// Bold Text, on iPhone and iPad.
+    @Environment(\.legibilityWeight) private var legibilityWeight
 
     var body: some View {
         if !session.closed {
@@ -1060,6 +1082,7 @@ private struct NativeSurface: View {
                 .onAppear {
                     session.updateSystemAppearance(isDark: colorScheme == .dark)
                     session.updateSystemTextSize(dynamicTypeSize)
+                    updateSystemAccessibility()
                     session.division = division
                     session.pageControls = pageControls
                 }
@@ -1067,6 +1090,8 @@ private struct NativeSurface: View {
                 .onChange(of: pageControls) { session.pageControls = pageControls }
                 .onChange(of: colorScheme) { session.updateSystemAppearance(isDark: colorScheme == .dark) }
                 .onChange(of: dynamicTypeSize) { session.updateSystemTextSize(dynamicTypeSize) }
+                .onChange(of: contrast) { updateSystemAccessibility() }
+                .onChange(of: legibilityWeight) { updateSystemAccessibility() }
                 #if os(iOS)
                 .accessibilityScrollAction { edge in
                     if edge == .leading { submit(.previousPage) }
@@ -1074,6 +1099,10 @@ private struct NativeSurface: View {
                 }
                 #endif
         }
+    }
+
+    private func updateSystemAccessibility() {
+        session.updateSystemAccessibility(increasesContrast: contrast == .increased, boldText: legibilityWeight == .bold)
     }
 
     #if os(iOS)

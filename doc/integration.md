@@ -62,7 +62,10 @@ func makeReader(publication: EPUBPublication,
 <!-- /snippet -->
 
 After `.ready`, send commands with `try await session.send(...)`: for example `.nextPage`,
-`.locate(text: "a passage", highlight: true)` or `.style(.init(fontSize: 20, appearance: .dark))`.
+`.locate(text: "a passage", highlight: true)` or `.style(.init(fontSize: 20, appearance: .sepia))`.
+The appearances are System, Light, Dark, Sepia, Black and Custom, whose colours a style's
+`customColors` holds; the reader follows Increase Contrast and Bold Text by itself
+([themes](native-viewer.md#decisions)).
 A style whose `followsDynamicType` is set has its font size scaled by the system text size, as
 body text is, also while the book is open ([commands and events](native-viewer.md#commands-and-events)).
 Check `session.capabilities` before offering an optional feature. Navigate with a resource's

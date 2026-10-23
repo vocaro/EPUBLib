@@ -11,8 +11,9 @@ public struct EPUBReaderStatus: Equatable, Sendable {
     public var lifecycle: EPUBReaderLifecycle = .loading
     public var capabilities: Set<EPUBReaderCapability>
     public var style = EPUBReaderStyle()
-    /// The appearance the style resolves to: always Light or Dark. The mounted viewer's page
-    /// takes it once text built for it is on screen, after a change when its section is rebuilt.
+    /// The appearance the style resolves to: always Light or Dark, whether its theme's background
+    /// is dark (`EPUBReaderColors.isDark`). Sepia is Light and Black is Dark. The mounted viewer's
+    /// page takes it once text built for it is on screen, after a change when its section is rebuilt.
     public var effectiveAppearance: EPUBReaderAppearance = .light
     public var location: EPUBLocation?
     public var canGoPrevious: Bool?
@@ -35,6 +36,9 @@ public struct EPUBReaderStatus: Equatable, Sendable {
     /// pages. It changes as `location` does, and on its own as counting goes on and after a
     /// relayout; an engine sets it before it emits the `.relocated` of the pages it describes.
     public var layoutPage: EPUBLayoutPage?
+    /// The colours the mounted viewer draws with: its theme's, as Increase Contrast leaves
+    /// them. A host can draw its own controls in them.
+    public var effectiveColors: EPUBReaderColors = .light
     public init(capabilities: Set<EPUBReaderCapability>) { self.capabilities = capabilities }
 }
 

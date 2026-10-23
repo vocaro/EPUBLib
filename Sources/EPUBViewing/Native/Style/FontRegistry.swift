@@ -170,14 +170,14 @@ final class FontRegistry: @unchecked Sendable {
     }
 
     func font(for style: ComputedStyle) -> PlatformFont {
-        let key = FontKey(families: style.fontFamilies, size: style.fontSize, weight: style.fontWeight,
+        let key = FontKey(families: style.fontFamilies, size: style.fontSize, weight: style.usedFontWeight,
                           italic: style.isItalic, smallCaps: style.isSmallCaps)
         lock.lock()
         if let font = cache[key] { lock.unlock(); return font }
         let current = generation
         lock.unlock()
-        let resolution = resolve(families: style.fontFamilies, weight: style.fontWeight, italic: style.isItalic)
-        let font = Self.makeFont(resolution, size: style.fontSize, weight: style.fontWeight,
+        let resolution = resolve(families: style.fontFamilies, weight: style.usedFontWeight, italic: style.isItalic)
+        let font = Self.makeFont(resolution, size: style.fontSize, weight: style.usedFontWeight,
                                  italic: style.isItalic, smallCaps: style.isSmallCaps)
         lock.lock()
         if generation == current {
@@ -191,20 +191,20 @@ final class FontRegistry: @unchecked Sendable {
     /// Whether `font(for:)` returned an upright face for an italic style, so the builder should
     /// slant it (`.obliqueness`).
     func needsSyntheticItalic(for style: ComputedStyle) -> Bool {
-        style.isItalic && resolve(families: style.fontFamilies, weight: style.fontWeight, italic: true).syntheticItalic
+        style.isItalic && resolve(families: style.fontFamilies, weight: style.usedFontWeight, italic: true).syntheticItalic
     }
 
     /// Whether `font(for:)` returned a face lighter than 600 for a weight of 600 or more, because
     /// the family has no bold, so the builder should embolden it (a negative `.strokeWidth`).
     func needsSyntheticBold(for style: ComputedStyle) -> Bool {
-        style.fontWeight >= 600 && resolve(families: style.fontFamilies, weight: style.fontWeight, italic: style.isItalic).syntheticBold
+        style.usedFontWeight >= 600 && resolve(families: style.fontFamilies, weight: style.usedFontWeight, italic: style.isItalic).syntheticBold
     }
 
     /// Whether small caps were asked for but the font has no lower-case small caps feature, so
     /// the builder should fake them (uppercase at a smaller size).
     func needsSyntheticSmallCaps(for style: ComputedStyle) -> Bool {
         guard style.isSmallCaps else { return false }
-        let key = FontKey(families: style.fontFamilies, size: style.fontSize, weight: style.fontWeight,
+        let key = FontKey(families: style.fontFamilies, size: style.fontSize, weight: style.usedFontWeight,
                           italic: style.isItalic, smallCaps: true)
         lock.lock()
         if let known = syntheticSmallCaps[key] { lock.unlock(); return known }

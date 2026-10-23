@@ -104,7 +104,13 @@ extension ReaderHighlight {
 struct ReaderCanvasConfiguration: Equatable, Sendable {
     var pageControls = EPUBPageControls()
     var flow: EPUBReadingFlow = .paginated
-    var isDark = false
+    /// The colours the page, its highlights, its selection and its popovers are drawn in.
+    var theme = ReaderTheme.light
+    /// The theme's background is dark. Setting it chooses Light or Dark.
+    var isDark: Bool {
+        get { theme.isDark }
+        set { theme = newValue ? .dark : .light }
+    }
     /// The spine's `page-progression-direction` is `rtl`: spreads read right to left and the
     /// visual page-turn directions (swipes, tap zones) are mirrored.
     var isRightToLeft = false
@@ -222,8 +228,8 @@ extension ReaderCanvasDelegate {
     /// Replaces every drawn highlight.
     func setHighlights(_ highlights: [ReaderHighlight])
     /// Shows a note in place (a popover), anchored at `rect` in canvas coordinates, in the
-    /// appearance its text was built for (`dark`), which a rebuild can reach before the page.
-    func presentNote(_ text: NSAttributedString, dark: Bool, from rect: CGRect)
+    /// theme its text was built for, which a rebuild can reach before the page.
+    func presentNote(_ text: NSAttributedString, theme: ReaderTheme, from rect: CGRect)
     /// Asks the reader whether to open a link outside the book: an alert on iPhone and iPad,
     /// over a note's popover when one is shown, and a sheet on the window on Mac. `answer` is
     /// called once, true for Open; a question asked while another is shown answers that one no.
@@ -231,4 +237,11 @@ extension ReaderCanvasDelegate {
     func askToOpen(_ question: ExternalLinkQuestion, from rect: CGRect, answer: @escaping @MainActor (Bool) -> Void) -> Bool
     /// Takes a question still shown away, answered no.
     func withdrawLinkQuestion()
+}
+
+extension ReaderCanvas {
+    /// A note in Light's colours or Dark's.
+    func presentNote(_ text: NSAttributedString, dark: Bool, from rect: CGRect) {
+        presentNote(text, theme: dark ? .dark : .light, from: rect)
+    }
 }
