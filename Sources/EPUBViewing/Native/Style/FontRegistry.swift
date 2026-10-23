@@ -60,6 +60,8 @@ final class FontRegistry: @unchecked Sendable {
         let source: Source
         let syntheticItalic: Bool
         var syntheticBold = false
+        /// The fonts of the families after an installed one, for the characters it lacks.
+        var fallbacks: [CTFontDescriptor] = []
     }
     private enum Design { case serif, sans, monospace, rounded }
     private struct FontKey: Hashable { let families: [String]; let size: CGFloat; let weight: Int; let italic: Bool; let smallCaps: Bool }
@@ -168,14 +170,14 @@ final class FontRegistry: @unchecked Sendable {
     }
 
     func font(for style: ComputedStyle) -> PlatformFont {
-        let key = FontKey(families: style.fontFamilies, size: style.fontSize, weight: style.fontWeight,
+        let key = FontKey(families: style.fontFamilies, size: style.fontSize, weight: style.usedFontWeight,
                           italic: style.isItalic, smallCaps: style.isSmallCaps)
         lock.lock()
         if let font = cache[key] { lock.unlock(); return font }
         let current = generation
         lock.unlock()
-        let resolution = resolve(families: style.fontFamilies, weight: style.fontWeight, italic: style.isItalic)
-        let font = Self.makeFont(resolution, size: style.fontSize, weight: style.fontWeight,
+        let resolution = resolve(families: style.fontFamilies, weight: style.usedFontWeight, italic: style.isItalic)
+        let font = Self.makeFont(resolution, size: style.fontSize, weight: style.usedFontWeight,
                                  italic: style.isItalic, smallCaps: style.isSmallCaps)
         lock.lock()
         if generation == current {
@@ -189,20 +191,20 @@ final class FontRegistry: @unchecked Sendable {
     /// Whether `font(for:)` returned an upright face for an italic style, so the builder should
     /// slant it (`.obliqueness`).
     func needsSyntheticItalic(for style: ComputedStyle) -> Bool {
-        style.isItalic && resolve(families: style.fontFamilies, weight: style.fontWeight, italic: true).syntheticItalic
+        style.isItalic && resolve(families: style.fontFamilies, weight: style.usedFontWeight, italic: true).syntheticItalic
     }
 
     /// Whether `font(for:)` returned a face lighter than 600 for a weight of 600 or more, because
     /// the family has no bold, so the builder should embolden it (a negative `.strokeWidth`).
     func needsSyntheticBold(for style: ComputedStyle) -> Bool {
-        style.fontWeight >= 600 && resolve(families: style.fontFamilies, weight: style.fontWeight, italic: style.isItalic).syntheticBold
+        style.usedFontWeight >= 600 && resolve(families: style.fontFamilies, weight: style.usedFontWeight, italic: style.isItalic).syntheticBold
     }
 
     /// Whether small caps were asked for but the font has no lower-case small caps feature, so
     /// the builder should fake them (uppercase at a smaller size).
     func needsSyntheticSmallCaps(for style: ComputedStyle) -> Bool {
         guard style.isSmallCaps else { return false }
-        let key = FontKey(families: style.fontFamilies, size: style.fontSize, weight: style.fontWeight,
+        let key = FontKey(families: style.fontFamilies, size: style.fontSize, weight: style.usedFontWeight,
                           italic: style.isItalic, smallCaps: true)
         lock.lock()
         if let known = syntheticSmallCaps[key] { lock.unlock(); return known }
@@ -236,14 +238,15 @@ final class FontRegistry: @unchecked Sendable {
         let bookFaces = faces, current = generation
         lock.unlock()
         var resolution: Resolution?
-        for family in families {
+        for (index, family) in families.enumerated() {
             if let candidates = bookFaces[family], let match = Self.match(candidates, weight: weight, italic: italic) {
                 resolution = match; break
             }
             if let design = Self.generic(family) {
                 resolution = Resolution(source: .system(design), syntheticItalic: false); break
             }
-            if let candidates = installedFaces(family), let match = Self.match(candidates, weight: weight, italic: italic) {
+            if let candidates = installedFaces(family), var match = Self.match(candidates, weight: weight, italic: italic) {
+                match.fallbacks = fallbacks(families[(index + 1)...], bookFaces: bookFaces, weight: weight, italic: italic)
                 resolution = match; break
             }
             if let design = Self.aliases[family] {
@@ -258,6 +261,26 @@ final class FontRegistry: @unchecked Sendable {
         }
         lock.unlock()
         return result
+    }
+
+    /// An installed family, such as one a host registers for the reader's text, is often a
+    /// font of one script. A character it lacks is drawn in the first of the families after it
+    /// that resolves, as CSS Fonts 4 §5 matches each character, and only then in the system's
+    /// fallback fonts: its cascade list. The book's own faces and the system designs keep the
+    /// system's fallback alone.
+    private func fallbacks(_ families: ArraySlice<String>, bookFaces: [String: [Face]], weight: Int,
+                           italic: Bool) -> [CTFontDescriptor] {
+        for family in families.prefix(4) {
+            if let candidates = bookFaces[family] ?? installedFaces(family),
+               let match = Self.match(candidates, weight: weight, italic: italic),
+               case .face(let descriptor, _) = match.source {
+                return [descriptor]
+            }
+            if let design = Self.generic(family) ?? Self.aliases[family] {
+                return [CTFontCopyFontDescriptor(Self.systemFont(design, size: 12, weight: weight, italic: italic) as CTFont)]
+            }
+        }
+        return []
     }
 
     private static func match(_ candidates: [Face], weight: Int, italic: Bool) -> Resolution? {
@@ -367,6 +390,10 @@ final class FontRegistry: @unchecked Sendable {
         case .face(var descriptor, let variableWeight):
             if let variableWeight {
                 descriptor = CTFontDescriptorCreateCopyWithVariation(descriptor, weightAxis as CFNumber, CGFloat(variableWeight))
+            }
+            if !resolution.fallbacks.isEmpty {
+                descriptor = CTFontDescriptorCreateCopyWithAttributes(
+                    descriptor, [kCTFontCascadeListAttribute: resolution.fallbacks] as CFDictionary)
             }
             font = CTFontCreateWithFontDescriptor(descriptor, size, nil)
         case .system(let design):

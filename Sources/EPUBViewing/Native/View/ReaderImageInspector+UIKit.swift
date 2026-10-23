@@ -11,9 +11,9 @@ import UIKit
     private var lastViewport = CGSize.zero
     var onClose: (() -> Void)?
 
-    init(bitmap: CGImage, label: String, dark: Bool) {
+    init(bitmap: CGImage, label: String, theme: ReaderTheme) {
         super.init(frame: .zero)
-        backgroundColor = ReaderPalette.background(dark: dark)
+        backgroundColor = theme.background
         accessibilityViewIsModal = true
         scrollView.delegate = self
         scrollView.backgroundColor = backgroundColor

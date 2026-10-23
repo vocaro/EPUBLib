@@ -24,7 +24,8 @@ import XCTest
         case stateDoesNotMirrorResults, stateKeepsClearedResults, publishesResultsWithoutTheCapability
     }
     static let everything: Set<EPUBReaderCapability> = [.pagination, .scrolling, .typography, .selection, .bookmarks, .locateText,
-                                                        .navigateHref, .searchHighlight, .highlights, .search, .searchResults]
+                                                        .navigateHref, .searchHighlight, .highlights, .search, .searchResults,
+                                                        .goToProgression]
     let id = "coverage.contract"
     var capabilities = Self.everything
     var fault = Fault.none
@@ -85,7 +86,7 @@ import XCTest
         case .noBookmarks: bookmark = nil
         default: break
         }
-        return EPUBLocation(publicationID: fault == .locationsOfAnotherPublication ? "another publication" : book.id, href: href,
+        return EPUBLocation(publicationID: fault == .locationsOfAnotherPublication ? "another publication" : book.persistentID, href: href,
                             bookmark: capabilities.contains(.bookmarks) ? bookmark : nil)
     }
 
@@ -137,13 +138,13 @@ import XCTest
             return
         }
         var listed = book.spine.enumerated().map { index, item in
-            EPUBSearchResult(index: index, location: EPUBLocation(publicationID: fault == .resultsOfAnotherPublication ? "another publication" : book.id,
+            EPUBSearchResult(index: index, location: EPUBLocation(publicationID: fault == .resultsOfAnotherPublication ? "another publication" : book.persistentID,
                                                                   href: item.resource.href, quote: text),
                              spineIndex: index, sectionTitle: "Section \(index + 1)", matchedText: text)
         }
         if bareResults {
             listed = listed.map {
-                EPUBSearchResult(index: $0.index, location: EPUBLocation(publicationID: book.id), spineIndex: $0.spineIndex, matchedText: text)
+                EPUBSearchResult(index: $0.index, location: EPUBLocation(publicationID: book.persistentID), spineIndex: $0.spineIndex, matchedText: text)
             }
         }
         if fault == .resultsOutOfOrder { listed.reverse() }
@@ -172,7 +173,7 @@ import XCTest
             relocate(href)
         case .restore(let location):
             guard try require(.bookmarks) else { return }
-            let compatible = (location.publicationID == book.id || fault == .acceptsAForeignPublication)
+            let compatible = (book.publicationIDs.contains(location.publicationID) || fault == .acceptsAForeignPublication)
                 && (location.bookmark?.engineID == place(location.href ?? "").bookmark?.engineID || fault == .acceptsAForeignEngine)
                 && (location.bookmark?.format == place(location.href ?? "").bookmark?.format || fault == .acceptsAForeignFormat)
             guard compatible else {
@@ -205,6 +206,7 @@ import XCTest
             }
             if fault != .showDoesNotSelect { show(result.index) }
         case .setHighlights: _ = try require(.highlights)
+        case .goToProgression: _ = try require(.goToProgression)
         case .style(let style):
             if style.flow == .scrolled, try !require(.scrolling) { return }
             if style.fontSize != EPUBReaderStyle().fontSize, try !require(.typography) { return }
@@ -291,7 +293,7 @@ import XCTest
         let commands: [(EPUBReaderCapability, String)] = [
             (.pagination, "pagination"), (.navigateHref, "navigateHref"), (.locateText, "locateText"), (.search, "search)"),
             (.highlights, "highlights"), (.typography, "typography"), (.scrolling, "scrolling"), (.bookmarks, "bookmarks"),
-            (.searchResults, "searchResults"),
+            (.searchResults, "searchResults"), (.goToProgression, "goToProgression"),
         ]
         for (capability, name) in commands {
             let capabilities = Engine.everything.subtracting([capability])

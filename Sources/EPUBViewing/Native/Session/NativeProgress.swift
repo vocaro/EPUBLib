@@ -64,6 +64,27 @@ struct NativeProgress {
         return min(1, max(0, (before + sizes[section] * min(1, max(0, fraction))) / total))
     }
 
+    /// The section and the fraction of it at a progression: the inverse of
+    /// `progression(section:fraction:)`, as foliate-js's `SectionProgress.getSection` was of its
+    /// own. 0 or less is the start of the first section `isShown` admits, 1 or more the end of
+    /// the last; a progression on the boundary of two sections is the later one's start, and a
+    /// section that weighs nothing is passed over. A book whose sections all weigh nothing
+    /// weighs each shown one the same. nil when no section is shown.
+    func target(progression: Double, isShown: (Int) -> Bool) -> (section: Int, fraction: Double)? {
+        let shown = sizes.indices.filter(isShown)
+        guard let first = shown.first, let last = shown.last else { return nil }
+        guard progression > 0 else { return (first, 0) }
+        guard progression < 1 else { return (last, 1) }
+        let weights = total > 0 ? shown.map { sizes[$0] } : shown.map { _ in 1.0 }
+        let goal = progression * weights.reduce(0, +)
+        var before = 0.0
+        for (section, weight) in zip(shown, weights) where weight > 0 {
+            if goal < before + weight { return (section, (goal - before) / weight) }
+            before += weight
+        }
+        return (last, 1)
+    }
+
     /// The contents title for a position. `anchor` resolves an entry's fragment in its section
     /// (nil when the section is not built yet, which places the entry at the section's start).
     func title(at position: ReaderTextPosition, anchor: (Int, String) -> Int?) -> String? {
