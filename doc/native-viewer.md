@@ -1576,8 +1576,10 @@ continues to describe the authored spine resource.
     in continuous scroll). The unit tests perform the cell's actions in both flows.
 - **Text selected with VoiceOver.** On iPhone and iPad VoiceOver selects text in a text
   field or a text view with its own rotor, and the reader's lines are elements of the
-  reader's own, which give it none of a text view's selection: on a line its rotor offers no
-  Text Selection ("Heard", below). So every line of a page and of continuous scroll offers
+  reader's own. An element on iOS has no selected range of its own to give VoiceOver or take
+  from it, as one on Mac has (`accessibilitySelectedTextRange`); whether VoiceOver would
+  select through a text input that an element names (`accessibilityTextInputResponder`) has
+  not been tried. So every line of a page and of continuous scroll offers
   selection as actions, as a table's row and cell do
   ([#707](https://github.com/vocaro/EPUBLib/issues/707)). A row and a cell keep their own
   ("A table's text selected with VoiceOver", above), and a rule, a picture without words and
@@ -1625,7 +1627,14 @@ continues to describe the authored spine resource.
     that begins or ends in a table's cell, or that runs into another section, is not grown
     or moved by these actions; Select Line replaces it. On Mac VoiceOver selects in a text
     area itself.
-  - **Heard.** HEARD_PLACEHOLDER
+  - **Heard.** The unit tests perform every action in pages and in continuous scroll on
+    iPhone and iPad simulators, DAISY's passage among them, and compare what Copy and the
+    host's action are given with a touch selection of the same passage (`LineSelectActionTests`).
+    What a simulator's VoiceOver says of the lines and their actions, and which settings its
+    rotor offers on a line, is recorded with the session in
+    [VoiceOver testing](testing.md#simulators); none has been heard yet. VoiceOver performing
+    these actions from its rotor needs a device
+    ([#814](https://github.com/vocaro/EPUBLib/issues/814)).
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
   in place and also show in popovers. Plain links into another document inspect captured notes
