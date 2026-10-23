@@ -208,6 +208,7 @@ extension StyleResolver {
         style.hyphens = parent.hyphens; style.isHidden = parent.isHidden
         style.borderCollapse = parent.borderCollapse; style.borderSpacing = parent.borderSpacing
         style.captionSide = parent.captionSide
+        style.usesBoldText = parent.usesBoldText
         if parent.generatedContent != nil { style.quotes = parent.quotes }
         // `medium`, zeroed below unless a border style shows it.
         for side in Side.allCases { style[border: side].width = 3 }
@@ -499,7 +500,7 @@ extension StyleResolver {
 
     private func xHeight(_ style: ComputedStyle) -> CGFloat {
         let font = fonts?.font(for: style) ?? FontRegistry.systemFont(families: style.fontFamilies,
-            size: style.fontSize, weight: style.fontWeight, italic: style.isItalic)
+            size: style.fontSize, weight: style.usedFontWeight, italic: style.isItalic)
         let height = CTFontGetXHeight(font as CTFont)
         return height.isFinite && height > 0 ? height : style.fontSize / 2
     }

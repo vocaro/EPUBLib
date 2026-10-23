@@ -21,7 +21,7 @@ enum MathContent {
                      images: ReaderImageCache = .shared) -> NSAttributedString? {
         let dark = context.typography.isDark
         let alt = collapsed(element.attribute("alttext") ?? "")
-        let textColor = style.color.map(platformColor) ?? ReaderPalette.text(dark: dark)
+        let textColor = style.color.map(platformColor) ?? context.typography.theme.text
         let color = textColor.cgColor
         do {
             // Book colors apply in light appearance only, as for text.

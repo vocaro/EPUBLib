@@ -42,6 +42,10 @@ none at its ends, so a title given with a tab, a line end, doubled spaces or a s
 is written as given and does not read back as given. The caller chooses a stable identifier and
 modification date for reproducible output; package generation does not invent document facts.
 
+A refusal is an `EPUBWritingError`, whose detail names what was refused and whose
+`localizedDescription` is a plain message for a person, that the book has errors or is too large
+to save as an EPUB ([when something fails](integration.md#when-something-fails)).
+
 No value is written empty. EPUB 3.3 requires each Dublin Core value and each navigation label to
 hold something once its ASCII whitespace is stripped, and a value is empty to the writer when,
 with what XML cannot hold left out, it is nothing but white space of any kind (Foundation's

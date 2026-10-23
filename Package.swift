@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "EPUBLib",
+    defaultLocalization: "en",
     platforms: [.iOS("27.0"), .macOS("27.0")],
     products: [
         .library(name: "EPUBCore", targets: ["EPUBCore"]),
@@ -19,13 +20,14 @@ let package = Package(
     targets: [
         .executableTarget(name: "SearchFocusProbe", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing", "EPUBTestSupport"], path: "Examples/SearchFocusProbe"),
         // The license and notice texts a host shows in its acknowledgments, under their projects' names.
-        .target(name: "EPUBCore", resources: [.copy("Licenses")]),
+        .target(name: "EPUBCore", resources: [.process("Localizable.xcstrings"), .copy("Licenses")]),
         .target(name: "EPUBReading", dependencies: ["EPUBCore", "ZIPFoundation"]),
-        .target(name: "EPUBText", dependencies: ["EPUBCore", "EPUBReading"]),
-        .target(name: "EPUBWriting", dependencies: ["EPUBCore", "ZIPFoundation"]),
+        .target(name: "EPUBText", dependencies: ["EPUBCore", "EPUBReading"], resources: [.process("Localizable.xcstrings")]),
+        .target(name: "EPUBWriting", dependencies: ["EPUBCore", "ZIPFoundation"], resources: [.process("Localizable.xcstrings")]),
         .target(name: "EPUBViewing", dependencies: ["EPUBCore", "EPUBReading",
                                                     .product(name: "MathMLLayout", package: "MathMLLayout"),
-                                                    .product(name: "StaticSVG", package: "StaticSVG")]),
+                                                    .product(name: "StaticSVG", package: "StaticSVG")],
+                resources: [.process("Localizable.xcstrings")]),
         .target(name: "EPUBViewingTestSupport", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing"]),
         .target(name: "EPUBTestSupport", dependencies: ["ZIPFoundation"], path: "Tests/EPUBTestSupport"),
         .target(name: "ReaderHostSupport", dependencies: ["EPUBCore", "EPUBReading", "EPUBText", "EPUBViewing"],
