@@ -175,6 +175,67 @@ final class TableCellLayout: @unchecked Sendable {
             }
         }
     }
+
+    /// Paints a highlight on the lines `indices` where `draw` draws them: on `run`, characters
+    /// of the cell's own text, a fill and then their glyphs again; on a nested row's
+    /// continuation, all of the row where it is in `run`, and otherwise the part in `nested`
+    /// whose rows hold it (`TableRowAttachment.drawHighlight`). The fill takes the place of
+    /// what was painted beneath it, so a word shows the last highlight painted on it, as text
+    /// shows its last highlight attribute. Only the lines holding the highlight's characters are
+    /// visited, found by binary search, so a cell's many highlights cost what they cover.
+    func drawHighlight(run: NSRange, nested: [TableNestedHighlight], color: CGColor, inLines indices: Range<Int>, at origin: CGPoint) {
+        #if os(iOS)
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        #else
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        #endif
+        let held = ([run] + nested.map(\.rows)).filter { $0.length > 0 }
+        guard let lower = held.map(\.location).min(), let upper = held.map(\.upperBound).max() else { return }
+        lock.withLock {
+            for index in lineIndices(holding: NSRange(location: lower, length: upper - lower), among: indices) {
+                let line = lines[index]
+                if let row = line.nestedRow {
+                    let part: TableNestedHighlight? = NSLocationInRange(line.characters.location, run)
+                        ? TableNestedHighlight(rows: run, start: nil, end: nil)
+                        : nested.first { NSLocationInRange(line.characters.location, $0.rows) }
+                    guard let part else { continue }
+                    context.saveGState()
+                    context.translateBy(x: origin.x + line.frame.minX, y: origin.y + line.frame.minY)
+                    row.drawHighlight(from: part.start, to: part.end, color: color, in: context,
+                                      size: line.frame.size, viewportHeight: viewportHeight)
+                    context.restoreGState()
+                    continue
+                }
+                let characters = NSIntersectionRange(run, line.characters)
+                guard characters.length > 0, let container = manager.textContainers.first else { continue }
+                let glyphs = manager.glyphRange(forCharacterRange: characters, actualCharacterRange: nil)
+                context.saveGState()
+                context.setBlendMode(.copy)
+                context.setFillColor(color)
+                manager.enumerateEnclosingRects(forGlyphRange: glyphs, withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
+                                                in: container) { rect, _ in
+                    context.fill(rect.offsetBy(dx: origin.x, dy: origin.y))
+                }
+                context.restoreGState()
+                manager.drawGlyphs(forGlyphRange: glyphs, at: origin)
+            }
+        }
+    }
+
+    /// The lines among `indices` that hold any of `characters`. The lines are in the order of
+    /// their characters, and a nested row's continuations share its one character.
+    private func lineIndices(holding characters: NSRange, among indices: Range<Int>) -> Range<Int> {
+        func first(where test: (Line) -> Bool) -> Int {
+            var low = indices.lowerBound, high = indices.upperBound
+            while low < high {
+                let middle = (low + high) / 2
+                if test(lines[middle]) { high = middle } else { low = middle + 1 }
+            }
+            return low
+        }
+        let lower = first { $0.characters.upperBound > characters.location }
+        return lower..<max(lower, first { $0.characters.location >= characters.upperBound })
+    }
 }
 
 /// A vertical portion of a row, plus the complete cell lines assigned to it. `height` can be

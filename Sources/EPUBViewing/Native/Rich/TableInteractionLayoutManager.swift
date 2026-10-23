@@ -9,6 +9,11 @@ import UIKit
 /// already painted those pixels, so native interaction paints only selected/highlighted ink.
 final class TableInteractionLayoutManager: NSLayoutManager {
     var drawnCharacterRanges: [NSRange] = []
+    /// Highlights of words in tables nested in the cell. This text holds a nested row as one
+    /// attachment, whose glyph is all of the row, so the cell's layout paints them over the
+    /// lines of it that are shown (`TableCellLayout.drawHighlight`).
+    var nestedHighlights: [(highlight: TableNestedHighlight, color: PlatformColor)] = []
+    var cellLayout: (cell: TableCellLayout, lines: Range<Int>)?
 
     override func drawGlyphs(forGlyphRange glyphRange: NSRange, at origin: CGPoint) {
         guard textStorage != nil else { return }
@@ -30,5 +35,10 @@ final class TableInteractionLayoutManager: NSLayoutManager {
             } else { merged.append(range) }
         }
         for range in merged { super.drawGlyphs(forGlyphRange: range, at: origin) }
+        guard let cellLayout else { return }
+        for entry in nestedHighlights where NSIntersectionRange(entry.highlight.rows, characters).length > 0 {
+            cellLayout.cell.drawHighlight(run: NSRange(location: 0, length: 0), nested: [entry.highlight],
+                                          color: entry.color.cgColor, inLines: cellLayout.lines, at: origin)
+        }
     }
 }

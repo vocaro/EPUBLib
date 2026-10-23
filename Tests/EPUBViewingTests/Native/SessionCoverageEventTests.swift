@@ -770,31 +770,100 @@ import XCTest
         try await expectTheWholeBook(after: "the system's appearance")
     }
 
-    /// "`.searchResultsChanged` reports … nil when a clear, another query, a failure, a
-    /// cancellation or `.locate` withdraws the list"; "Results exist only while `status.search`
-    /// is `.completed`." A cancellation that arrives as the results are published either comes
-    /// too late or withdraws them; it cannot report an idle search beside a published list.
+    /// "Task cancellation ends pending search feedback"; "Results exist only while
+    /// `status.search` is `.completed`." A cancellation that arrives with the results, from an
+    /// observer of the state that publishes them, from their event or from the completion's,
+    /// comes too late: the search completes, and reads as completed beside its drawn results.
     func testACancellationArrivingWithTheResultsLeavesSearchStateAndResultsAgreeing() async throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/157")
-        var search: Task<Void, Error>?
-        let reader = try open(SessionCoverageBook.chapters()) { event in
-            if case .searchResultsChanged(.some) = event { search?.cancel() }
+        @MainActor final class Search {
+            var task: Task<Void, Error>?
+            /// The state publishes the results before their event; the session holds them first.
+            func cancelOnPublication(by reader: SessionCoverageReader) {
+                withObservationTracking { _ = reader.state.status } onChange: { [self] in
+                    MainActor.assumeIsolated {
+                        if reader.session.searchResults != nil { task?.cancel() } else { cancelOnPublication(by: reader) }
+                    }
+                }
+            }
         }
-        try await reader.settle()
-        search = Task { try await reader.session.send(.search(text: "findword")) }
-        _ = await search?.result
-        try await Task.sleep(for: .milliseconds(100))
-        let status = reader.state.status
-        XCTAssertEqual(status.activeCommands, 0)
-        guard status.searchResults != nil else {
-            // The cancellation won: the list was withdrawn and said to be.
-            XCTAssertEqual(status.search, .idle)
-            XCTAssertEqual(reader.events.last { if case .searchResultsChanged = $0 { return true }; return false }, .searchResultsChanged(nil))
-            return XCTAssertTrue(reader.session.drawnHighlights.isEmpty)
+        enum Moment: CaseIterable { case publication, results, completion }
+        for command in [EPUBReaderCommand.search(text: "findword"), .searchHighlight(text: "findword")] {
+            for moment in Moment.allCases {
+                let label = "\(command) cancelled at its \(moment)"
+                let navigates: Bool
+                if case .search = command { navigates = true } else { navigates = false }
+                let reader = try open(SessionCoverageBook.chapters())
+                try await reader.settle()
+                let search = Search()
+                reader.onEvent = { event in
+                    switch (moment, event) {
+                    case (.publication, .searchChanged(.searching)): search.cancelOnPublication(by: reader)
+                    case (.results, .searchResultsChanged(.some)), (.completion, .searchChanged(.completed)): search.task?.cancel()
+                    default: break
+                    }
+                }
+                let before = reader.events.count
+                search.task = Task { try await reader.session.send(command) }
+                if case .failure(let error) = await search.task!.result { XCTFail("\(label): the search reported \(error)") }
+                XCTAssertEqual(search.task?.isCancelled, true, "\(label): the cancellation never arrived")
+
+                let status = reader.state.status, events = reader.events.dropFirst(before)
+                XCTAssertEqual(status.activeCommands, 0, label)
+                XCTAssertEqual(status.search, .completed(query: "findword", hasMatches: true),
+                               "\(label): \(status.searchResults?.count ?? 0) results stay published and drawn while the search reads \(status.search)")
+                let results = try XCTUnwrap(status.searchResults, label)
+                XCTAssertEqual(results.count, 2, label)
+                XCTAssertEqual(results.currentIndex, navigates ? 0 : nil, label)
+                XCTAssertEqual(events.last { if case .searchChanged = $0 { return true }; return false },
+                               .searchChanged(.completed(query: "findword", hasMatches: true)), label)
+                XCTAssertFalse(events.contains(.searchChanged(.idle)), label)
+                XCTAssertEqual(events.last { if case .searchResultsChanged = $0 { return true }; return false },
+                               .searchResultsChanged(results), label)
+                let drawn = reader.session.drawnHighlights
+                XCTAssertEqual(drawn.filter { $0.kind == .search }.count, results.count, label)
+                XCTAssertEqual(drawn.filter { $0.kind == .currentSearch }.count, navigates ? 1 : 0, label)
+                reader.close()
+            }
         }
-        // The cancellation came too late: the search completed, and reads as completed.
-        XCTAssertEqual(status.search, .completed(query: "findword", hasMatches: true),
-                       "\(status.searchResults?.count ?? 0) results stay published and drawn while the search reads \(status.search)")
+    }
+
+    /// "Task cancellation ends pending search feedback"; "A search cancelled before its results
+    /// are published ends with none." A cancellation that arrives before the results, as an
+    /// earlier list is withdrawn or as the search begins, ends the search: idle, with no list and
+    /// nothing of either query drawn, the reader where it was, and `send` reporting the cancellation.
+    func testACancellationBeforeTheResultsEndsTheSearchWithNoResults() async throws {
+        enum Moment: CaseIterable { case withdrawal, searching }
+        for moment in Moment.allCases {
+            let label = "cancelled at the \(moment)"
+            let reader = try open(SessionCoverageBook.chapters())
+            try await reader.settle()
+            // An earlier list, published and drawn, for the new search to withdraw.
+            try await reader.session.send(.searchHighlight(text: "findword"))
+            XCTAssertEqual(reader.state.status.searchResults?.count, 2, label)
+            XCTAssertFalse(reader.session.drawnHighlights.isEmpty, label)
+            var search: Task<Void, Error>?
+            reader.onEvent = { event in
+                switch (moment, event) {
+                case (.withdrawal, .searchResultsChanged(.none)), (.searching, .searchChanged(.searching)): search?.cancel()
+                default: break
+                }
+            }
+            let position = reader.session.visibleRange, before = reader.events.count
+            search = Task { try await reader.session.send(.search(text: "findword")) }
+            do { try await search?.value; XCTFail("\(label): the search completed") } catch is CancellationError {}
+
+            let status = reader.state.status, events = reader.events.dropFirst(before)
+            XCTAssertEqual(status.activeCommands, 0, label)
+            XCTAssertEqual(status.search, .idle, label)
+            XCTAssertNil(status.searchResults, label)
+            XCTAssertEqual(events.last { if case .searchChanged = $0 { return true }; return false }, .searchChanged(.idle), label)
+            XCTAssertFalse(events.contains { if case .searchChanged(.completed) = $0 { return true }; return false }, label)
+            XCTAssertEqual(events.filter { if case .searchResultsChanged = $0 { return true }; return false },
+                           [.searchResultsChanged(nil)], label)
+            XCTAssertFalse(reader.session.drawnHighlights.contains { $0.kind == .search || $0.kind == .currentSearch }, label)
+            XCTAssertEqual(reader.session.visibleRange, position, label)
+            reader.close()
+        }
     }
 
     // MARK: Bursts

@@ -79,7 +79,9 @@ private struct ControlledTestReader: View {
     let window: UIWindow
     #endif
 
-    init(session: any EPUBReaderSession) {
+    /// `colorScheme` is the appearance the host reports from the first time it shows the reader.
+    init(session: any EPUBReaderSession, colorScheme: ColorScheme? = nil) {
+        pageControls.colorScheme = colorScheme
         #if os(macOS)
         window = makeMacTestWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700),
                           styleMask: [.titled], backing: .buffered, defer: false)
