@@ -45,6 +45,10 @@ Of `EPUBMetadata`, the writer writes the title, creators, languages and identifi
 write `accessibility`, the accessibility metadata a reader reads from a book
 ([#809](https://github.com/vocaro/EPUBLib/issues/809)).
 
+A refusal is an `EPUBWritingError`, whose detail names what was refused and whose
+`localizedDescription` is a plain message for a person, that the book has errors or is too large
+to save as an EPUB ([when something fails](integration.md#when-something-fails)).
+
 No value is written empty. EPUB 3.3 requires each Dublin Core value and each navigation label to
 hold something once its ASCII whitespace is stripped, and a value is empty to the writer when,
 with what XML cannot hold left out, it is nothing but white space of any kind (Foundation's

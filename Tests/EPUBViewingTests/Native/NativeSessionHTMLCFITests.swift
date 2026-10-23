@@ -58,19 +58,22 @@ import XCTest
             engineID: NativeEngine.identifier, format: NativeEngine.bookmarkFormat, value: value))
         try await session.send(.restore(old))
         XCTAssertEqual(session.visibleRange?.start.section, 0)
-        XCTAssertTrue(events.contains(.notice("the saved position could not be found in this book")))
+        XCTAssertTrue(events.contains(.notice("The saved position could not be found in this book.")))
         var bare = old
         bare.bookmark?.value = "epubcfi(/6/4)"
         try await session.send(.restore(bare))
         XCTAssertEqual(session.visibleRange?.start.section, 0, "bare section bookmarks use the same fail-closed contract")
         try await session.send(.setHighlights([EPUBHighlight(id: "ambiguous", location: old)]))
-        try await wait { events.contains(.notice("a highlight's passage could not be found in this book: ambiguous")) }
+        func highlightNotices() -> Int { events.filter { $0 == .notice("Some highlights could not be shown.") }.count }
+        try await wait { highlightNotices() == 1 }
+        XCTAssertEqual(session.readerState?.status.undrawnHighlights, ["ambiguous": .passageNotFound])
         XCTAssertFalse(session.drawnHighlights.contains { $0.id == "ambiguous" })
         let first = EPUBEngineBookmark(engineID: NativeEngine.identifier, format: NativeEngine.bookmarkFormat,
                                        value: "epubcfi(/6/2!/4/4,/1:0,/1:7)")
         let mixed = EPUBLocation(publicationID: publication.id, bookmark: first, rangeBookmarks: [first, try XCTUnwrap(old.bookmark)])
         try await session.send(.setHighlights([EPUBHighlight(id: "mixed", location: mixed)]))
-        try await wait { events.contains(.notice("a highlight's passage could not be found in this book: mixed")) }
+        try await wait { highlightNotices() == 2 }
+        XCTAssertEqual(session.readerState?.status.undrawnHighlights, ["mixed": .passageNotFound])
         XCTAssertFalse(session.drawnHighlights.contains { $0.id == "mixed" }, "reject the complete highlight, including the valid first segment")
         try await session.send(.restore(mixed))
         XCTAssertEqual(session.visibleRange?.start.section, 0)

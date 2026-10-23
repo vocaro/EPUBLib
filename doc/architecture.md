@@ -20,14 +20,17 @@ framework. EPUBWriting depends only on EPUBCore and ZIPFoundation, never EPUBRea
 viewing. The adapter-contract helper is an internal test-support target, not a library product.
 
 Source API compatibility with the former package is not a constraint. Publication fingerprints
-retain their existing meaning. The reader's engine identifier is `org.epublib.reader` and its
+(`id`) retain their existing meaning, but locations carry `persistentID` since
+[#679](https://github.com/vocaro/EPUBLib/issues/679), and the reader still restores one saved
+under the fingerprint. The reader's engine identifier is `org.epublib.reader` and its
 bookmark format `epublib-cfi-v1` (`EPUBReader.identifier`, `EPUBReader.bookmarkFormat`); both name
 the library, not a renderer. The WebKit reader's `org.epubreaderlib.foliate`/`epubcfi-v1`
 bookmarks are another engine's and are refused, but their CFI values name the same positions:
 a host migrates one by re-tagging it with the reader's identifier and format. When the former
 sample app's book ([#700](https://github.com/vocaro/EPUBLib/issues/700)) gained the required
 modification timestamp, its bytes and publication fingerprint changed, so positions saved
-against the older book did not carry over ([#168](https://github.com/vocaro/EPUBLib/issues/168)).
+against the older book did not carry over ([#168](https://github.com/vocaro/EPUBLib/issues/168));
+under `persistentID`, its unique identifier, they would have.
 
 ## Publication model
 
@@ -133,7 +136,40 @@ that `open(at:)` opens is read no further to be refused: one longer than `archiv
 length, read not at all, and one with no end record by those last and first bytes. A pipe, a
 socket or a device, which gives no length, is read from its first byte, as far as
 `archiveBytes` and one more, and refused as its bytes are
-([#208](https://github.com/vocaro/EPUBLib/issues/208)).
+([#208](https://github.com/vocaro/EPUBLib/issues/208)). Bytes with no end record are refused as
+`notArchive`, a ZIP archive with no EPUB mimetype as `notEPUB`, and other damage to the archive as
+`invalidArchive` ([when something fails](integration.md#when-something-fails)).
+
+`open(at:)` also reads a book unpacked into a folder, an OCF abstract container (EPUB 3.3 §4.2)
+that the file system holds, as Apple Books keeps one on the Mac
+([#680](https://github.com/vocaro/EPUBLib/issues/680)). Its files are an archive's entries by
+their paths from the folder, held to the same rules for a path and the same refusals, and to the
+limits of an archive's expansion: `resourceBytes` for each, by its length before it is read and by
+its bytes as they come, `expandedBytes` for all of them, and `entryCount` for its files and the
+folders inside it together. `archiveBytes` is not asked. `mimetype`, which EPUB 3.3 §4.2.2
+reserves for a ZIP container, may be missing; one that is there must name EPUB. A symbolic link
+is refused wherever it stands and whatever it points at, as a link entry is, and so is anything
+but a file or a folder, such as a pipe. Every file and folder is opened by its path from the
+folder with `O_NOFOLLOW_ANY`, so one replaced by a link after the folder was listed is refused
+too; the folder the URL names may itself be a link. A file held under two names, a hard link, is
+read under each. Only the names, the kinds of entry and each file's length are asked of the file
+system, never a timestamp (#685). The publication has no `archiveData` and no `lostEntries`.
+
+A publication's `id` is the SHA-256 of the bytes it was opened from: the file's, or the folder's
+files, each with its path. Its `persistentID`, which the reader's locations carry, is the
+package's unique identifier (`uniqueIdentifier`, the `dc:identifier` that `unique-identifier`
+names, read as a metadata value), which EPUB 3.3 §5.5.3.1.1 asks a book's makers to keep through
+minor revisions, or, without one, the SHA-256 of its content: each resource it holds, by its path
+in normalization form C and its bytes, and the paths of its spine in order, but not the package
+document. So a copy downloaded again, zipped again, edited in its metadata or unpacked into a
+folder has the book's `persistentID`, and a different `id`
+([#679](https://github.com/vocaro/EPUBLib/issues/679)). `releaseIdentifier` joins the unique
+identifier and the `dcterms:modified` that refines nothing with `@`, as EPUB 3.0.1 §4.1.2 made a
+release identifier, to tell one version from the next. `publicationIDs` lists every value a
+location saved in the book can carry: `persistentID`, the content's SHA-256 where that is not it,
+and `id`. Two publications that give one unique identifier share a `persistentID`, though EPUB
+Reading Systems 3.3 §5.2 has a reading system not depend on a unique identifier being unique; a
+saved position then restores in either as far as its CFI resolves there.
 
 Faults that leave a book readable are read past instead. Apart from `lostEntries` (under
 Archive), the publication model has no channel for warnings, so this list is where they are
@@ -359,12 +395,20 @@ callbacks and releases renderer references. Hosts serialize commands whose order
 sessions explicitly. Views returned by a closed session contain no reader. Public readiness is
 emitted exactly once; later fidelity disclosures do not restart the session lifecycle.
 
-Portable location fields contain the publication fingerprint, section href, text quote, overall
+Portable location fields contain the publication's `persistentID`, section href, text quote, overall
 progression and the page-list entries the range shows when known. Resource `href`, navigation
 hrefs and location hrefs are encoded URL references; resource `path` is the decoded archive key. Exact restoration uses a separately tagged engine bookmark. The reader's
-`epublib-cfi-v1` bookmark is accepted only for the same publication fingerprint and engine identifier.
+`epublib-cfi-v1` bookmark is accepted only for a location that carries one of the publication's
+`publicationIDs`, and for the engine identifier.
 Other engines may offer approximate navigation by href or quote; this is not automatic bookmark
 conversion. The package does not promise cross-engine page, search or selection equivalence.
+
+The pages of an engine's own layout are status, not location: an engine that counts them sets
+`EPUBReaderStatus.layoutPage` in paginated flow, before the `.relocated` of the same pages, and
+leaves it nil while it counts. `.goToProgression` takes the measure of `EPUBLocation.progression`,
+so a host can send back a progression it was given; an engine without it refuses the command
+with `.unsupported(.goToProgression)`, which the [contract checks](testing.md#adapter-contract-tests)
+hold every adapter to ([#681](https://github.com/vocaro/EPUBLib/issues/681)).
 
 ## Viewer isolation
 
@@ -379,7 +423,9 @@ never loaded, and depth and node counts are bounded. Markup that is not well-for
 libxml2's forgiving HTML parser rather than refused. CSS, fonts, MathML and images are parsed with
 their own bounds. Every reference resolves inside the archive snapshot, but for an image in a
 `data:` URL, which is read from the URL's own bytes; remote images, stylesheets,
-fonts and media are never fetched, external links are refused with a notice, and `script`
+fonts and media are never fetched, a web or email link outside the book is opened only after
+the reader agrees and any other is refused with a notice
+([links outside the book](native-viewer.md#security)), and `script`
 elements are counted and disclosed but never run. Sandboxed macOS hosts need no network entitlement.
 The general method is in
 [screening untrusted markup](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#screen-untrusted-markup-before-any-parser-sees-it).

@@ -37,10 +37,17 @@ extension ReaderCanvasView: NSTextViewDelegate {
     }
 
     func applyAppearance() {
-        let dark = configuration.isDark
-        appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        layer?.backgroundColor = ReaderPalette.background(dark: dark).cgColor
-        (scrollContainer as? NSScrollView)?.backgroundColor = ReaderPalette.background(dark: dark)
+        let theme = configuration.theme
+        appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
+        layer?.backgroundColor = theme.background.cgColor
+        (scrollContainer as? NSScrollView)?.backgroundColor = theme.background
+        for view in textViews { view.selectedTextAttributes = Self.selectedTextAttributes(theme) }
+    }
+
+    /// The theme's selection behind selected text, whose own colours stay: AppKit's would draw
+    /// the system's selection colour, and its selected text colour over the theme's.
+    static func selectedTextAttributes(_ theme: ReaderTheme) -> [NSAttributedString.Key: Any] {
+        [.backgroundColor: theme.selection]
     }
 
     override var isFlipped: Bool { true }
@@ -56,6 +63,7 @@ extension ReaderCanvasView: NSTextViewDelegate {
     func makeColumnView() -> ReaderTextView {
         let view = ReaderTextView(pageColumn: true)
         view.delegate = self
+        view.selectedTextAttributes = Self.selectedTextAttributes(configuration.theme)
         addSubview(view)
         return view
     }
@@ -67,10 +75,11 @@ extension ReaderCanvasView: NSTextViewDelegate {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = true
-        scrollView.backgroundColor = ReaderPalette.background(dark: configuration.isDark)
+        scrollView.backgroundColor = configuration.theme.background
         scrollView.automaticallyAdjustsContentInsets = true
         let textView = ReaderTextView(pageColumn: false)
         textView.delegate = self
+        textView.selectedTextAttributes = Self.selectedTextAttributes(configuration.theme)
         textView.frame = CGRect(origin: .zero, size: scrollView.contentSize)
         scrollView.documentView = textView
         scrollView.contentView.postsBoundsChangedNotifications = true
@@ -422,8 +431,8 @@ extension ReaderCanvasView: NSTextViewDelegate {
     }
 
     override func keyDown(with event: NSEvent) {
-        guard let forward = ReaderTextView.pageTurnDirection(for: event, controls: configuration.pageControls) else { return super.keyDown(with: event) }
-        turnPageFromInput(forward: forward)
+        guard let action = ReaderTextView.pageAction(for: event, controls: configuration.pageControls) else { return super.keyDown(with: event) }
+        performPageActionFromInput(action)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -432,9 +441,9 @@ extension ReaderCanvasView: NSTextViewDelegate {
 
     func handlePageKeyEquivalent(_ event: NSEvent) -> Bool {
         guard imageInspector == nil, hasKeyboardFocus,
-              let forward = ReaderTextView.pageTurnDirection(for: event, controls: configuration.pageControls)
+              let action = ReaderTextView.pageAction(for: event, controls: configuration.pageControls)
         else { return false }
-        turnPageFromInput(forward: forward)
+        performPageActionFromInput(action)
         return true
     }
 
@@ -495,30 +504,74 @@ extension ReaderCanvasView: NSTextViewDelegate {
 
     // MARK: Notes
 
-    func presentNote(_ text: NSAttributedString, dark: Bool, from rect: CGRect) {
+    func presentNote(_ text: NSAttributedString, theme: ReaderTheme, from rect: CGRect) {
         guard window != nil else { return }
         (presentedNote as? NSPopover)?.close()
         let popover = NSPopover()
         popover.behavior = .transient
-        popover.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        popover.contentViewController = ReaderNoteViewController(
-            text: text, dark: dark, width: min(360, max(200, bounds.width - 32)))
+        popover.appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
+        let controller = ReaderNoteViewController(
+            text: text, theme: theme, width: min(360, max(200, bounds.width - 32)))
+        controller.onLink = { [weak self] url in self?.activateNoteLink(url) }
+        popover.contentViewController = controller
         popover.show(relativeTo: rect, of: self, preferredEdge: .maxY)
         presentedNote = popover
+        noteRect = rect
+    }
+
+    // MARK: Links outside the book
+
+    /// A sheet on the reader's window. Open is its first button, the sheet's default button,
+    /// which Return chooses while the sheet is the key window, and Cancel its second, whose key
+    /// equivalent is Escape. A note's popover is closed first: it is a window of its own, which
+    /// would stand over the sheet.
+    func askToOpen(_ question: ExternalLinkQuestion, from rect: CGRect, answer: @escaping @MainActor (Bool) -> Void) -> Bool {
+        withdrawLinkQuestion()
+        guard let window else { return false }
+        (presentedNote as? NSPopover)?.close()
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = question.title
+        alert.informativeText = question.message
+        alert.addButton(withTitle: ExternalLinkQuestion.open)
+        alert.addButton(withTitle: ExternalLinkQuestion.cancel)
+        linkQuestion = (alert, answer)
+        alert.beginSheetModal(for: window) { [weak self, weak alert] response in
+            if let alert { self?.answerLinkQuestion(response == .alertFirstButtonReturn, to: alert) }
+        }
+        return true
+    }
+
+    func withdrawLinkQuestion() {
+        guard let question = linkQuestion else { return }
+        linkQuestion = nil
+        if let alert = question.shown as? NSAlert, let parent = alert.window.sheetParent {
+            parent.endSheet(alert.window, returnCode: .cancel)
+        }
+        question.answer(false)
     }
 }
 
-/// A note shown in place: its text in a TextKit 2 view whose links do nothing.
+/// A note shown in place: its text in a TextKit 2 view. A link outside the book in it is
+/// handed to `onLink`, and so asked about as one in the text is; a link inside the book does
+/// nothing.
 final class ReaderNoteViewController: NSViewController, NSTextViewDelegate {
     let textView = ReaderTextView(pageColumn: false)
-    private let dark: Bool
+    /// Where a link the note's text activates goes: the canvas that shows the note.
+    var onLink: ((URL) -> Void)?
+    private let theme: ReaderTheme
     private let width: CGFloat
 
-    init(text: NSAttributedString, dark: Bool, width: CGFloat) {
-        self.dark = dark
+    convenience init(text: NSAttributedString, dark: Bool, width: CGFloat) {
+        self.init(text: text, theme: dark ? .dark : .light, width: width)
+    }
+
+    init(text: NSAttributedString, theme: ReaderTheme, width: CGFloat) {
+        self.theme = theme
         self.width = width
         super.init(nibName: nil, bundle: nil)
         textView.delegate = self
+        textView.selectedTextAttributes = ReaderCanvasView.selectedTextAttributes(theme)
         textView.textContainerInset = NSSize(width: 0, height: 16)
         textView.columnMinX = 16
         textView.readerContainer.size = CGSize(width: width - 32, height: 0)
@@ -535,13 +588,19 @@ final class ReaderNoteViewController: NSViewController, NSTextViewDelegate {
         let scrollView = NSScrollView(frame: CGRect(origin: .zero, size: preferredContentSize))
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
+        // The note on the page's colour. The popover's arrow is AppKit's own.
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = theme.background
         textView.frame = CGRect(origin: .zero, size: scrollView.contentSize)
         scrollView.documentView = textView
         view = scrollView
     }
 
-    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool { true }
+    /// A click on a link, and VoiceOver's press of AppKit's own element for it.
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+        if let url = link as? URL ?? (link as? String).flatMap({ URL(string: $0) }) { onLink?(url) }
+        return true
+    }
 }
 #endif
 
@@ -554,6 +613,10 @@ final class ReaderScrollView: NSScrollView {
     override func scrollWheel(with event: NSEvent) {
         if let view = canvas?.scrollTextView { canvas?.holdScrollPlace(of: view) }
         super.scrollWheel(with: event)
+        // The person's wheel or trackpad reads on, and its momentum is the same gesture.
+        if let canvas, event.momentumPhase.isEmpty, event.scrollingDeltaX != 0 || event.scrollingDeltaY != 0 {
+            canvas.delegate?.canvasDidReadOn(canvas)
+        }
     }
 }
 

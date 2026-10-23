@@ -282,26 +282,56 @@ import UIKit
 
     func testTextSizeStepsStayWithinSizesTheBundledReaderDraws() {
         XCTAssertEqual(CGFloat(EPUBReaderControl.textSizes.lowerBound), NativeTypography.minimumFontSize)
-        XCTAssertLessThanOrEqual(CGFloat(EPUBReaderControl.textSizes.upperBound), NativeTypography.maximumFontSize)
-        // Every step the control leaves enabled changes the size the reader draws.
-        for direction in [-2.0, 2.0] {
-            var size = EPUBReaderStyle().fontSize
-            var steps = 0
-            while true {
-                let next = EPUBReaderControl.textSize(size, steppedBy: direction)
-                if next == size { break }
-                XCTAssertNotEqual(NativeTypography(fontSize: next).fontSize, NativeTypography(fontSize: size).fontSize,
-                                  "a step from \(size) to \(next) draws no differently")
-                size = next
-                steps += 1
+        XCTAssertEqual(CGFloat(EPUBReaderControl.textSizes.upperBound), NativeTypography.maximumFontSize,
+                       "the controls reach the largest size the reader draws (#675)")
+        // Two points at a time to 36, then larger steps to 96, and back through the same sizes.
+        let ladder = [12.0, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 40, 44, 48, 56, 64, 72, 80, 88, 96]
+        var up = [12.0]
+        while let next = EPUBReaderControl.textSize(up.last!, larger: true, scale: 1) { up.append(next) }
+        XCTAssertEqual(up, ladder)
+        var down = [96.0]
+        while let next = EPUBReaderControl.textSize(down.last!, larger: false, scale: 1) { down.append(next) }
+        XCTAssertEqual(down, ladder.reversed())
+        // Every step the control leaves enabled changes the size the reader draws, at every
+        // system text size, and moves the way the control says, until one end is drawn.
+        for textSize in DynamicTypeSize.allCases {
+            let scale = Double(NativeTypography.dynamicTypeScale(for: textSize))
+            for larger in [false, true] {
+                var size = EPUBReaderStyle().fontSize
+                var steps = 0
+                while let next = EPUBReaderControl.textSize(size, larger: larger, scale: scale) {
+                    XCTAssertEqual(larger, next > size, "\(textSize): a step from \(size) to \(next)")
+                    XCTAssertNotEqual(NativeTypography(fontSize: next * scale).fontSize, NativeTypography(fontSize: size * scale).fontSize,
+                                      "\(textSize): a step from \(size) to \(next) draws no differently")
+                    size = next
+                    steps += 1
+                }
+                let drawn = NativeTypography(fontSize: size * scale).fontSize
+                XCTAssertTrue(drawn == (larger ? 96 : 12) || size == (larger ? 96 : 12),
+                              "\(textSize): the steps ended at \(size), drawn at \(drawn)")
+                XCTAssertGreaterThan(steps, 0, "\(textSize)")
             }
-            XCTAssertEqual(size, direction < 0 ? 12 : 36)
-            XCTAssertGreaterThan(steps, 2)
         }
-        // A size a host set outside the range steps from what is drawn, never by a dead press.
-        XCTAssertEqual(EPUBReaderControl.textSize(10, steppedBy: 2), 14)
-        XCTAssertEqual(EPUBReaderControl.textSize(10, steppedBy: -2), 12)
-        XCTAssertEqual(EPUBReaderControl.textSize(40, steppedBy: -2), 34)
+        // From the default size Larger Text reaches 96, not the 36 it stopped at before.
+        var size = EPUBReaderStyle().fontSize
+        while let next = EPUBReaderControl.textSize(size, larger: true, scale: 1) { size = next }
+        XCTAssertEqual(size, 96)
+        // A size a host set outside the range steps from what is drawn, never by a dead press,
+        // and one off the ladder goes to the next size on it.
+        XCTAssertEqual(EPUBReaderControl.textSize(10, larger: true, scale: 1), 14)
+        XCTAssertNil(EPUBReaderControl.textSize(10, larger: false, scale: 1), "10 and 12 are both drawn at 12")
+        XCTAssertEqual(EPUBReaderControl.textSize(120, larger: false, scale: 1), 88)
+        XCTAssertNil(EPUBReaderControl.textSize(120, larger: true, scale: 1))
+        XCTAssertEqual(EPUBReaderControl.textSize(46, larger: true, scale: 1), 48)
+        XCTAssertEqual(EPUBReaderControl.textSize(38, larger: false, scale: 1), 36)
+        XCTAssertEqual(EPUBReaderControl.textSize(17, larger: true, scale: 1), 19)
+        // At the largest accessibility size, 53 points for 17, several chosen sizes are drawn at
+        // 96: Smaller Text passes over them, and Larger Text is off once 96 is drawn.
+        let largest = 53.0 / 17
+        XCTAssertNil(EPUBReaderControl.textSize(32, larger: true, scale: largest))
+        XCTAssertEqual(EPUBReaderControl.textSize(36, larger: false, scale: largest), 30)
+        XCTAssertEqual(EPUBReaderControl.textSize(17, larger: true, scale: largest), 19)
+        XCTAssertEqual(EPUBReaderControl.textSizeDescription(59.235), "59 points")
     }
 
     // MARK: Search field
@@ -356,13 +386,16 @@ import UIKit
         XCTAssertEqual(session.visibleRange, opening)
 
         // No default page key reaches the reader from the field, whatever it does there.
+        // Home, End, Command-Up and Command-Down go to the book's ends with reader focus (#681).
         let pageKeys: [(UInt16, String, NSEvent.ModifierFlags)] = [
             (49, " ", []), (49, " ", .shift), (123, "\u{F702}", []), (124, "\u{F703}", []),
             (116, "\u{F72C}", []), (121, "\u{F72D}", []),
+            (115, "\u{F729}", [.function]), (119, "\u{F72B}", [.function]),
+            (126, "\u{F700}", [.command, .function, .numericPad]), (125, "\u{F701}", [.command, .function, .numericPad]),
         ]
         for (code, characters, flags) in pageKeys {
             let event = try key(code, characters, flags, in: host.window)
-            XCTAssertNotNil(ReaderTextView.pageTurnDirection(for: event), "key \(code) turns pages with reader focus")
+            XCTAssertNotNil(ReaderTextView.pageAction(for: event), "key \(code) is a page key with reader focus")
             XCTAssertFalse(canvas.handlePageKeyEquivalent(event), "key \(code)")
             XCTAssertFalse(host.root.performKeyEquivalent(with: event), "key \(code)")
             XCTAssertEqual(session.visibleRange, opening, "key \(code)")
@@ -432,7 +465,17 @@ import UIKit
             length += 1
         }
         XCTAssertGreaterThan(length, 1)
+        // The reader holds the keyboard focus nothing else does, and gives none up (#681): the
+        // field takes it when it is edited, and the reader does not take it back while it is.
+        XCTAssertTrue(canvas.hasKeyboardFocus, "the reader has the focus no other view holds")
+        XCTAssertTrue(field.becomeFirstResponder())
         XCTAssertFalse(canvas.hasKeyboardFocus)
+        canvas.takeKeyboardFocusIfFree()
+        XCTAssertTrue(field.isFirstResponder, "the reader leaves the field its focus and its keyboard")
+        XCTAssertFalse(canvas.hasKeyboardFocus)
+        XCTAssertTrue(field.resignFirstResponder())
+        canvas.takeKeyboardFocusIfFree()
+        XCTAssertTrue(canvas.hasKeyboardFocus, "a touch on the reader takes the focus no other view holds")
     }
     #endif
 }
