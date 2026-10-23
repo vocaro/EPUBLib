@@ -200,6 +200,47 @@ final class CSSSyntaxMediaCoverageTests: XCTestCase {
         }
     }
 
+    /// Media Queries 4 §2.4 takes a `<length>`, `<resolution>`, `<number>` or `<integer>` as a
+    /// feature's value, and CSS Values 4 §10 lets a math function stand wherever its type
+    /// does. Relative units are those of the initial values (§1.3): an `em` of 16 pixels, an
+    /// `ex` and a `ch` of half that, and viewport units of the nominal viewport (#756;
+    /// web-platform-tests css/mediaqueries/mq-calc-*.html, relative-units-*.html and
+    /// test_media_queries.html's `expression_should_be_known("resolution: calc(6x / 2)")`).
+    func testMathFunctionsAndRelativeUnitsInAFeaturesValue() {
+        // The issue's queries, and their negations.
+        for (query, matches) in [("(min-width: calc(100px + 1em))", true), ("(resolution: calc(6x / 2))", false),
+                                 ("(min-width: 10vw)", true), ("(max-width: 40ex)", false), ("(min-width: 30ch)", true)] {
+            XCTAssertEqual(mask(query), matches ? .all : none, query)
+            XCTAssertEqual(mask("not \(query)"), matches ? none : .all, "not \(query)")
+            XCTAssertEqual(mask("not all and \(query)"), matches ? none : .all, "not all and \(query)")
+        }
+        let em = Double(width) / 16
+        for query in ["(width: calc(\(width)px))", "(width: calc(\(em)em))", "(width: calc(\(width / 2)px * 2))", "(width: 100vw)",
+                      "(height: 100vh)", "(width: 100vmin)", "(height: 100vmax)", "(width: 100vi)", "(height: 100dvh)", "(width: 100cqw)",
+                      "(width: \(em * 2)ex)", "(width: \(em * 2)ch)", "(min-width: 30lh)", "(min-width: 30rlh)", "(min-width: 30cap)",
+                      "(width: \(em)ic)", "(width: calc(50vw + \(width / 2)px))", "(width: min(\(width)px, 100em))",
+                      "(width: clamp(0px, \(width)px, 1000px))", "(width >= calc(100vh - \(height - width)px))",
+                      "(calc(10px) < width < calc(10em * 4))", "(min-width: calc(1px / 0 * -1))", "(min-width: calc(0 / 0 * 1px))",
+                      "(resolution: calc(1x + 1dppx))", "(resolution: calc(192dpi))", "(min-resolution: calc(2x * 0.5))",
+                      "(max-resolution: calc(infinity * 1x))", "(min-resolution: calc(-1x))", "(-webkit-device-pixel-ratio: calc(4 / 2))",
+                      "(color: calc(4 * 2))", "(min-color: calc(1.4))", "(aspect-ratio: calc(3) / calc(4))", "(min-aspect-ratio: calc(1 / 2))",
+                      "(monochrome: calc(0))"] {
+            XCTAssertEqual(mask(query), .all, query)
+        }
+        for query in ["(min-width: calc(\(width)px + 1px))", "(max-width: calc(\(em)em - 1px))", "(min-width: 101vw)", "(max-height: 99vh)",
+                      "(min-width: \(em * 2 + 1)ex)", "(max-resolution: calc(1dppx))", "(color: calc(7))",
+                      "(max-width: calc(0 / 0 * 1px))", "(max-aspect-ratio: calc(-1) / 1)"] {
+            XCTAssertEqual(mask(query), none, query)
+        }
+        // A math function of another type is unknown, as a literal of it is.
+        func known(_ feature: String) -> Bool { mask("(\(feature)), not all and (\(feature))") == .all }
+        for feature in ["width: calc(1)", "width: calc(10%)", "width: calc(1px + 1)", "width: calc(1dppx)", "width: calc(1deg)",
+                        "width: min(1px, 1)", "resolution: calc(2)", "resolution: calc(1px)", "color: calc(1px)",
+                        "aspect-ratio: calc(1px) / 1", "-webkit-device-pixel-ratio: calc(1x)", "width: calc()", "width: bogus(1px)"] {
+            XCTAssertFalse(known(feature), feature)
+        }
+    }
+
     func testDiscreteFeaturesOfAReaderThatNeitherPrintsNorRunsScripts() {
         for query in ["(orientation: portrait)", "(orientation)", "(color)", "(monochrome: 0)", "(grid: 0)", "(scripting: none)",
                       "(-webkit-min-device-pixel-ratio: 0)", "(-webkit-min-device-pixel-ratio: 1)", "(min-resolution: 1dppx)",

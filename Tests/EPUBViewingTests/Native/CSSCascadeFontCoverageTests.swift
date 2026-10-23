@@ -191,6 +191,25 @@ final class CSSCascadeFontCoverageTests: XCTestCase {
         XCTAssertTrue(result.style("j").isSmallCaps)
     }
 
+    /// The `font-variant` shorthand takes the functions of `font-variant-alternates` (CSS Fonts
+    /// 4 §6.8), each once with the `@font-feature-values` names it takes. Any other function
+    /// makes the declaration invalid, and the earlier one stays (CSS 2.2 §4.2; #643).
+    func testAFontVariantWithAFunctionTheReaderDoesNotKnowLeavesTheEarlierOne() throws {
+        let valid = ["stylistic(fancy)", "styleset(one, two)", "character-variant(a)", "swash(flowing)", "ornaments(fleurons)",
+                     "annotation(circled)", "stylistic(a) historical-forms styleset(b) character-variant(c, d) swash(e) ornaments(f) annotation(g)",
+                     "oldstyle-nums swash(e) tabular-nums"]
+        let invalid = ["bogus(x)", "-moz-stylistic(x)", "stylistic(a, b)", "swash()", "stylistic(1)", "stylistic('a')", "styleset(a,)",
+                       "styleset(a b)", "stylistic(default)", "swash(inherit)", "stylistic(a) stylistic(b)", "oldstyle-nums format(x)"]
+        let values = valid + invalid
+        let body = values.indices.map { "<p id=\"e\($0)\">x</p>" }.joined()
+        let result = try styled(body, css: values.enumerated().map { "#e\($0.offset) { font-variant: small-caps; font-variant: \($0.element) }" }
+            .joined(separator: "\n"))
+        for (index, value) in values.enumerated() {
+            XCTAssertEqual(result.style("e\(index)").isSmallCaps, index >= valid.count,
+                           index < valid.count ? "\(value) resets the caps" : "\(value) is invalid, so the earlier one stays")
+        }
+    }
+
     // MARK: Sizes
 
     func testAbsoluteSizeKeywordsIgnoreTheParentAndRelativeOnesFollowIt() throws {

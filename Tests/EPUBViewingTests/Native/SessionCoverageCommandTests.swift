@@ -156,12 +156,50 @@ import XCTest
             // Not an encoded reference at all.
             "OPS/two%.xhtml", "OPS/two%zz.xhtml", "OPS\\two.xhtml", "two.xhtml", "../OPS/two.xhtml",
             "OPS/two.xhtml#" + String(repeating: "x", count: 5_000),
+            // A slash written as an escape is a character of its segment, as URL parsing reads
+            // it, so these name a file called "OPS/two.xhtml" in the container root
+            // (https://github.com/vocaro/EPUBLib/issues/754).
+            "OPS%2Ftwo.xhtml", "OPS%2ftwo.xhtml#start",
+            // A fragment alone, though "#" and the mark after it are one `Character`.
+            "#\u{301}start",
         ]
         for href in refused { await reader.refuses(.navigate(href: href), "the href \(href.prefix(60).debugDescription)") }
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(reader.session.visibleRange, original, "a refused navigation moved the reader")
         XCTAssertEqual(reader.events.count, count, "a refused navigation emitted \(reader.events.dropFirst(count))")
         XCTAssertEqual(reader.state.status.activeCommands, 0)
+        // The path whose slash is written as one is a section.
+        try await reader.session.send(.navigate(href: "OPS/two.xhtml"))
+        try await reader.wait("chapter two") { reader.section == 1 }
+    }
+
+    /// The href `.navigate(href:)`, the text start and the controls' current contents entry
+    /// read is split as URL parsing splits it, at its `#` and its `/`s found as their bytes, before
+    /// anything is decoded. An escaped slash is a character of its segment, which no entry's name
+    /// holds (https://github.com/vocaro/EPUBLib/issues/754), and a `#` followed by a combining
+    /// mark, one `Character` with it, still begins the fragment
+    /// (https://github.com/vocaro/EPUBLib/issues/641).
+    func testAnHrefIsSplitAtItsHashAndSlashesByByteBeforeAnyPartIsDecoded() throws {
+        let publication = try EPUBPublication.open(data: SessionCoverageBook.epub([
+            Section("one", "<h1 id=\"&#x301;mark\">One</h1>"), Section("two", "<h1>Two</h1>"),
+        ]))
+        func refusal(_ href: String) -> EPUBReaderError? {
+            do { _ = try NativeSession.target(of: href, in: publication); return nil } catch { return error as? EPUBReaderError }
+        }
+        XCTAssertEqual(try NativeSession.target(of: "OPS/one.xhtml", in: publication).section, 0)
+        XCTAssertEqual(try NativeSession.target(of: "OPS/two.xhtml", in: publication).section, 1)
+        for href in ["OPS%2Fone.xhtml", "OPS%2ftwo.xhtml", "OPS%2Fone.xhtml#mark", "OPS/..%2FOPS/one.xhtml"] {
+            XCTAssertEqual(refusal(href), .invalidCommand("Unknown publication href"), href)
+        }
+        // An escape of another character is decoded within its segment, as it was.
+        XCTAssertEqual(try NativeSession.target(of: "%4FPS/one%2Exhtml", in: publication).section, 0)
+
+        XCTAssertEqual(refusal("#\u{301}mark"), .invalidCommand("Empty publication href"), "a fragment alone")
+        for href in ["OPS/one.xhtml#\u{301}mark", "OPS/one.xhtml#%CC%81mark"] {
+            let target = try NativeSession.target(of: href, in: publication)
+            XCTAssertEqual(target.section, 0, href)
+            XCTAssertEqual(target.fragment.map { Array($0.utf8) }, Array("\u{301}mark".utf8), href)
+        }
     }
 
     func testNavigationAcceptsEquivalentEncodingsAndShowsAnUnknownFragmentsSection() async throws {
@@ -210,11 +248,14 @@ import XCTest
     }
 
     /// A fragment names the element whose id has its code units, as `getElementById` finds it:
-    /// `caf&#xE9;` and `cafe&#x301;` are two ids, though `String` compares them equal.
+    /// `caf&#xE9;` and `cafe&#x301;` are two ids, though `String` compares them equal. An id may
+    /// begin with a combining mark, which an href may carry unescaped: its `#` is found as its
+    /// byte (https://github.com/vocaro/EPUBLib/issues/641).
     func testNavigationShowsTheElementWhoseIdHasTheFragmentsExactCodeUnits() async throws {
         let reader = try open(SessionCoverageBook.epub([
             Section("one", "<h1>One</h1><p id=\"caf&#xE9;\">The composed place.</p>\(SessionCoverageBook.filler(80))"
-                + "<p id=\"cafe&#x301;\">The decomposed place.</p>\(SessionCoverageBook.filler(80))"),
+                + "<p id=\"cafe&#x301;\">The decomposed place.</p>\(SessionCoverageBook.filler(80))"
+                + "<p id=\"&#x301;mark\">The marked place.</p>\(SessionCoverageBook.filler(80))"),
             Section("two", "<h1>Two</h1>"),
         ]))
         try await reader.settle()
@@ -222,9 +263,11 @@ import XCTest
         func place(_ id: String) throws -> ReaderTextPosition {
             section.renderedPosition(DOMPosition(try XCTUnwrap(section.document.element(id: id), id), 0))
         }
-        let composed = try place("caf\u{E9}"), decomposed = try place("cafe\u{301}")
+        let composed = try place("caf\u{E9}"), decomposed = try place("cafe\u{301}"), marked = try place("\u{301}mark")
         XCTAssertGreaterThan(decomposed.offset, composed.offset + 1_000)
-        for (fragment, shown, hidden) in [("caf%C3%A9", composed, decomposed), ("cafe%CC%81", decomposed, composed)] {
+        XCTAssertGreaterThan(marked.offset, decomposed.offset + 1_000)
+        for (fragment, shown, hidden) in [("caf%C3%A9", composed, decomposed), ("cafe%CC%81", decomposed, composed),
+                                          ("%CC%81mark", marked, decomposed), ("\u{301}mark", marked, decomposed)] {
             try await reader.session.send(.navigate(href: "OPS/two.xhtml"))
             try await reader.wait("chapter two") { reader.section == 1 }
             try await reader.session.send(.navigate(href: "OPS/one.xhtml#" + fragment))

@@ -65,6 +65,15 @@ package enum ResourceReference {
         return names
     }
 
+    /// The archive path an encoded path names, its segments decoded as `resolve` decodes them
+    /// (`segments`). Nil when a segment does not decode, or holds a `/` once decoded, which no
+    /// entry's name can: `OPS%2Fone.xhtml` names a file of that name in the container root, not
+    /// `OPS/one.xhtml`.
+    package static func decodedPath(_ path: some Collection<UInt8>) -> String? {
+        guard let names = segments(path), !names.contains(where: { $0.utf8.contains(0x2F) }) else { return nil } // /
+        return names.joined(separator: "/")
+    }
+
     /// Resolves a local EPUB reference as EPUB Reading Systems 3.3 §4.1.1 has it parsed against
     /// the container root URL: white space round it is read past (`stripped`), a leading `/` names
     /// the root and `..` stops there, so no reference leaves the container. The reference is
@@ -152,5 +161,29 @@ package enum ResourceReference {
         if let url, isEntry(url) { return url }
         if isReadablePath(fullPath), isEntry(fullPath) { return fullPath }
         return url
+    }
+
+    /// The archive path of the entry a URL in a file of `META-INF` names, such as an encrypted
+    /// file's `CipherReference` URI, nil when it names none; `isEntry` says whether the archive
+    /// holds a path.
+    ///
+    /// EPUB 3.3 §4.2.6.2 has such a URL parsed with the container root URL as its base. It is
+    /// resolved as a manifest href is, from that root, and judged as an archive path only once
+    /// decoded: an escaped slash (`%2F`) is a character of its segment, which no entry's name
+    /// can hold, and a dot segment, a leading `/` and a query are resolved as URL parsing
+    /// resolves them. A fragment is dropped, as a query is; neither changes which file is meant.
+    /// But EPUBCheck before version 5 decoded the whole value and looked that up, so a book may
+    /// carry a name's own `#` or `?` unescaped: where the URL reading is refused or names no
+    /// entry, the value as written is taken if it is a path an entry can have that names one, as
+    /// `rootfilePath` takes a rootfile's. With an entry under each reading, the URL's is meant.
+    package static func containerPath(_ url: String, isEntry: (String) -> Bool) -> String? {
+        // From the root itself, not a file in it, so that a URL with no path, which names the
+        // root, is refused rather than taken for that file.
+        if let reference = try? resolve(url, relativeTo: ""),
+           let path = String(reference.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]).removingPercentEncoding,
+           isEntry(path) {
+            return path
+        }
+        return isReadablePath(url) && isEntry(url) ? url : nil
     }
 }

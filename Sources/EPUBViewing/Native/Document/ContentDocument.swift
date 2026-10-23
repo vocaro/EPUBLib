@@ -9,6 +9,8 @@ import libxml2
 /// dropped and adjacent text and CDATA are merged into one text node. Neither changes a CFI:
 /// the CFI step rules ignore everything but elements and character data, and a chunk's offset
 /// is the sum of its text nodes' lengths (`epubcfi.js` `indexChildNodes`). Immutable once parsed.
+/// The `xml-stylesheet` instructions before an XML document's root element are kept, as the
+/// document's `stylesheetInstructions` and not as nodes.
 final class ContentNode: @unchecked Sendable {
     enum Kind: Sendable { case element, text }
 
@@ -58,7 +60,12 @@ final class ContentNode: @unchecked Sendable {
     var epubTypes: [String] {
         (attribute("type", namespace: ContentNamespace.ops) ?? attribute("epub:type") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
     }
-    var classNames: [String] { (attribute("class") ?? "").split(whereSeparator: \.isWhitespace).map(String.init) }
+    /// `class` tokens, split at ASCII whitespace alone, as HTML splits a set of space-separated
+    /// tokens and as `[class~=x]` reads it: a no-break space is part of a class name.
+    var classNames: [String] {
+        (attribute("class") ?? "").utf8.split { $0 == 0x20 || $0 == 0x09 || $0 == 0x0A || $0 == 0x0C || $0 == 0x0D }
+            .map { String(decoding: $0, as: UTF8.self) }
+    }
     var elementChildren: [ContentNode] { children.filter(\.isElement) }
     /// Concatenated descendant text, in document order.
     var textContent: String {
@@ -81,6 +88,93 @@ struct ContentAttribute: Equatable, Sendable {
 
     init(name: String, namespace: String, value: String, prefixNamespace: String = "") {
         self.name = name; self.namespace = namespace; self.value = value; self.prefixNamespace = prefixNamespace
+    }
+}
+
+/// An `xml-stylesheet` processing instruction (Associating Style Sheets with XML documents 1.0,
+/// Second Edition), by its pseudo-attributes.
+struct ContentStylesheetInstruction: Equatable, Sendable {
+    let href: String
+    let type: String?
+    let media: String?
+    /// "" when it has none.
+    let title: String
+    /// `alternate="yes"`.
+    let isAlternate: Bool
+
+    /// nil when `data` is not a list of pseudo-attributes (§2: `(S PseudoAtt)* S?`, each value
+    /// quoted, with character references and the five predefined entity references), names one
+    /// twice, or has no `href`.
+    init?(_ data: String) {
+        var attributes: [String: String] = [:]
+        let scalars = Array(data.unicodeScalars)
+        var index = 0
+        func isSpace(_ scalar: Unicode.Scalar) -> Bool { scalar == " " || scalar == "\t" || scalar == "\n" || scalar == "\r" }
+        func skipSpace() -> Bool {
+            let start = index
+            while index < scalars.count, isSpace(scalars[index]) { index += 1 }
+            return index > start
+        }
+        var separated = true
+        while true {
+            let spaced = skipSpace()
+            guard index < scalars.count else { break }
+            guard spaced || separated else { return nil }
+            separated = false
+            let nameStart = index
+            while index < scalars.count, !isSpace(scalars[index]), scalars[index] != "=", scalars[index] != "\"", scalars[index] != "'" { index += 1 }
+            guard index > nameStart else { return nil }
+            let name = String(String.UnicodeScalarView(scalars[nameStart..<index]))
+            _ = skipSpace()
+            guard index < scalars.count, scalars[index] == "=" else { return nil }
+            index += 1
+            _ = skipSpace()
+            guard index < scalars.count, scalars[index] == "\"" || scalars[index] == "'" else { return nil }
+            let quote = scalars[index]
+            index += 1
+            var value = String.UnicodeScalarView()
+            while index < scalars.count, scalars[index] != quote {
+                let scalar = scalars[index]
+                guard scalar != "<" else { return nil }
+                if scalar == "&" {
+                    guard let end = scalars[index...].firstIndex(of: ";"),
+                          let reference = Self.reference(String(String.UnicodeScalarView(scalars[(index + 1)..<end]))) else { return nil }
+                    value.append(reference)
+                    index = end + 1
+                } else {
+                    value.append(scalar)
+                    index += 1
+                }
+            }
+            guard index < scalars.count, attributes[name] == nil else { return nil }
+            index += 1
+            attributes[name] = String(value)
+        }
+        guard let href = attributes["href"] else { return nil }
+        self.href = href
+        type = attributes["type"]
+        media = attributes["media"]
+        title = attributes["title"] ?? ""
+        isAlternate = attributes["alternate"] == "yes"
+    }
+
+    /// A character reference's or a predefined entity reference's scalar, by what stands
+    /// between `&` and `;`.
+    private static func reference(_ name: String) -> Unicode.Scalar? {
+        switch name {
+        case "amp": return "&"
+        case "lt": return "<"
+        case "gt": return ">"
+        case "quot": return "\""
+        case "apos": return "'"
+        default:
+            guard name.hasPrefix("#") else { return nil }
+            let hexadecimal = name.dropFirst().hasPrefix("x")
+            let digits = name.dropFirst(hexadecimal ? 2 : 1)
+            guard !digits.isEmpty, digits.allSatisfy({ $0.isASCII && (hexadecimal ? $0.isHexDigit : $0.isNumber) }),
+                  let value = UInt32(digits, radix: hexadecimal ? 16 : 10), value != 0, let scalar = Unicode.Scalar(value) else { return nil }
+            return scalar
+        }
     }
 }
 
@@ -143,15 +237,20 @@ final class ContentDocument: @unchecked Sendable {
     /// A fallback XHTML DOM requires a resource assertion so its positions cannot be confused
     /// with positions in the original document under the same package spine itemref.
     let cfiResource: String?
+    /// The `xml-stylesheet` processing instructions before the root element of a document read
+    /// as XML, in document order. One read as HTML has none: there `<?` opens a comment.
+    let stylesheetInstructions: [ContentStylesheetInstruction]
     /// By the ID's code units, as `getElementById` compares them (`EPUBElementID`).
     private let ids: [EPUBElementID: ContentNode]
 
     private init(path: String, root: ContentNode, nodes: [ContentNode], recovered: Bool,
-                 canResolveCFIs: Bool = true, cfiResource: String? = nil, origin: Origin = .authored) {
+                 canResolveCFIs: Bool = true, cfiResource: String? = nil, origin: Origin = .authored,
+                 stylesheetInstructions: [ContentStylesheetInstruction] = []) {
         self.path = path; self.root = root; self.nodes = nodes; recoveredAsHTML = recovered
         self.origin = origin
         self.canResolveCFIs = canResolveCFIs
         self.cfiResource = cfiResource
+        self.stylesheetInstructions = stylesheetInstructions
         var ids: [EPUBElementID: ContentNode] = [:]
         for node in nodes where node.isElement { if let id = node.id, ids[id] == nil { ids[id] = node } }
         self.ids = ids
@@ -161,7 +260,8 @@ final class ContentDocument: @unchecked Sendable {
     /// issued against the original spine resource's DOM.
     func withoutCFIs() -> ContentDocument {
         ContentDocument(path: path, root: root, nodes: nodes, recovered: recoveredAsHTML,
-                        canResolveCFIs: false, cfiResource: cfiResource, origin: origin)
+                        canResolveCFIs: false, cfiResource: cfiResource, origin: origin,
+                        stylesheetInstructions: stylesheetInstructions)
     }
 
     func asSyntheticRaster() -> ContentDocument {
@@ -172,7 +272,8 @@ final class ContentDocument: @unchecked Sendable {
     func withCFIResource(_ resource: String) -> ContentDocument {
         ContentDocument(path: path, root: root, nodes: nodes, recovered: recoveredAsHTML,
                         canResolveCFIs: canResolveCFIs, cfiResource: SHA256.hash(data: Data(resource.utf8))
-                            .map { String(format: "%02x", $0) }.joined(), origin: origin)
+                            .map { String(format: "%02x", $0) }.joined(), origin: origin,
+                        stylesheetInstructions: stylesheetInstructions)
     }
 
     /// First element with this `id` in document order, code unit for code unit (`getElementById`).
@@ -437,8 +538,19 @@ final class ContentDocument: @unchecked Sendable {
             return node
         }
         let root = try build(rootElement, depth: 0)
+        // Only in the prolog does the instruction associate a sheet (§2). libxml2's HTML parser
+        // makes processing instructions where an HTML parser makes comments.
+        var instructions: [ContentStylesheetInstruction] = []
+        var prolog = doc.pointee.children
+        while !html, let node = prolog, node != rootElement {
+            if node.pointee.type == XML_PI_NODE, string(node.pointee.name) == "xml-stylesheet",
+               let instruction = ContentStylesheetInstruction(string(node.pointee.content)) {
+                instructions.append(instruction)
+            }
+            prolog = node.pointee.next
+        }
         return ContentDocument(path: path, root: root, nodes: nodes, recovered: recovered,
-                               canResolveCFIs: !recovered)
+                               canResolveCFIs: !recovered, stylesheetInstructions: instructions)
     }
 
     /// Rebuild only the qualified XML-shaped HTML subset. HTML discards whitespace before
