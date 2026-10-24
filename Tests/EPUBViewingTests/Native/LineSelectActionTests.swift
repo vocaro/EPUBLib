@@ -248,7 +248,7 @@ import XCTest
     func testATablesCellAndALineSelectInTurn() async throws {
         let publication = try EPUBPublication.open(data: SessionCoverageBook.epub([
             SessionCoverageBook.Section("tables", "<p>Words before the table.</p>"
-                + "<table><tr><th>Station</th><th>Depth</th></tr><tr><td>Alder</td><td>Twelve metres</td></tr></table>"
+                + "<table><tr><th>Station</th><th>Depth</th></tr><tr><td>Alder</td><td>Twelve meters</td></tr></table>"
                 + "<p>Words after the table.</p>" + SessionCoverageBook.filler(60), title: "Tables")]))
         let reader = try SessionCoverageReader(publication: publication)
         readers.append(reader)

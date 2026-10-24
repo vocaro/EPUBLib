@@ -3141,13 +3141,16 @@ python3 scripts/run-voiceover-simulator.py --runtime com.apple.CoreSimulator.Sim
 
 The transcript has the rotor's settings on a line, the actions a line offers before and
 after it is selected, what VoiceOver says as the sample performs each, and the passage as the
-reader reports it, as the host's action was given it and as the pasteboard holds it. It does
+reader reports it, as the host's action was given it and as the pasteboard holds it. The
+rotor has no Text Selection setting on a line, so `rotor=Text Selection` turns it thirty
+times, about three minutes, and records `MISSING` with every setting it passed; the session
+takes about ten minutes on each simulator. It does
 not establish that VoiceOver performs the action chosen in its rotor, which a device shows
 ([acceptance rule](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#acceptance-rule)).
 The verification host also accepts positive `-VerificationWidth POINTS` and
 `-VerificationHeight POINTS` together to constrain the reader's content size for a
 layout comparison. A constrained iPad remains an iPad; it does not establish native
-iPhone behaviour
+iPhone behavior
 ([timings and simulator geometry](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-simulator.md#timings-and-simulator-geometry)).
 Neither diagnostic changes the host's layout or navigation without
 those arguments.

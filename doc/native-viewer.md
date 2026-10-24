@@ -1659,10 +1659,19 @@ continues to describe the authored spine resource.
   - **Heard.** The unit tests perform every action in pages and in continuous scroll on
     iPhone and iPad simulators, DAISY's passage among them, and compare what Copy and the
     host's action are given with a touch selection of the same passage (`LineSelectActionTests`).
-    What a simulator's VoiceOver says of the lines and their actions, and which settings its
-    rotor offers on a line, is recorded with the session in
-    [VoiceOver testing](testing.md#simulators); none has been heard yet. VoiceOver performing
-    these actions from its rotor needs a device
+    A simulator's VoiceOver, on iOS 27.0 on an iPhone 17 Pro and an iPad Air 13-inch (M4),
+    in pages and in continuous scroll, with the sample performing the actions as VoiceOver's
+    rotor would ([VoiceOver testing](testing.md#simulators)), lists Select Line in the
+    Actions rotor of a line outside the selection, after Next Page and Previous Page in
+    pages; once the line is selected, it reads "selected" before the line and lists Deselect
+    Text, Copy, the host's action and the four word moves. It says "Begin unselected" for
+    Unselect First Word and "Copied" for Copy, and reads "selected" before each line of the
+    selection it comes to. DAISY's passage is copied and given to the host's action
+    exactly, its 474 characters, 399 without spaces, in both flows on both
+    ([#707](https://github.com/vocaro/EPUBLib/issues/707) has the sessions). The rotor offers no Text
+    Selection setting on a line, only VoiceOver's own moves by character, word, paragraph,
+    heading and container ([#856](https://github.com/vocaro/EPUBLib/issues/856)).
+    VoiceOver performing these actions from its rotor needs a device
     ([#814](https://github.com/vocaro/EPUBLib/issues/814)).
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
