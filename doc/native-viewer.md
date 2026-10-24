@@ -3735,14 +3735,13 @@ The following are the defaults. Host commands and accessibility actions stay ena
   many highlights begin in it, and a highlight that begins inside the item VoiceOver is on is
   that item's: the move goes past it. A highlight in several documents is one stop, where it
   begins, and one in a section not built yet has none until it is drawn, as it is once all of
-  its sections are built. In iOS 27.2 simulators, on iPhone and iPad in pages, VoiceOver lists
-  the rotor as it lands in the text ("Use the rotor to access Headings, Paragraphs,
-  Highlights"), says a line's highlight after its words, "word0001 word0002 word0003 word0004
-  Yellow highlight: word0003 word0004", and a cell's after its words and before its row and
-  column, "1934 Pink highlight Row 3 Column 2"; with Highlights chosen each flick down went to
-  the next highlight's line or cell, pages and a section later, and each flick up back again
-  ([Highlights](testing.md#highlights)). In continuous scroll the rotor is covered by unit
-  tests alone, with no VoiceOver session.
+  its sections are built. In iOS 27.2 simulators, on iPhone and iPad in pages and in
+  continuous scroll, VoiceOver lists the rotor as it lands in the text ("Use the rotor to
+  access Headings, Paragraphs, Highlights"), says a line's highlight after its words,
+  "word0001 word0002 word0003 word0004 Yellow highlight: word0003 word0004", and a cell's
+  after its words and before its row and column, "1934 Pink highlight Row 3 Column 2"; with
+  Highlights chosen each flick down went to the next highlight's line or cell, pages and a
+  section later, and each flick up back again ([Highlights](testing.md#highlights)).
   On Mac the characters a host highlight covers are highlighted text in the rich text an
   assistive client reads (`AXHighlight`, the attribute WebKit gives the text of a `mark`
   element), with the fill they show on as their background (`AXBackgroundColor`), and each
