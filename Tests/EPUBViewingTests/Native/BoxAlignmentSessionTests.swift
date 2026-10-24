@@ -31,9 +31,9 @@ private struct ReaderUnderABar: View {
 /// selection, highlights and restoring are the same in both flows as for any other book.
 @MainActor final class BoxAlignmentSessionTests: XCTestCase {
     private func wait(_ label: String, timeout: TimeInterval = 20, until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = TestDeadline(seconds: timeout)
         while !condition() {
-            guard Date() < deadline else { return XCTFail("Timed out waiting for \(label)") }
+            guard try !deadline.hasPassed() else { return XCTFail("Timed out waiting for \(label)") }
             try await Task.sleep(for: .milliseconds(20))
         }
     }
@@ -188,7 +188,7 @@ private struct ReaderUnderABar: View {
             bars.hidden.toggle()
             try await wait("the bar after change \(change)") { abs(canvas.scrollVisibleContainerRect.height - before) > 20 }
             #endif
-            try await Task.sleep(for: .milliseconds(500))
+            try await TestDeadline.pause(.milliseconds(500))
             XCTAssertEqual(canvas.bounds.size, size, "the reader keeps its size, change \(change)")
             XCTAssertEqual(try boxTop(), 0, accuracy: 1.5, "the epigraph's top edge after \(change) change(s) of the bar")
             XCTAssertEqual(session.visibleRange?.start, epigraph, "after \(change) change(s)")

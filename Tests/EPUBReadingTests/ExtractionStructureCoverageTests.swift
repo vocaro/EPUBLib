@@ -214,6 +214,47 @@ final class ExtractionStructureCoverageTests: XCTestCase {
         XCTAssertEqual(extracted.semanticTypes, ["real"])
     }
 
+    // EPUB 3.3 §6.1.3.1: `epub:type` "MUST NOT be used on the head element or metadata content";
+    // §6.2.3: in SVG it goes only on a renderable element; EPUB Reading Systems 3.3 §10: a reading
+    // system ignores the terms anywhere else, as the reader does (#133). A template's content is
+    // no part of the body (HTML 4.12.3), and extraction reads what a script or style holds as no
+    // text either (#777).
+    func testTermsWhereEPUBDoesNotAllowThemAreNotSemanticTypes() throws {
+        let svg = "<svg xmlns='http://www.w3.org/2000/svg' epub:type='figure'><title epub:type='a'>t</title><desc epub:type='b'>d</desc>"
+            + "<defs epub:type='c'><linearGradient epub:type='d'/></defs><metadata epub:type='e'/><g epub:type='group'>"
+            + "<text epub:type='label'>x</text></g><foreignObject epub:type='object'><p xmlns='http://www.w3.org/1999/xhtml' epub:type='inner'>y</p>"
+            + "</foreignObject></svg>"
+        let cases: [(body: String, kept: Set<String>)] = [
+            ("<template epub:type='glossary'><p>x</p></template>", []),
+            ("<script epub:type='footnote'>var a;</script>", []),
+            ("<style epub:type='footnote'>p {}</style><link epub:type='a' rel='x' href='y'/><meta epub:type='b' name='x' content='y'/>", []),
+            ("<template><aside epub:type='footnote'><p>x</p></aside></template>", []),
+            ("<noscript epub:type='a'><p epub:type='kept'>x</p></noscript>", ["kept"]),
+            (svg, ["figure", "group", "label", "object", "inner"]),
+        ]
+        for (body, kept) in cases {
+            XCTAssertEqual(try section("<p epub:type='chapter'>c</p>" + body).semanticTypes, kept.union(["chapter"]), body)
+        }
+        // Nor on a head after the body, or what it holds, which the strict path reads as root content.
+        let head = try document("<html xmlns='http://www.w3.org/1999/xhtml' xmlns:epub='http://www.idpf.org/2007/ops'><head><title>T</title></head>"
+            + "<body><p epub:type='chapter'>c</p></body><head epub:type='a'><meta epub:type='b' name='x' content='y'/></head></html>")
+        XCTAssertEqual(head.semanticTypes, ["chapter"])
+    }
+
+    // In recovery, as the reader builds the tree: an `svg` and what it holds are SVG's up to an
+    // HTML integration point, whatever its `xmlns`, and libxml2 writes each name in lowercase.
+    func testRecoveryLeavesOutTheSameTerms() throws {
+        let extracted = try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/one.xhtml":
+            "<html xmlns='http://www.w3.org/1999/xhtml' xmlns:epub='http://www.idpf.org/2007/ops'><head><title>T</title></head><body>"
+            + "<p epub:type='chapter'>c</b><template epub:type='glossary'><p>x</p></template><script epub:type='footnote'>var a;</script>"
+            + "<svg epub:type='figure'><title epub:type='a'>t</title><desc epub:type='b'>d</desc><defs epub:type='c'/><textPath epub:type='path'/>"
+            + "<foreignObject epub:type='object'><p epub:type='inner'>y</p></foreignObject></svg>"
+            + "<svg xmlns='http://www.w3.org/2000/svg'><desc epub:type='d'>d</desc><g epub:type='group'/></svg></p></body></html>"]))
+            .textSection(at: 0, recoversMalformedMarkup: true)
+        XCTAssertTrue(extracted.recoveredAsHTML)
+        XCTAssertEqual(extracted.semanticTypes, ["chapter", "figure", "path", "object", "inner", "group"])
+    }
+
     func testWhitespaceSplittingDoesNotDropCombiningScalarsFromSemanticTokens() throws {
         let extracted = try section("<p epub:type='chapter \u{301} custom'>Text</p>")
         XCTAssertEqual(extracted.semanticTypes, ["chapter", "\u{301}", "custom"])

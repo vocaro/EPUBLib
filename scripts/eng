@@ -10,7 +10,7 @@ try:
     from _engineering import toolkit_location
     toolkit = toolkit_location(root)
     if not (toolkit / "src/python/vocaro_engineering/cli.py").is_file():
-        raise ValueError(f"Shared toolkit missing at {toolkit}. Clone vocaro/apple-engineering beside this project's main checkout or set VOCARO_ENGINEERING_ROOT.")
+        raise ValueError(f"Shared toolkit missing at {toolkit}. Clone vocaro/vocaro-engineering beside this project's main checkout or set VOCARO_ENGINEERING_ROOT.")
     sys.path.insert(0, str(toolkit / "src/python"))
     from vocaro_engineering.cli import main
     raise SystemExit(main(["--project", str(root), *sys.argv[1:]]))

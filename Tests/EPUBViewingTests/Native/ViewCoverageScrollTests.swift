@@ -1,5 +1,6 @@
 import CoreGraphics
 import EPUBCore
+import EPUBTestSupport
 import Foundation
 import XCTest
 @testable import EPUBViewing
@@ -426,8 +427,8 @@ import UIKit
         #else
         view.contentOffset = CGPoint(x: 0, y: line.minY)
         #endif
-        let deadline = Date().addingTimeInterval(20)
-        while canvas.visibleRange?.start.offset == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        let deadline = TestDeadline(seconds: 20)
+        while canvas.visibleRange?.start.offset == 0, try !deadline.hasPassed() { try await Task.sleep(for: .milliseconds(20)) }
         let reading = try XCTUnwrap(canvas.visibleRange?.start)
         XCTAssertGreaterThan(reading.offset, 10_000)
         for size in [CGSize(width: 420, height: 700), CGSize(width: 900, height: 500), CGSize(width: 600, height: 700)] {

@@ -30,6 +30,12 @@ import AppKit
     /// start after a page turn or scroll. Keeping the asked-for position rather than its page's
     /// start stops repeated resizes from drifting.
     private(set) var anchor: ReaderTextPosition?
+    /// The move the next report of the visible range is the first to show, which it gives as its
+    /// reason (`ReaderCanvasDelegate`): a place `show` was asked for, which can wait for a size,
+    /// its section's text or a layout, a turn while it turns (`moving`), or the person's
+    /// scrolling until it is reported. nil reports a relayout: what is shown changed and the
+    /// place kept did not.
+    private var pendingMove: EPUBRelocationReason?
     private var pendingSelection: ReaderTextRange?
     /// Intentional selection requests may span beyond a page or temporary section view.
     /// A carried native user selection must instead fit replacement scroll content in full.
@@ -105,6 +111,16 @@ import AppKit
         }
     }
     private var sectionHeadings: [Int: SectionHeadings] = [:]
+    /// The blocks of one section's text, kept as its headings are.
+    private final class SectionBlocks {
+        weak var text: NSAttributedString?
+        let blocks: [ReaderTextBlock]
+        init(text: NSAttributedString, blocks: [ReaderTextBlock]) {
+            self.text = text
+            self.blocks = blocks
+        }
+    }
+    private var sectionBlocks: [Int: SectionBlocks] = [:]
     /// The book's pages at the spread's column size (`layoutPage`).
     let pageCounter = ReaderPageCounter()
 
@@ -209,6 +225,18 @@ import AppKit
     private(set) var pageTransition: ReaderPageTransition?
     /// A swipe is turning the page it brought in, under its own transition.
     private var isTurningFromPageDrag = false
+    /// The scroll step in motion in continuous scroll, as the host chose to animate page turns
+    /// (`turnScrolledPage`). nil while the text is drawn where the reader has it.
+    private(set) var scrollStep: ReaderScrollStep?
+    /// Page turns an assistive technology is asking for by name, as VoiceOver's scroll actions
+    /// do (`turnPageFromAccessibility`): a scroll step for one moves at once.
+    var accessibilityTurns = 0
+    /// Whether VoiceOver is running. A test puts its own here.
+    #if os(iOS)
+    var voiceOverIsRunning: @MainActor () -> Bool = { UIAccessibility.isVoiceOverRunning }
+    #else
+    var voiceOverIsRunning: @MainActor () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled }
+    #endif
 
     var wheelTurner = ReaderWheelPageTurner()
     var presentedNote: AnyObject?
@@ -244,6 +272,7 @@ import AppKit
 
     func reloadContent(keeping position: ReaderTextPosition?) {
         settleLayout()
+        endScrollStep()
         if configuration.flow != .scrolled || scrollTextView == nil || externalSelectionSource != nil { carrySelectionAcrossRelayout() }
         anchor = position ?? currentStart() ?? anchor
         anchorFollowsScroll = false
@@ -262,11 +291,14 @@ import AppKit
         selectionMayHaveChanged()
     }
 
-    func show(_ position: ReaderTextPosition, selecting range: ReaderTextRange?, entry: ReaderPageEntry = .position) {
+    func show(_ position: ReaderTextPosition, selecting range: ReaderTextRange?, entry: ReaderPageEntry = .position,
+              reason: EPUBRelocationReason = .navigation) {
         settleLayout()
+        endScrollStep()
         clearSelection()
         anchor = position
         anchorFollowsScroll = false
+        pendingMove = reason
         pendingSelection = range.flatMap { $0.isEmpty ? nil : $0 }
         pendingSelectionPreservesFullRange = pendingSelection != nil
         #if os(macOS)
@@ -297,17 +329,31 @@ import AppKit
 
     func turnPage(forward: Bool) -> PageTurnResult {
         settleLayout()
-        return switch configuration.flow {
-        case .paginated: animatingTurn(forward: forward) { turnPaginatedPage(forward: forward) }
-        case .scrolled: turnScrolledPage(forward: forward)
+        return moving(.turn) {
+            switch configuration.flow {
+            case .paginated: return animatingTurn(forward: forward) { turnPaginatedPage(forward: forward) }
+            case .scrolled: return turnScrolledPage(forward: forward)
+            }
         }
     }
 
+    /// Makes a move whose report gives `reason` (`pendingMove`). A move that reports nothing, as
+    /// a turn at the book's end or one that waits for its section, leaves a move asked for
+    /// before it still waiting for its report.
+    private func moving(_ reason: EPUBRelocationReason, _ move: () -> PageTurnResult) -> PageTurnResult {
+        let waiting = pendingMove
+        pendingMove = reason
+        let result = move()
+        if pendingMove == reason { pendingMove = waiting }
+        return result
+    }
+
     /// Shows the start (`forward`) or end of a section a page turn waited for, as that turn,
-    /// animated as any other (`ReaderCanvasDelegate.canvas(_:needsSection:forward:)`).
-    func showTurned(_ position: ReaderTextPosition, forward: Bool) {
+    /// animated as any other (`ReaderCanvasDelegate.canvas(_:needsSection:forward:reason:)`), or
+    /// the book's start or end a key went to (`showBookBoundary`), whose `reason` it gives.
+    func showTurned(_ position: ReaderTextPosition, forward: Bool, reason: EPUBRelocationReason = .turn) {
         _ = animatingTurn(forward: forward) {
-            show(position, selecting: nil, entry: .firstLine)
+            show(position, selecting: nil, entry: .firstLine, reason: reason)
             return .turned
         }
     }
@@ -388,6 +434,9 @@ import AppKit
         let motion = ReaderPageMotion(old.pageTurnAnimation, reducesMotion: old.reducesMotion)
             != ReaderPageMotion(configuration.pageTurnAnimation, reducesMotion: configuration.reducesMotion)
         if motion || old.flow != configuration.flow || old.theme != configuration.theme { endPageTransition() }
+        if old.pageTurnAnimation != configuration.pageTurnAnimation || old.reducesMotion != configuration.reducesMotion {
+            endScrollStep()
+        }
         if old.pageControls != configuration.pageControls || old.flow != configuration.flow || motion
             || old.togglesControls != configuration.togglesControls {
             pointerDown = nil
@@ -456,7 +505,11 @@ import AppKit
         #else
         if force, configuration.flow == .scrolled { accessibilityCursorFollowsTheScrollView(to: foundPlace ?? anchor) }
         #endif
-        if force || changed { delegate?.canvas(self, didShow: range, sectionProgress: progress(of: range.start)) }
+        if force || changed {
+            let reason = pendingMove ?? .relayout
+            pendingMove = nil
+            delegate?.canvas(self, didShow: range, sectionProgress: progress(of: range.start), reason: reason)
+        }
     }
 
     // MARK: Paginated flow
@@ -656,6 +709,7 @@ import AppKit
     /// text and its paginations go now rather than with the views.
     func releaseContent() {
         endPageTransition()
+        endScrollStep()
         cancelPendingSpread()
         pageCounter.stop()
         for view in columns + [scrollTextView].compactMap({ $0 }) { empty(view) }
@@ -664,6 +718,7 @@ import AppKit
         paginators.removeAll()
         paginatorUse.removeAll()
         sectionHeadings.removeAll()
+        sectionBlocks.removeAll()
     }
 
     var cachedPaginatorCount: Int { paginators.count }
@@ -794,10 +849,10 @@ import AppKit
         while next >= 0, next < dataSource.sectionCount, !dataSource.isLinear(section: next) { next += step }
         guard next >= 0, next < dataSource.sectionCount else { return .atBoundary }
         guard let text = dataSource.text(forSection: next), dataSource.canShow(section: next) else {
-            delegate?.canvas(self, needsSection: next, forward: forward)
+            delegate?.canvas(self, needsSection: next, forward: forward, reason: .turn)
             return .pending(section: next)
         }
-        show(ReaderTextPosition(section: next, offset: forward ? 0 : text.length), selecting: nil, entry: .firstLine)
+        show(ReaderTextPosition(section: next, offset: forward ? 0 : text.length), selecting: nil, entry: .firstLine, reason: .turn)
         return .turned
     }
 
@@ -965,6 +1020,7 @@ import AppKit
         defer { updateScrollViewport() }
         if let geometry = scrollGeometry, geometry.bounds == bounds, geometry.minX == column.minX,
            geometry.width == column.width { return }
+        endScrollStep()
         if let retainedStart { anchor = retainedStart }
         scrollGeometry = (bounds, column.minX, column.width)
         withProgrammaticScroll { applyScrollGeometry(columnMinX: column.minX, width: column.width) }
@@ -984,25 +1040,23 @@ import AppKit
     /// line below such a box moves with it, and until it is laid out again its place is an
     /// estimate, so the kept position is then rested again as after a resize: a bar shown or
     /// hidden over the reader changes the visible height and not the canvas's size (#338).
-    /// Where there is no box, the Mac reads what is on screen again: AppKit moves the view for
-    /// the bar's new inset inside the canvas's layout, a move of the reader's own, and where the
+    /// A book with no box is rested the same, though nothing in it is laid out again: UIKit
+    /// left a line shown 53.8 points below the top of the taller area when a bar hid, and moved
+    /// it down with the bar when the bar came back, where every other shown position rests at
+    /// the top (#370). On the Mac AppKit moves the view for the bar's new inset inside the
+    /// canvas's layout, a move of the reader's own, which keeps the line at the top; where the
     /// view is as far down as it goes, by less than the inset changed, which brings an earlier
-    /// line in at the top (#162). `rest` is false where the caller rests the position itself.
-    /// True when it was rested.
+    /// line in at the top, and the rest reports it (#162). `rest` is false where the caller
+    /// rests the position itself. True when it was rested.
     @discardableResult func updateScrollViewport(rest: Bool = true) -> Bool {
         guard let textView = scrollTextView, let geometry = scrollGeometry else { return false }
         let viewport = CGSize(width: geometry.width, height: max(0, scrollVisibleContainerRect.height))
         guard textView.readerContainer.viewportSize != viewport else { return false }
+        endScrollStep()
         // The visible start is read from the layout the new height is about to replace.
-        let retainedStart = rest && anchorFollowsScroll && textView.layoutFollowsViewport ? scrollVisibleRange()?.start : nil
+        let retainedStart = rest && anchorFollowsScroll ? scrollVisibleRange()?.start : nil
         textView.readerContainer.viewportSize = viewport
-        guard textView.refreshFlowBoxLayout() else {
-            #if os(macOS)
-            if rest { updateVisibleRange(force: false) }
-            #endif
-            return false
-        }
-        scrollPlace = nil
+        if textView.refreshFlowBoxLayout() { scrollPlace = nil }
         guard rest else { return false }
         if let retainedStart { anchor = retainedStart }
         scrollToAnchor()
@@ -1011,6 +1065,7 @@ import AppKit
     }
 
     private func tearDownScroll() {
+        endScrollStep()
         let textView = scrollTextView
         scrollTextView = nil
         if let textView { discard(textView) }
@@ -1286,7 +1341,10 @@ import AppKit
         // and made again, and with them the links an assistive client holds.
         if !isHoldingScrollPlace { refreshScrollTables() }
         guard !byReader, !isScrollingProgrammatically, !scrollViewStandsWhereRead else { return }
+        // Scrolling the reader does not do takes the view from a step in motion, at its end.
+        endScrollStep()
         anchorFollowsScroll = true
+        pendingMove = .scroll
         #if os(macOS)
         // Record the new first line before an accessibility query can replace estimated
         // geometry above it. Waiting for the throttled report leaves a 150 ms gap (#266).
@@ -1301,7 +1359,10 @@ import AppKit
             try? await Task.sleep(for: .milliseconds(150))
             guard let self else { return }
             self.scrollReportPending = false
-            guard self.configuration.flow == .scrolled, self.scrollTextView != nil else { return }
+            // A scroll that shows no other range is no move for a later relayout to report.
+            defer { if self.pendingMove == .scroll { self.pendingMove = nil } }
+            // A step taken since has told where it lands, and the text is still on its way there.
+            guard self.configuration.flow == .scrolled, self.scrollTextView != nil, self.scrollStep == nil else { return }
             self.updateVisibleRange(force: false)
         }
     }
@@ -1478,6 +1539,10 @@ import AppKit
 
     private func turnScrolledPage(forward: Bool) -> PageTurnResult {
         guard let textView = scrollTextView else { return .atBoundary }
+        // A step taken while one is in motion is taken from where that one ends, and its text
+        // moves on from where it is drawn.
+        let drawn = scrollStep == nil ? nil : scrollTopLine(in: textView)
+        endScrollStep()
         // The step is taken from the text on screen, wherever a layout since has put it.
         withProgrammaticScroll { settleScrollViewport() }
         guard forward ? isScrolledToEnd : isScrolledToStart else {
@@ -1513,10 +1578,69 @@ import AppKit
             anchor = scrollVisibleRange()?.start ?? anchor
             anchorFollowsScroll = false
             updateVisibleRange(force: true)
+            if animatesScrollStep { beginScrollStep(from: drawn ?? (start, below), in: textView) }
             return .turned
         }
         guard scrollBook == nil, let section = textView.placement.section else { return .atBoundary }
         return turnSection(from: section, forward: forward)
+    }
+
+    /// The line at the top of the visible area, by its first character, and how far below the
+    /// top it begins: above it where the top cuts it.
+    private func scrollTopLine(in textView: ReaderTextView) -> (location: Int, below: CGFloat) {
+        let visible = scrollVisibleContainerRect
+        let start = textView.lineBoundary(atContainerY: visible.minY, lineEnd: false)
+        return (start, (textView.lineFrame(containing: start)?.minY ?? visible.minY) - visible.minY)
+    }
+
+    // MARK: Scroll step animation
+
+    /// Whether a scroll step moves its text in an animation (#622): where the host chose a page
+    /// turn animation (`EPUBPageTurnAnimation`), either of them, with Reduce Motion off. A step
+    /// an assistive technology asks for by name, as VoiceOver's scroll actions do
+    /// (`accessibilityTurns`), moves at once, and so does every step while VoiceOver is running.
+    /// VoiceOver is told where a step lands as it is taken, and its cursor goes to a line there
+    /// (`accessibilityCursorFollowsTheScrollView`) while the text is still on its way, and UIKit
+    /// scrolls a line the cursor comes to into view: a line above the screen a step back starts
+    /// from would be scrolled to, and the step undone part of the way. A turn of pages moves
+    /// only a picture over the page turned to, and keeps its animation under VoiceOver.
+    private var animatesScrollStep: Bool {
+        configuration.pageTurnAnimation != .none && !configuration.reducesMotion && accessibilityTurns == 0
+            && window != nil && !voiceOverIsRunning()
+    }
+
+    /// Moves the text of a step just taken from where it was drawn to where the step put it.
+    /// The text was drawn with `place`'s line `below` the top of the visible area, and where that
+    /// line is now is read in the layout the step left, which a step back can have changed
+    /// above the screen it started from (#161). Steps taken faster than they move, as by a key
+    /// held down, leave the text further behind each time: it moves on from two screens before
+    /// where they land at most.
+    private func beginScrollStep(from place: (location: Int, below: CGFloat), in textView: ReaderTextView) {
+        let visible = scrollVisibleContainerRect, target = visible.minY
+        guard let line = textView.lineFrame(containing: place.location) else { return }
+        let from = min(max(line.minY - place.below, target - 2 * visible.height), target + 2 * visible.height)
+        guard abs(from - target) >= 1 else { return }
+        moveScrollStep(to: from)
+        let step = ReaderScrollStep(from: from, to: target, in: self)
+        step.onEnd = { [weak self, weak step] in
+            guard let self, let step, self.scrollStep === step else { return }
+            self.scrollStep = nil
+        }
+        scrollStep = step
+    }
+
+    /// Puts container `y` at the top of the visible area, for a step in motion: the reader's own
+    /// scroll, which nobody else made.
+    func moveScrollStep(to y: CGFloat) {
+        withProgrammaticScroll { scrollToContainerY(y) }
+    }
+
+    /// Ends the scroll step in motion now, where it would have ended. Anything else that moves
+    /// the scroll view or reads it from the screen does so first: a step or a position shown, a
+    /// layout for a new size or visible height, text built again, a change of flow or of the
+    /// animation, a touch, a click, a drag, the wheel and scrolling the reader did not do.
+    func endScrollStep() {
+        scrollStep?.end()
     }
 
     // MARK: Selection
@@ -1813,12 +1937,47 @@ import AppKit
     /// after the last: the whole book once it is built, and until then the sections built so far
     /// around the reader.
     func bookHeading(from position: ReaderTextPosition?, forward: Bool) -> ReaderBookHeading? {
+        let found = searchBook(from: position?.section, forward: forward, items: headings(inSection:)) { headings, section in
+            guard let position else { return forward ? headings.first : headings.last }
+            return forward ? headings.first { section > position.section || $0.range.location > position.offset }
+                : headings.last { section < position.section || NSMaxRange($0.range) <= position.offset }
+        }
+        return found.map { ReaderBookHeading(heading: $0.item.heading, section: $0.section, range: $0.item.range) }
+    }
+
+    /// The block of the book after the item `item` names, or the one before it, where an
+    /// assistive technology's move by block goes (`NSAttributedString.readerBlocks`): forward,
+    /// the first that begins to be read at or after the item's end; back, the last that
+    /// begins to be read before the item's start. So the move back from inside a block goes
+    /// to where it begins to be read, and from there to the block before. The sections it
+    /// goes through are those of a move by heading (`bookHeading`). From no item it takes in
+    /// every block it can reach from the section on screen, and begins before the first of
+    /// them, or after the last.
+    func bookBlock(from item: ReaderTextRange?, forward: Bool) -> ReaderBookBlock? {
+        let start = item.map { forward ? $0.end.section : $0.start.section }
+        let found = searchBook(from: start, forward: forward, items: blocks(inSection:)) { blocks, section in
+            guard let item else { return forward ? blocks.first : blocks.last }
+            return forward ? blocks.first { section > item.end.section || $0.spoken >= item.end.offset }
+                : blocks.last { section < item.start.section || $0.spoken < item.start.offset }
+        }
+        return found.map { ReaderBookBlock(section: $0.section, block: $0.item) }
+    }
+
+    /// The first item `pick` takes of a section's (`items`), from the section `start` on, or
+    /// back from it: `bookHeading`'s search, which `bookBlock`'s shares. A section that page
+    /// turns step over is passed over unless the search starts in it or it is the one on
+    /// screen, and a section not built yet ends the search, as does one a page turn would wait
+    /// to have built again (`canShow`), whose build is then asked for (`wantsSection`). From no
+    /// section the search begins in the furthest section built against its direction from the
+    /// one on screen.
+    private func searchBook<Item>(from start: Int?, forward: Bool, items: (Int) -> [Item]?,
+                                  pick: (_ items: [Item], _ section: Int) -> Item?) -> (section: Int, item: Item)? {
         guard let dataSource, dataSource.sectionCount > 0 else { return nil }
         let shown = visibleRange?.start.section
-        func searched(_ section: Int) -> Bool { section == position?.section || section == shown || dataSource.isLinear(section: section) }
+        func searched(_ section: Int) -> Bool { section == start || section == shown || dataSource.isLinear(section: section) }
         func built(_ section: Int) -> Bool { dataSource.text(forSection: section) != nil && dataSource.canShow(section: section) }
         var section: Int
-        if let position { section = position.section } else {
+        if let start { section = start } else {
             // Back from the section on screen, against the search, through the sections built.
             section = min(max(0, shown ?? 0), dataSource.sectionCount - 1)
             let back = forward ? -1 : 1
@@ -1827,16 +1986,11 @@ import AppKit
         }
         while section >= 0, section < dataSource.sectionCount {
             if searched(section) {
-                guard built(section), let headings = headings(inSection: section) else {
+                guard built(section), let found = items(section) else {
                     if dataSource.text(forSection: section) != nil { delegate?.canvas(self, wantsSection: section) }
                     return nil
                 }
-                let found: (heading: ReaderHeading, range: NSRange)?
-                if let position {
-                    found = forward ? headings.first { section > position.section || $0.range.location > position.offset }
-                        : headings.last { section < position.section || NSMaxRange($0.range) <= position.offset }
-                } else { found = forward ? headings.first : headings.last }
-                if let found { return ReaderBookHeading(heading: found.heading, section: section, range: found.range) }
+                if let item = pick(found, section) { return (section, item) }
             }
             section += forward ? 1 : -1
         }
@@ -1852,6 +2006,17 @@ import AppKit
         let found = SectionHeadings(text: text, headings: text.readerHeadings())
         sectionHeadings[section] = found
         return found.headings
+    }
+
+    /// A section's blocks (`NSAttributedString.readerBlocks`), found once for each text the
+    /// data source gives for it; nil while the section is not built.
+    func blocks(inSection section: Int) -> [ReaderTextBlock]? {
+        guard let dataSource, section >= 0, section < dataSource.sectionCount,
+              let text = dataSource.text(forSection: section) else { return nil }
+        if let known = sectionBlocks[section], known.text === text { return known.blocks }
+        let found = SectionBlocks(text: text, blocks: text.readerBlocks())
+        sectionBlocks[section] = found
+        return found.blocks
     }
 
     /// A non-empty `range` in a text view's own characters, clipped to what the view shows;
@@ -1933,6 +2098,8 @@ import AppKit
     /// in it could be meant for a selection, so selected text does not hold it back. False at
     /// either end of the book.
     func turnPageFromAccessibility(forward: Bool) -> Bool {
+        accessibilityTurns += 1
+        defer { accessibilityTurns -= 1 }
         guard imageInspector == nil, turnPage(forward: forward) != .atBoundary else { return false }
         pageDidTurnFromTheText()
         return true

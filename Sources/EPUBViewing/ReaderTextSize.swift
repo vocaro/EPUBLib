@@ -73,9 +73,21 @@ extension EPUBReaderControls {
         changeStyle({ [weak self] style in
             let scale = self?.textSizeScale ?? 1
             if let next = EPUBReaderControl.textSize(style.fontSize, larger: larger, scale: scale) { style.fontSize = next }
-        }, then: { [weak self] in
-            guard let self else { return }
-            postAnnouncement(EPUBReaderControl.textSizeDescription(drawnTextSize))
-        })
+        }, then: { [weak self] in self?.announceDrawnTextSize() })
+    }
+
+    /// Whether Actual Size would change the size: the chosen size is not the style's default.
+    var canResetTextSize: Bool {
+        canChangeStyle && (status?.style.fontSize ?? EPUBReaderStyle().fontSize) != EPUBReaderStyle().fontSize
+    }
+
+    /// Actual Size: the style's default size, 17 points, which the system text size still scales
+    /// while Use System Text Size is on. The size drawn is then announced, as after a step.
+    func resetTextSize() {
+        changeStyle({ $0.fontSize = EPUBReaderStyle().fontSize }, then: { [weak self] in self?.announceDrawnTextSize() })
+    }
+
+    private func announceDrawnTextSize() {
+        postAnnouncement(EPUBReaderControl.textSizeDescription(drawnTextSize))
     }
 }

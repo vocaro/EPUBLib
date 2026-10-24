@@ -58,6 +58,28 @@ struct TextBuffer {
         }
     }
 
+    /// Gives the characters in `range`, near the end of the text, the attributes `attributes`
+    /// where they are in styled runs; units copied with their own keep theirs.
+    mutating func restyle(_ range: Range<Int>, attributes: Int) {
+        guard !range.isEmpty, let first = runs.lastIndex(where: { $0.location <= range.lowerBound }) else { return }
+        var rebuilt: [Run] = []
+        func add(_ run: Run) {
+            guard run.length > 0 else { return }
+            if let last = rebuilt.last, case .attributes(let index) = last.source, case .attributes(index) = run.source {
+                rebuilt[rebuilt.count - 1].length += run.length
+            } else { rebuilt.append(run) }
+        }
+        for run in runs[first...] {
+            let end = run.location + run.length
+            guard case .attributes = run.source, run.location < range.upperBound, end > range.lowerBound else { add(run); continue }
+            let start = max(run.location, range.lowerBound), stop = min(end, range.upperBound)
+            add(Run(location: run.location, length: start - run.location, source: run.source))
+            add(Run(location: start, length: stop - start, source: .attributes(attributes)))
+            add(Run(location: stop, length: end - stop, source: run.source))
+        }
+        runs.replaceSubrange(first..., with: rebuilt)
+    }
+
     /// Removes the last character when it belongs to a styled run (a generated separator).
     mutating func removeLast() {
         guard let last = runs.indices.last, case .attributes = runs[last].source else { return }

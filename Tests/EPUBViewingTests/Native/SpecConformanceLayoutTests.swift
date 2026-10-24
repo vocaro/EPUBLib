@@ -312,7 +312,7 @@ import UIKit
                 session.canvas?.withdrawLinkQuestion()
             }
         }
-        try await Task.sleep(for: .milliseconds(100))
+        try await TestDeadline.pause(.milliseconds(100))
         XCTAssertEqual(reader.notices, [])
         XCTAssertEqual(reader.window.pageControls.opened, [], "nothing is opened without the reader's consent")
         XCTAssertEqual(session.visibleRange, before)

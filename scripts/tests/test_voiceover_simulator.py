@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 
-from support import engineering_configuration
+from support import HANG_SECONDS, engineering_configuration
 
 SCRIPT = Path(__file__).resolve().parents[1] / "run-voiceover-simulator.py"
 STUB = r'''#!/usr/bin/env python3
@@ -107,7 +107,7 @@ class SimulatorBuildRevisionTests(unittest.TestCase):
             sys.executable, str(self.root / "scripts" / entry),
             "--derived-data", str(self.derived), "--results", str(self.results),
             "--device", "fake-device", *([] if mode is None else ["--activation", mode]), *args],
-            env=dict(self.env, **environment), capture_output=True, text=True, timeout=15)
+            env=dict(self.env, **environment), capture_output=True, text=True, timeout=HANG_SECONDS)
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         if expected:
             return result.stdout

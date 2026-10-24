@@ -262,8 +262,8 @@ import UIKit
         XCTAssertTrue(try rotorHeading(from: nil, in: view, forward: false) === elements[7])
         XCTAssertTrue(zip(elements, try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])).allSatisfy { $0 === $1 },
                       "a page that holds the heading asked for is not shown again")
-        // The column gives every line of the page the rotor.
-        XCTAssertEqual(view.accessibilityCustomRotors?.map(\.systemRotorType), [.heading])
+        // The column gives every line of the page the rotor, and Paragraphs after it.
+        XCTAssertEqual(view.accessibilityCustomRotors?.map(\.systemRotorType), [.heading, .none])
         XCTAssertTrue(elements.allSatisfy { $0.accessibilityCustomRotors == nil })
     }
 
@@ -374,7 +374,7 @@ import UIKit
         var cursor = try XCTUnwrap(opening.first)
         XCTAssertEqual(read(cursor), "heading 1 First Chapter")
         // The scroll view gives every line it lists the rotor, as a page column does.
-        XCTAssertEqual(view.accessibilityCustomRotors?.map(\.systemRotorType), [.heading])
+        XCTAssertEqual(view.accessibilityCustomRotors?.map(\.systemRotorType), [.heading, .none])
         XCTAssertTrue(opening.allSatisfy { $0.accessibilityCustomRotors == nil })
         // From a line that is no heading, many lines into the first chapter's opening screen.
         XCTAssertGreaterThan(opening.count, 3)

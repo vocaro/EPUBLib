@@ -109,9 +109,9 @@ import UIKit
     }
 
     private func wait(_ label: String, timeout: TimeInterval = 20, until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = TestDeadline(seconds: timeout)
         while !condition() {
-            guard Date() < deadline else { return XCTFail("Timed out waiting for \(label)") }
+            guard try !deadline.hasPassed() else { return XCTFail("Timed out waiting for \(label)") }
             try await Task.sleep(for: .milliseconds(20))
         }
     }
@@ -269,7 +269,7 @@ import UIKit
             let session = Session(capabilities), model = try controls(session)
             let host = Host(EPUBReaderControlStrip(controls: model))
             defer { host.close() }
-            try await Task.sleep(for: .milliseconds(200))
+            try await TestDeadline.pause(.milliseconds(200))
             XCTAssertTrue(host.views(Segmented.self).isEmpty, "\(capabilities)")
         }
         let session = Session(), model = try controls(session)
@@ -442,7 +442,8 @@ import UIKit
         let host = Host(EPUBReaderControlStrip(controls: model, groups: [.pages, .search]))
         defer { host.close() }
         let field = try await host.view(UITextField.self, "the inline search field")
-        for _ in 0..<25 where !field.isFirstResponder { try await Task.sleep(for: .milliseconds(20)) }
+        let look = TestDeadline(seconds: 0.5)
+        while !field.isFirstResponder, look.state == .running { try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertFalse(field.isFirstResponder)
     }
 

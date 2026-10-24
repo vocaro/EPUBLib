@@ -59,14 +59,15 @@ final class RichMediaSVGCoverageTests: XCTestCase {
         XCTAssertEqual(try image("<div><svg \(Self.ns) viewBox='0 0 60 80'><image width='60' height='80' href='cover.jpg'/></svg></div>", files: files).0?.source.format, .bitmap, "plain href works too")
         // A fragment reference names the drawing's own document, not a file read in its place,
         // whatever follows its `#`: "#" and a mark after it are one `Character`
-        // (https://github.com/vocaro/EPUBLib/issues/641). The drawing goes to the renderer, which
-        // has no image to draw for it, and its title stands in.
+        // (https://github.com/vocaro/EPUBLib/issues/641). The drawing goes to the renderer with
+        // its image, which StaticSVG's serializer keeps as a fragment too, and the renderer has
+        // no image to draw for it, so its title stands in.
         for reference in ["#cover", "#&#x301;cover"] {
             let (shown, text) = try image("<div><svg \(Self.ns) viewBox='0 0 60 80'><title>Cover</title><image width='60' height='80' href='\(reference)'/></svg></div>", files: files)
             XCTAssertNil(shown, reference)
             XCTAssertEqual(text.richMediaPlain, "Cover", reference)
             XCTAssertEqual(text.report.unreadableResources, 0, "\(reference): no file was read")
-            XCTAssertEqual(text.report.unsupportedElements["svg"], 1, "\(reference): the renderer was given the drawing")
+            XCTAssertEqual(text.report.unsupportedElements, ["svg": 1], "\(reference): the renderer was given the drawing, its image not left out")
         }
         // A wrapped image not filling its box carries a content rect in unit fractions.
         let half = try XCTUnwrap(try image("<p><svg \(Self.ns) width='200' height='100' viewBox='0 0 200 100'><image x='100' width='100' height='100' href='cover.jpg'/></svg></p>", files: files).0)
@@ -481,6 +482,84 @@ final class RichMediaSVGCoverageTests: XCTestCase {
             XCTAssertEqual(text.report.unsupportedElements, ["svg:image": 2], body)
             XCTAssertEqual(text.report.unreadableResources, 0, body)
             XCTAssertEqual(text.report.remoteResourcesRefused, 0, body)
+        }
+    }
+
+    // MARK: References and sizes the serializer writes as the renderer reads them
+
+    private static func isLime(_ pixel: [UInt8]) -> Bool { pixel[0] < 60 && pixel[1] > 200 && pixel[2] < 60 && pixel[3] == 255 }
+
+    /// A fragment whose `#` a combining mark follows names an element of the drawing, as the
+    /// renderer reads it: a `<use>` draws the shape it names, and neither it nor an `<image>` is
+    /// taken for a file, left out or disclosed ([#641](https://github.com/vocaro/EPUBLib/issues/641)).
+    /// In the document and in a drawing from the archive. What the serializer writes is
+    /// StaticSVG's half of this test (`SVGCoverageTests`).
+    func testAFragmentAfterACombiningMarkIsDrawnAndNotDisclosed() throws {
+        let drawing = "<svg \(Self.ns) width='10' height='10'><defs><rect id='&#x301;x' width='5' height='5' fill='red'/></defs>"
+            + "<use href='#&#x301;x'/><image href='#&#x301;x' width='5' height='5'/></svg>"
+        for (body, files) in [("<p>\(drawing)</p>", [String: Data]()), ("<p><img src='d.svg' alt='D'/></p>", ["d.svg": Data(drawing.utf8)])] {
+            let (shown, text) = try image(body, files: files)
+            let bitmap = try XCTUnwrap(shown?.source.decode(maxPixelSize: 10), body)
+            XCTAssertTrue(Self.isRed(RichMediaImages.rgba(bitmap, x: 2, y: 2)), "\(body): the use draws the rectangle")
+            XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 7, y: 7)[3], 0, body)
+            XCTAssertEqual(text.report.unsupportedElements, [:], body)
+            XCTAssertEqual(text.report.unreadableResources, 0, "\(body): no file was read")
+        }
+    }
+
+    /// An `<image>` whose picture is a drawing from the archive, and that gives no `width` or
+    /// `height`, is laid out at that drawing's own size, from its `width` and `height` or else its
+    /// `viewBox`, as a browser lays it out (SVG 2 §12.2), and not at the size of the 2,048-pixel
+    /// raster it is inlined as, which had the drawing that holds it refused
+    /// ([#704](https://github.com/vocaro/EPUBLib/issues/704)). In the document and in a drawing
+    /// from the archive; StaticSVG's half of this test, `data:` drawings among them, is
+    /// `SVGCoverageTests`.
+    func testAnArchiveDrawingInAnImageIsLaidOutAtItsOwnSize() throws {
+        let square = "<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><rect width='10' height='10' fill='lime'/></svg>"
+        let strip = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 5'><rect width='10' height='5' fill='lime'/></svg>"
+        // A point inside the drawing as given its own size, and one outside it inside the raster's.
+        for (inner, inside, outside, given) in [(square, (5, 5), (15, 15), "width='10' height='10'"), (strip, (5, 2), (5, 8), "width='10' height='5'")] {
+            for size in ["", given] {
+                // An empty rectangle keeps the outer drawing from being a single-image wrapper.
+                let outer = "<svg \(Self.ns) width='20' height='20'><title>Nested</title><image href='inner.svg' \(size)/><rect width='0' height='0'/></svg>"
+                for (body, files) in [("<p>\(outer)</p>", ["inner.svg": Data(inner.utf8)]),
+                                      ("<p><img src='outer.svg' alt='Nested'/></p>", ["inner.svg": Data(inner.utf8), "outer.svg": Data(outer.utf8)])] {
+                    let name = "\(body.prefix(8)) \(inner == square ? "10 by 10" : "viewBox") \(size.isEmpty ? "with no size" : size)"
+                    let (shown, text) = try image(body, files: files)
+                    let bitmap = try XCTUnwrap(shown?.source.decode(maxPixelSize: 20), "\(name): drawn, not refused")
+                    let pixel = RichMediaImages.rgba(bitmap, x: inside.0, y: inside.1)
+                    XCTAssertTrue(Self.isLime(pixel), "\(name): \(pixel)")
+                    XCTAssertEqual(RichMediaImages.rgba(bitmap, x: outside.0, y: outside.1)[3], 0, name)
+                    XCTAssertEqual(text.report.unsupportedElements, [:], name)
+                }
+            }
+        }
+    }
+
+    /// An `<image>` whose picture is a bitmap from the archive over 2,048 pixels on its long side,
+    /// and that gives no `width` or `height`, is laid out at the bitmap's own size, as a browser
+    /// lays it out, and not at the size of the 2,048-pixel raster it is inlined as. The image span
+    /// bound charges that size, as it charges one the element gives: a canvas narrower than an
+    /// eighth of it shows the drawing's fallback ([#862](https://github.com/vocaro/EPUBLib/issues/862)).
+    /// StaticSVG's half of this test, turned and `data:` bitmaps among them, is `SVGCoverageTests`.
+    func testALargeArchiveBitmapInAnImageIsLaidOutAtItsOwnSize() throws {
+        let files = ["wide.png": RichMediaImages.solid(width: 3000, height: 1000, red: 0, green: 1, blue: 0)]
+        // A 3,000-unit square drawn at 30 pixels: a point inside the bitmap's own size, one inside
+        // it outside the raster's 2,048 by 683, and one outside both.
+        for size in ["", "width='3000' height='1000'"] {
+            let name = size.isEmpty ? "with no size" : size
+            let (shown, text) = try image("<p><svg \(Self.ns) width='3000' height='3000'><image href='wide.png' \(size)/><rect width='0' height='0'/></svg></p>", files: files)
+            let bitmap = try XCTUnwrap(shown?.source.decode(maxPixelSize: 30), name)
+            XCTAssertTrue(Self.isLime(RichMediaImages.rgba(bitmap, x: 5, y: 3)), name)
+            XCTAssertTrue(Self.isLime(RichMediaImages.rgba(bitmap, x: 25, y: 8)), "\(name): drawn past the raster's size")
+            XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 25, y: 15)[3], 0, name)
+            XCTAssertEqual(text.report.unsupportedElements, [:], name)
+        }
+        for (width, drawn) in [(375, true), (374, false)] {
+            let (shown, text) = try image("<p><svg \(Self.ns) width='\(width)' height='125'><title>Wide</title><image href='wide.png'/><rect width='0' height='0'/></svg></p>", files: files)
+            XCTAssertEqual(shown != nil, drawn, "a canvas \(width) wide")
+            XCTAssertEqual(text.richMediaPlain.contains("Wide"), !drawn, "a canvas \(width) wide")
+            XCTAssertEqual(text.report.unsupportedElements, drawn ? [:] : ["svg": 1], "a canvas \(width) wide")
         }
     }
 

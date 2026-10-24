@@ -1,6 +1,7 @@
 import CoreGraphics
 import EPUBCore
 import EPUBReading
+import EPUBTestSupport
 import ImageIO
 import XCTest
 @testable import EPUBViewing
@@ -146,7 +147,7 @@ import UIKit
         XCTAssertNotNil(inspector)
         host?.close()
         host = nil
-        try await Task.sleep(for: .milliseconds(100))
+        try await TestDeadline.pause(.milliseconds(100))
         XCTAssertNil(canvas)
         XCTAssertNil(inspector)
     }

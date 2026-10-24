@@ -210,6 +210,9 @@ enum NativeDisclosure {
         if report.generatedContentOmitted {
             sentences.append("Some text or images this book's styling adds before or after its content are not shown.")
         }
+        if report.firstLineStylesOmitted {
+            sentences.append("Styling this book gives the first line of some paragraphs, such as small capitals, is not shown.")
+        }
         if report.textNotLaidOut { sentences.append("Some text in this book could not be laid out and is not shown.") }
         return sentences.isEmpty ? nil : sentences.joined(separator: " ")
     }

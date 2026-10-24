@@ -9,9 +9,11 @@ Set `DEVELOPER_DIR` when more than one Xcode is installed. From the repository r
 python3 scripts/eng run gate
 ```
 
-`gate` is the `exclusive` lane in `engineering.json` that runs `scripts/check-all.sh`, which
+`gate` is the `heavy` lane in `engineering.json` that runs `scripts/check-all.sh`, which
 takes no arguments. The gate checks the hosted-run and VoiceOver session scripts, verifies
-module boundaries, compares documentation snippets with compiled Swift sources, runs the Mac
+module boundaries, compares documentation snippets with compiled Swift sources, holds the
+license texts EPUBCore ships to their projects' files and to the
+[third-party notices](third-party-notices.md) ([license texts](#license-texts)), runs the Mac
 tests and the full test suite on dedicated iPhone 17 Pro and iPad Air 13-inch (M4) simulators,
 reads the objects those runs compiled, StaticSVG's among them, and the resvg library
 StaticSVG's release supplies, for any API that an app would have to
@@ -22,7 +24,7 @@ repository drive simulators the same way, headlessly ([notes for agents](../AGEN
 `.build/validation/`. `EPUB_SIM_RUNTIME` selects a different installed runtime by identifier.
 None of this runs on a hosted runner, and nothing starts by itself for a pull request or for
 `main`: GitHub's runner is for [Mac VoiceOver sessions](#hosted-mac-sessions)
-only ([hosted Mac runner](https://github.com/vocaro/apple-engineering/blob/main/guides/hosted-runner.md#purpose-and-limits)).
+only ([hosted Mac runner](https://github.com/vocaro/vocaro-engineering/blob/main/guides/hosted-runner.md#purpose-and-limits)).
 
 The script checks use Python's standard `unittest` library and run independently with:
 
@@ -38,37 +40,88 @@ cover queue refusals and dispatch arguments, per-session settings and Safari res
 session deadlines and reports, the list state used when restoring VoiceOver
 ([#433](https://github.com/vocaro/EPUBLib/issues/433)), simulator build revisions
 ([#504](https://github.com/vocaro/EPUBLib/issues/504)), where the scripts find the shared
-toolkit ([#701](https://github.com/vocaro/EPUBLib/issues/701)), and which symbols the privacy
+toolkit ([#701](https://github.com/vocaro/EPUBLib/issues/701)), which symbols the privacy
 manifest check counts as an API to declare
-([#685](https://github.com/vocaro/EPUBLib/issues/685)).
+([#685](https://github.com/vocaro/EPUBLib/issues/685)), how the Mac suite's script bounds its
+build and reports an unmeasured test ([#859](https://github.com/vocaro/EPUBLib/issues/859)), and
+which license copies the license check refuses ([#699](https://github.com/vocaro/EPUBLib/issues/699)).
 They do not establish what VoiceOver reads or does; that uses the speech lanes below.
 
 These checks and `scripts/eng` need the [shared engineering toolkit](shared-engineering.md), a
-clone of vocaro/apple-engineering at `toolkit.path` in `engineering.json`, `../apple-engineering`.
+clone of vocaro/vocaro-engineering at `toolkit.path` in `engineering.json`, `../vocaro-engineering`.
 From a session's worktree the scripts also look beside the repository's main checkout
-([locating the toolkit from a worktree](https://github.com/vocaro/apple-engineering/blob/main/guides/adoption.md#locating-the-toolkit-from-a-worktree)),
+([locating the toolkit from a worktree](https://github.com/vocaro/vocaro-engineering/blob/main/guides/adoption.md#locating-the-toolkit-from-a-worktree)),
 so a session that shares the main checkout's clone sets nothing
 ([#701](https://github.com/vocaro/EPUBLib/issues/701)). `VOCARO_ENGINEERING_ROOT` names
 another clone and comes first; the checks give the copies of the scripts they run the clone
 they find.
 
-Run one gate at a time on this shared Mac, with its Mac and iOS suites one after the other.
-The `gate` lane waits for the host's
-[heavy-work admission](https://github.com/vocaro/apple-engineering/blob/main/guides/shared-host.md#heavy-work-admission)
-to have no other heavy work running and holds every slot while it runs. Keep build and test
-worker counts bounded. Admission sees only admitted work, so look for every run on the host
-first, as that section describes: on 2026-10-20 a check of the worktrees alone missed another
-session's Mac suite.
+The `gate` lane is heavy work, like the suites it runs: it waits for the host's
+[heavy-work admission](https://github.com/vocaro/vocaro-engineering/blob/main/guides/shared-host.md#heavy-work-admission)
+and then runs beside other admitted work, another gate included. Admission counts it as one
+job however many workers it starts, so it runs its Mac and iOS suites one after the other,
+their tests one at a time, and builds with `EPUB_BUILD_JOBS` workers, 4 unless that is set;
+`scripts/test-ios.sh` takes the same variable. Admission sees only admitted work, so look for
+every run on the host first, as that section describes: on 2026-10-20 a check of the worktrees
+alone missed another session's Mac suite.
 EPUBLib's runs are listed by
 `ps -Ao args | grep -E '[E]PUBLib.*\.xctest|[c]heck-all\.sh|[t]est-ios\.sh'`.
-Synchronous performance assertions use thread CPU time and asynchronous readiness waits
-wall-clock deadlines; record host activity beside the results as context, as
-[CPU, scheduling and core-wait time](https://github.com/vocaro/apple-engineering/blob/main/guides/measurement.md#cpu-scheduling-and-core-wait-time)
-describes. The idle-CPU recipe [reported in #62](https://github.com/vocaro/EPUBLib/issues/62#issuecomment-6155249383)
+
+Nothing the gate runs needs the host to itself. A Mac test's windows are its own process's,
+and it sends its events to its own views, not through the window server. A copy test writes
+to a pasteboard of its own, since a named one is the whole Mac's. Each simulator is the run's
+own (below). A timing measurement does need the host, and runs by itself with
+`eng admit --exclusive` ([Probes and recorded inputs](#probes-and-recorded-inputs)).
+
+The gate's limits tolerate a busy host
+([#859](https://github.com/vocaro/EPUBLib/issues/859)). Synchronous performance assertions
+use thread CPU time (`TestCPUClock`). Every wait and settling pause in the gate's tests, and in
+`EPUBEngineContract`, is a `TestDeadline` (`Tests/EPUBTestSupport/TestDeadline.swift`); a delay
+that a test makes on purpose, as when it models a late report, stays on the wall clock. It
+holds its limit against the host's awake seconds less the seconds the test process's threads
+waited for a core, so on a quiet host the limit is the wall clock, and a backstop of four
+times the limit, and at least ten seconds more than it (two for a settling pause), ends any wait
+([CPU, scheduling and core-wait time](https://github.com/vocaro/vocaro-engineering/blob/main/guides/measurement.md#cpu-scheduling-and-core-wait-time)).
+A wait that the backstop ends within its own limit, or that reaches its limit under memory
+pressure, skips its test with a reason beginning `Unmeasured:`. A simulator whose first boot
+passes its limit is unmeasured too. The gate and `scripts/test-ios.sh` list each one and exit 3,
+neither passed nor failed: run those tests again when the host is quieter. The Mac suite's log
+is `.build/validation/mac.log`. The script checks bound a run of fake tools only against a
+hang, at two minutes (`HANG_SECONDS` in `scripts/tests/support.py`).
+
+A wait for something that is never to come is not held to a limit. `ControlsCoverageContractTests`
+and `EngineContractTests` check that the contract verifier refuses broken engines, and many of
+those never send what the verifier waits for. Their engines say when they are idle
+([adapter contract tests](#adapter-contract-tests)), so such a wait fails once the engine is
+idle, at any memory pressure. Until then each of those waits ran to its limit on every run, and
+under memory pressure was unmeasured every time, in a simulator too, whose test process reads the
+host's level: on 2026-10-23 two gates exited 3 for those checks alone
+([#859](https://github.com/vocaro/EPUBLib/issues/859)).
+
+A wait for an engine that is still busy keeps its limit, and is unmeasured when the limit passes
+under memory pressure. Whether an event still on its way would have come in time is a question of
+time, and a thread that waits for its own pages is not runnable, so no clock leaves that stall
+out and none tells it from a late engine. In the gate those waits are for correct engines, and
+end when the event comes. Rerun a test unmeasured under memory pressure with the level logged
+beside the run:
+
+```sh
+( while sleep 2; do echo "$(date +%T) $(sysctl -n kern.memorystatus_vm_pressure_level)"; done ) > pressure.log &
+python3 scripts/eng run ios-tests -- -only-testing:EPUBViewingTests/ReaderControlsTests
+kill %1
+```
+
+A test that fails in a gate and passes alone may still race. Repeat its class through the same
+lane with `-test-iterations 5 -run-tests-until-failure` after `--`, and file what fails only
+under load as a defect. `LayoutPageTests`' closing test failed once that way and then passed five
+repetitions on both simulators ([#860](https://github.com/vocaro/EPUBLib/issues/860)).
+
+Record host activity beside the results as context, as that section describes. The idle-CPU
+recipe [reported in #62](https://github.com/vocaro/EPUBLib/issues/62#issuecomment-6155249383)
 is a heuristic from one session, not a gate requirement or an acceptance cutoff.
 
 When several branches are ready at once, one gate can serve them all, as
-[concurrent Git integration](https://github.com/vocaro/apple-engineering/blob/main/guides/maintenance.md#concurrent-git-integration)
+[concurrent Git integration](https://github.com/vocaro/vocaro-engineering/blob/main/guides/maintenance.md#concurrent-git-integration)
 describes, and a filtered Mac run does not stand in for the iOS suites. On 2026-10-21 such a
 gate over ten branches, each of whose own Mac runs had passed, found three iOS-only failures
 in two of them: a test helper that drew images upside down under UIKit
@@ -78,7 +131,7 @@ layout expectation that a change to float grouping moved
 layout or pagination, run its classes on a simulator as well.
 
 The Mac suites need the screen unlocked and the display awake
-([lock screen and display sleep](https://github.com/vocaro/apple-engineering/blob/main/guides/background-mac-testing.md#lock-screen-and-display-sleep)
+([lock screen and display sleep](https://github.com/vocaro/vocaro-engineering/blob/main/guides/background-mac-testing.md#lock-screen-and-display-sleep)
 has the checks). While the display sleeps,
 `ScrolledAccessibilityReadTests.testWheelAndTrackpadAfterAReadKeepTheTextOnScreen` times out
 waiting for a wheel event to move the text. On 2026-10-14 it failed that way on branches that
@@ -87,13 +140,14 @@ had passed it an hour before, and on `main`, until the owner unlocked the Mac
 gate and before blaming a change for that failure.
 
 `scripts/test-ios.sh` runs its devices as
-[disposable simulators](https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#disposable-simulators).
-It reports `Passed` or `Failed` for each device, continues to the second after a creation, boot
-or test failure, and exits nonzero if either failed. A passed device reports the tests it ran:
+[disposable simulators](https://github.com/vocaro/vocaro-engineering/blob/main/guides/simulator-testing.md#disposable-simulators).
+It reports `Passed`, `Failed` or `Unmeasured` for each device, continues to the second after a
+creation, boot or test failure, and exits 1 if either failed, or otherwise 3 if either was
+unmeasured. A passed device reports the tests it ran:
 XCTest's total for each test bundle, which `xcodebuild` runs one at a time, and Swift Testing's
 for each run. A device that ran none fails. Arguments go to each device's `xcodebuild test`.
 Each first boot has a 600-second limit (`EPUB_SIM_BOOT_TIMEOUT` overrides it with a positive
-number of seconds). The device and last
+number of seconds), and a boot that passes it leaves its device unmeasured. The device and last
 boot stage, including any migration plugin, are retained in
 `.build/validation/<device-kind>-boot.log`, the identifier creation printed in
 `<device-kind>-create.log`, and the test log in `<device-kind>.log`. Destination discovery gets
@@ -103,8 +157,10 @@ The failure, timeout and interruption paths can be checked without creating a si
 fresh temporary directory and checks that every created device is deleted.
 
 The Mac and iOS suites are `heavy` lanes of their own, `swift-tests` and `ios-tests`, and the
-narrower checks are runs of them. Arguments after `--` go to the lane's command: a `swift test`
-filter, or `xcodebuild test` options such as `-only-testing:` for each simulator.
+narrower checks are runs of them. `swift-tests` runs `scripts/test-mac.sh`, which runs
+`swift test` as the gate does and exits 3 when a test was unmeasured. Arguments after `--` go to
+the lane's command: a `swift test` filter, or `xcodebuild test` options such as
+`-only-testing:` for each simulator.
 
 ```sh
 python3 scripts/eng run swift-tests
@@ -121,7 +177,7 @@ shows it selected the tests it was meant to:
 `python3 scripts/eng run swift-tests --expect N -- --filter X`. `eng` adds up what the log
 reports: each test bundle's total, each Swift Testing run and each unittest run. A filtered
 `ios-tests` run counts both simulators, so 12 tests on each is `--expect 24`. The floors are
-counts that a toolkit older than apple-engineering 18c01d4, which took the largest single count
+counts that a toolkit older than vocaro-engineering 18c01d4, which took the largest single count
 in place of the sum, accepts as well. Any other heavy command in this
 document, such as a probe's `swift test`, `xcodebuild` or `xcrun xctest`, goes through
 `python3 scripts/eng admit -- COMMAND`, with `--exclusive` for a whole-machine measurement. The
@@ -131,7 +187,7 @@ On the Mac, the harness calls `makeMacTestWindow`, which runs `prepareMacTestApp
 before constructing an `NSWindow` or starting `NSApplication`. It puts
 `ApplePersistenceIgnoreState=YES` in the volatile `NSArgumentDomain`, so no saved window is
 restored
-([offscreen AppKit hosting](https://github.com/vocaro/apple-engineering/blob/main/guides/background-mac-testing.md#offscreen-appkit-hosting)).
+([offscreen AppKit hosting](https://github.com/vocaro/vocaro-engineering/blob/main/guides/background-mac-testing.md#offscreen-appkit-hosting)).
 The opt-in `ReaderTestWindowTests.testKilledWindowProcessProbe` mounts a window and kills
 only its own test process with SIGKILL, so a normal pass can check that it restarts without
 a restoration alert. After building the tests, run the probe by itself (a nonzero exit is
@@ -185,7 +241,7 @@ xcrun xctest -XCTest All -NSRequiresAquaSystemAppearance YES .build/debug/EPUBVi
 A legacy scroll bar takes its width from continuous scroll's column
 ([Layout](native-viewer.md#layout)), and which kind a Mac shows depends on its setting and on
 what is attached
-([pinned render settings](https://github.com/vocaro/apple-engineering/blob/main/guides/background-mac-testing.md#pinned-render-settings)).
+([pinned render settings](https://github.com/vocaro/vocaro-engineering/blob/main/guides/background-mac-testing.md#pinned-render-settings)).
 A canvas test of where lines sit across that column says which kind it means with
 `CanvasHost.setScrollBars` (`ReaderCanvasFixtures.swift`), which holds the scroll view to it.
 `BoxAlignmentCanvasTests.testShippedStandardEbooksPagesKeepTheirPlaceInContinuousScroll`
@@ -205,10 +261,35 @@ helper, with a view that counts the live-resize calls, and skips where AppKit re
 one.
 
 A `swift test` that hangs can be made to say where:
-[hung and buffered test runs](https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#hung-and-buffered-test-runs)
+[hung and buffered test runs](https://github.com/vocaro/vocaro-engineering/blob/main/guides/simulator-testing.md#hung-and-buffered-test-runs)
 has the unbuffered run and the stack sample. On 2026-10-12, with a test made to wait twenty
 seconds, a plain run's log was empty ten seconds in, the log of a run with `NSUnbufferedIO=YES`
 ended at that test's `started` line, and the sample had the test's frame on the main thread.
+
+### License texts
+
+`scripts/check-licenses.py` reads each dependency's files from its checkout in `.build/checkouts`
+at the revision `Package.resolved` pins, so it runs after `swift build`. It compares Git blob
+hashes, byte for byte, and names each copy in `Sources/EPUBCore/Licenses` that differs, is missing
+or copies no pinned file, a folder the [third-party notices](third-party-notices.md) do not name,
+and a version there that is not the pin. It also names a license or notice file at the top of a
+pinned package (`LICENSE`, `NOTICE`, `COPYING`, `THIRD_PARTY_NOTICES` and the like) that nothing
+copies: StaticSVG's `THIRD_PARTY_NOTICES.md`, which its redistribution terms name, was left out
+until [#699](https://github.com/vocaro/EPUBLib/issues/699)'s review. When a pin moves, copy the
+new release's files over the old ones under the names the notices give, read its redistribution
+terms for any file they add, and change the version there.
+`PackageLicenseTests` reads every text through `EPUBLicense.all()` on the Mac and on both
+simulators.
+
+To see the texts as an app gets them, build one that depends on the package by revision, from a
+pushed commit, as the
+[distribution checks](https://github.com/vocaro/vocaro-engineering/blob/main/guides/packaging.md#swift-package-distribution-checks)
+describe. An XcodeGen project with a macOS and an iOS `application` target, each linking
+`EPUBViewing` from `https://github.com/vocaro/EPUBLib.git` at `revision:`, whose `main.swift`
+prints what `EPUBLicense.all()` gives and the bytes of each `text()`, is enough. Build both with
+`CODE_SIGNING_ALLOWED=NO` through `python3 scripts/eng admit --`, run the Mac app's executable,
+compare `EPUBLib_EPUBCore.bundle/Licenses` in each app with `Sources/EPUBCore/Licenses`
+(`diff -r`), and check that ZIPFoundation's bundle still holds its `PrivacyInfo.xcprivacy`.
 
 ## Coverage
 
@@ -223,7 +304,9 @@ misstates their sizes, contents entries that do not resolve, named character ref
 lower-case doctypes in navigation, control characters in navigation, white space in metadata
 values and navigation labels (ASCII whitespace stripped and collapsed however it is written,
 white space outside ASCII kept beside other content and a mark after a space kept, a value of
-nothing but white space of any kind empty),
+nothing but white space of any kind empty), U+FEFF left out of them wherever the parser splits
+the text, a `br` in a label read as a space, Dublin Core names in OEBPS 1.2's capitals inside
+`dc-metadata`,
 cancellation after expansion starts, and exact IDPF/Adobe font deobfuscation vectors. The font
 tests check the XOR prefix and the untouched suffix against independently specified keys.
 
@@ -269,13 +352,13 @@ step or a chosen result, and that a presentation covers the reader only in a win
 width, which is read from a view the test mounts rather than by choosing a row. They do not
 establish toolbar overflow, popover or VoiceOver behaviour on a device, and a row cannot be
 activated in process either
-([an in-process query does not see what VoiceOver is given](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#an-in-process-query-does-not-see-what-voiceover-is-given)).
+([an in-process query does not see what VoiceOver is given](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#an-in-process-query-does-not-see-what-voiceover-is-given)).
 The canvas test of pages kept under a keyboard posts UIKit's keyboard notification itself and
 makes the canvas shorter, as a host's stack does
 ([#49](https://github.com/vocaro/EPUBLib/issues/49#issuecomment-6279333375)). Set `EPUB_SNAPSHOT_DIR` for `swift test`, or
 `TEST_RUNNER_EPUB_SNAPSHOT_DIR` for `scripts/test-ios.sh`, to keep a PNG of each mounted state.
 These are layer renders from a test host, not screen captures
-([window renders and system screenshots](https://github.com/vocaro/apple-engineering/blob/main/guides/background-mac-testing.md#window-renders-and-system-screenshots)),
+([window renders and system screenshots](https://github.com/vocaro/vocaro-engineering/blob/main/guides/background-mac-testing.md#window-renders-and-system-screenshots)),
 so system bar materials and presentations are absent from them.
 
 Page-input tests cover default and replaced/cleared shortcuts, exact modifiers, duplicate/invalid
@@ -286,7 +369,7 @@ both reading flows, host commands and iOS VoiceOver page turns with direct input
 Scrolled-read tests hold continuous scroll to the text on screen after the whole book has been
 laid out behind the scroll view, as VoiceOver and a UI test's snapshot do when they ask where
 every paragraph is
-([accessibility observation can change layout](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#accessibility-observation-can-change-layout)):
+([accessibility observation can change layout](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#accessibility-observation-can-change-layout)):
 scroll steps, a place scrolled to by hand, and the change back to pages. The read is a
 stand-in for one an in-process query cannot make (above): the tests ask for each paragraph's
 rectangle through `firstRect(for:)` on UIKit and `accessibilityFrame(for:)` on AppKit, and
@@ -308,7 +391,7 @@ to it. `BoxAlignmentCanvasTests` also hides the toolbar with the view at the end
 where AppKit cannot move the view by the whole change in the inset. The bars are the system's
 own, in a test host; nothing is looked at on a screen.
 Each window's toolbar has an identifier of its own, for the reasons
-[offscreen AppKit hosting](https://github.com/vocaro/apple-engineering/blob/main/guides/background-mac-testing.md#offscreen-appkit-hosting)
+[offscreen AppKit hosting](https://github.com/vocaro/vocaro-engineering/blob/main/guides/background-mac-testing.md#offscreen-appkit-hosting)
 gives.
 
 Table reading-order tests hold a table on iPhone and iPad to one accessibility element for each
@@ -501,12 +584,12 @@ and that a row is not passed over when it holds a picture nobody describes, a li
 rule, while one of spaces, or with a table of decoration inside a cell, is. They read the
 elements through AppKit's own accessibility methods, not the older informal ones, which do not
 show what a client is given
-([in-process accessibility actions](https://github.com/vocaro/apple-engineering/blob/main/guides/background-mac-testing.md#in-process-accessibility-actions)).
+([in-process accessibility actions](https://github.com/vocaro/vocaro-engineering/blob/main/guides/background-mac-testing.md#in-process-accessibility-actions)).
 The SwiftPM test process (`swift test`) answers no client either: the accessibility API asked
 of its own process id there gives `kAXErrorNotImplemented`. An app-hosted test bundle, by
 contrast, reads its own app's tree without the Accessibility permission (EngineeringTestSupport's
 `AccessibilityRead` reads one attribute;
-[test hosts and what they reach](https://github.com/vocaro/apple-engineering/blob/main/guides/background-mac-testing.md#test-hosts-and-what-they-reach)).
+[test hosts and what they reach](https://github.com/vocaro/vocaro-engineering/blob/main/guides/background-mac-testing.md#test-hosts-and-what-they-reach)).
 To see what a client is given on this Mac without VoiceOver, build the verification reader,
 launch it in the background with its `-SampleHref` arguments and ask it from another process,
 as the client in
@@ -559,7 +642,7 @@ table cells, a highlight-only search and host highlights added and removed in pl
 `ReaderPaintRecorder` copies each `draw(_:)` the system makes of a view under the canvas into a
 bitmap kept for that view and composes those as the views are arranged. Rendering the view
 does not serve
-([capturing a background window](https://github.com/vocaro/apple-engineering/blob/main/guides/background-mac-testing.md#capturing-a-background-window)):
+([capturing a background window](https://github.com/vocaro/vocaro-engineering/blob/main/guides/background-mac-testing.md#capturing-a-background-window)):
 on Mac `cacheDisplay(in:to:)` and `CALayer.render(in:)` counted no highlight pixels while the
 cleared matches were still painted.
 `drawHierarchy(in:afterScreenUpdates:)`, which reads what UIKit composed, has no render server
@@ -580,7 +663,7 @@ and against EPUBCheck's scenario inventory. Their fixtures are original and buil
 test that exposes an open defect is marked as a known issue with its issue's URL, and a test
 whose input kills the test process is disabled by name (`disabled_test…`) with its issue above
 it, as
-[honest outcome states](https://github.com/vocaro/apple-engineering/blob/main/guides/evidence.md#honest-outcome-states)
+[honest outcome states](https://github.com/vocaro/vocaro-engineering/blob/main/guides/evidence.md#honest-outcome-states)
 describes. A test of input that TextKit might never finish laying out runs the
 layout under `BoundedLayout` (`BoxLayoutTerminationCoverageTests`), which stops the reader's
 text container answering after a set number of calls. The container also has a bound of its
@@ -609,7 +692,7 @@ the local gate because it takes control of the user interface and changes VoiceO
 and no sound, and takes over nothing: it records what a
 [simulator's VoiceOver](#simulators) reads. What that record establishes, and what stays with
 physical devices, is the shared
-[acceptance rule](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#acceptance-rule)
+[acceptance rule](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#acceptance-rule)
 ([acceptance and evidence](#acceptance-and-evidence)).
 
 ## Corpus runs
@@ -669,7 +752,7 @@ chose them in its header. The books stay outside the repository, beside the W3C 
   when its books are present and match the manifest, it prints `EPUBLIB_STANDARD_EBOOKS`.
 
 Both fetchers (`scripts/corpora/fetch_books.py`) keep to each site's automated-access policy as
-[corpus provenance](https://github.com/vocaro/apple-engineering/blob/main/guides/evidence.md#corpus-provenance)
+[corpus provenance](https://github.com/vocaro/vocaro-engineering/blob/main/guides/evidence.md#corpus-provenance)
 describes, re-pinning included.
 
 Neither collection versions its URLs: Gutenberg rebuilds its files monthly, and Standard Ebooks
@@ -705,13 +788,13 @@ corpus takes.
 
 On macOS, let a corpus layout process exit after its last test passes: AppKit's run loop can
 hold its text views after the suite has passed
-([an autorelease pool does not release what the run loop retains](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/framework-lifetimes.md#an-autorelease-pool-does-not-release-what-the-run-loop-retains)).
+([an autorelease pool does not release what the run loop retains](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/framework-lifetimes.md#an-autorelease-pool-does-not-release-what-the-run-loop-retains)).
 The [investigation of #589](https://github.com/vocaro/EPUBLib/issues/589#issuecomment-6283724393) records
 the reader's callback counts and a comparison using plain AppKit views. The original
 100-book ask-run probe continued for 1.8 to 32 minutes after passing at five sizes, and was
 still running after 80 minutes at `phone-40pt`; these observations are not time limits.
 Redirect such a run unbuffered, as above, and wait for its exit status
-([hung and buffered test runs](https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#hung-and-buffered-test-runs)).
+([hung and buffered test runs](https://github.com/vocaro/vocaro-engineering/blob/main/guides/simulator-testing.md#hung-and-buffered-test-runs)).
 
 `NativeCorpusQualificationTests` builds every book under `EPUBLIB_CORPUS`, a colon-separated
 list of directories of EPUB files, and checks each section's text map:
@@ -753,7 +836,7 @@ count views retained after their autorelease pools end.
 ### UIKit note presentation in an app-hosted test bundle
 
 The package XCTest host used here does not complete UIKit modal presentations
-([package test hosts](https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#package-test-hosts)).
+([package test hosts](https://github.com/vocaro/vocaro-engineering/blob/main/guides/simulator-testing.md#package-test-hosts)).
 Its note tests still verify routing, content, and activation order.
 The app-hosted lane verifies the actual animated presentation, attachment, and dismissal.
 
@@ -854,8 +937,8 @@ take the same file from `TEST_RUNNER_EPUBLIB_SVG_CORPUS`. The runs are on
 ### SVG rendering cost probe
 
 The renderer probes and their recorded inputs moved to StaticSVG with the renderer: its
-[rendering cost probe](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/testing.md#rendering-cost-probe)
-and [font-size cost probe](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/testing.md#font-size-cost-probe).
+[rendering cost probe](https://github.com/vocaro/StaticSVG/blob/0.1.3/doc/testing.md#rendering-cost-probe)
+and [font-size cost probe](https://github.com/vocaro/StaticSVG/blob/0.1.3/doc/testing.md#font-size-cost-probe).
 The measurements already recorded stay on [#176](https://github.com/vocaro/EPUBLib/issues/176#issuecomment-6159294552)
 and [#443](https://github.com/vocaro/EPUBLib/issues/443).
 
@@ -978,7 +1061,7 @@ time into each header, so its mutants are the same bytes only within one process
 mutants are the same bytes in every run. Before [#583](https://github.com/vocaro/EPUBLib/issues/583),
 some damaged Deflate streams did not give the same result on every open, because Apple's
 decoder read stack memory it had not set
-([Apple's Compression inflater](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#apples-compression-inflater-is-not-deterministic-on-damaged-streams));
+([Apple's Compression inflater](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#apples-compression-inflater-is-not-deterministic-on-damaged-streams));
 deflated entries are now inflated with zlib.
 
 ### Generated page text
@@ -1160,9 +1243,9 @@ typing a Return
 Each `dump` line of the log says whether the keyboard was on screen and what had keyboard
 focus, and on iOS every scenario starts upright. What these probes found about input, touches,
 text sizes and runs stopped part-way is in
-[UI test input and observation](https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#ui-test-input-and-observation),
+[UI test input and observation](https://github.com/vocaro/vocaro-engineering/blob/main/guides/simulator-testing.md#ui-test-input-and-observation),
 and a new simulator's keyboard card is dismissed as
-[Device Hub](https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#device-hub)
+[Device Hub](https://github.com/vocaro/vocaro-engineering/blob/main/guides/simulator-testing.md#device-hub)
 says.
 
 A step that names an element compares its word with each element's label, then its identifier,
@@ -1205,7 +1288,7 @@ UIKit's own `-UIPreferredContentSizeCategoryName`, with a category the guide abo
 gives the host a text size without a change to the simulator; on the iPhone SE the strip's
 frames at the largest size were those `signal=content_size` gave. For the iPhone Duo set
 `DEVELOPER_DIR` to Xcode 27.1 for the build and the run, and pass `--hinge-script`
-([setting a pose](https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#setting-a-pose)
+([setting a pose](https://github.com/vocaro/vocaro-engineering/blob/main/guides/simulator-testing.md#setting-a-pose)
 says what never to send that simulator). For the Mac pass `--mac` in place of `--device`, with
 a signed build, and run it there only with the owner's explicit authorization: the probe takes
 the Mac's pointer and keyboard.
@@ -1260,19 +1343,123 @@ What the probe saw, what was fixed and what is still unverified is on
 [#51](https://github.com/vocaro/EPUBLib/issues/51#issuecomment-6159295619) ([second
 part](https://github.com/vocaro/EPUBLib/issues/51#issuecomment-6159295950)).
 
+### Bar changes over the reader
+
+How continuous scroll moves while a bar is shown or hidden over it, animated, is watched with
+the probe patch and runner on
+[#370](https://github.com/vocaro/EPUBLib/issues/370#issuecomment-6370953916). The patch adds a
+test class that mounts `EPUBReaderView` in a `NavigationStack` three ways (under the host's own
+bar with `ignoresSafeArea()`, and under `epubReaderHidesControls` in and out of the safe area),
+changes the bar four times in a book with full-page boxes and in one with none, and logs where
+the line shown is drawn at every frame, from the scroll view's presentation layer. With
+`PROBE370_FRAMES` it draws every other frame from the window's presentation layers into PNGs.
+`simctl io recordVideo` records none of it: SwiftPM's iOS test host shows no window on the
+simulator's display. The runner creates and deletes its own iPhone 17 Pro and iPad Air
+13-inch (M4) simulators; run it with `python3 scripts/eng admit -- bash probe-370-run.sh`.
+
+### Menu bar commands
+
+`EPUBReaderMenuCommands` ([reader controls](reader-controls.md#menu-bar-commands)) is checked
+three ways ([#697](https://github.com/vocaro/EPUBLib/issues/697)), and the probe's host carries
+it on both platforms.
+
+- `ReaderMenuCommandsTests` gives each command's name, which VoiceOver reads of its item, its
+  shortcut, when it is dimmed and what it submits, against a scripted session, and Find in a
+  mounted control strip and search pane. SwiftUI builds menus from `Commands` only in an app's
+  scene, so the tests read what the menu items read.
+
+  ```sh
+  python3 scripts/eng run swift-tests --expect 10 -- --filter ReaderMenuCommandsTests
+  python3 scripts/eng run ios-tests --expect 20 -- -only-testing:EPUBViewingTests/ReaderMenuCommandsTests
+  ```
+
+- `MenuCommandShortcuts`, a UI test in the probe's bundle, types the shortcuts on an iPad
+  simulator with `XCUIElement.typeKey`, through UIKit's keyboard dispatch and the app's menu, and
+  reads each effect from the host's status line: the text size, the reading modes, Find, and Find
+  Next and Find Previous after a search. Build the probe for a disposable iPad Air 13-inch (M4)
+  simulator as above, then run it alone:
+
+  ```sh
+  xcodebuild -project Examples/ControlsQualification/ControlsQualification.xcodeproj \
+    -scheme ControlsProbeIOS -destination "platform=iOS Simulator,id=$DEVICE" \
+    -derivedDataPath .build/qualification/derived test-without-building \
+    -only-testing:ControlsProbeIOS/MenuCommandShortcuts
+  ```
+
+  XCTest sends no press for Page Up, Page Down, Home or End there (above), so the Go menu's
+  shortcuts are not typed. UIKit built the app's main menu when the first key came, and that key
+  reached no item, so the test's first key is Actual Size, dimmed at the default size. The
+  simulator's log names an item the menu builder refused ("Inserted elements conflict with
+  existing elements"):
+
+  ```sh
+  xcrun simctl spawn "$DEVICE" log show --last 10m --predicate 'process == "ControlsQualification"' | grep -A8 conflict
+  ```
+
+  On a Mac the test skips: it would take the pointer and keyboard.
+- On the Mac the host's menu bar is read in the background through the accessibility API, as
+  [driving an owned app in the background](https://github.com/vocaro/vocaro-engineering/blob/main/guides/background-mac-testing.md#driving-an-owned-app-in-the-background)
+  says: built signed to run locally (`CODE_SIGN_IDENTITY=-`), launched without activation,
+  addressed by its PID, and quit. The driver is on
+  [#697](https://github.com/vocaro/EPUBLib/issues/697#issuecomment-6371832258). An app in the background has no window
+  in front, and so no reader for `@FocusedValue`: every item was in its place, by its name and
+  with its shortcut, and dimmed, and pressing one did nothing. Items enabled and run from the
+  Mac's menu bar need the host's window in front.
+
 ### VoiceOver's own code on Mac
 
 What VoiceOver does with an element can be read in its own code, without running it or
 attaching to it, as
-[reading VoiceOver's own code](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#reading-voiceovers-own-code)
+[reading VoiceOver's own code](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#reading-voiceovers-own-code)
 describes
-([inspecting system code without starting it](https://github.com/vocaro/apple-engineering/blob/main/guides/shared-host.md#inspecting-system-code-without-starting-it)).
+([inspecting system code without starting it](https://github.com/vocaro/vocaro-engineering/blob/main/guides/shared-host.md#inspecting-system-code-without-starting-it)).
 The helper that names the stubs and strings in that output is on
 [#485](https://github.com/vocaro/EPUBLib/issues/485#issuecomment-6272726811):
 `cacheread.c` and `annotate.py` read the shared cache as their own process maps it, and write
 each stub's selector or function and each string's characters beside the line that uses it.
 Read so on macOS 27.0, the code is what made a departed table of data say "empty" on 27.0.1
 ([the native viewer](native-viewer.md), "Data tables", "Pages").
+
+### Contention for a test's waits
+
+To see how a test's waits hold up when its process waits for a core, run it clamped to
+background QoS beside busy processes. Other sessions' default-QoS work keeps the cores
+([#859](https://github.com/vocaro/EPUBLib/issues/859)). By default the spinners are at
+background QoS too. With `CONTEND_SPINNERS=nice` they run at default QoS and nice 20, which
+ranks them above the command and below everyone else's work. Admit the run as heavy work, and
+keep it to minutes: the spinners raise the load average that admission reads.
+
+```python
+#!/usr/bin/env python3
+"""contend.py SPINNERS -- COMMAND...: COMMAND at background QoS beside SPINNERS busy processes."""
+import os, subprocess, sys, time
+
+spinners, command = int(sys.argv[1]), sys.argv[3:]
+spinner = ["nice", "-n", "20"] if os.environ.get("CONTEND_SPINNERS") == "nice" else ["taskpolicy", "-c", "background"]
+busy = [subprocess.Popen([*spinner, "perl", "-e", "1 while 1"]) for _ in range(spinners)]
+try:
+    time.sleep(1)
+    status = subprocess.call(["taskpolicy", "-c", "background", *command])
+finally:
+    for process in busy:
+        process.kill()
+sys.exit(status)
+```
+
+```sh
+python3 scripts/eng admit -- python3 contend.py 36 -- swift test --skip-build --filter EngineContractTests
+```
+
+On 2026-10-23, neither kind of spinner made the 0.2–0.3 s contract waits that `main` had before
+#859 fail ([the runs](https://github.com/vocaro/EPUBLib/issues/859#issuecomment-6375657021)).
+
+To see which tests memory pressure would leave unmeasured without raising it, which on a shared
+Mac slows every other session's work, have `TestDeadline.reading()` report pressure in a
+scratch build: [#859](https://github.com/vocaro/EPUBLib/issues/859) has the patch, which reads
+an environment variable, and a simulator's test process gets it with the `TEST_RUNNER_` prefix.
+On 2026-10-23, so run, the two contract classes left five tests unmeasured on the Mac before
+their engines reported idle and none after, and the whole iOS suite after it left none on either
+simulator.
 
 ## Adapter contract tests
 
@@ -1305,21 +1492,43 @@ The verifier checks:
   steps: with one, every step would show that result, and no step or wrap could move the
   current match. An engine without `.searchResults` refuses the three result commands with
   `.unsupported(.searchResults)` and publishes no results.
+- An engine with `readerState` gives each `.relocated` a reason there,
+  `EPUBReaderStatus.relocationReason`, before it sends the event, and every relocation that a
+  text size or a change of flow brings gives `.relayout`
+  ([#600](https://github.com/vocaro/EPUBLib/issues/600)). The verifier reads the state as each
+  relocation arrives. It waits as after close before the style commands, so that a relocation
+  still to come for the commands before is not taken for a relayout's, and again after them.
 - Close is idempotent; closed commands fail and later callbacks are suppressed.
 
 A minimal SwiftUI test engine runs the same checks with no renderer at all, as an engine with no
 search, one that only highlights, one that lists results, and one that lists them and reports a
-step's relocation and a clear's idle state 30 ms late, from a timer of its own. Deliberately broken
+navigation's, a restoration's and a step's relocation and a clear's idle state 30 ms late, from
+a timer of its own. Deliberately broken
 engines demonstrate that missing/duplicate readiness, ignored cancellation, incompatible restoration,
 locations that carry the file's hash, a restore that refuses a location saved under it,
 late callbacks, results published after completion, steps that do not wrap, stale results that
-still navigate, results kept after a clear and a step of a cleared search that still moves the
-reader fail the verifier. Adapter-specific tests must additionally check actual rendering,
+still navigate, results kept after a clear, a step of a cleared search that still moves the
+reader and an engine that says it is idle before its relocation has come fail the verifier, and
+in `ControlsCoverageContractTests` so do a relocation with no
+reason, one whose reason is given only after the event and a relayout reported as a move. Adapter-specific tests must additionally check actual rendering,
 selection gestures, precise bookmark semantics and resource release.
+
+A session that adopts `EPUBEngineContract.IdleReporting` says when it has sent all it will: no
+timer, task or layout of its own is still to report on what it was given. A wait for an event
+that has not come then fails as soon as the session is idle, "Engine idle while waiting for …",
+before any limit runs out, so neither the host's load nor its memory pressure decides it. While the
+session is busy the wait's `timeout` holds: an event that comes after it is late, "Timed out
+waiting for …", and a limit that passes under memory pressure is unmeasured
+([why](#local-gate)). Both test engines report idle, the one with timers by counting them, so
+each broken one that never sends what the verifier waits for is refused as measured.
+`EngineContractTests` checks the verdicts for a busy engine on clocks of its own, `verify`'s
+`clock`, on which the limit has passed the first time the verifier looks. An engine that does not
+adopt the protocol, as the native one does not, is judged by the limit alone. The settling waits
+below stay timed for every engine, so that the test engine's 30 ms timers go on testing them.
 
 A bounded quiet period after close detects late callbacks; it cannot prove that an engine will
 never emit a much later event. The verifier waits as
-[late callbacks and quiet periods](https://github.com/vocaro/apple-engineering/blob/main/guides/evidence.md#late-callbacks-and-quiet-periods)
+[late callbacks and quiet periods](https://github.com/vocaro/vocaro-engineering/blob/main/guides/evidence.md#late-callbacks-and-quiet-periods)
 describes: it yields, waits 150 ms, waits 20 ms more and then looks. A look at the moment the
 150 ms ended missed a callback sent from a 30 ms sleep one time in ten on GitHub's hosted
 runner, when these tests ran there on 2026-10-12, and a few times in a thousand on a busy Mac.
@@ -1347,13 +1556,13 @@ attempts, and the engine passed in every one.
 The contract verifier requires at least two distinct section hrefs when the engine advertises href
 navigation. It permits a navigation to the already-current section to be a no-op. `send` acknowledges
 submission, so fidelity checks must wait for events or inspect the mounted renderer themselves
-([command submission is not completion](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/command-lifecycles.md#command-submission-is-not-completion)).
+([command submission is not completion](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/command-lifecycles.md#command-submission-is-not-completion)).
 
 ## VoiceOver testing
 
 Use real VoiceOver speech to verify the paginated reader on a Mac, iPhone and iPad. What each
 lane establishes, a [simulator's VoiceOver](#simulators) among them, is the shared
-[acceptance rule](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#acceptance-rule);
+[acceptance rule](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#acceptance-rule);
 [Acceptance and evidence](#acceptance-and-evidence) says which a check needs. The sessions
 are recorded in the
 [Mac verification](https://github.com/vocaro/EPUBLib/issues/55#issuecomment-6159294286) and the
@@ -1550,7 +1759,7 @@ hidden in the flow. "Math readings" (level 1) opens the section after them, and 
 notes" (level 2) stands in the book's last. The second book's are "Chapter one", "Chapter two"
 and "Chapter three", screens apart.
 Do not import private books for this check. The fixture keeps to the shared rules for
-[speech fixtures and reference views](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#speech-fixtures-and-reference-views),
+[speech fixtures and reference views](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#speech-fixtures-and-reference-views),
 the plain text view below among them.
 
 On a Mac the same application can show AppKit's own text view in the reader's place, with
@@ -1564,7 +1773,7 @@ reader's ([Links](#links)).
 Use Xcode 27, OS 27, XcodeGen, Python 3, and a graphical Mac login. Select a signing team for
 the UI-test runners and physical-device app. A [hosted Mac session](#hosted-mac-sessions) needs
 neither a workstation nor a team
-([where Mac sessions run](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#where-mac-sessions-run)).
+([where Mac sessions run](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#where-mac-sessions-run)).
 Build and generate from the repository root:
 
 ```sh
@@ -1589,12 +1798,12 @@ A Mac session takes over the machine it runs on. Run it on a hosted runner, whic
 workstation and counts as acceptance evidence: see [Hosted Mac sessions](#hosted-mac-sessions).
 A session on a workstation needs the owner's explicit authorization, and only for what a
 runner cannot do: someone listening, or stepping by hand
-([where Mac sessions run](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#where-mac-sessions-run)
+([where Mac sessions run](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#where-mac-sessions-run)
 has what such a session needs).
 
 With that authorization, the first step of the session is to reserve the owner's screen:
 `mac-foreground` in the host's device record, with the owner's approval window, as
-[attended Mac sessions](https://github.com/vocaro/apple-engineering/blob/main/guides/shared-host.md#attended-mac-sessions)
+[attended Mac sessions](https://github.com/vocaro/vocaro-engineering/blob/main/guides/shared-host.md#attended-mac-sessions)
 shows, and `VOCARO_DEVICE_OWNER` set to the session named in the reservation. The runner checks
 it before its first key and again before each step, and refuses unless that session holds the
 entry, the entry is neither orphaned nor uncertain, and the approval has not ended. A refused
@@ -1612,7 +1821,7 @@ python3 scripts/run-voiceover-mac.py --timeout 240 ax:next ax:lines ax:focus \
 ```
 
 The outer Python runner owns VoiceOver's state on the Mac: it reads, toggles and restores it
-as [VoiceOver state and restoration](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#voiceover-state-and-restoration)
+as [VoiceOver state and restoration](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#voiceover-state-and-restoration)
 describes, and stops only its own process groups when the deadline expires. If VoiceOver is
 not back in its original state five seconds after the shortcut, the runner prints the reason,
 writes the transcript all the same with the reason in a `NOT_RESTORED` line, and exits with
@@ -1623,7 +1832,7 @@ The probe only records, printing each new phrase as a timestamped `VOICEOVER_EVE
 runner sends its steps in order and waits `--pause` seconds after each VoiceOver command. With
 `--advance-after SECONDS` it sends the next step that long after a key's first new phrase, and
 waits out the pause only when no new phrase is recorded. The steps, whose keys VoiceOver
-answers as [key commands](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#key-commands)
+answers as [key commands](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#key-commands)
 describes:
 
 - `in`, `out`: start or stop interacting with the item in the VoiceOver cursor.
@@ -1705,7 +1914,7 @@ observer Safari's process, whose `ax:` steps are those of a web page
 ([Safari on Mac](#safari-on-mac)). `--xctest-values` is refused with it.
 
 The runner makes the checks of
-[speech capture and the key driver](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#speech-capture-and-the-key-driver)
+[speech capture and the key driver](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#speech-capture-and-the-key-driver)
 before every key, with Safari in place of the reader in a session of Safari. Each run writes
 `mac-STAMP.transcript.txt` beside its log, observer events and result bundle in
 `.build/voiceover/results/`: the steps, heard phrases, value and layout events and fresh
@@ -1762,7 +1971,7 @@ xcrun swift "$(python3 scripts/eng source voiceover-ax-observer.swift)" "$VOICEO
 
 The observer accepts only the verification reader's bundle identifier. Its steps, its output
 lines and how to read them are in the shared
-[accessibility observer](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#accessibility-observer).
+[accessibility observer](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#accessibility-observer).
 With this reader:
 
 - `next`, `previous` press the page buttons, found by label or help rather than index.
@@ -1845,7 +2054,7 @@ VoiceOver said the same at every step, and read the new page's first line at the
 
 In continuous scroll one text area holds the whole book. VoiceOver on the Mac enters it at its
 insertion point
-([VoiceOver enters a text view at its insertion point](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point)),
+([VoiceOver enters a text view at its insertion point](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point)),
 which the reader keeps on the first line on screen (see
 [the native viewer](native-viewer.md), "Continuous scroll"). Launch the reader in that flow and
 compare what VoiceOver says on entering with what is on screen:
@@ -1979,14 +2188,14 @@ TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wai
 Drive at least one session with `flick=right*20` and `flick=left*30` in place of `forward`
 and `backward`: those are VoiceOver's own gestures for the next and previous item, where the
 others are the test service's moves. They take about six seconds each under XCTest
-([physical iPhone and iPad](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#physical-iphone-and-ipad)).
+([physical iPhone and iPad](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#physical-iphone-and-ipad)).
 
 ### Links
 
 On a Mac a link is found, named and followed through elements the reader gives VoiceOver
 ([the native viewer](native-viewer.md), "Links for VoiceOver on Mac"). VoiceOver's own part
 was heard first, in AppKit's text view (`-VerificationPlainText`), and is recorded in
-[links in an AppKit text view are children, not places](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#links-in-an-appkit-text-view-are-children-not-places);
+[links in an AppKit text view are children, not places](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#links-in-an-appkit-text-view-are-children-not-places);
 a session on links is read against it. Of the hint VoiceOver gives after a link's name, "You
 are currently on a hyperlink, inside of a text area. To click this link, press
 Control-Option-Space", the probe records the first 64 characters. For the reader's text the
@@ -2009,7 +2218,7 @@ below the screen by its name, scrolls to it itself, and `right` reads on from wh
 last read.
 
 `ax:links`
-([accessibility observer](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#accessibility-observer))
+([accessibility observer](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#accessibility-observer))
 prints what the text gives for its links before anything is said: each link once
 as a `CHILD`, called by its words and never by U+FFFC, with `AXPress` among its actions; and
 in the `LINK` lines the same element as the link of its characters and, where the link has an
@@ -2019,7 +2228,7 @@ links: those on the page or on screen, and last the book's next heading, which i
 screen in continuous scroll and on a later page in pages. In continuous scroll the links end
 the same way, with the book's next link below the screen, or with the links of the next
 table row that has one. A heading's and a link's child end in `FOCUSABLE`
-([VoiceOver focuses only an element that reports its focus](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-focuses-only-an-element-that-reports-its-focus)).
+([VoiceOver focuses only an element that reports its focus](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-focuses-only-an-element-that-reports-its-focus)).
 `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a link's line, so
 a few `right` steps reach it. After a link is followed the transcript has `AXValueChanged`
 with the page that holds the target, in the fixture the one with "Link target reached".
@@ -2046,7 +2255,7 @@ VoiceOver's cursor on a cell's last word or past it, in main's reader as with th
 own elements. A cell has a line there since: see the record of Read Line in a table cell.
 
 What VoiceOver says of a link as it reads depends on its
-[link verbosity](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#link-verbosity):
+[link verbosity](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#link-verbosity):
 every hosted run writes it to `runner.txt` as `LINK VERBOSITY`, and the workflow's `links`
 input chooses it.
 
@@ -2137,7 +2346,7 @@ On a Mac a table of data is a table at each of its rows: the text gives AppKit's
 the element of each row's character ([the native viewer](native-viewer.md), "Data tables").
 A session on tables is read against these, which are VoiceOver's own part (macOS 27.0.1);
 what they show of VoiceOver itself is in
-[on the Mac VoiceOver meets a table only at an attachment character](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#on-the-mac-voiceover-meets-a-table-only-at-an-attachment-character)
+[on the Mac VoiceOver meets a table only at an attachment character](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#on-the-mac-voiceover-meets-a-table-only-at-an-attachment-character)
 and the articles after it:
 
 - Moving by line or by word VoiceOver says a row's words and "table". A row of a table that
@@ -2161,7 +2370,7 @@ and the articles after it:
   VoiceOverVerificationMac…") is one in which it quit. It did so when a cell named header
   cells of its own, most often within eight headers at two seconds a key
   ([#483](https://github.com/vocaro/EPUBLib/issues/483);
-  [a cell that names its own header cells makes Mac VoiceOver quit](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#a-cell-that-names-its-own-header-cells-makes-mac-voiceover-quit)).
+  [a cell that names its own header cells makes Mac VoiceOver quit](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#a-cell-that-names-its-own-header-cells-makes-mac-voiceover-quit)).
   A session of moves across rows
   with `columnheader` after each (`pause=2`) is the test for it.
 - `in` on a cell goes into its text, "In text 1934", where `right` moves by word; `out`
@@ -2184,7 +2393,7 @@ and the articles after it:
   `columnheader` and `rowheader`, "Built" and "Dogwood". A cell said without its header
   there, "1912", with "column 2 of 3" at `columnheader`, is a header cell whose link has no
   title: VoiceOver reads a header cell by what each thing it holds is called
-  ([Mac VoiceOver reads a header cell by what it holds](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#mac-voiceover-reads-a-header-cell-by-what-it-holds)).
+  ([Mac VoiceOver reads a header cell by what it holds](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#mac-voiceover-reads-a-header-cell-by-what-it-holds)).
   A header cell's name said before the cell itself, "Elm Elm hyperlink", is a header that
   the table gives as something other than the cell. On a cell of a header row
   `columnheader` says the row's words, "Route, Built, Length".
@@ -2229,7 +2438,7 @@ and the articles after it:
   [the issue](https://github.com/vocaro/EPUBLib/issues/485#issuecomment-6270877949) and
   [after it](https://github.com/vocaro/EPUBLib/issues/485#issuecomment-6272726811).
 - The probe records a phrase once
-  ([harness pitfalls across lanes](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#harness-pitfalls-across-lanes)):
+  ([harness pitfalls across lanes](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#harness-pitfalls-across-lanes)):
   a second row that says what the row before said leaves no line in a transcript. Every row
   of a table that is not data did while it was called "Table row"; now only two rows of the
   same words do.
@@ -2306,7 +2515,7 @@ and the articles after it:
   book's last section.
 
 `ax:tables`
-([accessibility observer](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#accessibility-observer))
+([accessibility observer](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#accessibility-observer))
 prints what the text gives at each row's character before anything is said. For
 each table a `TABLE` line has its place in the text, its label, how many rows it holds and
 shows, the row it says is selected, its count of rows and columns in the whole table, and
@@ -2344,8 +2553,8 @@ After `in` and `line`, the first `nextline` leaves VoiceOver on its line and no 
 the transcript (the line said again would not be recorded a second time), and the second
 moves: `in line nextline nextline in` goes into the table on the line below. That first
 step is not idle: it goes to the end of the line
-([key commands](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#key-commands);
-[VoiceOver enters a text view at its insertion point](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point)),
+([key commands](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#key-commands);
+[VoiceOver enters a text view at its insertion point](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point)),
 and the `AXSelectedTextChanged` line after it has `SELECTION 22,0`. `in` goes into what
 stands just before the insertion point. With one
 `nextline` the `in` is sent on the line of words, where it does nothing, and the moves after
@@ -2362,15 +2571,15 @@ nothing, and the `out` meant for the row leaves the text, as in four sessions of
 A session of Safari records what VoiceOver says of a section of the fixture as a web page:
 the book's own XHTML, with nothing of the reader in it. It is what the reader is set beside
 where the two are said to agree
-([compare with Safari and a stock text view](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#compare-with-safari-and-a-stock-text-view-before-blaming-the-app)).
+([compare with Safari and a stock text view](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#compare-with-safari-and-a-stock-text-view-before-blaming-the-app)).
 On a hosted runner a session opens with
 `safari=OPS/grids.xhtml` ([Hosted Mac sessions](#hosted-mac-sessions)); the runner script
 takes `--safari` with Safari already open at the page. How such a session runs, and what
 Safari did on a fresh runner, is in
-[Safari as an independent reference](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#safari-as-an-independent-reference).
+[Safari as an independent reference](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#safari-as-an-independent-reference).
 A session there is read against these, which are Safari's and VoiceOver's own (Safari 27.0.1
 on macOS 27.0.1;
-[Safari reads tables with web-page speech](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#safari-reads-tables-with-web-page-speech)):
+[Safari reads tables with web-page speech](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#safari-reads-tables-with-web-page-speech)):
 
 - VoiceOver starts on the page, "Tables of data web content", or on the window's toolbar,
   and then comes to the page by itself. `ax:focus` gives the page the keyboard, and `in`
@@ -2403,7 +2612,7 @@ and its actions. The first table's attributes and its first cell's are given by 
 
 The same reader, probe, observer and runner script record real VoiceOver speech on GitHub's
 hosted `xcode-27` runner
-([hosted Mac runner](https://github.com/vocaro/apple-engineering/blob/main/guides/hosted-runner.md#purpose-and-limits)).
+([hosted Mac runner](https://github.com/vocaro/vocaro-engineering/blob/main/guides/hosted-runner.md#purpose-and-limits)).
 It is acceptance evidence for the Mac; see [Acceptance and evidence](#acceptance-and-evidence).
 The [Mac VoiceOver workflow](../.github/workflows/voiceover-mac.yml) builds the reader at a
 ref, runs one or more sessions and uploads their transcripts. The runner is shared, so one run
@@ -2424,7 +2633,7 @@ window 1100 wide at 23, and one in continuous scroll. The script takes the `-f` 
 `gh workflow run`, and the branch it starts the run from is built unless the `ref` input names
 another one. How a step list splits into sessions, and what a session's own settings and
 `ref` do, are in
-[session grammar and per-session settings](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#session-grammar-and-per-session-settings).
+[session grammar and per-session settings](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#session-grammar-and-per-session-settings).
 The inputs, all optional:
 
 - `ref`: a branch, a tag or a full commit SHA whose reader and probe are built, with the
@@ -2462,7 +2671,7 @@ A session of settings alone is the page-boundary session with them.
 section of the fixture as Safari shows it, in place of the reader
 ([Safari on Mac](#safari-on-mac)). The sessions script unpacks the fixture's EPUB on the
 runner, opens the section in Safari as
-[Safari as an independent reference](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#safari-as-an-independent-reference)
+[Safari as an independent reference](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#safari-as-an-independent-reference)
 describes, keeps its picture of the screen as `safari-session-N.png` in the download, and gives
 the runner script `--safari`. Such a session has a width and a pace. A text size, a flow or
 launch arguments of its own are refused, and it must give its steps. The workflow has no input
@@ -2479,14 +2688,14 @@ Session 4: 1100 wide at 30 points, paginated, 3 s pause, next key 0.5 s after a 
 ```
 
 A job's time limits, and how many sessions fit in one, are in
-[batching sessions](https://github.com/vocaro/apple-engineering/blob/main/guides/hosted-runner.md#batching-sessions),
+[batching sessions](https://github.com/vocaro/vocaro-engineering/blob/main/guides/hosted-runner.md#batching-sessions),
 with the rule for `advance_after`: on 2026-10-13 four sessions of five or six steps, each with
 a width, text size, flow or pause of its own, took 239 seconds of a job of 5 minutes 50
 seconds, the build 82 of them (run 38344667427). A transcript offered as acceptance evidence is
 recorded at a fixed pause; see [Acceptance and evidence](#acceptance-and-evidence).
 
 The job fails unless every session exits 0
-([outcomes and downloads](https://github.com/vocaro/apple-engineering/blob/main/guides/hosted-runner.md#outcomes-and-downloads)).
+([outcomes and downloads](https://github.com/vocaro/vocaro-engineering/blob/main/guides/hosted-runner.md#outcomes-and-downloads)).
 `sessions.txt` in the download gives each
 session's settings, outcome, transcript and command: 124 means the deadline was reached, 125
 that the runner script stopped the session, 2 that it refused the steps, and 126 that VoiceOver
@@ -2497,18 +2706,18 @@ screenshot of the runner's screen at the end, and `crash-NAME.ips.txt` for Voice
 reader or Safari where one quit. The job's log prints each transcript, and the script writes
 each session's steps and speech to the run's summary page, under its settings and outcome.
 Copy what must be kept
-([evidence collection](https://github.com/vocaro/apple-engineering/blob/main/guides/evidence.md#evidence-collection)).
+([evidence collection](https://github.com/vocaro/vocaro-engineering/blob/main/guides/evidence.md#evidence-collection)).
 A failed job also uploads `voiceover-mac-result-bundles` and adds `banner-and-dictation.log`
 to the transcripts.
 
 A hosted session differs from one on a workstation as
-[differences from a workstation](https://github.com/vocaro/apple-engineering/blob/main/guides/hosted-runner.md#differences-from-a-workstation)
+[differences from a workstation](https://github.com/vocaro/vocaro-engineering/blob/main/guides/hosted-runner.md#differences-from-a-workstation)
 describes; in the reader a full column holds one line fewer, 17 at 23 points.
 
 The workflow prepares the runner before it builds, with the commands of
-[preparing a disposable runner](https://github.com/vocaro/apple-engineering/blob/main/guides/hosted-runner.md#preparing-a-disposable-runner),
+[preparing a disposable runner](https://github.com/vocaro/vocaro-engineering/blob/main/guides/hosted-runner.md#preparing-a-disposable-runner),
 which never run on a workstation. Keep `runs-on: xcode-27`
-([billing check](https://github.com/vocaro/apple-engineering/blob/main/guides/hosted-runner.md#billing-check)).
+([billing check](https://github.com/vocaro/vocaro-engineering/blob/main/guides/hosted-runner.md#billing-check)).
 To see what a run cost, expect `"billable": {}` from:
 
 ```sh
@@ -2519,7 +2728,7 @@ gh api repos/vocaro/EPUBLib/actions/runs/RUN_ID/timing
 
 Every agent session's VoiceOver runs share the account's five macOS jobs, and the rules for
 them, with what `scripts/hosted-run.py` does about each, are in the shared
-[sharing the runner](https://github.com/vocaro/apple-engineering/blob/main/guides/hosted-runner.md#sharing-the-runner)
+[sharing the runner](https://github.com/vocaro/vocaro-engineering/blob/main/guides/hosted-runner.md#sharing-the-runner)
 and the sections after it. The queue the script prints spans every enrolled repository; only
 this repository's runs on the branch count against the branch's cap. On the evening of
 2026-10-12, when the unit tests ran there too, a job waited a median of 13 minutes for a
@@ -2535,8 +2744,8 @@ python3 scripts/hosted-run.py voiceover-mac.yml -f steps='width=600 text_size=17
 ### Physical iPhone and iPad
 
 Agree a window with the owner and reserve the device before any session on it
-([device reservations](https://github.com/vocaro/apple-engineering/blob/main/guides/shared-host.md#device-reservations);
-[owner devices and session windows](https://github.com/vocaro/apple-engineering/blob/main/guides/device-testing.md#owner-devices-and-session-windows)).
+([device reservations](https://github.com/vocaro/vocaro-engineering/blob/main/guides/shared-host.md#device-reservations);
+[owner devices and session windows](https://github.com/vocaro/vocaro-engineering/blob/main/guides/device-testing.md#owner-devices-and-session-windows)).
 Choose each device explicitly and run the native probe on it:
 
 ```sh
@@ -2553,9 +2762,9 @@ Use a new result-bundle path for each run, including the iPad. The native servic
 VoiceOver if necessary and restores its original state on normal test completion; the
 transcript's `voiceOver` line says which. The run's deadline, the state check afterward and
 the owner's XCTest UI Automation passcode, with what to do when it has lapsed, are in
-[UI automation authorization](https://github.com/vocaro/apple-engineering/blob/main/guides/device-testing.md#ui-automation-authorization)
+[UI automation authorization](https://github.com/vocaro/vocaro-engineering/blob/main/guides/device-testing.md#ui-automation-authorization)
 and
-[devicectl states and timeouts](https://github.com/vocaro/apple-engineering/blob/main/guides/device-testing.md#devicectl-states-and-timeouts).
+[devicectl states and timeouts](https://github.com/vocaro/vocaro-engineering/blob/main/guides/device-testing.md#devicectl-states-and-timeouts).
 The device's own log shows a lapsed authorization:
 
 ```sh
@@ -2569,7 +2778,7 @@ at 07:53.
 A probe that fails or is stopped part way leaves VoiceOver on, on a device its owner then
 picks up. Read the state from the Mac and switch it off there, and keep whatever else
 VoiceOver read on the device out of every record
-([physical iPhone and iPad](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#physical-iphone-and-ipad)):
+([physical iPhone and iPad](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#physical-iphone-and-ipad)):
 
 ```sh
 xcrun devicectl device info voiceover --device YOUR_DEVICE_ID
@@ -2691,7 +2900,7 @@ off; discard such a run.
 
 The probe turns pages by activating the page buttons or a line's Next Page action, for what
 XCTest cannot do with VoiceOver
-([harness pitfalls across lanes](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#harness-pitfalls-across-lanes)).
+([harness pitfalls across lanes](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#harness-pitfalls-across-lanes)).
 [Acceptance and evidence](#acceptance-and-evidence) says which checks need a physical
 device and which a simulator settles.
 
@@ -2699,11 +2908,11 @@ device and which a simulator settles.
 
 `scripts/run-voiceover-simulator.py` runs the same probe on simulators of its own, with no
 device, no Simulator window and no sound, under the shared
-[runner contract](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#runner-contract).
+[runner contract](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-simulator.md#runner-contract).
 Its sessions are acceptance evidence for what VoiceOver reads and in what order, and not for
 what VoiceOver activates ([Acceptance and evidence](#acceptance-and-evidence)). On the shared
 host its build and runs go through
-[heavy-work admission](https://github.com/vocaro/apple-engineering/blob/main/guides/shared-host.md#heavy-work-admission),
+[heavy-work admission](https://github.com/vocaro/vocaro-engineering/blob/main/guides/shared-host.md#heavy-work-admission),
 as a configured lane (`python3 scripts/eng run LANE`) or with
 `python3 scripts/eng admit -- COMMAND`; the plain commands here are for contributors' own
 machines:
@@ -2726,7 +2935,7 @@ The default cursor-activation mode has a 600-second timeout and the guards descr
 Stock mode defaults to 300 seconds.
 
 The `BUILD` line gives the probe's build revision, recorded as
-[evidence collection](https://github.com/vocaro/apple-engineering/blob/main/guides/evidence.md#evidence-collection)
+[evidence collection](https://github.com/vocaro/vocaro-engineering/blob/main/guides/evidence.md#evidence-collection)
 describes in `voiceover-build-revision.txt` in the derived data folder (`--derived-data`
 chooses it), which `--skip-build` reads. A build this runner did not record, including one
 built elsewhere, has `BUILD unknown`; the separate `CHECKOUT` line gives the checkout's
@@ -2739,20 +2948,20 @@ The build-revision checks are recorded on
 Four things went wrong in the first runs, and the runner and probe now allow for each:
 
 - **Sound**
-  ([muted speech capture](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#muted-speech-capture)).
+  ([muted speech capture](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-simulator.md#muted-speech-capture)).
   Nothing runs until each simulator's volume reads 0. The transcript has an `UNMUTED` line
   where a simulator lost its mute and was muted again, and a `VOLUME gave no reading` line
   where a check got no answer in five seconds.
 - **A VoiceOver that is on and silent**
-  ([readiness and silent start](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#readiness-and-silent-start)).
+  ([readiness and silent start](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-simulator.md#readiness-and-silent-start)).
   The probe waits for VoiceOver's first phrase, three minutes at most, or as long as
   `--start-limit` says; the `voiceOver` line then says `silent for its first 44 s`. On
   2026-10-14, with five sessions' runs on the Mac, five sessions in thirteen were stopped
   silent at three minutes and one at seven, and those that spoke took 75 to 292 seconds;
   `--start-limit 600` with `--timeout 1200` saw five in a row through.
 - **An xcodebuild that does not end**
-  ([the xcodebuild diagnostics hang](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#the-xcodebuild-diagnostics-hang);
-  [diagnostics collection](https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#diagnostics-collection)).
+  ([the xcodebuild diagnostics hang](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-simulator.md#the-xcodebuild-diagnostics-hang);
+  [diagnostics collection](https://github.com/vocaro/vocaro-engineering/blob/main/guides/simulator-testing.md#diagnostics-collection)).
   A rotated iPad logs a warning in a probe that passes ("Support for all orientations will
   soon be required"), and xcodebuild then ran on for 22 seconds, 30 seconds, a minute, twice
   more than five minutes, when it was stopped, and once the collector's whole ten. The runner
@@ -2761,14 +2970,14 @@ Four things went wrong in the first runs, and the runner and probe now allow for
   xcodebuild's output or from the unfinished result bundle, whichever holds more, and says so
   in a `STOPPED` line.
 - **Other sessions**
-  ([results and restoration](https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#results-and-restoration)).
+  ([results and restoration](https://github.com/vocaro/vocaro-engineering/blob/main/guides/simulator-testing.md#results-and-restoration)).
   One probe failed with "Critical process xctest crashed" while other sessions' unit tests
   were running on the Mac; its own transcript was complete. `FAILURE` lines give XCTest's
   reasons.
 
 A stock simulator session establishes what VoiceOver reads and in what order, not that
 VoiceOver can activate anything:
-[what stock simulator VoiceOver cannot do](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#what-stock-simulator-voiceover-cannot-do)
+[what stock simulator VoiceOver cannot do](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-simulator.md#what-stock-simulator-voiceover-cannot-do)
 has why. In landscape a double tap on the iPad's Next Page at (43, 134) arrived at (890, 43),
 where nothing is, and on the iPhone it landed in the search field and brought up the
 keyboard; an item from before a move, met after `activate=`, is the case of
@@ -2779,7 +2988,7 @@ End a session that rotates with `rotate=portrait`: a transcript with `settled: n
 screen changed in 2.0 s` after its `doubletap=Next Page` began on its side.
 
 Whether the rotor kept its place across a page turn can be read on a simulator all the same
-([reading the rotor without activation](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#reading-the-rotor-without-activation)).
+([reading the rotor without activation](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-simulator.md#reading-the-rotor-without-activation)).
 Choose Next Page with `flick=down`, turn the page under the cursor with `doubletap=Next Page`,
 which arrives as a plain touch on the control strip's button and leaves the cursor where it
 is, `listen=4` for what VoiceOver says by itself, and `flick=down` again. "Previous Page" says
@@ -2789,13 +2998,13 @@ double tap: `flick=down,listen=22,screenshot,flick=down` under `-SampleDarkAfter
 
 VoiceOver keeps a log of its own in a simulator, which says what VoiceOver did where a
 transcript says only what it read
-([VoiceOver's vot log](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#voiceovers-vot-log)).
+([VoiceOver's vot log](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-simulator.md#voiceovers-vot-log)).
 The runner streams it for each of its simulators with `--vot-log`, into
 `simulator-TYPE-STAMP.vot.log` beside the transcript, from the moment the simulator is muted
 until the probe has ended. What it showed of VoiceOver's own cache is in
-[VoiceOver moves through a cache of the items around its cursor](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-moves-through-a-cache-of-the-items-around-its-cursor)
+[VoiceOver moves through a cache of the items around its cursor](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-moves-through-a-cache-of-the-items-around-its-cursor)
 and
-[a layout change makes VoiceOver drop its cache about 0.8 s later](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#a-layout-change-makes-voiceover-drop-its-cache-about-08-s-later).
+[a layout change makes VoiceOver drop its cache about 0.8 s later](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#a-layout-change-makes-voiceover-drop-its-cache-about-08-s-later).
 The stop after the scroll bar is adjusted was found this way
 ([#342](https://github.com/vocaro/EPUBLib/issues/342), under "Harness pitfalls and current
 results"). The log of a physical device holds whatever else its owner's device did, and is
@@ -2806,7 +3015,7 @@ section describes; the voices the reader's languages are given were read this wa
 ([#65](https://github.com/vocaro/EPUBLib/issues/65#issuecomment-6164353724)).
 
 Timings and the simulators' geometry are in
-[timings and simulator geometry](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#timings-and-simulator-geometry).
+[timings and simulator geometry](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-simulator.md#timings-and-simulator-geometry).
 In landscape the sample's control strip stacks and leaves its reader one line at 17 points, so
 `visible` finds no numbered line on the first spread. The stock observations above are of the
 iOS 27.0 runtime; the runner now defaults to iOS 27.2 with guarded cursor activation
@@ -2817,14 +3026,14 @@ iOS 27.0 runtime; the runner now defaults to iOS 27.2 with guarded cursor activa
 The later investigation on [#495](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6283827087) traces the
 activation through VoiceOver's own simulator code and records the runtime comparisons and
 the diagnostic patch, which the shared
-[guarded cursor activation](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#guarded-cursor-activation)
+[guarded cursor activation](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-simulator.md#guarded-cursor-activation)
 describes with its guards. The guarded bypass is the runner's default on pinned iOS 27.2,
 together with the layout-ordering repair below; physical acceptance requirements remain as
 described below.
 
 Compare the stock simulator with an off-target double tap and with the keyboard command, and
 read the `state` lines
-([investigating cursor activation](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#investigating-cursor-activation)):
+([investigating cursor activation](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-simulator.md#investigating-cursor-activation)):
 
 ```sh
 python3 scripts/run-voiceover-simulator.py --activation stock --runtime com.apple.CoreSimulator.SimRuntime.iOS-27-2 \
@@ -2939,7 +3148,7 @@ The verification host also accepts positive `-VerificationWidth POINTS` and
 `-VerificationHeight POINTS` together to constrain the reader's content size for a
 layout comparison. A constrained iPad remains an iPad; it does not establish native
 iPhone behaviour
-([timings and simulator geometry](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#timings-and-simulator-geometry)).
+([timings and simulator geometry](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-simulator.md#timings-and-simulator-geometry)).
 Neither diagnostic changes the host's layout or navigation without
 those arguments.
 
@@ -2956,7 +3165,7 @@ records this sequence and its evidence.
 
 For each device, exercise supported one- and two-column layouts, normal and larger text,
 and a text-size change while the reader is open. Record what
-[recording speech evidence](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#recording-speech-evidence)
+[recording speech evidence](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#recording-speech-evidence)
 lists, with the visible first and last numbered words. For the Mac, a speech session run on
 the hosted `xcode-27` runner is acceptance evidence, as one on a workstation is; `runner.txt`
 in the run's download has its image and image version, and everything else here applies to
@@ -2964,7 +3173,7 @@ it unchanged.
 
 For the iPhone and iPad, a session in the [simulator lane](#simulators) is acceptance
 evidence for what VoiceOver reads under the shared
-[acceptance rule](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#acceptance-rule),
+[acceptance rule](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#acceptance-rule),
 which also says what still needs a physical iPhone or iPad. For this reader that is:
 
 - activating the item under its cursor: a button, a link, a line's default action;
@@ -2985,7 +3194,7 @@ simulator and an iPad agree after one.
 
 Sessions that show a change by what VoiceOver said before and after it are recorded on the
 same main, as
-[comparing runs across builds and environments](https://github.com/vocaro/apple-engineering/blob/main/guides/evidence.md#comparing-runs-across-builds-and-environments)
+[comparing runs across builds and environments](https://github.com/vocaro/vocaro-engineering/blob/main/guides/evidence.md#comparing-runs-across-builds-and-environments)
 describes; the probe built in a second worktree in under two minutes. Record a Mac transcript
 offered as evidence at a fixed pause, the runner's default, on a workstation or hosted;
 `--advance-after` is for exploring.
@@ -3271,6 +3480,20 @@ offered as evidence at a fixed pause, the runner's default, on a workstation or 
    has gone to another menu with `listright` starts the next one there. With `tracking`
    sent first, which turns cursor tracking off, the same steps in pages say the heading
    and leave the page where it is.
+   Paragraphs, on an iPhone and iPad. With the rotor on Paragraphs (`rotor=Paragraphs`),
+   `flick=down` says the first line of the next paragraph, picture, list item, table or
+   heading, turning the page or scrolling to it, and `flick=up` from inside a paragraph
+   says its first line and then goes to the block before. A move by item or a touch on a
+   line of a page puts VoiceOver's rotor on Actions, so turn it again after one. In the book
+   of ordinary paragraphs,
+   `wait=8,touch=p001w01,rotor=Paragraphs,flick=down*8,forward=2,rotor=Paragraphs,flick=up*5,visible`
+   says `p002w01` to `p009w01` over page turns and then `p009w01`, `p008w01` and back to
+   `p005w01`; with `--flow scrolled` the same without the second rotor turn. On "What each
+   line offers" a link or a picture inside a line is no stop and the table row is one; on
+   "Tables of data" each table is one stop, at its caption or its first cell or row, and
+   from a cell (`touch=Twelve`) `flick=up` says the caption and the next `flick=down` the
+   words after the table. Sessions on iOS 27.2 simulators are on
+   [#711](https://github.com/vocaro/EPUBLib/issues/711#issuecomment-6372973411).
 10. Links on a Mac, in pages and in continuous scroll, with VoiceOver's link setting at Speak
     ([Links](#links)). `ax:links` lists each link on screen once as a `CHILD`, by its words:
     "Verification link" on the first page, "Parked link to the target" on the hidden-labels
@@ -3430,24 +3653,24 @@ and needs no export.
 
 - The Mac's text keys, and why the runner sends keys through System Events and uses
   `currentSpeech()` alone, are in
-  [key commands](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#key-commands)
+  [key commands](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#key-commands)
   and
-  [speech capture and the key driver](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#speech-capture-and-the-key-driver);
+  [speech capture and the key driver](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#speech-capture-and-the-key-driver);
   the speech service's 64 characters, its repeated phrase recorded once and the hint after a
   move are in
-  [harness pitfalls across lanes](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#harness-pitfalls-across-lanes).
+  [harness pitfalls across lanes](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#harness-pitfalls-across-lanes).
   `ERROR 3` records that VoiceOver had nothing to say. The original `word0012…` capture was
   the rest of the first line after a focus click, and clicks near the left edge also turned
   back a page: use `ax:focus`.
 - VoiceOver keeps its own text cursor for a column it rests on
-  ([VoiceOver enters a text view at its insertion point](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point));
+  ([VoiceOver enters a text view at its insertion point](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point));
   `firstword` returns to the first visible word, and neither its return to its own offset
   after a page change nor a resize's move to the window's first control is a page-boundary
   failure. It kept one for a column it had left too, until the canvas posted its layout change
   from the element that holds the columns ([#337](https://github.com/vocaro/EPUBLib/issues/337)).
 - A session that ends under an open rotor leaves VoiceOver on
   ([#399](https://github.com/vocaro/EPUBLib/issues/399);
-  [VoiceOver state and restoration](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#voiceover-state-and-restoration)).
+  [VoiceOver state and restoration](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#voiceover-state-and-restoration)).
   On 2026-10-13 [hosted
   sessions](#hosted-mac-sessions) on `xcode-27` (image 20261006.0244.1, macOS 27.0.1), in
   pages in a window 600 points wide at 17 points, at the fixed pause, ended so twice at
@@ -3472,8 +3695,8 @@ and needs no export.
   size through the accessibility API takes it through AppKit's live resize, and AppKit's text
   view scrolls itself when one ends ([the native viewer](native-viewer.md), "Continuous
   scroll";
-  [AppKit and UIKit text views scroll themselves](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#appkit-and-uikit-text-views-scroll-themselves);
-  [offscreen AppKit hosting](https://github.com/vocaro/apple-engineering/blob/main/guides/background-mac-testing.md#offscreen-appkit-hosting)).
+  [AppKit and UIKit text views scroll themselves](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#appkit-and-uikit-text-views-scroll-themselves);
+  [offscreen AppKit hosting](https://github.com/vocaro/vocaro-engineering/blob/main/guides/background-mac-testing.md#offscreen-appkit-hosting)).
   Hosted sessions on 2026-10-13 (`-SampleFlow scrolled`, then `ax:width=600`, on a
   reader of [#473](https://github.com/vocaro/EPUBLib/pull/473) that logged each scroll with
   its stack, run 38378765133) saw the clip view go from 0 to 48 under
@@ -3552,7 +3775,7 @@ and needs no export.
   600-point window entered at "In text word0072 word0073 word0074 word0075 word0076" after two
   Scroll Forward steps, as on the workstation. With the banner's launch agent left loaded on
   purpose, one session of four heard "application Automation Running" and was stopped
-  ([speech capture and the key driver](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#speech-capture-and-the-key-driver)).
+  ([speech capture and the key driver](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#speech-capture-and-the-key-driver)).
 - On 2026-10-12 [hosted sessions](#hosted-mac-sessions) on `xcode-27` (image 20261006.0244.1,
   macOS 27.0.1) heard VoiceOver come back to a column after a page turn, on `740c073` and with
   the fix of [#337](https://github.com/vocaro/EPUBLib/issues/337), at the fixed pause. Two
@@ -3617,13 +3840,13 @@ and needs no export.
   page-scrolled notification made VoiceOver skip lines; giving it new elements for the same
   lines once its cursor had moved on made it lose its place
   ([#339](https://github.com/vocaro/EPUBLib/issues/339);
-  [UIKit's own text view elements are every paragraph](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#uikits-own-text-view-elements-are-every-paragraph)).
+  [UIKit's own text view elements are every paragraph](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#uikits-own-text-view-elements-are-every-paragraph)).
 - What VoiceOver asks for, from a build that logged UIKit's answers to it (not committed; it
   replaced `_accessibilityElementsInDirectionWithCount:options:` to log the count and what
   came back, as
-  [VoiceOver's vot log](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#voiceovers-vot-log)
+  [VoiceOver's vot log](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-simulator.md#voiceovers-vot-log)
   describes), in the simulator and on the iPad alike
-  ([VoiceOver moves through a cache of the items around its cursor](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-moves-through-a-cache-of-the-items-around-its-cursor)).
+  ([VoiceOver moves through a cache of the items around its cursor](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-moves-through-a-cache-of-the-items-around-its-cursor)).
   As its cursor lands on an item it asks
   for the two items after it and the two before; at each move after that, for the one item
   beyond those it holds. At its first move after a menu has closed it asks for fifty each
@@ -3727,7 +3950,7 @@ and needs no export.
   scroll bar and 40 lines in order, with three moves that took over two seconds and gave
   the phrase before them again, at a load average of 860; no line was missing.
 - The scroll bar itself, in the simulator's log, and not changed by #367
-  ([the scroll indicator is a supplementary header that breaks reading order](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#the-scroll-indicator-is-a-supplementary-header-that-breaks-reading-order)).
+  ([the scroll indicator is a supplementary header that breaks reading order](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#the-scroll-indicator-is-a-supplementary-header-that-breaks-reading-order)).
   UIKit asks the
   scroll view for the bar's place with `index(ofAccessibilityElement:)` and gets
   `NSNotFound`, from UIKit's own implementation as from the reader's. Asked for the item
@@ -3907,7 +4130,7 @@ and needs no export.
     step, was not the book's or the sample's and was withheld unread.
 - A move of the reader's own in continuous scroll, with VoiceOver holding items from before
   it ([#428](https://github.com/vocaro/EPUBLib/issues/428);
-  [a layout change makes VoiceOver drop its cache about 0.8 s later](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#a-layout-change-makes-voiceover-drop-its-cache-about-08-s-later)),
+  [a layout change makes VoiceOver drop its cache about 0.8 s later](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#a-layout-change-makes-voiceover-drop-its-cache-about-08-s-later)),
   on 2026-10-13. iPhone 17 Pro
   simulators of the session's own (iOS 27.0, 17 points) and the physical iPad Air 13-inch
   (M3) (iPadOS 27.2, upright at 23 points), through XCTest's VoiceOver service, VoiceOver
@@ -4140,7 +4363,7 @@ and needs no export.
 - The rotor's place when the same page is shown again under VoiceOver's cursor, which the
   entry above left at its default
   ([#516](https://github.com/vocaro/EPUBLib/issues/516);
-  [the rotor keeps its place only on the same element object](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#the-rotor-keeps-its-place-only-on-the-same-element-object)):
+  [the rotor keeps its place only on the same element object](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#the-rotor-keeps-its-place-only-on-the-same-element-object)):
   on 2026-10-13, after that change
   had merged. Simulators
   of the session's own on iOS 27.0 with Xcode 27.0, at 17 points: two iPhone 17 Pros (402 ×
@@ -4226,7 +4449,7 @@ and needs no export.
   page as after a turn.
 - The two lines that used to be listed each side were one short when VoiceOver moved back up
   the screen, menu or no menu. Three lines above the cursor must be listed
-  ([VoiceOver moves through a cache of the items around its cursor](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-moves-through-a-cache-of-the-items-around-its-cursor)),
+  ([VoiceOver moves through a cache of the items around its cursor](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-moves-through-a-cache-of-the-items-around-its-cursor)),
   and two were unless more of the screen lay above the cursor. UIKit scrolls the line the
   cursor is going to into view before VoiceOver asks, which lists two more, so the answer was
   usually right. On 2026-10-12 another session saw VoiceOver leave the text for Bookmark at
@@ -4241,9 +4464,9 @@ and needs no export.
   averages of 800 to 1,000.
 - `xcodebuild`'s console output lost three of one device run's 160 `VOICEOVER_EVENT` lines,
   three moves back in a row, which the transcript attached to the result bundle had
-  ([results and restoration](https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#results-and-restoration)).
+  ([results and restoration](https://github.com/vocaro/vocaro-engineering/blob/main/guides/simulator-testing.md#results-and-restoration)).
 - In the simulator, UIKit scrolled the line VoiceOver's cursor came to as
-  [UIKit's own text view elements are every paragraph](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#uikits-own-text-view-elements-are-every-paragraph)
+  [UIKit's own text view elements are every paragraph](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#uikits-own-text-view-elements-are-every-paragraph)
   describes. A line that was the first listed when
   VoiceOver took it led back to the control before the text on the next move back, though
   lines had been listed before it since: it had asked for the two items before that line as
@@ -4251,7 +4474,7 @@ and needs no export.
   stopped at a line it had reached above the screen.
 - Not done on a device: a larger text size, VoiceOver's three-finger scroll and its read-all
   gesture, which XCTest cannot make
-  ([harness pitfalls across lanes](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#harness-pitfalls-across-lanes)),
+  ([harness pitfalls across lanes](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#harness-pitfalls-across-lanes)),
   a book whose lines hold floats or tables, and listening.
 - On 2026-10-12 the hidden-labels section was read on a physical iPhone 17 Pro Max and a
   physical iPad Air 13-inch (M3), both on OS 27.2, through XCTest's VoiceOver service and not
@@ -4273,7 +4496,7 @@ and needs no export.
   window's resize control in a simulator. The iPad refused UI automation twice that day
   ("Timed out while enabling automation mode") and ran half an hour later with nothing
   changed from the Mac
-  ([physical iPhone and iPad](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#physical-iphone-and-ipad)).
+  ([physical iPhone and iPad](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#physical-iphone-and-ipad)).
 - The same day, on both devices, the section with a hidden heading over a table, at 17
   points. Opened in continuous scroll, the first move forward from Bookmark gave "Parked
   table heading", then "First cell Second cell Image", "Third cell Fourth cell Image",
@@ -4304,7 +4527,7 @@ and needs no export.
   workstation was used.
 
 - The same day a book's headings were heard on a Mac
-  ([Mac headings need a rotor, rich-text levels and child elements](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#mac-headings-need-a-rotor-rich-text-levels-and-child-elements)):
+  ([Mac headings need a rotor, rich-text levels and child elements](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#mac-headings-need-a-rotor-rich-text-levels-and-child-elements)):
   GitHub's hosted `xcode-27` runner (image
   `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in four
   [hosted sessions](#hosted-mac-sessions) at `41a458f`, in a window 600 points wide at 17
@@ -4326,7 +4549,7 @@ and needs no export.
   with the first heading, the page whose only heading was its first line gave "No items in
   Heading menu" and the scroll view's list lacked the heading that opens the book.
   Control-Option-Command-Shift-H moved to the next heading, not the one before
-  ([key commands](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#key-commands)).
+  ([key commands](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#key-commands)).
   Not heard:
   two columns, a larger text size, a move back by a VoiceOver command, and the hidden-labels
   page in pages, whose session ended twice in the runner script's check of VoiceOver's state
@@ -4519,7 +4742,7 @@ and needs no export.
   [#454](https://github.com/vocaro/EPUBLib/issues/454#issuecomment-6155463999); a pause of
   3 seconds), are why the reader offers no
   search ([native viewer](native-viewer.md#input-and-accessibility), Headings;
-  [never offer VoiceOver the accessibility element search](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#never-offer-voiceover-the-accessibility-element-search)):
+  [never offer VoiceOver the accessibility element search](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#never-offer-voiceover-the-accessibility-element-search)):
   - Run 38372960899. A link's or a heading's element that offers the search is asked
     `{AXDirection = AXDirectionNext; AXResultsLimit = 1; AXSearchKey = (AXHeadingSearchKey)}`,
     with no start, and each later child after it, then the first ones; from the text every
@@ -4650,7 +4873,7 @@ and needs no export.
   and listening.
 - To see what VoiceOver asks of the reader, have the reader write it to a file on a throwaway
   branch, as
-  [probing what VoiceOver asks the app](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#probing-what-voiceover-asks-the-app)
+  [probing what VoiceOver asks the app](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#probing-what-voiceover-asks-the-app)
   describes; a variant of the reader is given to a session as `"launch=-Name value"`.
 - The same day they were read on a physical iPad Air 13-inch (M3) (iPadOS 27.2), upright at
   17 points, at `41a458f`, through XCTest's VoiceOver service; nobody listened. In pages a
@@ -4670,7 +4893,7 @@ and needs no export.
   lines listed, the move on from "Parked title heading" gave "Heading not found" on this
   iPad and on both simulators: VoiceOver asked the rotor twice for the one move, and the
   second answer, from the same item on a page no longer shown, was not the first
-  ([a custom heading rotor must give the same answer twice](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#a-custom-heading-rotor-must-give-the-same-answer-twice)).
+  ([a custom heading rotor must give the same answer twice](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#a-custom-heading-rotor-must-give-the-same-answer-twice)).
 - On a physical iPhone 17 Pro Max (iOS 27.2), the same day and commit, a touch on the heading
   gave "Page boundary verification Heading Actions available Use the rotor to access
   Headings" in pages. XCTest's two-finger turn did not move VoiceOver's rotor there in thirty
@@ -4679,7 +4902,7 @@ and needs no export.
   ended in an exception XCTest raised for a gesture, without the probe's `defer`, and left
   VoiceOver on: it was switched off with `devicectl device settings voiceover --disable`
   and read back as off, and the probe now restores VoiceOver from a teardown block
-  ([physical iPhone and iPad](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#physical-iphone-and-ipad)).
+  ([physical iPhone and iPad](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#physical-iphone-and-ipad)).
 - The [simulator lane](#simulators) read them the same day at `8c19f15`, on an iPhone 17 Pro
   and an iPad Air 13-inch (M4) (iOS 27.0), when the book had no section of pictures. In
   pages at 17 points both gave "Page boundary verification Heading Actions available Use the
@@ -4753,7 +4976,7 @@ and needs no export.
   an image without words lost its help text, run 38319737879 heard it as "Undescribed picture
   Double-click or choose Inspect Image to enl": VoiceOver reads the help of an element that
   has no label in the label's place
-  ([an element without a name is read by its help or its contents](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/accessibility.md#an-element-without-a-name-is-read-by-its-help-or-its-contents)).
+  ([an element without a name is read by its help or its contents](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/accessibility.md#an-element-without-a-name-is-read-by-its-help-or-its-contents)).
   Not heard: VoiceOver activating the link that is an image without a name, which needs a
   device; a note's popover or a table cell with an image in it.
 - On 2026-10-12 the section of scenes was read at 17 points before and after a rule was
@@ -4783,7 +5006,7 @@ and needs no export.
   touch on the rule gave "Separator Swipe up or down to select a custom action", and the
   screenshot shows VoiceOver's cursor round the line and nothing else on the page.
   "Actions available" comes and goes along one page as VoiceOver's own rule has it
-  ([UIKit offers the actions of every element that contains the item](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#uikit-offers-the-actions-of-every-element-that-contains-the-item)).
+  ([UIKit offers the actions of every element that contains the item](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#uikit-offers-the-actions-of-every-element-that-contains-the-item)).
   The continuous-scroll
   transcripts at `81f8d88` and `d432df6` have `-dirty` in their build line: each ran the
   probe as the pages run a few minutes before had built it, at the clean revision, and the
@@ -4796,8 +5019,8 @@ and needs no export.
   1,000, read nothing: two ended with "VoiceOver is on but says nothing" after three
   minutes of silence, and one was not started, because a simulator gave no answer in twenty
   seconds when its volume was set (on such silence, see
-  [harness pitfalls across lanes](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#harness-pitfalls-across-lanes)
-  and [honest outcome states](https://github.com/vocaro/apple-engineering/blob/main/guides/evidence.md#honest-outcome-states)).
+  [harness pitfalls across lanes](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#harness-pitfalls-across-lanes)
+  and [honest outcome states](https://github.com/vocaro/vocaro-engineering/blob/main/guides/evidence.md#honest-outcome-states)).
   Moving back across a rule in continuous scroll was to be read in the last two, and was not.
   On the Mac: GitHub's hosted `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1
   `26A434`, Xcode 27.0), a window 600 points wide, run 38327683951 at `81f8d88` (pages) and
@@ -4822,7 +5045,7 @@ and needs no export.
   note's popover or in a table cell; a rule that is all a link holds; and what Safari or
   Books says at an `<hr>` on an iPhone, which was not compared.
 - On 2026-10-12 the [simulator lane](#simulators) read what VoiceOver offers on a line
-  ([UIKit offers the actions of every element that contains the item](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#uikit-offers-the-actions-of-every-element-that-contains-the-item)),
+  ([UIKit offers the actions of every element that contains the item](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#uikit-offers-the-actions-of-every-element-that-contains-the-item)),
   before and after a line was left with its own actions alone: an iPhone 17 Pro simulator
   (iOS 27.0, Xcode 27.0, 402 × 874) at the launch text size, a touch or a move to the line
   and then `flick=down` to read the rotor. A physical iPad read the change afterwards, as
@@ -4910,7 +5133,7 @@ and needs no export.
   its rows. Nobody listened. The lists are XCTest's record of VoiceOver's phrase after
   each step of one finger down; a phrase that comes twice running in a transcript is one
   entry, heard before and after a step that did not register
-  ([harness pitfalls across lanes](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#harness-pitfalls-across-lanes)).
+  ([harness pitfalls across lanes](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#harness-pitfalls-across-lanes)).
   Before, at `073f2b0`, in pages on both, on "Plain words above.", on the link "Lone jump"
   and on "Plain words below.": "Next Page", "Previous Page", "Inspect Image: Square with
   words", "Inspect Image", "Previous Page", "Next Page", "Activate Default", and round
@@ -4976,7 +5199,7 @@ and needs no export.
   session and was muted again by the runner within a second (an `UNMUTED` line).
 - On 2026-10-12 the section of scenes was read on a Mac before and after a rule was given an
   element that says a separator is there, and with each other element that was tried
-  ([VoiceOver speaks a role's own words](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/accessibility.md#voiceover-speaks-a-roles-own-words)).
+  ([VoiceOver speaks a role's own words](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/accessibility.md#voiceover-speaks-a-roles-own-words)).
   GitHub's hosted `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode
   27.0), a window 600 points wide at 17 points, at the fixed pause. Nobody listened and no
   workstation was used. Before and after were recorded on the same `main` (`5b096d8`).
@@ -5050,7 +5273,7 @@ and needs no export.
   a language other than English or with its verbosity changed; and what Safari or Books
   says at an `<hr>` on a Mac, which was not compared.
 - On 2026-10-12 and 13 links were heard on a Mac
-  ([links in an AppKit text view are children, not places](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#links-in-an-appkit-text-view-are-children-not-places)):
+  ([links in an AppKit text view are children, not places](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#links-in-an-appkit-text-view-are-children-not-places)):
   GitHub's hosted `xcode-27` runner (image
   `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in a window 600 points wide at 17
   points, with VoiceOver's link setting at Speak, as the runner has it. Nobody listened, and
@@ -5123,7 +5346,7 @@ and needs no export.
   popover; a link that wraps onto a second line or crosses a page's end, which the unit
   tests read; and a link below the screen in continuous scroll.
 - On 2026-10-13 the reader's named actions were looked for on a Mac
-  ([SwiftUI puts named actions on the view it hosts](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/accessibility.md#swiftui-puts-named-actions-on-the-view-it-hosts)).
+  ([SwiftUI puts named actions on the view it hosts](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/accessibility.md#swiftui-puts-named-actions-on-the-view-it-hosts)).
   `NativeSurface` names Next
   Page and Previous Page with SwiftUI's `accessibilityAction(named:)` in both flows, and in
   continuous scroll, which has no pages, the sample's buttons for the same commands are Scroll
@@ -5175,11 +5398,11 @@ and needs no export.
   Actions menu as under a rotor: the runner closes one first, and in the one session left under
   a menu it wrote `STEP listclose, sent by the runner in case the Actions menu is still open`,
   VoiceOver said "Closing Actions menu" and switched off
-  ([VoiceOver state and restoration](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#voiceover-state-and-restoration)).
+  ([VoiceOver state and restoration](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#voiceover-state-and-restoration)).
 - Later on 2026-10-13 each text area of the Mac reader was given the page turn as actions of
   its own, named for the flow, and the reader's SwiftUI surface lost its two named actions
   and its scroll action on Mac
-  ([custom actions belong on the text area](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#custom-actions-belong-on-the-text-area)).
+  ([custom actions belong on the text area](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#custom-actions-belong-on-the-text-area)).
   It was heard before and after on the same main:
   [hosted sessions](#hosted-mac-sessions) on `xcode-27` (image 20261006.0244.1, macOS 27.0.1
   `26A434`, Xcode 27.0), at a fixed pause of four seconds, with VoiceOver brought to a column
@@ -5206,7 +5429,7 @@ and needs no export.
   "actions available": "actions available You are currently on a text area, inside of a".
   VoiceOver says the hint about three seconds after it arrives at the column, enters its
   text or returns from the menu, once each time
-  ([harness pitfalls across lanes](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#harness-pitfalls-across-lanes)).
+  ([harness pitfalls across lanes](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#harness-pitfalls-across-lanes)).
   Five moves by line, in pages and in continuous scroll, each read the line and nothing more;
   where a hint followed one of them it was the one still owed for entering the text. Six moves
   by line and two by word at a pause of five seconds read the same way on the reader of
@@ -5286,7 +5509,7 @@ and needs no export.
 - The same day what undid that step was found, and the step made to hold
   ([#464](https://github.com/vocaro/EPUBLib/issues/464),
   [#473](https://github.com/vocaro/EPUBLib/pull/473);
-  [VoiceOver enters a text view at its insertion point](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point)).
+  [VoiceOver enters a text view at its insertion point](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point)).
   It was heard before and after on the
   same main: [hosted sessions](#hosted-mac-sessions) on `xcode-27` (image
   20261006.0244.1, macOS 27.0.1 `26A434`, Xcode 27.0), 600 wide at 17 points, at a fixed
@@ -5386,7 +5609,7 @@ and needs no export.
   Seen besides: a session launched in continuous scroll does not begin at the top of the
   book. `ax:width` ends a live resize, and AppKit's text view then scrolls itself
   (`-[NSTextView viewDidEndLiveResize]`, `scrollToLocation:`) 48 points down
-  ([offscreen AppKit hosting](https://github.com/vocaro/apple-engineering/blob/main/guides/background-mac-testing.md#offscreen-appkit-hosting)).
+  ([offscreen AppKit hosting](https://github.com/vocaro/vocaro-engineering/blob/main/guides/background-mac-testing.md#offscreen-appkit-hosting)).
   The book's title is then above the screen, the insertion point follows to character 27, and `in`
   reads the second line, as in every such session here. A session that changes to
   continuous scroll after the resize begins at the top. Any live resize did the same, and
@@ -5401,7 +5624,7 @@ and needs no export.
   before; and another assistive client.
 - On 2026-10-13 VoiceOver's Read Line was heard in a table cell on a Mac, before and after a
   cell gave a line for the end of its text
-  ([AppKit gives a client the text character for character](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#appkit-gives-a-client-the-text-character-for-character)).
+  ([AppKit gives a client the text character for character](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#appkit-gives-a-client-the-text-character-for-character)).
   GitHub's hosted `xcode-27` runner (image
   `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), VoiceOver's link setting Speak, a
   window 600 points wide, at the fixed pause. Nobody listened and no workstation was used.
@@ -5537,11 +5760,11 @@ and needs no export.
   minutes stopped the first continuous scroll session part way through the rotor and left
   VoiceOver on; the rotor steps were run again alone. Each time VoiceOver was left on it was
   switched off with `devicectl device settings voiceover --disable` and read back as off
-  ([physical iPhone and iPad](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#physical-iphone-and-ipad)).
+  ([physical iPhone and iPad](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#physical-iphone-and-ipad)).
   Nobody listened to any of these sessions.
 - On 2026-10-12 the three sections of tables were read at 17 points before and after a table
   of data was given to VoiceOver cell by cell
-  ([on iOS a data table is a container among the lines](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#on-ios-a-data-table-is-a-container-among-the-lines)):
+  ([on iOS a data table is a container among the lines](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#on-ios-a-data-table-is-a-container-among-the-lines)):
   before at `17a4a36`, which is main with #382
   and this change's fixture and probe, and after at `bc473cb`. Nobody listened; the phrases
   are XCTest's record of VoiceOver's speech.
@@ -5678,7 +5901,7 @@ and needs no export.
   cells once and in order each way. The physical iPhone was not used.
 - On 2026-10-13 the section of entries was read on a Mac before and after a table cell kept
   the elements it gives for its attachments
-  ([AppKit gives a client the text character for character](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#appkit-gives-a-client-the-text-character-for-character)).
+  ([AppKit gives a client the text character for character](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#appkit-gives-a-client-the-text-character-for-character)).
   GitHub's hosted `xcode-27` runner (image
   `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), a window 600 points wide at 17
   points, at the fixed pause, the reader opened at the section. Nobody listened and no
@@ -5843,7 +6066,7 @@ and needs no export.
   hidden label outside a link is in the entry before this one.
 - On 2026-10-13 a link below the screen was reached with Find Next Link in continuous
   scroll on a Mac ([#425](https://github.com/vocaro/EPUBLib/issues/425);
-  [links in an AppKit text view are children, not places](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#links-in-an-appkit-text-view-are-children-not-places)):
+  [links in an AppKit text view are children, not places](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#links-in-an-appkit-text-view-are-children-not-places)):
   the hosted `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in a
   window 600 points wide at 17 points, with VoiceOver's link setting at Speak. Nobody
   listened. The sessions that are evidence are at the fixed pause and at `dcd0aa8`.
@@ -5956,7 +6179,7 @@ and needs no export.
 - On 2026-10-12 and 13 pages were turned under VoiceOver's cursor before and after the
   reader sent the cursor to the page shown
   ([#449](https://github.com/vocaro/EPUBLib/issues/449);
-  [the rotor keeps its place only on the same element object](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#the-rotor-keeps-its-place-only-on-the-same-element-object)).
+  [the rotor keeps its place only on the same element object](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#the-rotor-keeps-its-place-only-on-the-same-element-object)).
   The device is the physical iPad Air 13-inch
   (M3) of the sessions above (iPadOS 27.2, 1024 × 1366, upright, 17 points, Xcode 27.0),
   through XCTest's VoiceOver service, on the book's first section. Nobody listened.
@@ -6144,7 +6367,7 @@ and needs no export.
   the iPad's side. None was read, those sessions' logs and result bundles were deleted,
   and none of their screenshots was opened: the screenshots cited are of sessions on the
   first section that recorded no such phrase
-  ([physical iPhone and iPad](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#physical-iphone-and-ipad)).
+  ([physical iPhone and iPad](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#physical-iphone-and-ipad)).
   Not established: a physical iPhone; VoiceOver's three-finger scroll itself
   ([#70](https://github.com/vocaro/EPUBLib/issues/70)); a page turned by a key with the
   cursor in the text; an item that becomes a picture, a link or a table row on a device,
@@ -6294,8 +6517,8 @@ and needs no export.
   Control or any other assistive technology that keeps a cursor.
 - On 2026-10-13 the three sections of tables were read on a Mac before and after a table of
   data was given to VoiceOver as a table
-  ([on the Mac VoiceOver meets a table only at an attachment character](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#on-the-mac-voiceover-meets-a-table-only-at-an-attachment-character);
-  [a cell that names its own header cells makes Mac VoiceOver quit](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#a-cell-that-names-its-own-header-cells-makes-mac-voiceover-quit)):
+  ([on the Mac VoiceOver meets a table only at an attachment character](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#on-the-mac-voiceover-meets-a-table-only-at-an-attachment-character);
+  [a cell that names its own header cells makes Mac VoiceOver quit](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#a-cell-that-names-its-own-header-cells-makes-mac-voiceover-quit)):
   GitHub's hosted `xcode-27` runner (image
   `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), a window 600 points wide at 17
   points, a fixed pause of four seconds, the same steps both times. Before at `593b907`,
@@ -6380,7 +6603,7 @@ and needs no export.
   [#485](https://github.com/vocaro/EPUBLib/issues/485).
 - Later on 2026-10-13 the same tables were heard in Safari on a Mac and set beside the
   reader
-  ([Safari reads tables with web-page speech](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#safari-reads-tables-with-web-page-speech)):
+  ([Safari reads tables with web-page speech](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#safari-reads-tables-with-web-page-speech)):
   the section of tables of data and the long table, each opened as a file in Safari
   27.0.1 (`22625.1.29.11.28`) on the same hosted runner (image `20261006.0244.1`, macOS
   27.0.1 `26A434`, Xcode 27.0), a window 600 points wide, a fixed pause of four seconds.
@@ -6515,7 +6738,7 @@ and needs no export.
   in another language or with its verbosity changed.
 - Later still on 2026-10-13 a table that is not data was heard on a Mac before and after
   its rows were called by their words
-  ([Mac VoiceOver reads a group by its name and nothing of what it holds](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#mac-voiceover-reads-a-group-by-its-name-and-nothing-of-what-it-holds)):
+  ([Mac VoiceOver reads a group by its name and nothing of what it holds](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#mac-voiceover-reads-a-group-by-its-name-and-nothing-of-what-it-holds)):
   GitHub's hosted `xcode-27` runner (image
   `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), a window 600 points wide at 17
   points, VoiceOver's link setting at Speak, a fixed pause of four seconds, the same steps
@@ -6621,7 +6844,7 @@ and needs no export.
   for a row, by word after leaving a row in continuous scroll, had two before as well,
   the first of them the row as an image: the second replaces the first within a twentieth
   of a second, so what a listener hears there is the second
-  ([harness pitfalls across lanes](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#harness-pitfalls-across-lanes)).
+  ([harness pitfalls across lanes](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#harness-pitfalls-across-lanes)).
   The second session of each of the first four runs sent `in` on the word before the
   layout table's first row, where it does nothing, and the `out` after it left the text:
   nothing is taken from those four but "Left side, Right side group" for "Table row
@@ -6736,7 +6959,7 @@ and needs no export.
   left of the rows that entry did not hear.
 - On 2026-10-13 the rows of a table that have nothing to say were heard on a Mac, as they
   were and in six other ways, and VoiceOver was then given nothing to stop on at one
-  ([a row with nothing to say must fold into the next line](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#a-row-with-nothing-to-say-must-fold-into-the-next-line)):
+  ([a row with nothing to say must fold into the next line](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#a-row-with-nothing-to-say-must-fold-into-the-next-line)):
   GitHub's hosted `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`,
   Xcode 27.0), a window 600 points wide at 17 points, VoiceOver's link setting at Speak, a
   fixed pause of four seconds, on the fixture's new last section
@@ -6932,7 +7155,7 @@ and needs no export.
   is left.
 - Later again on 2026-10-13 a table cell that is a link was heard on a Mac before and
   after it was given a press and a link to hold
-  ([a Mac cell is read by what it holds, not by what it says it is](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#a-mac-cell-is-read-by-what-it-holds-not-by-what-it-says-it-is)):
+  ([a Mac cell is read by what it holds, not by what it says it is](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#a-mac-cell-is-read-by-what-it-holds-not-by-what-it-says-it-is)):
   "Reopened 1978" in the first table of the
   section of tables of data (`-SampleHref OPS/grids.xhtml`), on GitHub's hosted `xcode-27`
   runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in a window 600 points
@@ -7139,7 +7362,7 @@ and needs no export.
   size; a spread of two columns; and Safari beside it.
 - After that on 2026-10-13 the fault the entry above found on the way was traced to the
   reader and put right
-  ([accessibility observation can change layout](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#accessibility-observation-can-change-layout)):
+  ([accessibility observation can change layout](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#accessibility-observation-can-change-layout)):
   in continuous scroll, in a reader opened at a section, Find Next
   Link to a link in a table row some screens below left VoiceOver on the text area, with
   the row on screen and its link out of the text's links
@@ -7233,7 +7456,7 @@ and needs no export.
   method it was logging, without end. The three reports macOS wrote say so, and that run
   failed for it. The second session of that run began on the dialog macOS showed for it,
   the reader quit again at `ax:links` in the third, and neither is evidence of anything
-  ([probing what VoiceOver asks the app](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#probing-what-voiceover-asks-the-app)).
+  ([probing what VoiceOver asks the app](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#probing-what-voiceover-asks-the-app)).
   With a caret set after the grid in the section before (`ax:caret=Shown words after the
   grid`, run 38453482423, session 4) the first `nextlink` said "worded jump hyperlink", a
   link above the caret: from a place in the text Find Next Link takes the first link the
@@ -7417,7 +7640,7 @@ and needs no export.
 - On 2026-10-13 a table's select action was performed with VoiceOver on the physical iPad
   Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366, upright, 17 points), before and after a
   change to what it does ([#450](https://github.com/vocaro/EPUBLib/issues/450);
-  [VoiceOver keeps an item's traits and actions as it found them](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-keeps-an-items-traits-and-actions-as-it-found-them)),
+  [VoiceOver keeps an item's traits and actions as it found them](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-keeps-an-items-traits-and-actions-as-it-found-them)),
   with the sample's selection line under the reader. Nobody listened. The revisions here are the
   branch that reads a table of data by its cells with this change on it, before that
   branch and the `main` of that night were merged in; the last paragraph has the head.
@@ -7559,7 +7782,7 @@ and needs no export.
   off after each. A phrase the transcript's filter withheld in each VoiceOver session, the
   rotor's first turn, was told from a notification by a comparison that prints true or
   false: it begins "Image Recognition"
-  ([physical iPhone and iPad](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#physical-iphone-and-ipad)).
+  ([physical iPhone and iPad](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#physical-iphone-and-ipad)).
   No session recorded anything of the device's own.
   The iPhone was not used. Not established: a physical iPhone; landscape; a contents entry,
   a link's target and a step of a page on a device, which the unit tests alone hold; and

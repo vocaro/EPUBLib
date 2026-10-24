@@ -130,14 +130,6 @@ enum ReaderFlowBoxLayout {
         return (left, right)
     }
 
-    /// The same for the box paragraph at `location` of `text`, at its live size.
-    static func insets(at location: Int, in text: NSAttributedString, viewport: CGSize) -> (left: CGFloat, right: CGFloat)? {
-        guard let box = text.attribute(.readerFlowBox, at: location, effectiveRange: nil) as? ReaderFlowBoxParagraph else { return nil }
-        let base = (text.attribute(.readerParagraphSizing, at: location, effectiveRange: nil) as? ReaderParagraphSizing)
-            .map { $0.resolve(viewport: viewport) } ?? box.base
-        return insets(of: base, viewport: viewport)
-    }
-
     static func apply(to text: NSMutableAttributedString, viewport: CGSize) {
         guard viewport.width.isFinite, viewport.width > 0, text.length > 0 else { return }
         var changes: [(NSRange, NSParagraphStyle)] = []

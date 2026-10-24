@@ -14,14 +14,17 @@ import XCTest
         case fileIdentity, refusesEarlierIdentity
         // Search-result faults, for an engine with `Search.results`.
         case resultsAfterCompletion, noWrap, acceptsStaleResult, keepsResultsAfterClear, stepsAfterClear, timedStepsAfterClear
+        // Says it is idle while what it reports late is still to come.
+        case idleTooSoon
     }
     /// What the engine does with search: nothing, highlighting alone, or a result list as well.
     enum Search { case none, highlightOnly, results }
     let id = "contract.native"
     let fault: Fault
     var search = Search.none
-    /// Whether a step's relocation and a clear's idle state come 30 ms after their command, from
-    /// a timer of the engine's own: a correct engine that reports once its view has settled.
+    /// Whether a navigation's, a restoration's and a step's relocation and a clear's idle state
+    /// come 30 ms after their command, from a timer of the engine's own: a correct engine that
+    /// reports once its view has settled, and is busy until then.
     var reportsLate = false
     func makeSession(publication: EPUBPublication, selectionAction: EPUBSelectionAction?,
                      onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void) throws -> any EPUBReaderSession {
@@ -29,7 +32,7 @@ import XCTest
     }
 }
 
-@MainActor private final class ContractNativeSession: EPUBReaderSession {
+@MainActor private final class ContractNativeSession: EPUBEngineContract.IdleReporting {
     let capabilities: Set<EPUBReaderCapability>
     let book: EPUBPublication
     let fault: ContractNativeEngine.Fault
@@ -40,6 +43,9 @@ import XCTest
     var ready = false
     /// One synthetic result per spine document, while a search is complete.
     var results: EPUBSearchResults?
+    /// The tasks of its own that have still to send what they were started for.
+    private var pending = 0
+    var isIdle: Bool { pending == 0 || fault == .idleTooSoon }
     init(book: EPUBPublication, fault: ContractNativeEngine.Fault, search: ContractNativeEngine.Search,
          reportsLate: Bool, onEvent: @escaping (EPUBReaderEvent) -> Void) {
         self.book = book; self.fault = fault; self.search = search; self.reportsLate = reportsLate; self.onEvent = onEvent
@@ -66,16 +72,21 @@ import XCTest
     /// Sends 30 ms on, from a timer of the engine's own, which can end together with one of the
     /// verifier's.
     private func later(_ send: @escaping () -> Void) {
+        pending += 1
         Task {
             try? await Task.sleep(for: .milliseconds(30))
             send()
+            pending -= 1
         }
+    }
+    /// Relocates now, or later for an engine that reports late.
+    private func report(_ href: String?) {
+        if reportsLate { later { self.relocate(href) } } else { relocate(href) }
     }
     private func show(_ index: Int) {
         results?.currentIndex = index
         onEvent?(.searchResultsChanged(results))
-        let href = results?.current?.location.href
-        if reportsLate { later { self.relocate(href) } } else { relocate(href) }
+        report(results?.current?.location.href)
     }
     private func runSearch(_ text: String, opensFirst: Bool) {
         if results != nil { results = nil; onEvent?(.searchResultsChanged(nil)) }
@@ -100,14 +111,14 @@ import XCTest
         guard !closed else { throw EPUBReaderError.closed }
         guard ready else { throw EPUBReaderError.notReady }
         switch command {
-        case .navigate(let href): relocate(href)
+        case .navigate(let href): report(href)
         case .restore(let location):
             let identities = fault == .refusesEarlierIdentity ? [book.persistentID] : book.publicationIDs
             guard fault == .acceptsForeignBookmark || (identities.contains(location.publicationID) &&
                 location.bookmark?.engineID == "contract.native" && location.bookmark?.format == "href-v1") else {
                 throw EPUBReaderError.incompatibleLocation
             }
-            relocate(location.href)
+            report(location.href)
         case .nextPage, .previousPage: throw EPUBReaderError.unsupported(.pagination)
         case .locate: throw EPUBReaderError.unsupported(.locateText)
         case .search(let text):
@@ -156,26 +167,51 @@ import XCTest
         switch fault {
         case .callbackAfterClose:
             // Queued, with no timer: the main actor runs it the first time the verifier waits.
-            Task { onEvent?(.notice("late")) }
+            pending += 1
+            Task { onEvent?(.notice("late")); pending -= 1 }
         case .timedCallbackAfterClose: later { self.onEvent?(.notice("late, from a timer")) }
         default: onEvent = nil
         }
     }
 }
 
+/// Clocks on which a wait's limit has passed the first time the verifier looks, with no time
+/// spent waiting for a core: as for an engine whose event comes after the limit.
+private final class LimitPassedClocks: @unchecked Sendable {
+    private let lock = NSLock()
+    private var awake = 0.0
+    private let memoryPressure: Bool
+    init(memoryPressure: Bool = false) { self.memoryPressure = memoryPressure }
+    func read() -> TestDeadline.Reading {
+        lock.withLock {
+            awake += 1
+            return TestDeadline.Reading(awake: awake, coreWait: 0, memoryPressure: memoryPressure)
+        }
+    }
+}
+
 @MainActor final class EngineContractTests: XCTestCase {
     private func verify(_ fault: ContractNativeEngine.Fault, search: ContractNativeEngine.Search = .none,
-                        reportsLate: Bool = false) async throws {
+                        reportsLate: Bool = false, clock: @escaping @Sendable () -> TestDeadline.Reading = TestDeadline.reading) async throws {
+        do { try await contract(fault, search: search, reportsLate: reportsLate, clock: clock) }
+        catch let unmeasured as TestDeadline.Unmeasured { throw unmeasured.skip }
+    }
+    /// The verifier's verdict, with an unmeasured wait thrown as it is.
+    private func contract(_ fault: ContractNativeEngine.Fault, search: ContractNativeEngine.Search = .none,
+                          reportsLate: Bool = false, clock: @escaping @Sendable () -> TestDeadline.Reading = TestDeadline.reading) async throws {
         try await EPUBEngineContract.verify(engine: ContractNativeEngine(fault: fault, search: search, reportsLate: reportsLate),
             publication: EPUBPublication.open(data: Fixture.epub()), firstHref: "OPS/one.xhtml",
-            secondHref: "OPS/two.xhtml", text: "ordinary reading text", timeout: 0.2) { session in
+            secondHref: "OPS/two.xhtml", text: "ordinary reading text", timeout: 0.2,
+            clock: clock) { session in
                 _ = session.makeView()
                 return {}
             }
     }
     func testNativeContractPassesWithoutWebKit() async throws { try await verify(.none) }
+    /// Each broken engine fails. One that never sends what it is waited for fails once it is idle,
+    /// before a limit runs out, so the host's memory pressure does not leave it unmeasured.
     func testContractRejectsBrokenAdapters() async throws {
-        for (fault, expected) in [(ContractNativeEngine.Fault.noReady, "Timed out"),
+        for (fault, expected) in [(ContractNativeEngine.Fault.noReady, "Engine idle while waiting for ready"),
                                  (.duplicateReady, "exactly once"), (.acceptsCancellation, "Pre-cancelled"),
                                  (.callbackAfterClose, "Callback after close"), (.timedCallbackAfterClose, "Callback after close"),
                                  (.callbackDuringClose, "Callback after close"),
@@ -210,11 +246,27 @@ import XCTest
         // What a correct engine sends from a timer of its own is not taken for a stale step's effect.
         try await verify(.none, search: .results, reportsLate: true)
         for (fault, expected) in [(ContractNativeEngine.Fault.resultsAfterCompletion, "before search completion"),
-                                 (.noWrap, "previous search result"), (.acceptsStaleResult, "Accepted a search result with no search"),
-                                 (.keepsResultsAfterClear, "withdrawn search results"),
+                                 (.noWrap, "Engine idle while waiting for previous search result"),
+                                 (.acceptsStaleResult, "Accepted a search result with no search"),
+                                 (.keepsResultsAfterClear, "Engine idle while waiting for withdrawn search results"),
                                  (.stepsAfterClear, "cleared search"), (.timedStepsAfterClear, "still had an effect")] {
             do { try await verify(fault, search: .results); XCTFail("Broken search results passed: \(fault)") }
             catch let error as EPUBEngineContract.Failure { XCTAssertTrue(error.description.contains(expected), "\(fault): \(error.description)") }
+        }
+    }
+    /// A busy engine is waited for, to the limit. One that sends what it is waited for from a timer
+    /// of its own passes; one that says it is idle before then has not sent it in time; and one
+    /// still busy when the limit passes is late, or unmeasured if that was under memory pressure,
+    /// when a stall of the host's cannot be told from a late engine.
+    func testTheVerifierWaitsForABusyEngineToItsLimit() async throws {
+        try await verify(.none, reportsLate: true)
+        do { try await verify(.idleTooSoon, reportsLate: true); XCTFail("An engine idle before its relocation passed") }
+        catch let error as EPUBEngineContract.Failure { XCTAssertEqual(error.description, "Engine idle while waiting for first href") }
+        do { try await verify(.none, reportsLate: true, clock: LimitPassedClocks().read); XCTFail("A late engine passed") }
+        catch let error as EPUBEngineContract.Failure { XCTAssertEqual(error.description, "Timed out waiting for first href") }
+        do { try await contract(.none, reportsLate: true, clock: LimitPassedClocks(memoryPressure: true).read); XCTFail("A late engine passed") }
+        catch let unmeasured as TestDeadline.Unmeasured {
+            XCTAssertEqual(unmeasured.description, "waiting for first href: the 0.2 s limit passed under memory pressure")
         }
     }
 }

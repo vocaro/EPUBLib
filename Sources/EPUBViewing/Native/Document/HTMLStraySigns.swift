@@ -8,8 +8,13 @@ import Foundation
 /// keeps the sign: in the tokenizer's tag open state anything but an ASCII letter, `/`, `!` or
 /// `?` emits "a U+003C LESS-THAN SIGN character token".
 ///
-/// Each such sign is given to the parser as a placeholder, a noncharacter the document does not
-/// hold, and is the sign again in the text and attribute values of the tree. The placeholder
+/// Each such sign is given to the parser as a placeholder, a noncharacter the parser cannot read
+/// in the document, and is the sign again in the text and attribute values of the tree. The
+/// parser reads one that the document holds as itself or as a numeric character reference, also
+/// where only NULs stand in the reference, which `HTMLNullCharacters` then leaves out. It can
+/// also assemble one in text from bytes that are not UTF-8: libxml2 2.9.13 copies each of those
+/// into text as it is, and a text node joins those that only markup it drops, or a character it
+/// drops, stood between: with no `b` open, `\xEF\xB7</b>\x90` is U+FDD0. The placeholder
 /// needs no knowledge of where the parser is. In text it is a character, which is the repair.
 /// Everywhere else the parser already took the sign for an ordinary byte and takes the
 /// placeholder the same way: kept in an attribute value and in the raw text of `script` and
@@ -22,12 +27,13 @@ import Foundation
 /// NUL opens nothing either, and `HTMLNullCharacters` then reads the NUL.
 enum HTMLStraySigns {
     /// The bytes to parse, and the placeholder that stands for a sign in them: `nil` when
-    /// nothing was replaced and `data` is returned as it is. The result is `nil` when the bytes
-    /// would be longer than `limit`.
-    static func replaced(in data: Data, limit: Int) -> (data: Data, placeholder: Unicode.Scalar?)? {
+    /// nothing was replaced and `data` is returned as it is. So it is when the parser could read
+    /// every placeholder there is in `data`, and when the placeholders, each two bytes longer
+    /// than the sign, would make the bytes longer than `limit`: libxml2 then reads the signs as
+    /// it read them before, and the section is not refused for them.
+    static func replaced(in data: Data, limit: Int) -> (data: Data, placeholder: Unicode.Scalar?) {
         let bytes = [UInt8](data)
         var next = straySign(in: bytes, from: 0)
-        // A document that holds every placeholder there is, is parsed as it is.
         guard next != nil, let placeholder = placeholder(absentFrom: bytes) else { return (data, nil) }
         let replacement = Array(String(placeholder).utf8)
         var output: [UInt8] = []
@@ -37,7 +43,7 @@ enum HTMLStraySigns {
             output.append(contentsOf: bytes[copied..<sign])
             output.append(contentsOf: replacement)
             copied = sign + 1
-            guard output.count + bytes.count - copied <= limit else { return nil }
+            guard output.count + bytes.count - copied <= limit else { return (data, nil) }
             next = straySign(in: bytes, from: copied)
         }
         output.append(contentsOf: bytes[copied...])
@@ -68,29 +74,62 @@ enum HTMLStraySigns {
         (next | 0x20 >= 0x61 && next | 0x20 <= 0x7A) || next == 0x2F || next == 0x21 || next == 0x3F
     }
 
-    /// One of U+FDD0 to U+FDEF, which Unicode keeps for a program's own use, that `bytes` holds
-    /// neither as itself nor as a numeric character reference: `nil` when they hold all of them.
+    /// One of U+FDD0 to U+FDEF, which Unicode keeps for a program's own use, that the parser
+    /// cannot read in `bytes`: `nil` when it could read all of them.
     private static func placeholder(absentFrom bytes: [UInt8]) -> Unicode.Scalar? {
         var held: UInt32 = 0 // Bit n is U+FDD0 + n.
         func hold(_ value: UInt32) { if value >= 0xFDD0, value <= 0xFDEF { held |= 1 << (value - 0xFDD0) } }
+        // As itself or as a reference, once the NULs among its bytes are left out.
+        let joined = bytes.contains(0) ? bytes.filter { $0 != 0 } : bytes
         /// Calls `body` with the index of each `byte` that two more bytes follow.
         func each(_ byte: UInt8, _ body: (Int) -> Void) {
             var index = 0
-            while let found = bytes[index...].firstIndex(of: byte), found + 2 < bytes.count { body(found); index = found + 1 }
+            while let found = joined[index...].firstIndex(of: byte), found + 2 < joined.count { body(found); index = found + 1 }
         }
-        each(0xEF) { if bytes[$0 + 1] == 0xB7 { hold(0xFDC0 + UInt32(bytes[$0 + 2] & 0x3F)) } } // U+FDC0 to U+FDFF
+        each(0xEF) { if joined[$0 + 1] == 0xB7 { hold(0xFDC0 + UInt32(joined[$0 + 2] & 0x3F)) } } // U+FDC0 to U+FDFF
         each(0x26) { ampersand in // &
-            guard bytes[ampersand + 1] == 0x23 else { return } // #
-            let radix: UInt32 = bytes[ampersand + 2] | 0x20 == 0x78 ? 16 : 10 // x
+            guard joined[ampersand + 1] == 0x23 else { return } // #
+            let radix: UInt32 = joined[ampersand + 2] | 0x20 == 0x78 ? 16 : 10 // x
             var value: UInt32 = 0
             var index = ampersand + (radix == 16 ? 3 : 2)
-            while index < bytes.count, value <= 0x10FFFF, let number = digit(bytes[index], radix: radix) {
+            while index < joined.count, value <= 0x10FFFF, let number = digit(joined[index], radix: radix) {
                 value = value * radix + number
                 index += 1
             }
             hold(value)
         }
+        // Assembled from bytes that are not UTF-8, in their order, whatever stands between them.
+        // These are read with their NULs: a NUL is no part of a character, and `HTMLNullCharacters`
+        // keeps one where leaving it out would join a character's halves, so a byte that is not
+        // UTF-8 here is not UTF-8 to libxml2 either.
+        var assembled = 0 // 1 after such an 0xEF, 2 after an 0xB7 that one came before.
+        var index = 0
+        while index < bytes.count {
+            if let length = characterLength(in: bytes, at: index) { index += length; continue }
+            let byte = bytes[index]
+            if assembled == 2, byte >= 0x90, byte <= 0xAF { hold(0xFDC0 + UInt32(byte & 0x3F)) }
+            if assembled >= 1, byte == 0xB7 { assembled = 2 }
+            if byte == 0xEF { assembled = max(assembled, 1) }
+            index += 1
+        }
         return (0..<32).first { held & (1 << $0) == 0 }.flatMap { Unicode.Scalar(0xFDD0 + UInt32($0)) }
+    }
+
+    /// The length of the character libxml2 2.9.13's HTML parser decodes at `index`, or `nil`
+    /// where it decodes none and copies the byte as it is (`htmlCurrentChar`). It reads a lead
+    /// byte with the continuation bytes its high bits call for, and refuses an overlong form; a
+    /// surrogate or a value past U+10FFFF is a character it then drops.
+    private static func characterLength(in bytes: [UInt8], at index: Int) -> Int? {
+        let lead = bytes[index]
+        guard lead >= 0x80 else { return 1 }
+        func continues(_ offset: Int) -> Bool { index + offset < bytes.count && bytes[index + offset] & 0xC0 == 0x80 }
+        func bits(_ offset: Int) -> UInt32 { UInt32(bytes[index + offset] & 0x3F) }
+        guard lead & 0x40 != 0, continues(1) else { return nil }
+        if lead & 0xE0 != 0xE0 { return lead >= 0xC2 ? 2 : nil } // C0 and C1 are overlong.
+        guard continues(2) else { return nil }
+        if lead & 0xF0 != 0xF0 { return (UInt32(lead & 0x0F) << 12 | bits(1) << 6 | bits(2)) >= 0x800 ? 3 : nil }
+        guard lead & 0xF8 == 0xF0, continues(3) else { return nil }
+        return (UInt32(lead & 0x07) << 18 | bits(1) << 12 | bits(2) << 6 | bits(3)) >= 0x10000 ? 4 : nil
     }
 
     private static func digit(_ byte: UInt8, radix: UInt32) -> UInt32? {

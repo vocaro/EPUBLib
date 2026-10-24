@@ -93,7 +93,7 @@ class ForegroundReservationTests(ScriptTestCase):
         sys.path.insert(0, str(kit / "src/python"))
         from vocaro_engineering import devices
         if not hasattr(devices, "require_foreground"):
-            self.skipTest(f"the toolkit at {kit} predates mac-foreground (apple-engineering 521a95b); update it")
+            self.skipTest(f"the toolkit at {kit} predates mac-foreground (vocaro-engineering 521a95b); update it")
         self.devices = devices
         # The record refuses /private/tmp, which a restart empties, even when TMPDIR is there.
         base = Path(tempfile.gettempdir())
