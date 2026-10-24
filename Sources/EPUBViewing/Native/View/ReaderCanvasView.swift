@@ -60,8 +60,13 @@ import AppKit
 
     /// Has an assistive technology say what nothing else would tell a listener, after
     /// whatever it is saying.
-    func announce(_ words: String) {
-        postToAccessibility(.announcement, NSAttributedString(string: words, attributes: [.accessibilitySpeechQueueAnnouncement: true]))
+    func announce(_ words: String) { announce(NSAttributedString(string: words)) }
+
+    /// The same, for words with attributes of their own, such as the language they are in.
+    func announce(_ words: NSAttributedString) {
+        let queued = NSMutableAttributedString(attributedString: words)
+        queued.addAttribute(.accessibilitySpeechQueueAnnouncement, value: true, range: NSRange(location: 0, length: queued.length))
+        postToAccessibility(.announcement, queued)
     }
 
     /// Whether a keyboard is over the canvas's window, and the page area last laid out with
@@ -1758,6 +1763,21 @@ import AppKit
     }
 
     func endSelectionDrag() { selectionDragAnchor = nil; selectionDragOverridesNative = false }
+
+    /// Selects `range` for an assistive technology's action, as a drag selects: in every
+    /// column that shows part of it, and whole for Copy, the host's action and a page that
+    /// shows more of it. A table cell's selection gives way to it. False, and nothing changed,
+    /// where it holds no character or no text view shows any of it
+    /// (`ReaderTextView.lineSelectionActions`).
+    func selectFromAccessibility(_ range: ReaderTextRange) -> Bool {
+        guard !range.isEmpty, range.start.tableCell == nil, range.end.tableCell == nil,
+              textViews.contains(where: { localRange(of: range, in: $0) != nil }) else { return false }
+        if externalSelectionSource != nil { clearSelection() }
+        pendingSelection = range
+        pendingSelectionPreservesFullRange = true
+        applyPendingSelection()
+        return currentSelection?.range == range
+    }
 
     var isDraggingSelection: Bool { selectionDragAnchor != nil }
 

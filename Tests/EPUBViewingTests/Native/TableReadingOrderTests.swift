@@ -109,11 +109,11 @@ import XCTest
             // A row offers what its own cells can do, and no other line repeats it. A page's
             // lines also turn the page.
             let turns = scrolled ? [] : ["Next Page", "Previous Page"]
-            XCTAssertEqual(actions(elements[0]), turns, flow)
+            XCTAssertEqual(actions(elements[0]), turns + ["Select Line"], flow)
             XCTAssertEqual(actions(elements[1]), turns + ["Select Table Text: First cell", "Select Table Text: Second cell"], flow)
             XCTAssertEqual(actions(elements[2]), turns + ["Select Table Text: Third cell", "Select Table Text: Fourth cell link",
                                                           "Follow Table Link: Fourth cell link"], flow)
-            XCTAssertEqual(actions(elements[3]), turns, flow)
+            XCTAssertEqual(actions(elements[3]), turns + ["Select Line"], flow)
             // VoiceOver offers a container's actions on every element inside it.
             XCTAssertEqual((view.accessibilityCustomActions ?? []).map(\.name), [], "\(flow): nothing for every line to repeat")
 
@@ -228,7 +228,7 @@ import XCTest
             XCTAssertEqual(actions(elements[0]), turns + ["Inspect Image", "Inspect Image"], flow)
             XCTAssertEqual(actions(elements[1]), turns + ["Inspect Image: A drawn map", "Select Table Text: A drawn map",
                                                           "Select Table Text: Beside the map"], flow)
-            XCTAssertEqual(actions(elements[2]), turns, flow)
+            XCTAssertEqual(actions(elements[2]), turns + ["Select Line"], flow)
         }
     }
 

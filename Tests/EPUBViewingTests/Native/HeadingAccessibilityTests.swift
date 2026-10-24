@@ -163,10 +163,11 @@ import UIKit
             XCTAssertFalse(element.accessibilityFrameInContainerSpace.isEmpty, read(element))
             XCTAssertTrue(view.bounds.insetBy(dx: -1, dy: -1).contains(element.accessibilityFrameInContainerSpace), read(element))
         }
-        // A link in a heading is still followed, and a heading has its page's actions.
+        // A link in a heading is still followed, and a heading has its page's actions and
+        // selects its lines, as a line does.
         XCTAssertTrue(elements[3].accessibilityActivate())
         XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/two.xhtml"))
-        XCTAssertEqual(elements[0].accessibilityCustomActions?.map(\.name), ["Next Page", "Previous Page"])
+        XCTAssertEqual(elements[0].accessibilityCustomActions?.map(\.name), ["Next Page", "Previous Page", "Select Line"])
         // The same elements while the page stands.
         XCTAssertTrue(zip(elements, try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])).allSatisfy { $0 === $1 })
     }

@@ -1587,7 +1587,8 @@ continues to describe the authored spine resource.
     holds back as it does a swipe ("Input and accessibility"); Next Page and Previous Page
     in the rotor turn the page either way. A passage that runs through several cells of a
     row is one selection, and the row offers Copy and the host's action once.
-  - **Not done.** A line outside a table offers no selection to VoiceOver, as before. On Mac
+  - **Not done.** A line outside a table is selected by actions of its own ("Text selected
+    with VoiceOver", next). On Mac
     a cell's text area is VoiceOver's own to select in and to use a selection from. A cell
     of a table of data offers Select Cell Text there and none of the three above, and
     does not offer it while its words are selected.
@@ -1602,6 +1603,76 @@ continues to describe the authored spine resource.
     Text took the selection away, as in pages
     ([VoiceOver testing](testing.md#voiceover-testing), the entry of 2026-10-13 on a table's cells
     in continuous scroll). The unit tests perform the cell's actions in both flows.
+- **Text selected with VoiceOver.** On iPhone and iPad VoiceOver selects text in a text
+  field or a text view with its own rotor, and the reader's lines are elements of the
+  reader's own. An element on iOS has no selected range of its own to give VoiceOver or take
+  from it, as one on Mac has (`accessibilitySelectedTextRange`); whether VoiceOver would
+  select through a text input that an element names (`accessibilityTextInputResponder`) has
+  not been tried. So every line of a page and of continuous scroll offers
+  selection as actions, as a table's row and cell do
+  ([#707](https://github.com/vocaro/EPUBLib/issues/707)). A row and a cell keep their own
+  ("A table's text selected with VoiceOver", above), and a rule, a picture without words and
+  one the book keeps from assistive technology have no words to select.
+  - **Made.** A line outside the selection offers Select Line, which selects the words of
+    the lines its item is on, from the first character that is not white space to the
+    last: a line, all of a heading however many lines it takes, and the whole line round a
+    link or a picture. Where text is selected in the same section, by VoiceOver or by
+    touch, it offers Extend Selection to Line as well, which takes the selection on to the
+    line's last word, or back to its first where the line comes before it. A line that
+    holds some of the selection offers Unselect First Word, Unselect Last Word, Select
+    Previous Word and Select Next Word, which move an end of the selection by a word
+    (`ReaderSelectionWords`): a run of text without white space with the punctuation it
+    touches ("sea;", "began."), cut again where a word begins inside it, as in a language
+    written without spaces, and in two at a hyphen. Text that `visibility: hidden` hides or
+    that the book keeps from assistive technology is no word, since the reader says the
+    word it moves by. A move that would leave nothing selected, or go past the section's
+    first or last word, does nothing. DAISY's passage of test reading-1310, the 399
+    characters between "Begin" and "End", begins after "Begin" on the first line of its
+    paragraph: Select Line on that line, Unselect First Word there, and Extend Selection to
+    Line on the paragraph's last line select it, and Copy copies it.
+  - **Shown.** The passage is selected as a drag selects it (`selectFromAccessibility`): in
+    the text view that shows it, which becomes first responder, so UIKit draws it, handles
+    and all, and in each column of a spread that shows part of it. A table cell's selection
+    gives way to it, and it gives way to a cell's.
+  - **Said.** Every line that holds some of the selection has UIKit's selected trait,
+    however the selection was made, so VoiceOver says "selected" of each such line it comes
+    to. After an action, the reader compares what the item says and offers with what it
+    said and offered before. Where Select Line, Extend Selection to Line or Deselect Text
+    changed it, a layout change names the item, and VoiceOver reads it again and takes its
+    actions anew, as for a cell. A move by a word says the word with "selected" or
+    "unselected" after it, as VoiceOver says of words it selects in a text field, in the
+    reader's English with the word in its own language, queued behind what VoiceOver is
+    saying; the line is read again only where the move changed it. Copy says "Copied".
+  - **What it is for.** Copy and the host's selection action, by its own title, are the
+    edit menu's: the whole selection's text and its range, so the host is given the same
+    passage and CFI as for a touch selection of it, and is told of the selection first if
+    it has not settled. Deselect Text takes the selection away from any of its lines.
+  - **Across pages.** A page turn keeps a selection that the page turned to shows part of,
+    and takes away one it shows none of, as for any passage ("Selection" under "Input and
+    accessibility"). Select Next Word on a page's last line takes the selection onto the
+    next page's first word, and Next Page then turns to a page that shows it; continuous
+    scroll holds the book in one view.
+  - **Not done.** An end moves by a word, a line or more, not by a character. A selection
+    that begins or ends in a table's cell, or that runs into another section, is not grown
+    or moved by these actions; Select Line replaces it. On Mac VoiceOver selects in a text
+    area itself.
+  - **Heard.** The unit tests perform every action in pages and in continuous scroll on
+    iPhone and iPad simulators, DAISY's passage among them, and compare what Copy and the
+    host's action are given with a touch selection of the same passage (`LineSelectActionTests`).
+    A simulator's VoiceOver, on iOS 27.0 on an iPhone 17 Pro and an iPad Air 13-inch (M4),
+    in pages and in continuous scroll, with the sample performing the actions as VoiceOver's
+    rotor would ([VoiceOver testing](testing.md#simulators)), lists Select Line in the
+    Actions rotor of a line outside the selection, after Next Page and Previous Page in
+    pages; once the line is selected, it reads "selected" before the line and lists Deselect
+    Text, Copy, the host's action and the four word moves. It says "Begin unselected" for
+    Unselect First Word and "Copied" for Copy, and reads "selected" before each line of the
+    selection it comes to. DAISY's passage is copied and given to the host's action
+    exactly, its 474 characters, 399 without spaces, in both flows on both
+    ([#707](https://github.com/vocaro/EPUBLib/issues/707) has the sessions). The rotor offers no Text
+    Selection setting on a line, only VoiceOver's own moves by character, word, paragraph,
+    heading and container ([#856](https://github.com/vocaro/EPUBLib/issues/856)).
+    VoiceOver performing these actions from its rotor needs a device
+    ([#814](https://github.com/vocaro/EPUBLib/issues/814)).
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
   in place and also show in popovers. Plain links into another document inspect captured notes
@@ -3315,8 +3386,11 @@ The following are the defaults. Host commands and accessibility actions stay ena
   text and the reader's for its pictures there, a plain line offered the picture beside it,
   and a line of continuous scroll the links of the whole book. So a line offers what
   is in it: on a page Next Page and Previous Page; on a picture's own line Inspect Image; on
-  a table's row its cells' actions; and on a line of plain text or a link in continuous
-  scroll nothing, after which VoiceOver says no "Actions available". A page turn chosen in
+  a table's row its cells' actions; and on a line of words, a link among them, the
+  selection of its text, which in continuous scroll is all it offers ("Text selected with
+  VoiceOver" under Decisions). VoiceOver says "Actions available" after an item whose
+  actions differ from the item's before it, so there it says it after the first line it
+  reads, and not after the lines that offer the same. A page turn chosen in
   the rotor is a command, and a note's popover keeps UIKit's own actions ("What an item
   offers VoiceOver" under Decisions). In continuous scroll it
   starts at the first line on screen: on Mac at the insertion point kept there, on iOS at the
@@ -3729,7 +3803,9 @@ The following are the defaults. Host commands and accessibility actions stay ena
   With VoiceOver on iPhone and iPad a table's text is selected by an action of its row or
   cell. The cell draws it, VoiceOver reads the item as selected, and the item then offers
   Copy and the host's action itself ("A table's text selected with VoiceOver" under
-  Decisions).
+  Decisions). The rest of the text is selected by actions of its lines, which select a
+  line, take the selection on to another and move either end by a word, and then offer
+  the same ("Text selected with VoiceOver" under Decisions).
 
 ## Commands and events
 

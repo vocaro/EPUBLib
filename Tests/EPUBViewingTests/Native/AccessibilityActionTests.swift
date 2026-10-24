@@ -10,9 +10,9 @@ import XCTest
 ///
 /// VoiceOver offers on an item its own custom actions and then those of everything that
 /// contains it, so whatever a container offers is repeated on every line inside it. A line
-/// offers its page turns in pages and nothing in continuous scroll; an image also its own
-/// inspection; a table row also what its own cells can do; a link is followed by activating
-/// it; and nothing that contains them offers anything.
+/// offers its page turns in pages and to select itself; an image also its own inspection; a
+/// table row what its own cells can do in place of a line's selection; a link is followed by
+/// activating it; and nothing that contains them offers anything.
 ///
 /// No assistive technology is driven here, and UIKit's accessibility is not loaded in a test
 /// host: UIKit gives a text view no actions of its own, so a test that holds a text view to
@@ -117,23 +117,22 @@ import XCTest
             XCTAssertNil(nameless.accessibilityLabel, flow)
             XCTAssertEqual(pictured.accessibilityTraits, [.link, .image], flow)
 
-            // A line turns its page, and in continuous scroll offers nothing. An image also
-            // offers its own inspection and a row what its own cells can do; a line with
-            // decoration in it, and a link, offer no more than a line.
+            // A line turns its page in pages, and selects itself. An image also offers its own
+            // inspection, and a row what its own cells can do in place of a line's selection;
+            // a line with decoration in it, and a link, offer no more than a line.
             let turns = scrolled ? [] : ["Next Page", "Previous Page"]
-            let own = [6: ["Inspect Image: Square with words"], 9: ["Inspect Image"], 12: ["Inspect Image: Pictured jump"],
+            let select = ["Select Line"]
+            let own = [6: ["Inspect Image: Square with words"] + select, 9: ["Inspect Image"] + select, 12: ["Inspect Image: Pictured jump"] + select,
                        13: ["Select Table Text: Left cell", "Select Table Text: Right cell jump", "Follow Table Link: Right cell jump"]]
             for (index, element) in elements.enumerated() {
-                XCTAssertEqual(offered(on: element), turns + (own[index] ?? []), "\(flow): \(words(element))")
+                XCTAssertEqual(offered(on: element), turns + (own[index] ?? select), "\(flow): \(words(element))")
             }
-            // In continuous scroll a line has no actions at all, not an empty list of them.
-            if scrolled { XCTAssertNil(elements[1].accessibilityCustomActions, flow) }
 
             // The text view passes on nothing while it lists its lines, whatever it holds:
             // VoiceOver would offer it on every one of them.
             view.accessibilityCustomActions = [UIAccessibilityCustomAction(name: "Held by the text view") { _ in true }]
             XCTAssertNil(view.accessibilityCustomActions, flow)
-            XCTAssertEqual(offered(on: elements[1]), turns, flow)
+            XCTAssertEqual(offered(on: elements[1]), turns + ["Select Line"], flow)
             view.accessibilityCustomActions = nil
 
             // Each does what it says. An image is inspected by its action and by activating it.
