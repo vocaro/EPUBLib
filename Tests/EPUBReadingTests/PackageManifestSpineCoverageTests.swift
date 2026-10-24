@@ -407,6 +407,32 @@ final class PackageManifestSpineCoverageTests: XCTestCase {
                        [.reflowable, .reflowable, .prePaginated], "other rendition metadata")
     }
 
+    /// #5: a fixed-layout page's side of a spread is the first `page-spread-*` its itemref
+    /// writes, in EPUB 3.3's own form or the deprecated `rendition:` one, and whether it shares
+    /// a spread is its itemref's first `rendition:spread-*`, else the package's
+    /// `rendition:spread`, else `auto`, with the deprecated `portrait` read as `both`.
+    func testASpineItemReadsItsSideOfASpreadAndItsSpreadSetting() throws {
+        func items(_ meta: String, _ properties: [String]) throws -> [EPUBSpineItem] {
+            let refs = zip(["one", "two", "nav"], properties).map { "<itemref idref=\"\($0)\" properties=\"\($1)\"/>" }.joined()
+            return try book(spine: "<spine>\(refs)</spine>", metadata: meta).spine
+        }
+        let sides = try items("", ["page-spread-left", "rendition:page-spread-right\n page-spread-left", "rendition:page-spread-center"])
+        XCTAssertEqual(sides.map(\.pageSpread), [.left, .right, .center], "the first side written")
+        XCTAssertEqual(sides.map(\.spread), [.auto, .auto, .auto], "no setting is auto")
+        XCTAssertEqual(try items("", ["rendition:page-spread-left", "page-spread-right", "spread-left center"]).map(\.pageSpread),
+                       [.left, .right, nil])
+        let global = "<meta property=\"rendition:spread\">\n  none </meta>"
+        let spreads = try items(global, ["", "rendition:spread-both rendition:spread-none", "rendition:spread-portrait"])
+        XCTAssertEqual(spreads.map(\.spread), [.none, .both, .both], "an itemref's first override, over the package's")
+        XCTAssertEqual(try items("<meta property=\"rendition:spread\">landscape</meta>", ["", "", ""]).map(\.spread),
+                       [.landscape, .landscape, .landscape])
+        XCTAssertEqual(try items("<meta property=\"rendition:spread\">portrait</meta>", ["", "", ""]).map(\.spread), [.both, .both, .both])
+        XCTAssertEqual(try items("<meta property=\"rendition:spread\">sideways</meta>", ["", "rendition:spread-sideways", ""]).map(\.spread),
+                       [.auto, .auto, .auto], "a value outside the vocabulary")
+        XCTAssertEqual(try items("<meta refines=\"#one\" property=\"rendition:spread\">none</meta>", ["", "", ""]).map(\.spread),
+                       [.auto, .auto, .auto], "a refinement is not the package's setting")
+    }
+
     func testPageProgressionDirectionIsReadAndAnythingUnknownIsTheDefault() throws {
         // EPUB Reading Systems 3.3 §5.5: without a value a reader "MUST assume the value of default".
         func progression(_ attribute: String) throws -> EPUBPageProgression {

@@ -438,9 +438,11 @@ import SwiftUI
     }
 
     private func range(of localPath: String, in text: SectionText) -> ReaderTextRange? {
-        guard text.document.canResolveCFIs else { return nil }
-        // A bare spine-item CFI, which a section with no mapped text produces, names its start.
+        guard text.issuesCFIs else { return nil }
+        // A bare spine-item CFI, which a section with no mapped text produces, names its start,
+        // and a raster image's fixed-layout page.
         if localPath.isEmpty { return ReaderTextRange(section: text.spineIndex, 0..<0) }
+        guard text.document.canResolveCFIs else { return nil }
         guard let dom = EPUBCFI.resolve(localPath: localPath, in: text.document) else { return nil }
         return range(from: dom.start, to: dom.end, in: text)
     }
@@ -819,11 +821,21 @@ import SwiftUI
         if !isReady { becomeReadyIfPossible(); return }
         publishDisclosure()
         if shownTheme != book.typography.theme { showNewAppearanceIfReady() }
-        else if visibleRange?.start.section == index || visibleRange?.end.section == index, book.isCurrent(index) {
+        else if visibleRange?.start.section == index || visibleRange?.end.section == index
+                    || canvas?.awaitsSection(index) == true || flowsAfterAll(index), book.isCurrent(index) {
+            // A spread of fixed-layout pages waits for a page beside the one shown, too.
             canvas?.reloadContent(keeping: nil)
         }
         if !searchMatches.isEmpty || !highlights.isEmpty { refreshHighlights() }
         canvas?.sectionsDidChange()
+    }
+
+    /// A pre-paginated section taken for a page until it was built, which flows: the spreads
+    /// after it in its run pair anew, and the one on screen may be among them.
+    private func flowsAfterAll(_ index: Int) -> Bool {
+        guard publication.spine[index].layout == .prePaginated, book.section(index)?.fixedPage == nil,
+              let canvas, let shown = canvas.shownFixedSpread, let anchor = canvas.anchor else { return false }
+        return canvas.fixedSpread(containing: anchor.section) != shown
     }
 
     private func bookCompleted() {
@@ -871,8 +883,8 @@ import SwiftUI
     private func cfi(for range: ReaderTextRange) -> String? {
         // A failed multi-section bookmark set must never fall back to its first segment.
         guard range.start.section == range.end.section,
-              let section = book.section(range.start.section), section.document.canResolveCFIs else { return nil }
-        guard let dom = section.domRange(range) else { return spine.bases[range.start.section] }
+              let section = book.section(range.start.section), section.issuesCFIs else { return nil }
+        guard !section.issuesSpineCFIOnly, let dom = section.domRange(range) else { return spine.bases[range.start.section] }
         return spine.cfi(spineIndex: range.start.section, start: dom.start, end: dom.end, in: section.document)
     }
 
@@ -881,7 +893,7 @@ import SwiftUI
         var bookmarks: [EPUBEngineBookmark] = []
         for index in range.start.section...max(range.start.section, range.end.section) {
             if range.start.section != range.end.section, book.isOmitted(index) { continue }
-            guard let section = book.section(index), section.document.canResolveCFIs else { return [] }
+            guard let section = book.section(index), section.issuesCFIs else { return [] }
             let lower = index == range.start.section ? range.start.offset : 0
             let upper = index == range.end.section ? range.end.offset : section.string.length
             if range.start.section != range.end.section,
@@ -952,6 +964,20 @@ extension NativeSession: ReaderCanvasDataSource {
     func canShow(section index: Int) -> Bool {
         guard let built = book.typography(ofSection: index), let canvas else { return true }
         return built.theme == canvas.configuration.theme || book.isCurrent(index)
+    }
+    /// A pre-paginated section is a page once built when it is one image or drawing
+    /// (`FixedLayoutPage`), and is taken for one until then, so that spreads pair the same
+    /// whichever of its neighbors are built.
+    func fixedPage(forSection index: Int) -> ReaderFixedPage? {
+        guard publication.spine.indices.contains(index) else { return nil }
+        let item = publication.spine[index]
+        guard item.layout == .prePaginated else { return nil }
+        var size: CGSize?
+        if let section = book.section(index) {
+            guard let page = section.fixedPage else { return nil }
+            size = page.size
+        }
+        return ReaderFixedPage(size: size, side: item.pageSpread, spread: item.spread)
     }
     func isCurrent(section index: Int) -> Bool { book.isCurrent(index) }
 }

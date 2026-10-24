@@ -242,6 +242,8 @@ import UIKit
             guard let spine = try? SpineCFIs(publication: publication) else { return "the package document's spine CFIs could not be read" }
             let resolved = spine.bases.map { spine.resolve($0)?.spineIndex }
             return mismatch("the spine occurrence each occurrence's position names", resolved, publication.spine.indices.map { Optional($0) })
+        case .fixedPages(let expected):
+            return mismatch("sections shown as fixed-layout pages", sections.filter { $0.fixedPage != nil }.map(\.spineIndex), expected)
         }
     }
 

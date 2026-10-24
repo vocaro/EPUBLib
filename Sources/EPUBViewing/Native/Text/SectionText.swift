@@ -42,14 +42,26 @@ struct SectionText: @unchecked Sendable {
     private let builtReport: SectionReport
     /// What the layouts of `string` find (`.readerSectionLayout`).
     let layout: SectionLayoutRecord
+    /// The fixed-layout page the section is, shown whole at its declared size; nil for a
+    /// section that flows (`FixedLayoutPage`).
+    let fixedPage: FixedLayoutPage?
 
     init(spineIndex: Int, href: String, document: ContentDocument, string: NSAttributedString, map: TextMap,
          anchors: [EPUBElementID: Int], notes: [EPUBElementID: NSAttributedString], title: String?, report: SectionReport,
-         layout: SectionLayoutRecord = SectionLayoutRecord()) {
+         layout: SectionLayoutRecord = SectionLayoutRecord(), fixedPage: FixedLayoutPage? = nil) {
         self.spineIndex = spineIndex; self.href = href; self.document = document; self.string = string
         self.map = map; self.anchors = anchors; self.notes = notes; self.title = title
-        builtReport = report; self.layout = layout
+        builtReport = report; self.layout = layout; self.fixedPage = fixedPage
     }
+
+    /// Whether the section's positions have CFIs: those of its document, or for a raster image
+    /// shown as a fixed-layout page, whose wrapper is no document of the book's, the spine
+    /// item's own CFI, which names the whole page.
+    var issuesCFIs: Bool { document.canResolveCFIs || issuesSpineCFIOnly }
+
+    /// The section is a raster image's fixed-layout page: its one position is the spine item's
+    /// CFI (`issuesCFIs`).
+    var issuesSpineCFIOnly: Bool { fixedPage != nil && document.origin == .syntheticRaster }
 }
 
 /// What the layouts of a section's text find that its build could not know: text TextKit could
@@ -115,7 +127,8 @@ struct SectionReport: Equatable, Sendable {
     var cfiUnavailable = false
     /// The section asked for vertical writing, which is rendered horizontally.
     var verticalWritingFlattened = false
-    /// A fixed-layout spine item, rendered as reflowable text.
+    /// A fixed-layout spine item that is not one image or one drawing, rendered as reflowable
+    /// text (`FixedLayoutPage`).
     var fixedLayoutReflowed = false
     /// Floats, positioned callouts or sized inline-blocks rendered as ordinary flow boxes.
     var flowBoxesReflowed = false

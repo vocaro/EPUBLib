@@ -49,7 +49,8 @@ enum SectionBuilder {
         var truncated = text.report
         truncated.stylesTruncated = true
         return SectionText(spineIndex: text.spineIndex, href: text.href, document: text.document, string: text.string, map: text.map,
-                           anchors: text.anchors, notes: text.notes, title: text.title, report: truncated, layout: text.layout)
+                           anchors: text.anchors, notes: text.notes, title: text.title, report: truncated, layout: text.layout,
+                           fixedPage: text.fixedPage)
     }
 
     /// The builder proper, over an already parsed document and an injected cascade.
@@ -62,18 +63,34 @@ enum SectionBuilder {
         state.report.report = report
         state.report.report.recoveredAsHTML = report.recoveredAsHTML || document.recoveredAsHTML
         state.report.report.cfiUnavailable = report.cfiUnavailable || !document.canResolveCFIs
-        if item.layout == .prePaginated { state.report.report.fixedLayoutReflowed = true }
         state.report.report.scriptsRefused += document.nodes.reduce(0) { count, node in
             count + (node.isElement && node.name == "script"
                 && (node.isHTML || node.namespace == ContentNamespace.svg) ? 1 : 0)
         }
         let output = SectionWriter(state: state, mode: .section).renderSection()
         state.reportNotesShownNowhereElse()
+        var string = output.string
+        // A pre-paginated item that is one image or drawing is shown as that page; any other reflows.
+        var fixedPage: FixedLayoutPage?
+        if item.layout == .prePaginated {
+            if let page = FixedLayoutPage.make(from: output.string, document: document) {
+                fixedPage = page.page
+                string = page.string
+                // How the flow would have placed the image is not how the page shows it, and a
+                // raster image's page has the spine item's CFI (`SectionText.issuesCFIs`).
+                state.report.report.flowBoxesReflowed = false
+                state.report.report.flexGridSimplified = false
+                if document.origin == .syntheticRaster { state.report.report.cfiUnavailable = report.cfiUnavailable }
+            } else {
+                state.report.report.fixedLayoutReflowed = true
+            }
+        }
         let title = document.head?.elementChildren.first { $0.isHTML("title") }?.textContent
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
         return SectionText(spineIndex: request.spineIndex, href: item.resource.href, document: document,
-                           string: output.string, map: output.map, anchors: output.anchors, notes: state.shownNotes,
-                           title: title?.isEmpty == false ? title : nil, report: state.report.report, layout: state.layout)
+                           string: string, map: output.map, anchors: output.anchors, notes: state.shownNotes,
+                           title: title?.isEmpty == false ? title : nil, report: state.report.report, layout: state.layout,
+                           fixedPage: fixedPage)
     }
 
     static func withheld(_ request: SectionBuildRequest, reason: Error) -> SectionText {

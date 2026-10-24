@@ -1548,6 +1548,8 @@ private struct ReaderTableCellKey: Hashable {
         guard let view else { return false }
         let point = recognizer.location(in: view)
         guard view.tableInteraction?.selectionPosition(at: point) == nil else { return false }
+        // A fixed-layout page is its image, and a tap in an edge zone of it turns the page.
+        if let canvas = view.canvas, canvas.showsFixedPages, canvas.edgeTurn(at: recognizer.location(in: canvas)) != nil { return false }
         return view.image(at: point) != nil && view.link(at: point) == nil && view.selectedRange.length == 0
     }
     @objc func openImage(_ recognizer: UITapGestureRecognizer) {

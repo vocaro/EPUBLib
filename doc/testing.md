@@ -714,6 +714,19 @@ The script fetches each corpus at a pinned commit into `~/Library/Caches/EPUBLib
 `Tests/EPUBTestSupport/SpecConformanceCorpus.swift`; a new pin goes in the script together
 with that table.
 
+The suite's fixed-layout tests (`fxl-*`, `lay-fxl-*`, `lay-pp-*`) are held to the sections the
+reader shows as pages ([native viewer](native-viewer.md#decisions), "Fixed layout"): the
+picture-book tests, Kate Greenaway's *A Apple Pie* as XHTML pages of an image, as XHTML pages
+of an SVG, as raster images in the spine and mixed, and the `lay-pp-spine-overrides_image-*`
+tests, show every pre-paginated section as a page and disclose nothing for the layout; every
+other fixed-layout test shows none, its pages of text reflowing with the disclosure. How a
+spread pairs and fits its pages is held by `FixedLayoutPageTests` and `FixedLayoutCanvasTests`,
+which need no corpus:
+
+```sh
+swift test --filter "FixedLayout"
+```
+
 `PublicationFolderCorpusTests` reads each W3C test and each expanded EPUBCheck fixture as a
 folder and as the archive packed from it, and each archived EPUBCheck fixture and each book of
 the two [collections](#books) as an archive and as the folder unzipped from it, and requires the

@@ -184,6 +184,8 @@ extension ReaderCanvasView {
         let size = spread.columnSize
         func pages(_ section: Int) -> Int? {
             guard let text = dataSource.text(forSection: section), dataSource.isCurrent(section: section) else { return nil }
+            // A fixed-layout page is one page, at whatever size its spread shows it.
+            if dataSource.fixedPage(forSection: section) != nil { return 1 }
             if let paginator = cachedPaginator(for: section, size: size), paginator.isComplete { return paginator.pages.count }
             return pageCounter.pages(inSection: section, text: text, size: size)
         }

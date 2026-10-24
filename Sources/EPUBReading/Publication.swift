@@ -404,6 +404,11 @@ public struct EPUBPublication: Sendable {
         let fixedLayout = metadataElements.contains {
             $0.name == "meta" && $0.attribute("property") == "rendition:layout" && $0.text == "pre-paginated"
         }
+        // The package's synthetic-spread setting: the first `rendition:spread` that is not a
+        // refinement of something else. A value outside the vocabulary leaves the default.
+        let spread = metadataElements.first {
+            $0.name == "meta" && $0.attribute("property") == "rendition:spread" && $0.attribute("refines") == nil
+        }.flatMap { Self.spreads[$0.text] } ?? .auto
         let spine = try spineNode.children.filter { $0.name == "itemref" }.map { item in
             guard let ref = item.identifier("idref"), let named = declared[ref] else {
                 throw EPUBPublicationError.invalidXML("Spine idref")
@@ -416,10 +421,13 @@ public struct EPUBPublication: Sendable {
             // The item's own layout is the first override its properties write, in their order:
             // of several for one property, a reading system "MUST use only the first value"
             // (EPUB Reading Systems 3.3 §5.5.1). Without one it is the package's.
-            let override = (item.attribute("properties") ?? "").split(whereSeparator: \.isWhitespace)
-                .lazy.compactMap { Self.layoutOverrides[String($0)] }.first
+            let properties = (item.attribute("properties") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+            let override = properties.lazy.compactMap { Self.layoutOverrides[$0] }.first
+            // The spread overrides and the page's side take the first of each the same way.
             return EPUBSpineItem(resource: resource, isLinear: item.attribute("linear") != "no",
-                                layout: override ?? (fixedLayout ? .prePaginated : .reflowable))
+                                layout: override ?? (fixedLayout ? .prePaginated : .reflowable),
+                                pageSpread: properties.lazy.compactMap { Self.pageSpreads[$0] }.first,
+                                spread: properties.lazy.compactMap { Self.spreadOverrides[$0] }.first ?? spread)
         }
         guard !spine.isEmpty else { throw EPUBPublicationError.invalidXML("Empty spine") }
         var toc: [EPUBNavigationItem] = []
@@ -579,6 +587,26 @@ public struct EPUBPublication: Sendable {
     /// The spine overrides of `rendition:layout` and the layout each gives.
     private static let layoutOverrides: [String: EPUBLayout] = [
         "rendition:layout-pre-paginated": .prePaginated, "rendition:layout-reflowable": .reflowable,
+    ]
+
+    /// The values of `rendition:spread`. The deprecated `portrait` is read as `both`, which
+    /// spreads in portrait as well.
+    private static let spreads: [String: EPUBSpread] = [
+        "none": .none, "landscape": .landscape, "both": .both, "auto": .auto, "portrait": .both,
+    ]
+
+    /// The spine overrides of `rendition:spread` and the setting each gives.
+    private static let spreadOverrides: [String: EPUBSpread] = Dictionary(uniqueKeysWithValues: spreads.map {
+        ("rendition:spread-" + $0.key, $0.value)
+    })
+
+    /// The itemref properties that put a page on one side of a spread: EPUB 3.3's own
+    /// `page-spread-left` and `page-spread-right` and their deprecated `rendition:` forms, and
+    /// `rendition:page-spread-center`.
+    private static let pageSpreads: [String: EPUBPageSpread] = [
+        "page-spread-left": .left, "page-spread-right": .right,
+        "rendition:page-spread-left": .left, "rendition:page-spread-right": .right,
+        "rendition:page-spread-center": .center,
     ]
 
     /// Whether a resource is a font: its manifest media type is one's, in any of the spellings

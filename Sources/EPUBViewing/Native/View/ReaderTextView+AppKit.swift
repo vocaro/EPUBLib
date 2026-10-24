@@ -220,7 +220,10 @@ final class ReaderTextView: NSTextView {
         // A click finds the text where the reader has it.
         canvas?.endScrollStep()
         let point = convert(event.locationInWindow, from: nil)
-        if let image = image(at: point), link(at: point) == nil {
+        // A fixed-layout page is its image, and a click in an edge zone of it turns the page.
+        let turnsFixedPage = isPageColumn && event.clickCount == 1 && canvas?.showsFixedPages == true
+            && canvas.flatMap { $0.edgeTurn(at: $0.convert(event.locationInWindow, from: nil)) } != nil
+        if let image = image(at: point), link(at: point) == nil, !turnsFixedPage {
             if event.clickCount == 2 { canvas?.inspectImage(image); return }
             return super.mouseDown(with: event)
         }

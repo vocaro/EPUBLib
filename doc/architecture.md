@@ -407,8 +407,10 @@ The general method is in
 
 The viewer renders reflowable EPUB on iOS/iPadOS and macOS 27 with TextKit 2: continuous scroll
 in one real scroll view over the whole book, and paginated columns sliced from one layout per
-column width. Fixed-layout spine items render as reflowable text and vertical writing renders
-horizontally, each with a `.disclosure`; sessions advertise every capability. Tests cover
+column width. A fixed-layout spine item that is one image or one drawing is shown whole at its
+declared size, in spreads; any other fixed-layout spine item renders as reflowable text and
+vertical writing renders horizontally, each with a `.disclosure`; sessions advertise every
+capability. Tests cover
 reflowable, fixed-layout, RTL, vertical-writing, escaped-filename and illustrated synthetic books,
 CFIs recorded from foliate-js, and real-book qualification runs (see [native viewer](native-viewer.md)).
 This is regression coverage, not a general fidelity guarantee. Host apps must present
