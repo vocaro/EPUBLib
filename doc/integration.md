@@ -323,7 +323,7 @@ combining mark is not a `/`. Foundation's `components(separatedBy:)` compares th
 does `range(of:)` unless told `.literal`.
 
 The names themselves are the book's, and the host still decides what to do with them
-([archive paths](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#archive-paths-need-byte-level-delimiters-and-deliberate-normalization)):
+([archive paths](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#archive-paths-need-byte-level-delimiters-and-deliberate-normalization)):
 
 - **Names a platform reserves, alters or does not allow.** A name that begins with a dot or holds
   control characters; a colon, which a book's file names may hold and which Windows reads as a

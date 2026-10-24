@@ -1,6 +1,6 @@
 #!/bin/bash
 # Own both simulators and always delete them; never select a shared booted device.
-# Method: https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#disposable-simulators
+# Method: https://github.com/vocaro/vocaro-engineering/blob/main/guides/simulator-testing.md#disposable-simulators
 # Arguments go to each device's xcodebuild test, such as -only-testing:EPUBViewingTests/NativeSessionTests.
 set -uo pipefail
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"

@@ -57,9 +57,9 @@ within lines and single newlines at block boundaries. Whitespace normalization o
 Unicode scalars, so combining marks following a space or
 no-break space remain in body text, headings, image alternatives and MathML text
 ([#89](https://github.com/vocaro/EPUBLib/issues/89);
-[normalizing by scalar](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#normalize-text-by-scalar-and-by-byte-not-by-character)).
+[normalizing by scalar](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#normalize-text-by-scalar-and-by-byte-not-by-character)).
 This is structural text extraction, not a browser's computed visible-text representation
-([parser choice](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#parser-choice-can-change-text)): CSS layout, generated content, image OCR and
+([parser choice](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#parser-choice-can-change-text)): CSS layout, generated content, image OCR and
 external resources are not evaluated. The text of elements HTML does not display is therefore
 included, such as that of `hidden` elements, the content of a closed `details` and a `dialog`
 without `open`. No page numbers or engine-specific bookmarks are invented.
@@ -106,7 +106,7 @@ preflight conservatively treats a script/style end marker as markup even inside 
 quoted value, comment or another raw-text element, since malformed raw-text endings can leave
 libxml2 in another context. It follows its own comment, processing-instruction, end-tag and
 script/style contexts after source rewriting ([#196](https://github.com/vocaro/EPUBLib/issues/196);
-[screening markup](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#screen-untrusted-markup-before-any-parser-sees-it));
+[screening markup](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#screen-untrusted-markup-before-any-parser-sees-it));
 [testing](testing.md#attribute-parser-cost-probe) has the parser-only probe. Callers processing a whole book enforce
 their own cumulative text budget while iterating. `CancellationError` propagates during parsing.
 `EPUBTextExtractionError` distinguishes invalid spine indices, unsupported media types, malformed
@@ -155,7 +155,7 @@ element of HTML content in another namespace, so a root whose `xmlns` value has 
 quote is read; `svg` and `math` are SVG's and MathML's by name, and inside them `xmlns` is read
 as before. In other malformed markup the tree is libxml2's, which is not always
 the HTML Standard's
-([libxml2's HTML parser](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#libxml2s-html-parser-is-not-the-html-standard)):
+([libxml2's HTML parser](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#libxml2s-html-parser-is-not-the-html-standard)):
 it can end a script or style at an end tag that directly follows the start
 tag (any but `</body>` and `</html>`, which end nothing there either), for example, and
 elsewhere reads `<!-->` as a comment that is still open. Script and style content is read where
@@ -225,7 +225,7 @@ colophon is valid library behavior; whether it belongs in a study index is the h
 `EPUBElementID`, which compares IDs code unit for code unit as `getElementById` does, so
 `caf&#xE9;` and `cafe&#x301;` are two anchors; `anchors[fragment]` looks one up by a `String`
 ([#635](https://github.com/vocaro/EPUBLib/issues/635);
-[element IDs](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#element-ids-compare-code-units-swift-strings-do-not)). `headings`
+[element IDs](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#element-ids-compare-code-units-swift-strings-do-not)). `headings`
 contains each XHTML heading in document order, with normalized text and its mark. A mark's
 `offset` counts UTF-8 bytes to the first text character after the element opens; `separator`
 counts the normalized space or newline immediately before that character. An empty element

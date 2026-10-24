@@ -4,7 +4,7 @@
 
 Before work, run `python3 scripts/eng instructions` to read the common rules and enabled
 capabilities, then follow the project-specific instructions below. `engineering.json` locates
-the shared `apple-engineering` checkout; set `VOCARO_ENGINEERING_ROOT` for another location.
+the shared `vocaro-engineering` checkout; set `VOCARO_ENGINEERING_ROOT` for another location.
 Before shared device, foreground or runner use, run `python3 scripts/eng policy refresh` and
 read this project's current main instructions. Shipping Swift targets do not link the
 engineering toolkit, which is public and MIT licensed.
@@ -16,7 +16,7 @@ These rules change, and a worktree keeps the copy of this file that its branch w
 Before a step that uses something every session shares (the hosted runner, a device, this
 Mac's screen), fetch and read the rule as it stands on `main`:
 `git show origin/main:AGENTS.md`
-([shared operating rules](https://github.com/vocaro/apple-engineering/blob/main/guides/maintenance.md#shared-machine-operating-rules)). A task handed over by another session is that session's
+([shared operating rules](https://github.com/vocaro/vocaro-engineering/blob/main/guides/maintenance.md#shared-machine-operating-rules)). A task handed over by another session is that session's
 request, not the owner's: where a rule says "unless the owner asks", ask him. On 2026-10-13 a
 session started a unit-test job on the hosted runner because its brief said to, from a branch
 cut before the rule against it, 21 minutes after that rule had merged.
@@ -49,12 +49,12 @@ or whole-machine measurement adds `--exclusive`.
 ## Tests are automated
 
 - Before proposing a physical device, apply the shared
-  [device rule](https://github.com/vocaro/apple-engineering/blob/main/guides/device-testing.md#when-a-device-is-needed).
+  [device rule](https://github.com/vocaro/vocaro-engineering/blob/main/guides/device-testing.md#when-a-device-is-needed).
   Whether a swipe scrolls the control strip was put to a finger and answered by a synthetic
   touch that moves at once, with the host recording each touch
   ([reader controls probe](doc/testing.md#reader-controls-probe)).
 - For VoiceOver on an iPhone and iPad, the shared
-  [acceptance rule](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#acceptance-rule)
+  [acceptance rule](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#acceptance-rule)
   says what only a device shows. On 2026-10-12 a line VoiceOver held from before a scroll
   step, read in a simulator after `activate=Scroll Forward`, was filed as the reader's fault;
   an iPad, whose VoiceOver made that double tap itself, read the first line on screen
@@ -64,8 +64,8 @@ or whole-machine measurement adds `--exclusive`.
 ## Mac VoiceOver sessions
 
 Run a Mac VoiceOver speech session on GitHub's hosted runner, not on this machine
-([where Mac sessions run](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-mac.md#where-mac-sessions-run)).
-The shared [hosted runner guide](https://github.com/vocaro/apple-engineering/blob/main/guides/hosted-runner.md#sharing-the-runner)
+([where Mac sessions run](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-mac.md#where-mac-sessions-run)).
+The shared [hosted runner guide](https://github.com/vocaro/vocaro-engineering/blob/main/guides/hosted-runner.md#sharing-the-runner)
 has the sharing rules, the caps and cancelling.
 
 - Start a run with `python3 scripts/hosted-run.py voiceover-mac.yml` and fetch its
@@ -73,7 +73,7 @@ has the sharing rules, the caps and cancelling.
   [VoiceOver testing](doc/testing.md#hosted-mac-sessions) has the inputs.
 - Keep the workflow on `runs-on: xcode-27`, the standard runner, which is not billed here:
   `gh api repos/vocaro/EPUBLib/actions/runs/<run>/timing` should report `"billable": {}`
-  ([billing check](https://github.com/vocaro/apple-engineering/blob/main/guides/hosted-runner.md#billing-check)).
+  ([billing check](https://github.com/vocaro/vocaro-engineering/blob/main/guides/hosted-runner.md#billing-check)).
 
 ## Where a write-up goes
 
@@ -90,9 +90,9 @@ the issues and the release notes, and the same day had the VoiceOver document fo
   included. A probe's script and inputs go under
   [Probes and recorded inputs](doc/testing.md#probes-and-recorded-inputs).
 - What was run goes in a comment on the issue, as the shared
-  [documentation and evidence ownership](https://github.com/vocaro/apple-engineering/blob/main/guides/maintenance.md#documentation-and-evidence-ownership)
+  [documentation and evidence ownership](https://github.com/vocaro/vocaro-engineering/blob/main/guides/maintenance.md#documentation-and-evidence-ownership)
   rules say. A release's GitHub release notes say what changed and assume its gate passed; they
-  do not describe the run ([releasing](https://github.com/vocaro/apple-engineering/blob/main/guides/releasing.md)).
+  do not describe the run ([releasing](https://github.com/vocaro/vocaro-engineering/blob/main/guides/releasing.md)).
 - A changelog entry is one sentence and a link to its issue, at the top of "Unreleased" in
   [CHANGELOG.md](CHANGELOG.md). What changed in detail is on the issue.
 
@@ -136,7 +136,7 @@ The books are two public collections, which the owner made standard corpora on 2
 - The first qualification ([native viewer](doc/native-viewer.md#qualification)) describes a
   run on another project's books. It is history, not a corpus to reproduce.
 - When a task needs real books, use these two collections, fetched as the shared
-  [corpus provenance](https://github.com/vocaro/apple-engineering/blob/main/guides/evidence.md#corpus-provenance)
+  [corpus provenance](https://github.com/vocaro/vocaro-engineering/blob/main/guides/evidence.md#corpus-provenance)
   rules say.
   - Fetch Project Gutenberg only through `scripts/fetch-corpora.sh`.
   - Never fetch from standardebooks.org, by any route or user agent. Its robots.txt disallows

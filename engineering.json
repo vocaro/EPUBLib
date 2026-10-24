@@ -3,7 +3,7 @@
   "name": "EPUBLib",
   "repository": "vocaro/EPUBLib",
   "toolkit": {
-    "path": "../apple-engineering"
+    "path": "../vocaro-engineering"
   },
   "capabilities": [
     "simulator-disposable",

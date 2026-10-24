@@ -7,7 +7,7 @@ at the same time, each under a deadline. Every simulator gets one transcript: th
 and what VoiceOver said after each. The simulators are deleted afterwards whatever happened.
 It exits 0 only when every probe ran all its steps and passed, VoiceOver is off again and no
 simulator lost its mute. The runner contract is in
-https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#runner-contract
+https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-simulator.md#runner-contract
 """
 import argparse
 from datetime import datetime, timezone
@@ -54,7 +54,7 @@ def build(root, derived, log_path, timeout, skip):
     revision_path = derived / BUILD_REVISION_FILE
     if not skip:
         # A failed or interrupted rebuild must not leave the old build's revision behind
-        # (https://github.com/vocaro/apple-engineering/blob/main/guides/evidence.md#evidence-collection).
+        # (https://github.com/vocaro/vocaro-engineering/blob/main/guides/evidence.md#evidence-collection).
         revision_path.unlink(missing_ok=True)
         revision = run("git", "-C", str(root), "describe", "--always", "--dirty").strip()
         example = root / "Examples/VoiceOverVerification"
@@ -176,7 +176,7 @@ def main():
             else:
                 session.transcript.append(f"{now()} ACTIVATION stock (unmodified)")
             # VoiceOver speaks through the Mac's own output device, so nothing runs before this holds
-            # (https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#muted-speech-capture).
+            # (https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-simulator.md#muted-speech-capture).
             volume = state(session.udid, "audio", "--volume", "0")["volume"]
             for _ in range(5):
                 if volume == 0:
@@ -189,7 +189,7 @@ def main():
         if args.vot_log:
             for session in sessions:
                 # What VoiceOver did, where the transcript has what it read
-                # (https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#voiceovers-vot-log).
+                # (https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-simulator.md#voiceovers-vot-log).
                 session.stream = subprocess.Popen([
                     "xcrun", "simctl", "spawn", session.udid, "log", "stream", "--level", "debug", "--style", "compact",
                     "--predicate", 'process == "vot"'], stdout=session.vot.open("w"), stderr=subprocess.STDOUT,
@@ -223,7 +223,7 @@ def main():
             session.started = time.monotonic()
             # One xcodebuild per simulator. Left to collect diagnostics, it runs `simctl diagnose`
             # for up to ten minutes after a test that recorded any issue, a warning included
-            # (https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#diagnostics-collection).
+            # (https://github.com/vocaro/vocaro-engineering/blob/main/guides/simulator-testing.md#diagnostics-collection).
             session.process = subprocess.Popen([
                 "xcodebuild", "test-without-building", "-xctestrun", str(xctestrun),
                 "-destination", f"platform=iOS Simulator,id={session.udid}", "-resultBundlePath", str(session.bundle),
@@ -247,7 +247,7 @@ def main():
                         session.note, session.late = f"the deadline of {args.timeout} s passed and xcodebuild was stopped", True
                     if session.note:
                         # Stopping it folds the staged output into the bundle: read that first
-                        # (https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#the-xcodebuild-diagnostics-hang).
+                        # (https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-simulator.md#the-xcodebuild-diagnostics-hang).
                         session.recovered = staged(session.bundle)
                         stop(session.process)
                         # Its diagnostics collector runs in a process group of its own and outlives it.

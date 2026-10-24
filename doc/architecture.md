@@ -70,7 +70,7 @@ and refuses ambiguous encoding switches and encodings it cannot decode
 gives the calling thread's handlers to one that keeps nothing and puts the thread's own back
 after, so nothing libxml2 says about a book reaches the host's standard error or its own handlers
 ([#392](https://github.com/vocaro/EPUBLib/issues/392);
-[libxml2's error handlers](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#parser-choice-can-change-text)).
+[libxml2's error handlers](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#parser-choice-can-change-text)).
 
 A metadata value and a navigation label are read as text: the element's and that of everything
 inside it, with each run of ASCII whitespace (tab, line feed, form feed, carriage return, space)
@@ -103,7 +103,7 @@ inside and at the ends of a value that holds anything else, but a value that is 
 white space of any kind is empty: some tools write a lone no-break space as a placeholder, and
 no host can show one. A value left empty is not listed among the metadata; an entry whose label
 is left empty stays, without a title. `xml:space` changes nothing. White space is found as
-[normalizing by scalar and by byte](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#normalize-text-by-scalar-and-by-byte-not-by-character)
+[normalizing by scalar and by byte](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#normalize-text-by-scalar-and-by-byte-not-by-character)
 says. An attribute's value is not such text, but for an alternative or `title` read into
 a label and a guide reference's `title`. A font obfuscation key is made from the identifier's text by its algorithm's own rule,
 not from the value read here. IDPF's removes the space, tab, carriage return and line feed and
@@ -127,7 +127,7 @@ reference is found as its byte, not by `Character`, and paths are compared as Sw
 canonical equivalence:
 an entry answers to a reference in either normalization form, and two entry names equal after
 normalization are duplicates
-([archive paths](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#archive-paths-need-byte-level-delimiters-and-deliberate-normalization)).
+([archive paths](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#archive-paths-need-byte-level-delimiters-and-deliberate-normalization)).
 
 Default limits are 256 MiB compressed, 512 MiB expanded, 32 MiB per resource, 20,000 entries and
 4 MiB per XML document, with depth/node limits. Hosts may lower or raise import limits. Resources
@@ -279,10 +279,10 @@ disclosed:
   The directory pre-scan charges the exact size of each local header (30 fixed bytes plus its
   name and extra field) against the archive's byte count. Real, separate headers fit that
   budget; repeated large headers cannot multiply copying and ZIP64 field scans indefinitely
-  ([bounding archive work](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#bound-archive-work-by-decoder-calls-not-by-output-alone)).
+  ([bounding archive work](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#bound-archive-work-by-decoder-calls-not-by-output-alone)).
   A deflated entry is inflated with zlib, the system's, not by ZIPFoundation 0.9.20, whose
   decoder is
-  [not deterministic on damaged streams](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#apples-compression-inflater-is-not-deterministic-on-damaged-streams)
+  [not deterministic on damaged streams](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#apples-compression-inflater-is-not-deterministic-on-damaged-streams)
   ([#583](https://github.com/vocaro/EPUBLib/issues/583)). zlib refuses such a stream as damage, `invalidArchive("<path>: corruptedData")`, on every
   open, as it does a stream cut short of its end. ZIPFoundation reads stored entries.
   The inflater calls the consumer after every call to zlib's `inflate`, including steps that
@@ -359,7 +359,7 @@ resources. An implementation can return any SwiftUI/AppKit/UIKit-backed view; `N
 implements a minimal one using only SwiftUI and the public contract.
 
 `send` acknowledges command submission, not successful navigation or paint completion
-([submission is not completion](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/command-lifecycles.md#command-submission-is-not-completion)).
+([submission is not completion](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/command-lifecycles.md#command-submission-is-not-completion)).
 Later position/error events describe effects. Cancellation before submission throws `CancellationError`;
 a submitted page turn cannot be undone by cancelling its caller. `close` is idempotent, disables
 callbacks and releases renderer references. Hosts serialize commands whose order matters and close
@@ -403,7 +403,7 @@ the reader agrees and any other is refused with a notice
 ([links outside the book](native-viewer.md#security)), and `script`
 elements are counted and disclosed but never run. Sandboxed macOS hosts need no network entitlement.
 The general method is in
-[screening untrusted markup](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#screen-untrusted-markup-before-any-parser-sees-it).
+[screening untrusted markup](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#screen-untrusted-markup-before-any-parser-sees-it).
 
 The viewer renders reflowable EPUB on iOS/iPadOS and macOS 27 with TextKit 2: continuous scroll
 in one real scroll view over the whole book, and paginated columns sliced from one layout per
@@ -420,7 +420,7 @@ Adapter-contract tests verify session behavior; rendering fidelity stays with th
 The [text-extraction API](text-extraction.md) reads one spine occurrence at a time from the
 validated snapshot. Apple’s streaming libxml2 reader preserves literal and numeric-reference
 U+FEFF word joiners that Foundation XMLParser drops in character callbacks
-([parser choice](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#parser-choice-can-change-text)). External DTD loading,
+([parser choice](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#parser-choice-can-change-text)). External DTD loading,
 entity substitution and networking are disabled. Limits and cancellation bound the walk.
 The library reports all semantic roles and empty/nonlinear sections; filtering and indexing belong
 to the host. No third-party dependency is added for text extraction.

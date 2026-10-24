@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Project adapter for the maintained shared engineering implementation.
 
-Guide: https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover-simulator.md#guarded-cursor-activation
+Guide: https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover-simulator.md#guarded-cursor-activation
 """
 from pathlib import Path
 import sys

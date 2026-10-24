@@ -4,6 +4,10 @@ import os
 from pathlib import Path
 import sys
 
+DEFAULT = "../vocaro-engineering"
+# The toolkit's name before the rename. Until every clone is renamed, the default falls back to it.
+FORMER = "../apple-engineering"
+
 
 def project_root(source):
     for parent in Path(source).resolve().parents:
@@ -35,20 +39,25 @@ def main_checkout(root):
 
 def toolkit_location(root):
     """VOCARO_ENGINEERING_ROOT, else toolkit.path beside this checkout or, from a linked
-    worktree such as a session's under .claude/worktrees, beside the main checkout."""
+    worktree such as a session's under .claude/worktrees, beside the main checkout. The default
+    path, configured or not, then tries the former name in the same places."""
     override = os.environ.get("VOCARO_ENGINEERING_ROOT")
     if override:
         return (Path(root) / override).resolve()
     config = json.loads((Path(root) / "engineering.json").read_text())
-    location = config.get("toolkit", {}).get("path", "../apple-engineering")
-    candidates = [(base / location).resolve() for base in (Path(root), main_checkout(root)) if base is not None]
-    return next((path for path in candidates if (path / "src/python/vocaro_engineering").is_dir()), candidates[-1])
+    location = config.get("toolkit", {}).get("path", DEFAULT)
+    bases = [base for base in (Path(root), main_checkout(root)) if base is not None]
+    candidates = [(base / path).resolve() for path in ([location, FORMER] if location == DEFAULT else [location])
+                  for base in bases]
+    # A missing toolkit is reported where the configured path expects it beside the main checkout.
+    return next((path for path in candidates if (path / "src/python/vocaro_engineering").is_dir()),
+                (bases[-1] / location).resolve())
 
 
 def toolkit_root(root):
     result = toolkit_location(root)
     if not (result / "src/python/vocaro_engineering").is_dir():
-        raise RuntimeError(f"Shared engineering checkout missing: {result}; provision vocaro/apple-engineering or set VOCARO_ENGINEERING_ROOT")
+        raise RuntimeError(f"Shared engineering checkout missing: {result}; provision vocaro/vocaro-engineering or set VOCARO_ENGINEERING_ROOT")
     sys.path.insert(0, str(result / "src/python"))
     return result
 

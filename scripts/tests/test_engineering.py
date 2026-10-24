@@ -60,10 +60,10 @@ class ToolkitLocationTests(unittest.TestCase):
         self.assertEqual(adapter.stdout.strip(), str(toolkit))
 
     def test_main_checkout_finds_the_toolkit_beside_it(self):
-        self.assert_finds(self.main, self.toolkit(self.base / "apple-engineering"))
+        self.assert_finds(self.main, self.toolkit(self.base / "vocaro-engineering"))
 
     def test_worktree_finds_the_toolkit_beside_the_main_checkout(self):
-        toolkit = self.toolkit(self.base / "apple-engineering")
+        toolkit = self.toolkit(self.base / "vocaro-engineering")
         # Git 2.48 and later can record a worktree's paths relative to each other.
         relative = self.main / ".claude/worktrees/relative"
         self.git(self.main, "-c", "worktree.useRelativePaths=true", "worktree", "add", "-q", "--detach", str(relative))
@@ -74,20 +74,20 @@ class ToolkitLocationTests(unittest.TestCase):
                 self.assert_finds(checkout, toolkit)
 
     def test_toolkit_beside_the_worktree_comes_first(self):
-        self.toolkit(self.base / "apple-engineering")
+        self.toolkit(self.base / "vocaro-engineering")
         elsewhere = self.base / "elsewhere/EPUBLib"
         self.git(self.main, "worktree", "add", "-q", "--detach", str(elsewhere))
-        self.assert_finds(elsewhere, self.toolkit(self.base / "elsewhere/apple-engineering"))
+        self.assert_finds(elsewhere, self.toolkit(self.base / "elsewhere/vocaro-engineering"))
 
     def test_variable_names_another_toolkit(self):
-        self.toolkit(self.base / "apple-engineering")
+        self.toolkit(self.base / "vocaro-engineering")
         other = self.toolkit(self.base / "other")
         for checkout in (self.main, self.worktree):
             with self.subTest(checkout=checkout.name):
                 self.assert_finds(checkout, other, VOCARO_ENGINEERING_ROOT=str(other))
 
     def test_missing_toolkit_is_named_beside_the_main_checkout(self):
-        expected = self.base / "apple-engineering"
+        expected = self.base / "vocaro-engineering"
         engineering = self.run_script(self.worktree, "eng", "instructions")
         self.assertEqual(engineering.returncode, 2)
         self.assertIn(f"Shared toolkit missing at {expected}.", engineering.stderr)

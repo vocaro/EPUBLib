@@ -17,5 +17,5 @@ contracts: a viewer change keeps both and must keep resolving the CFIs recorded 
 A release is tagged only on a commit whose gate passed. Its
 [GitHub release notes](https://github.com/vocaro/EPUBLib/releases) say what changed, its
 requirements and its compatibility, not how it was verified; published notes are not rewritten.
-The shared [releasing guide](https://github.com/vocaro/apple-engineering/blob/main/guides/releasing.md)
+The shared [releasing guide](https://github.com/vocaro/vocaro-engineering/blob/main/guides/releasing.md)
 has the steps.

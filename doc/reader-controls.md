@@ -90,11 +90,11 @@ strip with nothing in it that fills the width, such as one without `.search`, st
 its groups. On a Mac the strip is as tall as its groups whatever it is offered: no keyboard
 takes its room and text is one size there, and a scroll view would put one more container round
 the strip's controls in the Mac's accessibility tree
-([SwiftUI controls in each platform's tree](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/accessibility.md#swiftui-controls-take-different-shapes-in-each-platforms-tree)).
+([SwiftUI controls in each platform's tree](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/accessibility.md#swiftui-controls-take-different-shapes-in-each-platforms-tree)).
 
 The strip sets a layout priority of 1 on itself, so that a stack offers it the height it needs
 before the reader beside it
-([layout priority](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/accessibility.md#a-layout-priority-is-seen-only-from-the-outermost-modifier)).
+([layout priority](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/accessibility.md#a-layout-priority-is-seen-only-from-the-outermost-modifier)).
 A host that applies padding or a frame to the strip sets the priority again after it, as the
 sample does:
 
@@ -493,7 +493,7 @@ For custom controls, `controls.searchResultSummary` is the indicator's text and
 `searchResultAccessibilityValue` its spoken form (“Match 27 of 27, last match, Second
 Chapter”), which the supplied match buttons also carry as their value. `searchResultAnnouncement`
 is what is announced
-([VoiceOver does not reread a changed value](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-keeps-an-items-traits-and-actions-as-it-found-them)):
+([VoiceOver does not reread a changed value](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-keeps-an-items-traits-and-actions-as-it-found-them)):
 the same words, then the text from
 the occurrence onward (“Match 27 of 27, last match, Second Chapter: needle at the end.”).
 `searchResultButtonLabel(forward:)` and `searchResultButtonHelp(forward:)` give the buttons'
@@ -557,7 +557,7 @@ groups are hidden. Queued work rechecks lifecycle before submission; cancellatio
 queue, and a new book/model cannot receive old work. Already submitted commands cannot be undone.
 For strict ordering of host actions with toolbar actions, send both through the same controls model;
 direct `session.send` calls may interleave at suspension points
-([submission is not completion](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/command-lifecycles.md#command-submission-is-not-completion)).
+([submission is not completion](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/command-lifecycles.md#command-submission-is-not-completion)).
 
 The native session maintains `readerState` for direct commands, input navigation, remounts and
 close. Third-party sessions remain source-compatible via a default nil state; built-in controls
@@ -565,7 +565,7 @@ are unavailable until they opt in. An engine can retain `EPUBReaderState`, expos
 and update an `EPUBReaderStatus` using `state.update(_:)`. Publish lifecycle, capabilities, actual
 style, resolved effective appearance and colours, location, optional turn boundaries, search feedback and the number of active commands.
 Update state before the corresponding event
-([publish state first](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/command-lifecycles.md#publish-state-before-the-event-that-reports-it)).
+([publish state first](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/command-lifecycles.md#publish-state-before-the-event-that-reports-it)).
 Existing event callbacks remain host-owned.
 
 All controls use native SwiftUI buttons, text fields and menus, semantic labels and standard
@@ -654,4 +654,4 @@ Two things the tree shows that the source does not intend: the contents entries'
 section" value is not exposed on iOS (the system menu shows a checkmark, which VoiceOver calls
 "selected"), and every result row holds a hidden checkmark image named "Selected", which
 VoiceOver did not stop on
-([SwiftUI controls in each platform's tree](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/accessibility.md#swiftui-controls-take-different-shapes-in-each-platforms-tree)).
+([SwiftUI controls in each platform's tree](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/accessibility.md#swiftui-controls-take-different-shapes-in-each-platforms-tree)).

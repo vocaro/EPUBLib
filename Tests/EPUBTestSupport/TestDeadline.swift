@@ -6,7 +6,7 @@ import Darwin
 /// the limit. A wall-clock backstop, four times the limit and at least `slack` seconds more than
 /// it, ends a wait whatever the host does. A wait the backstop ends while still inside its own limit,
 /// or one that reaches its limit while macOS reports memory pressure, is unmeasured, not exceeded
-/// ([CPU, scheduling and core-wait time](https://github.com/vocaro/apple-engineering/blob/main/guides/measurement.md#cpu-scheduling-and-core-wait-time)).
+/// ([CPU, scheduling and core-wait time](https://github.com/vocaro/vocaro-engineering/blob/main/guides/measurement.md#cpu-scheduling-and-core-wait-time)).
 /// The clocks are the whole process's, so a wait is also lenient toward other threads' waits.
 public struct TestDeadline: Sendable {
     public enum State: Equatable, Sendable {

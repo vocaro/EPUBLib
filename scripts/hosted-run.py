@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Project adapter for the maintained shared engineering implementation.
 
-Guide: https://github.com/vocaro/apple-engineering/blob/main/guides/hosted-runner.md#dispatching-a-run
+Guide: https://github.com/vocaro/vocaro-engineering/blob/main/guides/hosted-runner.md#dispatching-a-run
 """
 from pathlib import Path
 import sys
