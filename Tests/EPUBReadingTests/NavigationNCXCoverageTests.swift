@@ -353,6 +353,24 @@ final class NavigationNCXCoverageTests: XCTestCase {
         }
     }
 
+    func testAZeroWidthNoBreakSpaceIsInNoNCXLabelOrGuideTitleWhereverTheParserSplitsTheText() throws {
+        // As in the navigation document (#283): a U+FEFF is left out of a `navLabel`, written
+        // anywhere the parser begins a piece of the text or inside one, and out of a guide
+        // reference's `title`, at its start or after it.
+        for (written, read) in Fixture.zeroWidthNoBreakSpaces {
+            let book = try book(ncx: ncx("<navMap>\(point("a", written, "one.xhtml"))</navMap>"
+                + "<pageList><pageTarget><navLabel><text>\(written)</text></navLabel><content src=\"one.xhtml#p1\"/></pageTarget></pageList>"))
+            let labels = book.tableOfContents.map(\.title) + (book.pageList ?? []).map(\.label)
+            let name = written.unicodeScalars.count > 20 ? "\(written.unicodeScalars.count) scalars" : written.debugDescription
+            XCTAssertEqual(labels.map { Array($0.unicodeScalars) }, [Array(read.unicodeScalars), Array(read.unicodeScalars)], name)
+        }
+        let titles = Fixture.zeroWidthNoBreakSpacesInAttributes + [(written: "&#xFEFF;", read: ""), (written: "\u{A0}\u{FEFF}", read: "")]
+        let guide = "<guide>" + titles.map { "<reference type=\"text\" title=\"\($0.written)\" href=\"one.xhtml\"/>" }.joined() + "</guide>"
+        let book = try EPUBPublication.open(data: Fixture.packageVariant(
+            epub2: true, opf: { $0.replacingOccurrences(of: "</package>", with: guide + "</package>") }))
+        XCTAssertEqual(book.landmarks.map { Array($0.title.unicodeScalars) }, titles.map { Array($0.read.unicodeScalars) })
+    }
+
     func testAnNCXLabelOfNothingButWhiteSpaceOfAnyKindIsEmptyAndItsEntryKept() throws {
         // As in the navigation document (https://github.com/vocaro/EPUBLib/issues/75): a
         // `navLabel` of nothing but white space, a lone no-break space included, is a point or a

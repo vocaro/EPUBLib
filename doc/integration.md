@@ -367,6 +367,27 @@ highlight, a location that carries any of them, as far as its CFI resolves in th
 and gives a `.notice` where it does not. The complete reader screen's `BookReader`
 [above](#a-complete-reader) does this.
 
+To save the place as the person reads, rather than when they ask, read why each `.relocated` was
+sent: `relocationReason` in the session's `readerState?.status`, which the reader sets before it
+sends the event, as it sets `layoutPage`
+([#600](https://github.com/vocaro/EPUBLib/issues/600)). Save after the person's own moves:
+
+- `.turn`: a page turned, or a screen stepped in continuous scroll, by `.nextPage` and
+  `.previousPage` or the reader's own keys, taps, swipes, wheel and VoiceOver;
+- `.scroll`: the person's scrolling in continuous scroll;
+- `.navigation`: a place gone to, by `.navigate` as from a contents entry, a link, a search result,
+  `.locate`, `.goToProgression`, Home and End, or VoiceOver's move to a heading or a link.
+
+Do not save after `.opening`, the place the book opens at, `.restore`, the place you restored, or
+`.relayout`, the same place laid out again for a new size, text size, style, appearance, flow or
+fold: its range is new and the place is not, and saving it would put back an older place over a
+newer one that another reader of the same book has saved. A `.restore` sent at `.ready` can be
+reported after the opening or in its place, and after `send` has returned, as can a place shown in
+a window not yet laid out; the reason is the restore's whenever it comes, and what is shown of it
+afterwards is a relayout, so a host needs neither a timer nor a comparison of locations. A
+relayout that shows a move not yet reported, as a bar hidden while the person scrolls, gives the
+move's reason. An engine that does not report reasons leaves `relocationReason` nil.
+
 To tell versions of a book apart, compare `publication.releaseIdentifier`: the unique identifier,
 `@` and the package's `dcterms:modified`, as EPUB 3.0.1 defined a release identifier. Two books
 can give one unique identifier, which EPUB Reading Systems 3.3 §5.2 has a reading system not
@@ -566,7 +587,11 @@ struct PageTurnAnimationExample: View {
 
 - Every page turn has the animation chosen: an edge tap or click, a swipe, a key, the wheel or
   trackpad, VoiceOver's own page turns and the host's `.nextPage` and `.previousPage`.
-  Continuous scroll scrolls as before.
+- In continuous scroll either animation scrolls the text of a turn, a key's or `.nextPage` and
+  `.previousPage`, in 0.3 s in place of a jump. The relocation and `readerState` describe where
+  the turn lands as soon as it is made, while the text is still moving there. It steps at once
+  under Reduce Motion, while VoiceOver is running and for an assistive technology's own scroll
+  ([native viewer](native-viewer.md#input-and-accessibility)).
 - A swipe on iPhone and iPad follows the finger, and turns the page only when let go past half
   the width or flicked on; otherwise the page goes back and nothing is reported. On Mac a
   trackpad's swipe across the page does the same where the person has System Settings let a

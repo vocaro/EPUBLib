@@ -24,17 +24,17 @@ to the folders and pins ([license texts](testing.md#license-texts)).
   (Apache-2.0). Its notices require an app containing it to include readable copies of all
   of its licenses and notices, which SwiftPM does not bundle. They are in `MathMLLayout/`, from
   tag `0.3.1`: its `LICENSE`, as `LICENSE.txt`, and the four files of its `doc/licenses`.
-- **StaticSVG 0.1.1** — MIT — Copyright (c) 2026 Vocaro Technologies LLC.
+- **StaticSVG 0.1.3** — MIT — Copyright (c) 2026 Vocaro Technologies LLC.
   https://github.com/vocaro/StaticSVG. EPUBViewing draws SVG with it. Its release includes a
   static library built from **resvg 0.48.1** (MIT/Apache-2.0, https://github.com/linebender/resvg),
   the 60 other Rust crates it depends on and parts of the Rust 1.95.0 standard library, all under
   permissive licenses. An app linking EPUBViewing contains this static code, and StaticSVG's
   notices require it to include StaticSVG's license, those notices and the crates' texts.
-  They are in `StaticSVG/`, from tag `0.1.1`, with the locked dependency inventory: its
+  They are in `StaticSVG/`, from tag `0.1.3`, with the locked dependency inventory: its
   `LICENSE`, as `LICENSE.txt`, its `THIRD_PARTY_NOTICES.md`, its `Resvg/dependencies.json` and
   its `Resvg/Licenses/`, which holds every crate's and the Rust standard library's notices.
   How the library is built, patched and verified is in StaticSVG's
-  [renderer notes](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/renderer.md).
+  [renderer notes](https://github.com/vocaro/StaticSVG/blob/0.1.3/doc/renderer.md).
 
 The native viewer and its regression tests originate in StudyWright and EPUBLib,
 Copyright (c) 2026 Vocaro Technologies LLC, and are distributed here under this repository's MIT

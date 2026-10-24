@@ -79,12 +79,14 @@ public enum EPUBPackageWriter {
         // An empty value in a list is left out, as the reader leaves it out of what it reads.
         let given = facts.metadata.languages.filter { !isEmpty($0) }
         let languages = given.isEmpty ? ["und"] : given
-        let language = xml(languages[0])
+        let language = xml(languages[0], attribute: true)
         func href(_ value: String) throws -> String {
             let resolved = try ResourceReference.resolve(value, relativeTo: "root.opf", strict: true)
             let path = String(resolved.split(separator: "#", maxSplits: 1)[0]).removingPercentEncoding ?? ""
+            // Checked by the path it resolves to, not by its spelling: `x/../EPUB/a.xhtml`,
+            // `%45PUB/a.xhtml` and `EPUB/a.xhtml` name one resource, and are written as one link.
             // A `Set` finds a path by canonical equivalence; the member it finds is the path declared.
-            guard inPackage(value), inPackage(path), let declared = paths.firstIndex(of: path).map({ paths[$0] }),
+            guard inPackage(path), let declared = paths.firstIndex(of: path).map({ paths[$0] }),
                   inPackage(declared) else {
                 throw EPUBWritingError.invalidPublication("navigation references an undeclared resource: \(value)")
             }
@@ -109,7 +111,7 @@ public enum EPUBPackageWriter {
                 }
                 let nested = entry.children.isEmpty ? "" : "<ol>\(try items(entry.children))</ol>"
                 if let target = entry.href {
-                    return "<li><a href=\"\(xml(try href(target)))\">\(xml(entry.title))</a>\(nested)</li>"
+                    return "<li><a href=\"\(xml(try href(target), attribute: true))\">\(xml(entry.title))</a>\(nested)</li>"
                 }
                 return "<li><span>\(xml(entry.title))</span>\(nested)</li>"
             }.joined()
@@ -124,7 +126,7 @@ public enum EPUBPackageWriter {
         <nav epub:type="toc" id="toc"><h1>Contents</h1><ol>\(try items(contents))</ol></nav>
         \(pageList)
         """
-        let style = try stylesheet.map { "<link rel=\"stylesheet\" type=\"text/css\" href=\"\(xml(try href($0)))\"/>" } ?? ""
+        let style = try stylesheet.map { "<link rel=\"stylesheet\" type=\"text/css\" href=\"\(xml(try href($0), attribute: true))\"/>" } ?? ""
         let navigation = """
         <?xml version="1.0" encoding="UTF-8"?>
         <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="\(language)" lang="\(language)">
@@ -150,12 +152,13 @@ public enum EPUBPackageWriter {
             "<meta property=\"dcterms:created\">\(ISO8601DateFormatter().string(from: $0))</meta>"
         } ?? ""
         let manifest = resources.map { resource in
-            "<item id=\"\(xml(resource.id))\" href=\"\(xml(String(resource.href.dropFirst(5))))\" media-type=\"\(xml(resource.mediaType))\""
-                + (resource.fallbackID.map { " fallback=\"\(xml($0))\"" } ?? "")
-                + (resource.properties.isEmpty ? "/>" : " properties=\"\(xml(resource.properties.sorted().joined(separator: " ")))\"/>")
+            "<item id=\"\(xml(resource.id, attribute: true))\" href=\"\(xml(String(resource.href.dropFirst(5)), attribute: true))\""
+                + " media-type=\"\(xml(resource.mediaType, attribute: true))\""
+                + (resource.fallbackID.map { " fallback=\"\(xml($0, attribute: true))\"" } ?? "")
+                + (resource.properties.isEmpty ? "/>" : " properties=\"\(xml(resource.properties.sorted().joined(separator: " "), attribute: true))\"/>")
         }.joined()
         let spineMarkup = spine.map {
-            "<itemref idref=\"\(xml($0.resource.id))\"" + ($0.isLinear ? "" : " linear=\"no\"")
+            "<itemref idref=\"\(xml($0.resource.id, attribute: true))\"" + ($0.isLinear ? "" : " linear=\"no\"")
                 + ($0.layout == .reflowable ? "" : " properties=\"rendition:layout-pre-paginated\"") + "/>"
         }.joined()
         let direction = facts.rightToLeft ? " page-progression-direction=\"rtl\"" : ""
@@ -180,7 +183,15 @@ public enum EPUBPackageWriter {
     /// beside ASCII whitespace, but `EPUBReading` reads a value of nothing but Foundation's
     /// `whitespacesAndNewlines`, a lone no-break space among them, as empty.
     private static func isEmpty(_ value: String) -> Bool {
-        xml(value).unicodeScalars.allSatisfy(CharacterSet.whitespacesAndNewlines.contains)
+        value.unicodeScalars.allSatisfy { !isCharacter($0) || CharacterSet.whitespacesAndNewlines.contains($0) }
+    }
+
+    /// Whether XML 1.0 can hold `scalar`, as itself or as a reference: its `Char` production (§2.2).
+    private static func isCharacter(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x09, 0x0A, 0x0D, 0x20...0xD7FF, 0xE000...0xFFFD, 0x10000...: true
+        default: false
+        }
     }
 
     /// Whether `id` is an XML name without a colon, as an `id` or `idref` value must be, by the
@@ -195,20 +206,30 @@ public enum EPUBPackageWriter {
         !id.utf8.contains(0) && LibXML2Messages.silenced { xmlValidateNCName(id, 0) == 0 }
     }
 
-    /// `string` as text or an attribute value, escaped scalar by scalar. As a `Character`, and to
-    /// Foundation's string search, a "<", "&" or quote with a combining mark after it is another
-    /// character, and would be written as it stands. What XML 1.0 cannot hold is left out.
-    private static func xml(_ string: String) -> String {
+    /// `string` as text, or with `attribute` as an attribute value, escaped scalar by scalar. As a
+    /// `Character`, and to Foundation's string search, a "<", "&" or quote with a combining mark
+    /// after it is another character, and would be written as it stands. What XML 1.0 cannot hold
+    /// is left out.
+    ///
+    /// A parser reads a carriage return written as it stands as a line feed (XML 1.0 §2.11), and a
+    /// tab or line end in an attribute value as a space (§3.3.3), but a reference to one as that
+    /// character. Each is written as Canonical XML writes it (§2.3), so that it reads back as
+    /// given: a carriage return as `&#13;` in text, and a tab, line feed and carriage return as
+    /// `&#9;`, `&#10;` and `&#13;` in an attribute value. A tab and a line feed in text, which a
+    /// parser keeps, are written as they are.
+    private static func xml(_ string: String, attribute: Bool = false) -> String {
         var escaped = String.UnicodeScalarView()
-        for scalar in string.unicodeScalars {
+        for scalar in string.unicodeScalars where isCharacter(scalar) {
             switch scalar.value {
             case 0x26: escaped.append(contentsOf: "&amp;".unicodeScalars)
             case 0x3C: escaped.append(contentsOf: "&lt;".unicodeScalars)
             case 0x3E: escaped.append(contentsOf: "&gt;".unicodeScalars)
             case 0x22: escaped.append(contentsOf: "&quot;".unicodeScalars)
             case 0x27: escaped.append(contentsOf: "&apos;".unicodeScalars)
-            case 0x09, 0x0A, 0x0D, 0x20...0xD7FF, 0xE000...0xFFFD, 0x10000...: escaped.append(scalar)
-            default: break
+            case 0x09 where attribute: escaped.append(contentsOf: "&#9;".unicodeScalars)
+            case 0x0A where attribute: escaped.append(contentsOf: "&#10;".unicodeScalars)
+            case 0x0D: escaped.append(contentsOf: "&#13;".unicodeScalars)
+            default: escaped.append(scalar)
             }
         }
         return String(escaped)

@@ -19,6 +19,10 @@ EPUBCheck refuses.
 A navigation or stylesheet href is written as the declared path it resolves to, relative to the
 navigation document and percent-encoded as that path's manifest href is, not as it was spelled:
 `EPUB//one.xhtml`, `EPUB/./one.xhtml` and `EPUB/c:x/../one.xhtml` are each written `one.xhtml`.
+A target is checked by that path alone, not by its spelling: `x/../EPUB/one.xhtml`,
+`%45PUB/one.xhtml` and `EPUB/../EPUB/one.xhtml` are accepted and written `one.xhtml` too, and one
+that resolves outside `EPUB/`, as `EPUB/../mimetype` does, is refused however it is spelled
+([#606](https://github.com/vocaro/EPUBLib/issues/606)).
 A `..` after a doubled slash removes the empty segment, as URL parsing and the reader read it, so
 `EPUB/a//../one.xhtml` is written `a/one.xhtml` ([#605](https://github.com/vocaro/EPUBLib/issues/605)).
 A target is matched to a declared path by canonical equivalence, so one spelled with a decomposed
@@ -34,7 +38,13 @@ declared ID only by canonical equivalence is undeclared ([#635](https://github.c
 The producer supplies content XHTML, CSS and media. It owns chapter division, content styles,
 source-page decisions and document reconstruction. Metadata and navigation are XML escaped
 once by the writer, scalar by scalar: `&`, `<`, `>` and both quotes are escaped whatever stands
-beside them, a combining mark included, and no value is normalized. A character XML 1.0 cannot
+beside them, a combining mark included, and no value is normalized. A tab, line feed and
+carriage return are written as Canonical XML writes them, so that an XML parser reads each back
+as given, where it reads one written as it stands in an attribute value as a space and a carriage
+return in text as a line feed: a carriage return in text is written `&#13;`, and a tab, line
+feed and carriage return in an attribute value (a media type, a manifest property, the navigation
+document's language) `&#9;`, `&#10;` and `&#13;`. A tab and a line feed in text are written as
+they are ([#254](https://github.com/vocaro/EPUBLib/issues/254)). A character XML 1.0 cannot
 hold (a C0 control character other than tab, line feed and carriage return, U+FFFE or U+FFFF) is
 left out. A reader does normalize what it reads: `EPUBReading`, as EPUB Reading Systems 3.3 §5.3
 requires, reads a metadata value or a label with each run of ASCII whitespace as one space and

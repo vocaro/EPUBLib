@@ -51,6 +51,9 @@ if name == "xcrun":
         record(action, device)
         if action == "boot" and os.environ.get("TEST_IOS_FAIL_BOOT") == device:
             sys.exit(1)
+        if action == "bootstatus" and os.environ.get("TEST_IOS_FAIL_BOOTSTATUS") == device:
+            print("Unable to boot device", flush=True)
+            sys.exit(149)
         if action == "bootstatus" and os.environ.get("TEST_IOS_HANG_BOOT") == device:
             print("Waiting on Data Migration: fake.addressbook.migrator", flush=True)
             time.sleep(30)
@@ -65,6 +68,8 @@ elif name == "xcodebuild":
     if os.environ.get("TEST_IOS_FAIL_TEST") == device:
         print("fake test failure", flush=True)
         sys.exit(65)
+    if os.environ.get("TEST_IOS_UNMEASURED") == device:
+        print("/tmp/Tests/X.swift:9: -[EPUBViewingTests.XTests testY] : Test skipped - Unmeasured: the 80 s backstop passed", flush=True)
     if os.environ.get("TEST_IOS_NO_TESTS") == device:
         print("Test Suite 'All tests' passed at 2026-10-23 00:00:00.000.\n"
               "\t Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds", flush=True)
@@ -132,7 +137,37 @@ class IOSGateTests(unittest.TestCase):
         for _, _, args in tests:
             self.assertEqual(args[args.index("-destination-timeout") + 1], "600")
             self.assertEqual(args[args.index("-collect-test-diagnostics") + 1], "never")
+            self.assertEqual(args[args.index("-jobs") + 1], "4", "the build's workers are bounded")
             self.assertEqual(args[-1], "test")
+        self.assertNotIn("Unmeasured", result.stdout)
+        self.assert_cleanup(KINDS)
+
+    def test_build_workers_follow_the_environment_and_must_be_a_positive_number(self):
+        result = self.run_gate(EPUB_BUILD_JOBS="2")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        for event in self.events():
+            if event[0] == "test":
+                self.assertEqual(event[2][event[2].index("-jobs") + 1], "2")
+        for value in ["0", "-1", "four"]:
+            result = subprocess.run(["bash", "scripts/test-ios.sh"], cwd=self.root, capture_output=True, text=True,
+                                    env=dict(self.env, EPUB_BUILD_JOBS=value), timeout=15)
+            self.assertEqual(result.returncode, 2, value)
+            self.assertIn("EPUB_BUILD_JOBS must be a positive number", result.stderr)
+
+    def test_a_test_the_host_decided_leaves_the_run_unmeasured_not_passed(self):
+        result = self.run_gate(TEST_IOS_UNMEASURED="mock-" + KINDS[0])
+        self.assertEqual(result.returncode, 3, result.stdout)
+        self.assertEqual(result.stdout.count("Passed:"), 2, "both devices still run")
+        self.assertIn(f"Unmeasured: {KINDS[0]} (com.apple.CoreSimulator.SimRuntime.iOS-27-0): 1 tests a busy host decided", result.stdout)
+        self.assertIn("Test skipped - Unmeasured: the 80 s backstop passed", result.stdout)
+        self.assertIn("left 1 tests or devices unmeasured", result.stdout)
+        self.assert_cleanup(KINDS)
+
+    def test_a_failure_outranks_an_unmeasured_test(self):
+        result = self.run_gate(TEST_IOS_UNMEASURED="mock-" + KINDS[0], TEST_IOS_FAIL_TEST="mock-" + KINDS[1])
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("Unmeasured: " + KINDS[0], result.stdout)
+        self.assertIn("Failed: " + KINDS[1], result.stdout)
         self.assert_cleanup(KINDS)
 
     def test_each_device_reports_its_tests_over_every_bundle_and_framework(self):
@@ -187,10 +222,19 @@ class IOSGateTests(unittest.TestCase):
         self.assertIn("Passed: " + KINDS[1], result.stdout)
         self.assert_cleanup(KINDS)
 
-    def test_stalled_boot_is_bounded_and_preserves_its_last_stage(self):
-        result = self.run_gate(TEST_IOS_HANG_BOOT="mock-" + KINDS[0])
+    def test_a_bootstatus_that_fails_before_its_limit_is_a_failure(self):
+        result = self.run_gate(TEST_IOS_FAIL_BOOTSTATUS="mock-" + KINDS[0])
         self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertIn("bootstatus failed or exceeded 1s", result.stdout)
+        self.assertIn(f"Failed: {KINDS[0]} (com.apple.CoreSimulator.SimRuntime.iOS-27-0): bootstatus failed", result.stdout)
+        self.assertIn("Unable to boot device", result.stdout)
+        self.assertIn("Passed: " + KINDS[1], result.stdout)
+        self.assert_cleanup(KINDS)
+
+    def test_stalled_boot_is_bounded_unmeasured_and_preserves_its_last_stage(self):
+        result = self.run_gate(TEST_IOS_HANG_BOOT="mock-" + KINDS[0])
+        self.assertEqual(result.returncode, 3, result.stdout)
+        self.assertIn(f"Unmeasured: {KINDS[0]} (com.apple.CoreSimulator.SimRuntime.iOS-27-0): the boot exceeded 1s", result.stdout)
+        self.assertNotIn("Failed:", result.stdout)
         self.assertIn("fake.addressbook.migrator", result.stdout)
         self.assertIn("Passed: " + KINDS[1], result.stdout)
         log = self.root / ".build/validation" / (KINDS[0] + "-boot.log")

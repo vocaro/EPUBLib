@@ -22,9 +22,9 @@ import UIKit
     """
 
     private func wait(_ label: String, until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(20)
+        let deadline = TestDeadline(seconds: 20)
         while !condition() {
-            guard Date() < deadline else { return XCTFail("Timed out waiting for \(label)") }
+            guard try !deadline.hasPassed() else { return XCTFail("Timed out waiting for \(label)") }
             try await Task.sleep(for: .milliseconds(20))
         }
     }

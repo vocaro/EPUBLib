@@ -108,7 +108,7 @@ import UIKit
             host.canvas.layoutIfNeeded()
         }
         keyboard(up: true)
-        try await Task.sleep(for: .milliseconds(500))
+        try await TestDeadline.pause(.milliseconds(500))
         host.layOut()
         XCTAssertEqual(host.canvas.spread, spread, "made shorter before it was told of the keyboard")
         UIView.animate(withDuration: 0.2) {
@@ -116,13 +116,13 @@ import UIKit
             host.canvas.layoutIfNeeded()
         }
         keyboard(up: false)
-        try await Task.sleep(for: .milliseconds(500))
+        try await TestDeadline.pause(.milliseconds(500))
         host.layOut()
         XCTAssertEqual(host.canvas.spread, spread, "given its height back before it was told the keyboard went")
         // With no keyboard the shorter reader is laid out again: a page wider than tall.
         host.canvas.frame = short
         host.layOut()
-        try await Task.sleep(for: .milliseconds(500))
+        try await TestDeadline.pause(.milliseconds(500))
         host.layOut()
         XCTAssertEqual(host.canvas.spread?.columns.count, 2, "made shorter with no keyboard")
     }
@@ -947,8 +947,8 @@ import UIKit
         host.resize(to: CGSize(width: 1100, height: 800))
         XCTAssertEqual(host.canvas.spread, spread, "the old spread stays while the new size paginates")
         XCTAssertNotNil(host.canvas.pendingSpread)
-        let deadline = Date().addingTimeInterval(20)
-        while host.canvas.pendingSpread != nil, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        let deadline = TestDeadline(seconds: 20)
+        while host.canvas.pendingSpread != nil, try !deadline.hasPassed() { try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertNil(host.canvas.pendingSpread)
         XCTAssertEqual(host.canvas.spread?.columns.count, 2)
         let range = try XCTUnwrap(host.canvas.visibleRange)

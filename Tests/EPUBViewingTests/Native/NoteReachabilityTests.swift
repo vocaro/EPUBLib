@@ -1,6 +1,7 @@
 import CoreText
 import EPUBCore
 import EPUBReading
+import EPUBTestSupport
 import Foundation
 import XCTest
 @testable import EPUBViewing
@@ -140,10 +141,15 @@ final class NoteReachabilityTests: XCTestCase {
             // attached the controller, and dismissing at that instant can lose the completion
             // callback. Wait for actual transition state, with a bound on both phases.
             @MainActor func waitForTransition(_ phase: String, until settled: @MainActor () -> Bool) async -> Bool {
-                let deadline = Date().addingTimeInterval(5)
+                let deadline = TestDeadline(seconds: 5)
                 while !settled() {
-                    guard Date() < deadline else {
+                    switch deadline.state {
+                    case .running: break
+                    case .exceeded:
                         XCTFail("Note cleanup timed out during \(phase): \(state())")
+                        return false
+                    case .unmeasured(let reason):
+                        print("NoteLinkSessionTests UIKit cleanup unmeasured during \(phase): \(reason)")
                         return false
                     }
                     try? await Task.sleep(for: .milliseconds(20))
@@ -165,9 +171,9 @@ final class NoteReachabilityTests: XCTestCase {
         #endif
     }
 
-    private func waitFor(_ expectations: [XCTestExpectation], file: StaticString = #filePath, line: UInt = #line) async {
-        let result = await XCTWaiter.fulfillment(of: expectations, timeout: 20)
-        XCTAssertEqual(result, .completed, file: file, line: line)
+    private func waitFor(_ expectations: [XCTestExpectation], file: StaticString = #filePath, line: UInt = #line) async throws {
+        let fulfilled = try await TestDeadline.fulfillment(of: expectations, within: 20)
+        XCTAssertTrue(fulfilled, "not fulfilled within 20 s: \(expectations)", file: file, line: line)
     }
 
     func testDelayedPlainNoteActivationCannotReplaceANewerLink() async throws {
@@ -210,12 +216,12 @@ final class NoteReachabilityTests: XCTestCase {
         }
         let window = NoteSessionHost(session: session)
         defer { closeNote(session.canvas); session.close(); window.close() }
-        await waitFor([opened])
+        try await waitFor([opened])
         let canvas = try XCTUnwrap(session.canvas)
         // A real content anchor, below the iPhone status bar and inside the canvas's safe area.
         let rect = CGRect(x: 100, y: 100, width: 20, height: 20)
         let old = try XCTUnwrap(session.activateLink(.internal(href: "OPS/slow.xhtml#" + slowFragment), from: rect))
-        await waitFor([started])
+        try await waitFor([started])
         switch newer {
         case .link:
             let current = try XCTUnwrap(session.activateLink(.internal(href: "OPS/fast.xhtml#target"), from: rect))
@@ -227,7 +233,7 @@ final class NoteReachabilityTests: XCTestCase {
         case .command:
             try await session.send(.navigate(href: "OPS/fast.xhtml#target"))
         }
-        if let navigated { await waitFor([navigated]) }
+        if let navigated { try await waitFor([navigated]) }
         let place = session.visibleRange
         let note = shownNoteText(canvas)
         let eventCount = events.count
@@ -282,7 +288,7 @@ final class NoteReachabilityTests: XCTestCase {
         try await reader.wait("external refusal") { !reader.notices(since: count).isEmpty }
         XCTAssertEqual(reader.notices(since: count), ["This reader does not open links outside the book."])
         try activate("missing document")
-        try await Task.sleep(for: .milliseconds(150))
+        try await TestDeadline.pause(.milliseconds(150))
         XCTAssertEqual(reader.session.visibleRange, place)
 
         try activate("ordinary target")

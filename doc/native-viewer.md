@@ -38,8 +38,15 @@ continues to describe the authored spine resource.
    Unqualified HTML repairs remain readable but cannot issue or resolve CFIs: the reader
    discloses that saved positions and highlights are unavailable for those sections.
    For that parser a `<` that opens no markup (`x < y`, `p <.05`) is kept as text, as HTML
-   reads it; libxml2 alone discards what follows it
+   reads it; libxml2 alone discards what follows it through the next `>`, and makes an element
+   of `<.05`
    ([libxml2's HTML parser](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#libxml2s-html-parser-is-not-the-html-standard)).
+   Each such sign is given to the parser as a noncharacter it cannot read in the file: not
+   as itself, nor as a reference once its NULs are left out, nor as one libxml2 2.9.13
+   assembles in text from bytes that are not UTF-8, which it copies as they are and joins
+   across what it drops. Where those placeholders, two bytes longer than a sign, would take the
+   section past the byte limit, the signs are given as they are and read as before
+   ([#211](https://github.com/vocaro/EPUBLib/issues/211)).
    That parser is given UTF-8, so an unclosed tag does not change a section's characters:
    UTF-16 and UTF-32 are decoded first, told by the byte-order mark or NUL pattern the screen
    tells them by, and any other encoding by the name in the XML declaration as the XML parser
@@ -48,11 +55,21 @@ continues to describe the authored spine resource.
    cannot decode is read as UTF-8, with U+FFFD for what is not. Bytes that only a NUL tells
    as UTF-16 or UTF-32, and that hold no markup once decoded, are not a document and are
    withheld. What was decoded by a declared encoding is screened again, and what the parser
-   is given is held to the byte limit.
+   is given is held to the byte limit. So are bytes read as they are under an XML
+   declaration, which the screen may have read through the encoding it names: one written in
+   EBCDIC is read as IBM037 by the screen and the XML parser, and UTF-16 named in an ASCII
+   declaration as UTF-16 by the screen, and both as UTF-8 here, so an internal subset written in
+   ASCII after either is refused ([#743](https://github.com/vocaro/EPUBLib/issues/743)).
+   Text extraction's recovery decodes with the same code, `HTMLSourceEncoding` in EPUBCore, but
+   refuses what is not UTF-8 where this shows U+FFFD
+   ([#247](https://github.com/vocaro/EPUBLib/issues/247)).
    HTML recovery escapes content CDATA as literal text and moves the parser's actual trailing
    nodes into its body before bounded tree conversion. This keeps text after `</html>` and CDATA characters in recovered
    sections without making those sections eligible for CFIs
-   ([#237](https://github.com/vocaro/EPUBLib/issues/237)).
+   ([#237](https://github.com/vocaro/EPUBLib/issues/237)). Where the bytes on either side of a
+   section's delimiters would join into what the screen did not read there, `<!>` keeps them
+   apart, as it does for NULs below: an end the screen reads, a `>` after a DOCTYPE and a `[`,
+   and a stray `<` and what follows it, which stays a sign (#743).
    A malformed numeric-reference prefix with no first digit (`&#`, `&#x`, `&#;`) remains
    literal in text and attributes; recovery and safety scans agree that a comment can end at
    `--!>`. Parsed-string restoration cannot create active markup
@@ -88,6 +105,12 @@ continues to describe the authored spine resource.
    the screen takes for a DOCTYPE's end. `<!>` holds no quote and no `-->`, `?>` or `]]>`, so
    it ends nothing the screen may be reading there (`<!---->` would end a comment the screen
    reads in a style sheet) ([#246](https://github.com/vocaro/EPUBLib/issues/246)).
+   A text NUL is `<!>` too where leaving it out would join the bytes beside it into `?>`,
+   `-->`, `--!>` or `]]>`. The screen reads a processing instruction to `?>`, which libxml2
+   ends at its first `>`, and a comment or CDATA opened in a style sheet to its end, where
+   libxml2 ends the raw text at `</style>`; such a join would end either sooner and bring into
+   the screen's view what it passed over. In prose `why?`, a NUL and `>` reads `why?>`
+   ([#733](https://github.com/vocaro/EPUBLib/issues/733)).
    A section whose file is cut off inside markup stays withheld, with its disclosure: the
    screen refuses markup left open at the end of the input before either parser runs.
    `XMLSafety` refuses entity declarations first. No DTD or network access, depth and node limits.
@@ -285,7 +308,12 @@ continues to describe the authored spine resource.
   Other aspect fits, transforms and nested viewports use the SVG renderer
   ([#187](https://github.com/vocaro/EPUBLib/issues/187)). Archive raster references are resolved
   and bounded before rendering, and images in `data:` URLs read and bounded as they are
-  (**Data URLs**, below); scripts,
+  (**Data URLs**, below). An `<image>` that gives neither `width` nor `height` is laid out at its
+  picture's own size, a nested drawing's or a bitmap's with its orientation applied, as a
+  browser lays it out, though the picture reaches the renderer as a PNG of at most 2,048 pixels
+  on its long side; the image span bound charges that size, so a drawing with a large sizeless
+  bitmap can be refused ([#704](https://github.com/vocaro/EPUBLib/issues/704),
+  [#862](https://github.com/vocaro/EPUBLib/issues/862)). Scripts,
   animation, foreign content and external resources are omitted with a disclosure. Manifest
   image fallbacks apply inside SVG as well. Recursive preparation shares one memo and work
   budget per drawing: 128 request/candidate misses, 16 MiB each of loaded source and serialized
@@ -307,9 +335,10 @@ continues to describe the authored spine resource.
   character reference, so the renderer reads a class list, text and the id an `href` names as
   the book has them ([#249](https://github.com/vocaro/EPUBLib/issues/249)). A wrapper whose one
   image names a fragment wraps no file and goes to the renderer, whatever follows its `#`, which
-  is found as its byte. StaticSVG 0.1.1's serializer still finds an `href`'s `#` by `Character`,
-  so it takes a reference such as `#&#x301;x` for a file's, leaves it out and discloses it as an
-  image ([#641](https://github.com/vocaro/EPUBLib/issues/641)). An embedded font's
+  is found as its byte. StaticSVG's serializer finds an `href`'s `#` by its byte too, so a
+  reference such as `#&#x301;x` in a `<use>` or an `<image>` is kept as the fragment the
+  renderer reads, not taken for a file's and disclosed
+  ([#641](https://github.com/vocaro/EPUBLib/issues/641)). An embedded font's
   own family name, which comes from the book's font file, stands for the family a drawing names
   only when it holds nothing but letters, marks, digits, spaces and `-`, `_`, `.`, `&` and `+`.
   The renderer's direct entry point continues to refuse filters, including commented and
@@ -329,7 +358,7 @@ continues to describe the authored spine resource.
   and inspects the attachment, and turns StaticSVG's diagnostics into the section's disclosures.
   StaticSVG ships the renderer as an Apple XCFramework, so consumers do not need Rust; its source
   pins, build, panic boundary and redistribution notices are in its
-  [renderer notes](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/renderer.md).
+  [renderer notes](https://github.com/vocaro/StaticSVG/blob/0.1.3/doc/renderer.md).
 - **Data URLs.** An image a document holds in a `data:` URL, as EPUB 3.3 §3.7 permits, is shown
   as one from the archive is: an `<img>`, and an `<object>` or `<embed>` whose `type` names an
   image ([#134](https://github.com/vocaro/EPUBLib/issues/134)); and an SVG `<image>`, in a drawing
@@ -1743,7 +1772,11 @@ continues to describe the authored spine resource.
     the book's characters alone, the same CFI with or without the styles that generate:
     a selection that takes in generated words is saved without them and comes back without
     them. Search reads the book's text, as foliate-js's did in WebKit, and finds nothing in
-    generated words, and a result's context leaves them out. The passage text a host is
+    generated words, and a result's context leaves them out, read through a table cell's own
+    map in a cell as through the section's in prose: in a cell it held a list item's marker,
+    and after a marker longer than the context it lost the item's first word, which it took
+    for one the context's cut had split
+    ([#735](https://github.com/vocaro/EPUBLib/issues/735)). The passage text a host is
     given (`.selectionChanged`, a location's `quote`, the text `.locate` looks for) and what
     Copy puts on the pasteboard are the book's own characters (the authored passage of
     [#128](https://github.com/vocaro/EPUBLib/issues/128)), as `Selection.toString()` gave
@@ -1775,6 +1808,46 @@ continues to describe the authored spine resource.
     content of a table laid out as a grid and of its rows and row groups, where that of its
     cells and captions is shown; and what passes a bound of 1,048,576 UTF-16 units of
     generated text in one section, which only a hostile stylesheet reaches.
+- **First letter and first line.** A `::first-letter` (or `:first-letter`) rule styles its
+  element's first letter (CSS Pseudo-Elements 4 §2.2,
+  [#567](https://github.com/vocaro/EPUBLib/issues/567)): the first letter, number or symbol on
+  the element's first line, as one grapheme cluster, with the punctuation before it, the
+  punctuation after it other than opening punctuation and dashes, and the typographic spaces
+  between them, those after it not word separators (§2.2.1). A `::before`'s characters are on
+  the line, so with `content: "Note: "` the first letter is the N, and the first line may be
+  that of the element's first block. An image, an inline block, a table, a `br` or a character
+  that cannot begin the letter before it on the line, or a first line with no letter, leaves the
+  element without one; a float or a positioned box is not on the line and leaves it its letter.
+  A block container has one: a block, a list item, a table cell or caption, an inline block
+  and a float, not an inline element, a table or a flex or grid container. The pseudo-element
+  inherits from the box that holds its letter, an `em` around it included (§2.2.3), and of
+  nested blocks' rules the outermost apply first. Only what applies to it is taken from its
+  rules (CSS 2 §5.12.2, Pseudo-Elements 4 §2.2.4): the font properties, `color`, the
+  background color, text decoration, `text-transform`, letter and word spacing,
+  `line-height`, `float`, `vertical-align` without a float, margins, padding and borders.
+  - **In line or floated.** Without a float the letter is styled where it stands: only its
+    characters' attributes change. Floated, as a drop cap is, it is written as a floated `span`
+    around it would be, in a paragraph of its own that the float layout sets beside the lines
+    it spans ([Floats and positioned boxes](#floats-and-positioned-boxes)), with the disclosure
+    of those boxes. Either way the characters are the book's, mapped as any, so positions,
+    CFIs and search are those of the section without the rule, and the float's paragraph break
+    is a layout separator, so the passage text and Copy keep its word whole. In a rule for one
+    appearance, `float`, the sizes and all but what paints are resolved as in the light
+    appearance ([#130](https://github.com/vocaro/EPUBLib/issues/130)), so the characters and the map are the same
+    in light and dark.
+  - **One run of text.** The letter and the punctuation taken with it are those of one run: a
+    text node, or one `::before`'s or `::after`'s characters. Punctuation in an earlier run, as
+    a `q`'s opening mark is, takes the letter's style where it stands, and a floated letter is
+    then set in line, since the mark before it cannot float with it; punctuation after the
+    letter in a later run is not taken (Pseudo-Elements 4 §2.2.3 lets a letter whose characters
+    span elements take those of one).
+  - **First line.** A `::first-line` (or `:first-line`) rule is not applied: which characters a
+    first line holds depends on where the live column breaks it, and a section's characters and
+    attributes are built once for every column and rotation. One that matches a block shown has
+    the `.disclosure` "Styling this book gives the first line of some paragraphs, such as small
+    capitals, is not shown.", once however many blocks it matches. A rule for one appearance
+    counts in either, so the disclosure is the same in light and dark. `@supports
+    selector(::first-letter)` is true and `selector(::first-line)` false.
 - **Values the reader cannot read.** A declaration with a value the reader cannot read is
   ignored, as CSS 2.2 §4.2 requires, and the one before it stays, though what the property
   sets is not drawn. So every layer of `background` is read in full
@@ -1830,6 +1903,33 @@ continues to describe the authored spine resource.
   one wider than the column is laid out too. TextKit keeps one interval for a
   paragraph, so an inline box's own `tab-size` is not read; and in the paragraph an outside
   list marker opens, the interval is the marker's width unless the item keeps its tabs.
+  The multiples are measured from the paragraph's leading edge, the edge its indents are
+  measured from, the right in right-to-left text, as TextKit 1 measures them in a table cell.
+  They are the same with and without a float or positioned box in the section, in the
+  section's layout and on its pages, and in a flex or grid item the box plan moves across.
+  With a box the text container sets each line and TextKit, shown the paragraph without its
+  indents, measured the interval from the line's start, so a tab in an indented paragraph
+  landed an indent further along; and right to left TextKit 2 measured it from the first
+  line's start less the tail indent, with a box or without. A paragraph that holds a tab and
+  has no stops of its own is shown its interval's stops, moved as its own would be
+  (`ReaderTextContainer.intervalStops`,
+  [#334](https://github.com/vocaro/EPUBLib/issues/334)). CSS measures them from the block's
+  content edge instead, inside its margin and padding. Two places are left. With a box, a
+  paragraph's stops are placed for its first line and measured from each line's start, as a
+  list marker's are: a tab on a later line of a paragraph whose first line has a
+  `text-indent` lands that indent off, except on a page that opens within the paragraph,
+  whose first line is set at the head indent and measures them from there; and a tab on a
+  line beside a float is measured from the float's edge.
+  A tab can advance by almost nothing. CSS Text 3 §4.2 skips a stop closer than half a `ch`
+  to where the tab starts; TextKit takes the next stop however near it is, because `NSTextTab`
+  has no minimum advance, and neither has the default interval. So text that ends just before
+  a stop is followed at once by what comes after the tab: 0.6 points apart in
+  `<p>Before <span style='white-space:pre'>a&#9;b</span> after the tab.</p>`, and from 1.96
+  to 29.55 points between the cells of a table flowed as rows of tabbed cells, one boundary in
+  eight narrower than a space. `pre` blocks have always been laid out so. The review of the fix
+  for [#227](https://github.com/vocaro/EPUBLib/issues/227) found no cheap and safe change
+  within it that would keep a gap: the separator is a single tab, which tests, a copy and
+  VoiceOver read as text ([#334](https://github.com/vocaro/EPUBLib/issues/334)).
 - **Custom properties.** Custom properties (`--name`) and `var()` follow CSS Custom
   Properties for Cascading Variables 1 ([#119](https://github.com/vocaro/EPUBLib/issues/119)).
   A custom property is declared on any element, `:root` and pseudo-elements included, in a
@@ -2201,8 +2301,29 @@ as they did.
   rested: the visible start cannot be read then, because UIKit has moved the view for the
   bar and the text under it is being laid out again. On an iPad a paragraph shown otherwise
   ended 38.6 points below the top once the bar had hidden twice. A book with no box to
-  resolve is left as UIKit leaves it: when a bar hides, its text stays where it is on
-  screen. On the Mac the reader is laid out when a toolbar changes its safe area (Pages,
+  resolve is not laid out again, and is rested the same: UIKit left its text where it was on
+  screen when a bar hid, so that a line shown stood 53.8 points below the top of the taller
+  area, and when the bar came back moved the text down with it, the line still 53.8 points
+  low and so through every later change, where every other shown position rests at the top
+  ([#370](https://github.com/vocaro/EPUBLib/issues/370)). The text is not kept where it was
+  on screen instead, as a reading app that hides its bars on a tap may keep it: that would be
+  a second rule for where a position ends up, and the reader rests it at the top everywhere
+  else. A reader in the safe area under `epubReaderHidesControls` keeps the room the bars took
+  ([reader controls](reader-controls.md#hiding-the-controls-while-reading)), so the library's
+  own hiding moves no text: in iPhone 17 Pro and iPad Air 13-inch (M4) simulators the line
+  shown stood still through every frame of the bars going and coming back. The rest is for a
+  reader that runs under bars that come and go. A place the person scrolled to is read as the
+  first line on screen once UIKit has moved the view for the bar, which can be a line or two
+  above it ([#164](https://github.com/vocaro/EPUBLib/issues/164)).
+  Watched frame by frame in those simulators, the rest is made inside the bar's animation, so
+  UIKit animates the scroll it makes: in a book with no box the line shown slides to the top
+  of the new area with the bar, 54 points on the iPhone and 64 on the iPad, in about 0.2 s. In
+  a book whose boxes take their height from the visible area their new layout is not
+  animated. Everything below them moves at once by as much as they changed, against the way
+  the bar goes, twice the bar's height below a title page and an epigraph, and then slides to
+  its rest; while it slides, a centered line in a box is drawn shifted towards the left edge
+  ([#370](https://github.com/vocaro/EPUBLib/issues/370#issuecomment-6370953916)).
+  On the Mac the reader is laid out when a toolbar changes its safe area (Pages,
   below), and its layout lays out the scroll view, whose automatic insets follow the toolbar
   then. AppKit moves the view for the new inset inside that layout, which is no scroll by the
   person. In the middle of the book it moves the view by as much as the inset changed: the
@@ -2297,8 +2418,8 @@ as they did.
   [Input and accessibility](#input-and-accessibility)). Given no element then, a
   simulator's VoiceOver went to whichever line was drawn where its cursor had stood, the
   line after a link's target in the session that tried it. Nothing is posted while
-  VoiceOver's Headings rotor moves the reader, because VoiceOver takes its cursor to the
-  item the rotor gives it, nor for scrolling the reader does not do: a finger's, and
+  VoiceOver's Headings or Paragraphs rotor moves the reader, because VoiceOver takes its
+  cursor to the item the rotor gives it, nor for scrolling the reader does not do: a finger's, and
   UIKit's for VoiceOver's cursor and its three-finger scroll. The Mac posts a layout change
   after the same moves, for its own reason (above)
   ([#428](https://github.com/vocaro/EPUBLib/issues/428)).
@@ -2573,7 +2694,8 @@ as they did.
   and set the item's first line a first-line indent further along than its wrapped lines; the
   text container shows it the stop moved by the
   difference (`ReaderTextContainer.rightToLeftStops`,
-  [#276](https://github.com/vocaro/EPUBLib/issues/276)).
+  [#276](https://github.com/vocaro/EPUBLib/issues/276)), and the stops of a paragraph's
+  interval in the same way ([#334](https://github.com/vocaro/EPUBLib/issues/334)).
 
 ### Floats and positioned boxes
 
@@ -2588,7 +2710,11 @@ a line may end at a hyphenation point, so a word counts by its widest part and t
 after it, and a float wide enough for those keeps its width and hyphenates, as WebKit sets it. A
 verse number in a float sized in pixels stays whole at a larger reader font. Only words count:
 an image with no size of its own still shrinks to the float
-([#152](https://github.com/vocaro/EPUBLib/issues/152)). Horizontal margins and padding reserve
+([#152](https://github.com/vocaro/EPUBLib/issues/152)). A sized `inline-block`, and an
+absolutely positioned box, narrower than a word it holds by its `width` or `max-width`, or by
+its `left` and `right` together, is as wide as the word in the same way, where the word was
+broken between characters; an initial in a box of fixed width that its letter fits keeps that
+width ([#742](https://github.com/vocaro/EPUBLib/issues/742)). Horizontal margins and padding reserve
 space around the native glyph column. `clear: left`, `right` and `both` on a block start it
 below the earlier floats of the requested side, with all it holds, a float it opens with
 included; inside it nothing clears again, so its later lines wrap beside its own floats. An
@@ -2625,9 +2751,13 @@ right. A run of such boxes is therefore a row that wraps as words do: the rows o
 that mark an omission, an initial in a box of fixed width before the rest of its word. The
 text after the run goes on from its last box, on the same line where what is left of that line
 holds its first word, as beside a float, and the block that follows starts below the run's last
-row. A box's own horizontal margins, borders and padding stand between it and its neighbours.
-Each box is still a paragraph of its own in the text, so characters, offsets and CFIs are what
-they were.
+row. A box's own horizontal margins, borders and padding stand between it and its neighbors,
+and between it and the content edges of its block, so that a box whose width and margins
+together are wider than its block's line is as wide as the room between its margins, where it
+ran past the column's edge. Those edges are its block's, not the indents of the box's first
+paragraph, which hold those of any block inside the box
+([#720](https://github.com/vocaro/EPUBLib/issues/720)). Each box is still a paragraph of its
+own in the text, so characters, offsets and CFIs are what they were.
 
 Three things about a row differ from a browser. Its boxes are aligned by their tops, not
 their baselines, and prose beside a box taller than a line wraps beside it as beside a float.
@@ -2669,12 +2799,19 @@ Oversized groups and nested complex boxes instead continue as native
 blocks in reading order; fallback widths expand when necessary to leave readable lines, and
 long box text can continue across pages. A box taller than a page continues so a paragraph at
 a time, and from each of its paragraphs the rest of the box is tried as a box again, so that
-the rest that fits a page is set as one. Its end and the max-content width of each of its
-paragraphs are found once, and an attempt that the layout of the attempt before it shows to be
-more than a quarter of a page too tall is not made. A play that sets each scene as one inline
-block of hundreds of verse lines is then paginated in time in proportion to its length, not
-its square ([#573](https://github.com/vocaro/EPUBLib/issues/573)). Up to eight nested width
-constraints resolve within the enclosing box in this fallback.
+the rest that fits a page is set as one. That rest is in the box's place, on a line of its own
+below the part in flow: at the box's own edge, not at the indent of the verse line or paragraph
+it starts with, and no wider than the column. The rest of a scene set as the Cambridge
+Shakespeare sets it ran from 101 to 430 points in a phone's column 363 points wide
+([#720](https://github.com/vocaro/EPUBLib/issues/720)). Inside the rest, as inside any box, the
+blocks it holds are set without their own margins and padding, so a verse line that a block in
+the box indents keeps that indent on the pages in flow and starts at the box's edge in the
+rest. The box's end and the max-content width of each of its paragraphs are found once, and
+an attempt that the layout of the attempt before it shows to be more than a quarter of a page
+too tall is not made. A play that sets each scene as one inline block of hundreds of verse
+lines is then paginated in time in proportion to its length, not its square
+([#573](https://github.com/vocaro/EPUBLib/issues/573)). Up to eight nested width constraints
+resolve within the enclosing box in this fallback.
 
 A text that holds any of these boxes has every one of its lines placed by the reader's text
 container: one section in pages, the whole book in continuous scroll. TextKit then
@@ -2733,13 +2870,19 @@ relative vertical offsets, arbitrary overlap and `z-index`, and page-pinned or r
 boxes are outside the supported subset. Conventional positioned, visually hidden accessibility
 labels are not drawn, so that the page shows no duplicate text, and are kept for assistive
 technology as a browser keeps them (below). The offscreen heuristic recognizes
-top/left offsets of -1,000 CSS pixels or less as the book wrote them, an `em` or a `rem`
-counting as 16 pixels (`-62.5em`), including calculations in those units alone. That is the em
-media queries are given, not the element's font size or the reader's: `left: -999em`, where
-Standard Ebooks parks the heading of a title page beside an image of the same words, hides it
-at every text size, and `-62em` hides nothing at any, though it computes to more than 1,000
-points from 17 points up. Percentage and viewport offsets, offsets in a face's own metrics
-(`ex`, `ch`) and calculations holding one remain visible unless explicitly clipped or hidden:
+top/left offsets as the book wrote them: -999 CSS pixels or less in absolute units alone, and
+`-62.5em` or less, 1,000 pixels, when an `em` or a `rem` is in the offset, each counting as 16
+pixels; calculations in those units alone count too. That is the em media queries are given,
+not the element's font size or the reader's: `left: -999em`, where Standard Ebooks parks the
+heading of a title page beside an image of the same words, hides it at every text size, and
+`-62em` hides nothing at any, though it computes to more than 1,000 points from 17 points up.
+The pixel line takes in `-999px`, where stylesheets park skip links, visually hidden labels and
+inputs, and menus and tooltips until they open. Between -500 and -998 pixels they place what is
+seen: a strip of slides or tabs, a wide background, a heading set across a timeline at
+`-995px`, and panels that slide in from there, which stay drawn
+([#358](https://github.com/vocaro/EPUBLib/issues/358)). Percentage and viewport offsets,
+offsets in a face's own metrics (`ex`, `ch`) and calculations holding one remain visible
+unless explicitly clipped or hidden:
 a percentage is of a containing block of any width, and the viewport offset stylesheets use,
 `-100vw`, is the edge of the screen and not beyond it. Reading the offset as written keeps
 rendered text and saved range offsets identical across reader font-size changes. General clipping,
@@ -3076,6 +3219,31 @@ The following are the defaults. Host commands and accessibility actions stay ena
   ([#746](https://github.com/vocaro/EPUBLib/issues/746)). Once the book is built no turn
   asks for a section's end. On iOS the scroll view's content has the whole text's height
   already.
+  Where the host chose a page-turn animation, `.slide` or `.dissolve` alike, the text of a
+  turn in continuous scroll scrolls there in 0.3 s, eased in and out, from where it was drawn
+  ([#622](https://github.com/vocaro/EPUBLib/issues/622)). The step is taken at once, as with
+  no animation, and the scroll view put back where it was drawn; `ReaderScrollStep` then
+  moves it a frame at a time, as the platform's own animated scroll does, so the lines it
+  passes are laid out and drawn on the way, and the last frame puts it where the step did.
+  What the step reports is where it lands, not where the text is on its way: the anchor, the
+  visible range, the relocation and `readerState` (its Next and Previous among them) are the
+  step's end as the turn returns, and so is what VoiceOver is told. The issue asked for them
+  at the end of the animation; reporting them at once is what a turn of pages does
+  ([#688](https://github.com/vocaro/EPUBLib/issues/688)), and a host reading the state after a
+  turn finds it whether or not the text is still moving. A turn made while a step is in motion
+  is taken from where that step ends, and its text goes on from where it is drawn, so keys
+  pressed quickly scroll on without a jump; a key held down, which steps faster than the text
+  moves, has it go on from two screens before where the step lands at most. Anything else
+  that moves the scroll view or reads it from the screen ends the step where it would have
+  ended first: a position shown, a layout for a new size or visible height, text built again,
+  a change of flow or of the animation, a touch or a drag on iPhone and iPad, a click, the
+  wheel or the trackpad on Mac, and any scrolling the reader did not do. A turn steps at once
+  with no animation chosen, under Reduce Motion, for a turn an assistive technology asks for
+  by name (VoiceOver's scroll, and on Mac its Scroll Forward and Scroll Backward actions), and
+  whenever VoiceOver is running: VoiceOver is told where a step lands as it is taken and its
+  cursor goes to a line there, which UIKit scrolls into view where the text has not yet
+  reached it, and that would undo part of a step back. A turn of pages keeps its animation
+  under VoiceOver, since only a picture over the page turned to moves.
 - Page turn animation ([#688](https://github.com/vocaro/EPUBLib/issues/688)):
   `View.epubReaderPageTurnAnimation(_:)` chooses how a page turns in paginated flow
   ([integration](integration.md#animating-page-turns)). `.none`, the default, replaces one page
@@ -3086,8 +3254,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   Every turn in pages has it: an edge tap or click, a swipe, a key, the wheel and trackpad,
   VoiceOver's actions, scroll and reading on, the selected passage's continuation, the host's
   commands, and a turn into a section not yet built, which comes in once it is
-  (`showTurned`). Continuous scroll scrolls as before whichever is chosen
-  ([#622](https://github.com/vocaro/EPUBLib/issues/622)).
+  (`showTurned`). In continuous scroll either one scrolls the text of a page turn, as above.
   The columns hold the page turned to as soon as the turn returns, as with no animation: the
   delegate is told at once, VoiceOver is told and its cursor sent as above, and the selection
   and highlights are those of the turn with none. Only what is drawn over them moves
@@ -3259,7 +3426,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   Forward ("Continuous scroll" above), so this is for what it did not do itself; no
   device has run it
   ([VoiceOver testing](testing.md#voiceover-testing), "Harness pitfalls and current results"). And
-  a move by heading that turns the page posts
+  a move by heading or by block that turns the page posts
   nothing, since VoiceOver goes to the item the rotor gives it. VoiceOver's scroll, three
   fingers swiped, announces "Page N" as before, and the cursor is sent after the
   announcement. Posted in that order after a page turned under a simulator's cursor,
@@ -3488,6 +3655,35 @@ The following are the defaults. Host commands and accessibility actions stay ena
   past the last heading begins again.
   Not marked for VoiceOver: a heading inside a table, whose cells are read as cells, and on
   iPhone and iPad a heading inside a note's popover, which keeps UIKit's own elements.
+- Paragraphs: on iPhone and iPad each line is an element of its own, so a flick moves one
+  line, and VoiceOver has no rotor setting that moves by paragraph. Each text view that
+  lists its lines gives VoiceOver one of its own after Headings, called Paragraphs as
+  VoiceOver calls its own settings, by the plural of what they move by
+  (`UIAccessibilityCustomRotor`, [#711](https://github.com/vocaro/EPUBLib/issues/711)). It
+  moves by block, as DAISY's reading-810 asks of a "next item" gesture: a paragraph, a
+  picture or a rule in a paragraph of its own, a list item, a table and a heading. A block is
+  one of the builder's paragraphs (`NSAttributedString.readerBlocks`), so a paragraph is one
+  stop however many lines it takes and with the links, pictures and breaks in it. A table is
+  one stop, its captions and rows together, and its stop is its caption or its first cell or
+  row. A heading is one stop however many paragraphs it takes, and it is a block of its own
+  where it shares a paragraph too: a hidden heading at the head of the words after it, or one
+  set run-in. The break that parts a sized inline box from the line it stands in parts no
+  block (`.readerLayoutBreak`), as a copy reads that line as one. A block with nothing to read
+  is passed over: decoration, a picture or a rule the book keeps from assistive technology,
+  words it keeps so or that `visibility: hidden` hides, and a table row with nothing to say.
+  The rotor gives the first element that reads the block. Forward it goes to the first block
+  that begins to be read at or after the end of the item under the cursor, and back to the
+  last that begins before the item's start: back from inside a paragraph goes to its first
+  line, and from there to the block before. It searches as the Headings rotor does, through
+  the sections page turns reach and by the place in the book and the length that each
+  element keeps, so that it gives the same answer twice, and a block on another page or past
+  the lines listed is turned or scrolled to as a heading is, with nothing posted. The lines'
+  elements are as they were. In iOS 27.2 simulators VoiceOver lists the rotor as it lands
+  in the text ("Use the rotor to access Headings, Paragraphs") and reads each block's first
+  line, in pages and in continuous scroll
+  ([sessions](https://github.com/vocaro/EPUBLib/issues/711#issuecomment-6372973411)). A hidden label that is no heading and opens the line of the
+  words after it, as a parked byline does, is one block with those words. On Mac a text area
+  is VoiceOver's own, which moves by paragraph in it, and has no such rotor.
 - Language: VoiceOver chooses a voice for the language it is given
   ([spoken language](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/text-layout-and-unicode.md#voiceover-speaks-the-language-each-item-and-range-names)).
   On iPhone and iPad each
@@ -3566,7 +3762,19 @@ entries it shows (see Decisions) and the visible range's CFIs. A nonlinear secti
 toward progression unless no section is linear (see Decisions). The pages of the layout on
 screen are not in the location: `EPUBReaderStatus.layoutPage` has them, set before the
 `.relocated` of the same pages and changed again, with no event, as counting goes on
-([Layout](#layout), "Page numbers"). A selection's `.selectionChanged`
+([Layout](#layout), "Page numbers"). Why each `.relocated` was sent is
+`EPUBReaderStatus.relocationReason`, set before it
+([#600](https://github.com/vocaro/EPUBLib/issues/600)): the canvas gives each report of what it
+shows the move that report is the first to show, and `.relayout` when there is none. A turn is
+every page turn and every scroll step, a key, tap, swipe, wheel or VoiceOver's own included; a
+scroll is a move of continuous scroll that the reader did not make itself; a place gone to is
+every other place shown, by command, link, Home and End, or VoiceOver's move to a heading or a
+link elsewhere; and the opening and a restore are the places the reader was put at. A place shown
+before the canvas has a size or its section's text keeps its reason until it is shown, so a
+restore in a window not yet laid out is reported as a restore when it comes. A relayout that
+shows a scroll not yet reported, 150 ms after the view moved, is reported as that scroll, and a
+scroll that showed no other range leaves no reason behind. A new view of a session already
+reading shows its place as a relayout. A selection's `.selectionChanged`
 event and host selection action carry the same complete passage: `text` omits nonlinear sections,
 and `location.rangeBookmarks` preserves all included documents. Its `page` names the entry in effect
 at its start and `pages` includes the entries it spans, omitting nonlinear pages. Save the entire
@@ -3775,8 +3983,9 @@ Go: the native viewer is the bundled engine.
   offsets, arbitrary overlap/`z-index` and page-pinned or repeating fixed boxes are unsupported.
   A layout disclosure accompanies books using these box styles. Common positioned accessibility
   labels hidden with zero-area `clip: rect(...)`, `clip-path: inset(50%)` or
-  top/left offsets of -1,000 CSS pixels or less (16 to the `em` or `rem`, so `-62.5em`) are
-  not drawn and are read by VoiceOver where they stand; percentage and viewport
+  top/left offsets of -999 CSS pixels or less, or of `-62.5em` or less (1,000 pixels at 16 to
+  the `em` or `rem`) when either is in them, are not drawn and are read by VoiceOver where they
+  stand; percentage and viewport
   offsets remain visible unless explicitly hidden or clipped. A box parked that far to the
   left that reaches back on screen, with a `right` offset or a great width, is hidden with
   the rest. A hidden heading is read as plain text, as a shown one is. General clipping and arbitrary offscreen
@@ -3813,8 +4022,8 @@ Go: the native viewer is the bundled engine.
   ([verification](https://github.com/vocaro/EPUBLib/issues/53#issuecomment-6159293638); [the book](testing.md#networking-svg-book)). StaticSVG
   screens each drawing against its rendering limits before its renderer reads it, and an SVG
   past any shows its fallback text with the `svg` disclosure. The
-  [limits](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/design.md#limits) and
-  [how each screen reads the drawing as the renderer does](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/screens.md)
+  [limits](https://github.com/vocaro/StaticSVG/blob/0.1.3/doc/design.md#limits) and
+  [how each screen reads the drawing as the renderer does](https://github.com/vocaro/StaticSVG/blob/0.1.3/doc/screens.md)
   are StaticSVG's. Retained renderer font databases share a 64 MiB budget across the process.
   Each distinct set of fonts an SVG names is one database, with its own copy of the fallback
   faces, shared by every drawing that names those fonts. An SVG refused a database shows its fallback text. The networking book
@@ -3863,10 +4072,15 @@ Go: the native viewer is the bundled engine.
   rotor there. In paging on Mac the rotor's list and VoiceOver's move to the next heading
   were heard to go through the whole book the same day, on the hosted Mac
   ([VoiceOver testing](testing.md#voiceover-testing)). With VoiceOver's cursor on a link on Mac, the
-  move goes to the book's next heading in continuous scroll and stays on the page in
-  paging, where it goes back to the page's first heading when none follows the link; from
-  a link after the book's last heading it begins again with the first heading on screen
-  ([#454](https://github.com/vocaro/EPUBLib/issues/454)).
+  move goes to the book's next heading in both flows, on a later page in paging. Reading on
+  by word or by line then starts at the heading when the reader had to turn or scroll to
+  it, and where VoiceOver last read when it was on the page or on screen already. From a
+  link after the book's last heading the move begins again with the first heading on screen
+  or on the page. That is VoiceOver's own on macOS 27.0.1: only its search for elements was
+  found to end the move there, and VoiceOver asks a text that offers the search for its
+  other moves too, which then left the text or were asked without end, so the reader offers
+  none (`HeadingAccessibilityTests.testNeitherATextNorItsElementsOfferTheSearchForElements`;
+  "Input and accessibility", Headings; [#454](https://github.com/vocaro/EPUBLib/issues/454)).
 - Flex and grid alignment covers the single-column subset described above. Side-by-side row
   items, wrapping and reversed flex, multi-column and explicitly placed grids, `order` and
   inline flex or grid containers render as blocks in reading order with a disclosure. Within
@@ -3899,6 +4113,16 @@ Go: the native viewer is the bundled engine.
   the characters shown; generated content inside a box hidden from the page and kept for
   VoiceOver is not read with it; `counter-reset`, `counter-increment` and `counter-set` of
   `list-item` do not change a list's numbering; and a counter style that `list-style-type`
-  lacks (`@counter-style`, `symbols()`, `hiragana`…) is decimal. `::first-letter`,
-  `::first-line`, `::marker` and the other pseudo-elements are not rendered: their rules are
-  dropped, and that is not disclosed.
+  lacks (`@counter-style`, `symbols()`, `hiragana`…) is decimal. `::marker` and the
+  pseudo-elements other than these and the typographic ones below are not rendered: their
+  rules are dropped, and that is not disclosed.
+- `::first-line` is not applied, with a disclosure ([Decisions](#decisions)). Of
+  `::first-letter` ([#567](https://github.com/vocaro/EPUBLib/issues/567)): `initial-letter`
+  (and `-webkit-initial-letter`) is not read, so a drop cap written with it alone is set as
+  the text around it; a floated letter's background and an inline one's margins, padding and
+  borders are not drawn, as they are not for a floated or an inline element; a letter whose
+  opening punctuation is in an earlier run, as a `q`'s mark is, is set in line though it
+  floats, and punctuation after the letter in a later run is not taken; a ruby base's first
+  letter and that of an inline block without a size, which is written in its line, are not
+  styled; and a letter a language writes with two characters, such as Dutch "IJ", takes only
+  the first.

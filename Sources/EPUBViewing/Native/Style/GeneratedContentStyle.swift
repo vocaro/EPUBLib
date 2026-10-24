@@ -62,6 +62,8 @@ struct GeneratedContentProperties: Equatable, Sendable {
     var counterIncrement: [ComputedStyle.CounterChange] = []
     var counterSet: [ComputedStyle.CounterChange] = []
     var boxes: GeneratedBoxes?
+    var firstLetter: FirstLetterRules?
+    var hasFirstLineRules = false
 }
 
 /// Generated content's properties, immutable: a style that changes one holds a new storage.
@@ -103,6 +105,19 @@ extension ComputedStyle {
     var generated: GeneratedBoxes? {
         get { generatedContent?.properties.boxes }
         set { updateGeneratedContent { $0.boxes = newValue } }
+    }
+
+    /// The element's `::first-letter` rules, which the cascade sets (`StyleResolver`): nil when
+    /// none matches it. Not inherited.
+    var firstLetter: FirstLetterRules? {
+        get { generatedContent?.properties.firstLetter }
+        set { updateGeneratedContent { $0.firstLetter = newValue } }
+    }
+    /// Whether a rule for the element's `::first-line` matches it, which the reader does not
+    /// apply. Not inherited.
+    var hasFirstLineRules: Bool {
+        get { generatedContent?.properties.hasFirstLineRules ?? false }
+        set { updateGeneratedContent { $0.hasFirstLineRules = newValue } }
     }
 
     private mutating func updateGeneratedContent(_ change: (inout GeneratedContentProperties) -> Void) {

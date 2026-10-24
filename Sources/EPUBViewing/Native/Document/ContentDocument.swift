@@ -434,20 +434,23 @@ final class ContentDocument: @unchecked Sendable {
     /// stray `<` in them. A document in another encoding is decoded first, and its named
     /// references are rewritten in what was decoded, not in its own bytes. libxml2 would discard
     /// the text after a `<` that opens no markup and end the document at a NUL. What it is
-    /// given stays within the byte limit decoded, after CDATA recovery, and
-    /// again with those signs and NULs replaced. Each DOCTYPE ends at its first `>` where the
-    /// screen read it so too (`HTMLRecoveryText`, #293).
+    /// given stays within the byte limit decoded, after CDATA recovery, and again with NULs
+    /// replaced; signs that placeholders would take past the limit are given as they are. Each
+    /// DOCTYPE ends at its first `>` where the screen read it so too (`HTMLRecoveryText`, #293).
     static func htmlSource(_ data: Data, rewritten: Data, path: String, limits: ContentLimits) throws -> (data: Data, placeholder: Unicode.Scalar?, ampPlaceholder: String?) {
         let limit = min(limits.bytes, Int(Int32.max))
         let doctypesAsHTML = XMLSafety.assess(data, doctypesAsHTML: true) == .safe
-        let text = try HTMLSourceEncoding.utf8(data, path: path, limit: limit, doctypesAsHTML: doctypesAsHTML)
-            .map { HTMLEntities.numericReferences(in: $0) } ?? rewritten
+        let decoded: Data?
+        do { decoded = try HTMLSourceEncoding.utf8(data, limit: limit, doctypesAsHTML: doctypesAsHTML) }
+        catch .malformed { throw ContentDocumentError.malformed(path) }
+        catch .limitExceeded { throw ContentDocumentError.limitExceeded("bytes") }
+        catch .unsafe { throw ContentDocumentError.unsafeMarkup(path) }
+        let text = try decoded.map { HTMLEntities.numericReferences(in: $0) }
+            ?? HTMLSourceEncoding.asTheyAre(rewritten, of: data, path: path, doctypesAsHTML: doctypesAsHTML)
         guard let ampersands = HTMLLiteralAmpersands.prepared(text, limit: limit) else { throw ContentDocumentError.limitExceeded("bytes") }
         let recoveredText = try HTMLRecoveryText.prepared(ampersands.data, path: path, limit: limit, doctypesAsHTML: doctypesAsHTML)
-        guard let signs = HTMLStraySigns.replaced(in: recoveredText, limit: limit),
-              let source = HTMLNullCharacters.replaced(in: signs.data, limit: limit) else {
-            throw ContentDocumentError.limitExceeded("bytes")
-        }
+        let signs = HTMLStraySigns.replaced(in: recoveredText, limit: limit)
+        guard let source = HTMLNullCharacters.replaced(in: signs.data, limit: limit) else { throw ContentDocumentError.limitExceeded("bytes") }
         return (source, signs.placeholder, ampersands.placeholder)
     }
 
@@ -605,7 +608,7 @@ enum HTMLEntities {
     static func numericReferences(in data: Data) -> Data {
         // Rewrite wide XML in its own encoding so the declaration and BOM still agree
         // with the bytes given to libxml2. Scanning UTF-16 bytes as ASCII splits names.
-        if let (encoding, mark) = HTMLSourceEncoding.wide(data),
+        if let (encoding, mark) = XMLSafety.wideEncoding(data),
            let text = String(data: data.dropFirst(mark), encoding: encoding) {
             let utf8 = Data(text.utf8)
             let rewritten = numericReferences(in: utf8)

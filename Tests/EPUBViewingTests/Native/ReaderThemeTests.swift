@@ -185,9 +185,9 @@ import UIKit
 
     private func waitOrFail(_ label: String, timeout: TimeInterval = 30, file: StaticString = #filePath, line: UInt = #line,
                             until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = TestDeadline(seconds: timeout)
         while !condition() {
-            guard Date() < deadline else {
+            guard try !deadline.hasPassed() else {
                 XCTFail("Timed out waiting for \(label)", file: file, line: line)
                 throw Timeout(label: label)
             }
@@ -327,8 +327,8 @@ import UIKit
                     style.appearance = .sepia
                     try await session.send(.style(style))
                 }
-                let result = await XCTWaiter.fulfillment(of: [held], timeout: 20)
-                XCTAssertEqual(result, .completed, "\(name), \(flow)")
+                let fulfilled = try await TestDeadline.fulfillment(of: [held], within: 20)
+                XCTAssertTrue(fulfilled, "\(name), \(flow)")
                 await settle(canvas)
                 XCTAssertEqual(canvas.configuration.theme, before, "\(name), \(flow): the canvas keeps the theme of the text it shows")
                 assertTextAgreesWithCanvas(canvas, "while the \(name) rebuild is held, \(flow)")

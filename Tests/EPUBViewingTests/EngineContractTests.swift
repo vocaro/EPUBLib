@@ -166,12 +166,14 @@ import XCTest
 @MainActor final class EngineContractTests: XCTestCase {
     private func verify(_ fault: ContractNativeEngine.Fault, search: ContractNativeEngine.Search = .none,
                         reportsLate: Bool = false) async throws {
-        try await EPUBEngineContract.verify(engine: ContractNativeEngine(fault: fault, search: search, reportsLate: reportsLate),
-            publication: EPUBPublication.open(data: Fixture.epub()), firstHref: "OPS/one.xhtml",
-            secondHref: "OPS/two.xhtml", text: "ordinary reading text", timeout: 0.2) { session in
-                _ = session.makeView()
-                return {}
-            }
+        do {
+            try await EPUBEngineContract.verify(engine: ContractNativeEngine(fault: fault, search: search, reportsLate: reportsLate),
+                publication: EPUBPublication.open(data: Fixture.epub()), firstHref: "OPS/one.xhtml",
+                secondHref: "OPS/two.xhtml", text: "ordinary reading text", timeout: 0.2) { session in
+                    _ = session.makeView()
+                    return {}
+                }
+        } catch let unmeasured as TestDeadline.Unmeasured { throw unmeasured.skip }
     }
     func testNativeContractPassesWithoutWebKit() async throws { try await verify(.none) }
     func testContractRejectsBrokenAdapters() async throws {

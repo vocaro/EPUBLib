@@ -219,6 +219,22 @@ final class EPUBCheckWriterValidationTests: XCTestCase {
         try await assertValid(book)
     }
 
+    // The writer writes a carriage return in text as `&#13;`, and a tab and line feed as they
+    // are (https://github.com/vocaro/EPUBLib/issues/254).
+    func testTabsAndLineEndsInEveryTextField() async throws {
+        let text = "Line one\r\nLine\ttwo\rand three\n"
+        var book = EPUBCheckWrittenBook()
+        book.metadata.metadata = .init(title: text, authors: [text], languages: ["en"])
+        book.metadata.summary = text
+        book.metadata.keywords = [text]
+        book.addChapter(id: "c1", path: "EPUB/c1.xhtml", title: "Chapter", listed: false)
+        // A heading and a link, each with a label to write, in reading order (NAV-011).
+        book.contents = [.init(title: text, children: [.init(title: "\r" + text, href: "EPUB/c1.xhtml")]),
+                         .init(title: text, href: "EPUB/c1.xhtml#start")]
+        book.pages = [.init(title: text, href: "EPUB/c1.xhtml#start")]
+        try await assertValid(book)
+    }
+
     // MARK: Resource paths
 
     func testResourcePathsInSubdirectoriesWithNonASCIINames() async throws {
@@ -229,6 +245,19 @@ final class EPUBCheckWriterValidationTests: XCTestCase {
         book.addChapter(id: "c2", path: "EPUB/text/第二章.xhtml", title: "第二章")
         book.stylesheet = "EPUB/styles/ksi%C4%85%C5%BCka.css"
         book.pages = [.init(title: "1", href: book.files[1].resource.href)]
+        try await assertValid(book)
+    }
+
+    // A target is accepted by the path it resolves to and written as that path, however it is
+    // spelled (https://github.com/vocaro/EPUBLib/issues/606).
+    func testTargetsSpelledWithoutEPUBInFront() async throws {
+        var book = EPUBCheckWrittenBook()
+        book.add(id: "style", path: "EPUB/styles/nav.css", mediaType: "text/css", data: Data("nav { margin: 0; }".utf8))
+        book.addChapter(id: "c1", path: "EPUB/c1.xhtml", title: "Chapter one", listed: false)
+        book.addChapter(id: "c2", path: "EPUB/text/c2.xhtml", title: "Chapter two", listed: false)
+        book.contents = [.init(title: "One", href: "x/../EPUB/c1.xhtml"), .init(title: "Two", href: "%45PUB/text/c2.xhtml#start")]
+        book.pages = [.init(title: "1", href: "EPUB/../EPUB/c1.xhtml#start"), .init(title: "2", href: "./EPUB/text/../text/c2.xhtml")]
+        book.stylesheet = "x/y/../../EPUB/styles/nav.css"
         try await assertValid(book)
     }
 

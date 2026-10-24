@@ -150,4 +150,28 @@ final class PositioningStyleTests: XCTestCase {
             }
         }
     }
+
+    /// `doc/native-viewer.md`: absolute units alone hide from -999 CSS pixels, where skip links and
+    /// hidden menus are parked (#358), and the `em` rule stays at `-62.5em`, so an offset with an
+    /// `em` or a `rem` in it still needs 1,000 pixels.
+    func testAbsoluteOffsetsAreOffscreenFromMinus999Pixels() throws {
+        let hidden = ["left:-999px", "top:-999px", "left:-999.01px", "left:-1000px", "top:-9999px", "left:calc(-500px - 499px)",
+                      "top:calc(-333px * 3)", "left:-749.25pt", "left:-10.40625in", "left:min(-999px, -10px)",
+                      "inset:-999px auto auto auto", "left:-999px; right:-999px", "left:calc(-999px - 1em)"]
+        let visible = ["left:-998px", "top:-998px", "left:-998.99px", "left:calc(-500px - 498.99px)", "left:-749pt",
+                       "left:-800px", "top:-800px", "left:-500px", "left:max(-999px, -10px)", "left:999px",
+                       "right:-999px", "bottom:-999px", "left:calc(-999px + 1%)", "left:calc(-999px + 1vw)",
+                       "left:-62.49em", "left:-62.4375em", "top:-62.4375rem", "left:calc(-50em - 199px)", "left:calc(-62em - 7px)"]
+        let body = (hidden + visible).enumerated().map { "<span id='s\($0)' style='position:absolute; \($1)'>Label</span>" }.joined()
+        for root in ["", "html { font-size:62.5% } "] {
+            for fontSize: CGFloat in [12, 17, 96] {
+                let result = try StyleTestSupport.styled(body, css: root, typography: .init(fontSize: fontSize))
+                for (index, declaration) in (hidden + visible).enumerated() {
+                    let style = result.style("s\(index)")
+                    XCTAssertEqual(style.isVisuallyHiddenPositionedBox, index < hidden.count, "\(declaration) \(root)at \(fontSize) points")
+                    XCTAssertEqual(style.positionLeftIsOffscreen || style.positionTopIsOffscreen, index < hidden.count, declaration)
+                }
+            }
+        }
+    }
 }

@@ -7,6 +7,8 @@ import sys
 import tempfile
 import unittest
 
+from support import HANG_SECONDS
+
 SCRIPTS = Path(__file__).resolve().parents[1]
 # Stand-ins for the toolkit's command line and for the source hosted-run.py loads from it. Each
 # says which toolkit it was found in.
@@ -34,7 +36,7 @@ class ToolkitLocationTests(unittest.TestCase):
         self.git(self.main, "worktree", "add", "-q", "--detach", str(self.worktree))
 
     def git(self, directory, *args):
-        subprocess.run(["git", "-C", str(directory), *args], env=self.env, check=True, timeout=30)
+        subprocess.run(["git", "-C", str(directory), *args], env=self.env, check=True, timeout=HANG_SECONDS)
 
     def toolkit(self, path):
         package = path / "src/python/vocaro_engineering"
@@ -47,7 +49,7 @@ class ToolkitLocationTests(unittest.TestCase):
     def run_script(self, checkout, *arguments, **environment):
         return subprocess.run([sys.executable, str(checkout / "scripts" / arguments[0]), *arguments[1:]],
                               cwd=checkout, env=dict(self.env, **environment),
-                              capture_output=True, text=True, timeout=15)
+                              capture_output=True, text=True, timeout=HANG_SECONDS)
 
     def assert_finds(self, checkout, toolkit, **environment):
         engineering = self.run_script(checkout, "eng", "instructions", **environment)

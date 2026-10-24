@@ -33,12 +33,18 @@ count checks. Use the commands in [testing](doc/testing.md).
 ## Heavy work
 
 Run `swift test`, the iOS suites and the gate by their lanes, which wait for the host's
-heavy-work admission: `python3 scripts/eng run swift-tests`, `ios-tests` and `gate`, the gate
-exclusively. Arguments after `--` filter a run, which must then run a test, and `--expect N`
+heavy-work admission: `python3 scripts/eng run swift-tests`, `ios-tests` and `gate`, all three
+heavy work. Arguments after `--` filter a run, which must then run a test, and `--expect N`
 requires exactly N: `python3 scripts/eng run swift-tests --expect N -- --filter X`, or
 `-- -only-testing:Target/Class` for `ios-tests`, whose N counts both simulators. Any other
 heavy command goes through
-`python3 scripts/eng admit -- COMMAND` ([testing](doc/testing.md#local-gate)).
+`python3 scripts/eng admit -- COMMAND` ([testing](doc/testing.md#local-gate)), and only a timing
+or whole-machine measurement adds `--exclusive`.
+
+- A test that fails only on a busy host is a defect to fix, not a reason to run alone: give a
+  wait or a settling pause a `TestDeadline`, and a performance budget thread CPU time
+  (`TestCPUClock`). An exit 3 from the gate, `swift-tests` or `ios-tests` is unmeasured, neither
+  passed nor failed ([local gate](doc/testing.md#local-gate)).
 
 ## Tests are automated
 
@@ -83,9 +89,10 @@ the issues and the release notes, and the same day had the VoiceOver document fo
 - How to run or repeat something goes in [testing](doc/testing.md), VoiceOver sessions
   included. A probe's script and inputs go under
   [Probes and recorded inputs](doc/testing.md#probes-and-recorded-inputs).
-- What was run, and a release's verification, go where the shared
+- What was run goes in a comment on the issue, as the shared
   [documentation and evidence ownership](https://github.com/vocaro/apple-engineering/blob/main/guides/maintenance.md#documentation-and-evidence-ownership)
-  rules put them: in a comment on the issue, and in the release's GitHub release notes.
+  rules say. A release's GitHub release notes say what changed and assume its gate passed; they
+  do not describe the run ([releasing](https://github.com/vocaro/apple-engineering/blob/main/guides/releasing.md)).
 - A changelog entry is one sentence and a link to its issue, at the top of "Unreleased" in
   [CHANGELOG.md](CHANGELOG.md). What changed in detail is on the issue.
 

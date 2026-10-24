@@ -28,7 +28,9 @@ import AppKit
 ///   Asian wide characters disappears. A single trailing forced break in a block makes no line.
 /// - Floats, positioned callouts and sized inline-blocks keep separate source paragraphs and
 ///   symbolic constraints. The native layout resolves wrapping and positions at viewport size;
-///   oversized or complex boxes remain pageable in-flow text with the same exact map. `clear`
+///   oversized or complex boxes remain pageable in-flow text with the same exact map. The
+///   break that parts a sized inline box from the line it stands in is the map's layout
+///   separator and carries `.readerLayoutBreak`: a copy and a move by block go over it. `clear`
 ///   is `.readerClear` on the first character of the paragraph that opens the blocks setting
 ///   it, and of the line after a `br` setting it, for the layout to resolve against the floats.
 /// - A positioned box hidden from the page but not from assistive technology (parked off screen
@@ -131,6 +133,19 @@ final class SectionWriter {
     /// One object for each heading element, by the element's order.
     private var headings: [Int: ReaderHeading] = [:]
 
+    // First letters (`writesFirstLetter`).
+    /// The block containers walked whose first letter is still to come, the outermost first.
+    private var firstLetters: [PendingFirstLetter] = []
+    /// Punctuation that opens their first line before the letter, written by other elements or
+    /// generated: where each run of it begins, with its style and context.
+    private var firstLetterPunctuation: [(location: Int, style: ComputedStyle, context: InlineContext)] = []
+    /// The run being written is such punctuation, which leaves the first letter to come.
+    private var holdsFirstLetter = false
+    /// Inside generated content that is out of the line (`generate`), which holds no first letter.
+    private var firstLetterSuspended = 0
+    /// The element whose `::before` or `::after` is being written.
+    private var generatingElement: ContentNode?
+
     private var stack: [Entry] = []
     /// `ResourceReference.resolve` by href (nil: not in the archive); books repeat their links.
     /// By the href's code units, as resolving reads it: `#caf\u{E9}` and `#cafe\u{301}` name two ids.
@@ -173,7 +188,10 @@ final class SectionWriter {
         context.language = language
         context.isUnspoken = ContentSemantics.isAriaHidden(element)
         let root = Entry(node: element, children: children, style: style, context: context)
-        if let box { open(box, root) }
+        if let box {
+            beginFirstLine(root, frame: 0)
+            open(box, root)
+        }
         else {
             // Content outside the cells is not all of its parent's: the counters that parent's
             // children instantiate stay in scope for the children after it.
@@ -202,6 +220,7 @@ final class SectionWriter {
         context.isUnspoken = ContentSemantics.isAriaHidden(element)
         let root = Entry(node: element, children: element.children, style: style, context: context)
         state.generated.apply(style, owner: element.parent?.order ?? element.order)
+        beginFirstLine(root, frame: 0)
         beginGenerated(root)
         walk(root)
         return finish().string
@@ -257,6 +276,15 @@ final class SectionWriter {
         /// inside it own (`GeneratedContentState.leave`).
         var endsCounters = true
         var ruby: (collecting: Bool, start: Int?)?
+    }
+
+    /// A block container whose first letter is to come: its `::first-letter` rules, and the
+    /// frame its own lines are written in. Content in a float or a positioned box inside that
+    /// frame is not on its lines.
+    private struct PendingFirstLetter {
+        let entry: Entry
+        let rules: FirstLetterRules
+        let frame: Int
     }
 
     private func walk(_ root: Entry) {
@@ -466,7 +494,11 @@ final class SectionWriter {
             entry.exit.block = true
             entry.context.background = nil
             entry.context.baselineOffset = 0
+            beginFirstLine(entry, frame: frames.count - 1)
         } else {
+            // An inline block on the line ends the first letter of the blocks around: what it
+            // holds is not their text (CSS Pseudo-Elements 4 §2.2.2).
+            if style.display == .inlineBlock { cancelFirstLetters() }
             if blockLevel {
                 softBoundary()
                 entry.exit.softBoundary = true
@@ -508,6 +540,7 @@ final class SectionWriter {
 
     private func leave(_ entry: Entry) {
         if let after = entry.exit.after { generate(after, in: entry) }
+        if !firstLetters.isEmpty { firstLetters.removeAll { $0.entry === entry } }
         if entry.exit.endsCounters { state.generated.leave(entry.node) }
         if entry.exit.isolate, let isolate = isolates.popLast(), isolate.emitted, paragraphOpen {
             buffer.append(isolate.closer, attributes: isolate.attributes)
@@ -610,6 +643,8 @@ final class SectionWriter {
     // MARK: Blocks
 
     private func enterBlock(_ node: ContentNode, style: ComputedStyle, language: InlineLanguage) {
+        // A table or an inline block where the first line would begin: it has no first letter.
+        if style.display == .table || style.display == .inlineBlock { cancelFirstLetters() }
         pendingPassageBoundary = pendingPassageBoundary || style.display.isBlockLevel
         if style.display == .listItem, pendingMarker != nil { openParagraph() } // An outer item's marker gets its own line.
         let inline = inlineBox(style) // Read from the line the box is on, which closing the paragraph ends.
@@ -809,6 +844,8 @@ final class SectionWriter {
                     space.segmentBreak && next.map { Self.removesSegmentBreak(between: space.before, and: $0) } == true
                 } ?? false
                 if recordsMap { map.layoutSeparator(at: buffer.count, copyText: space != nil && !removesBreak ? " " : "") }
+                // A move by block goes over it, as a copy does (`readerBlocks`).
+                postAttributes.append((NSRange(location: buffer.count, length: 1), .readerLayoutBreak, true))
             }
             buffer.append(CollectionOfOne(0x0A), attributes: paragraphs[previous].separatorAttributes)
             paragraph.start = buffer.count
@@ -852,6 +889,11 @@ final class SectionWriter {
         }
         pendingSpace = nil
         guard paragraphOpen else { return }
+        // A first line of punctuation alone has no first letter.
+        if !firstLetterPunctuation.isEmpty {
+            cancelFirstLetters()
+            firstLetterPunctuation.removeAll()
+        }
         if pendingBreaks.count > 1 {
             pendingBreaks.removeLast()
             flushBreaks()
@@ -1168,6 +1210,8 @@ final class SectionWriter {
 
     private func emitText(_ units: [UInt16], _ range: Range<Int>, node: ContentNode?, style: ComputedStyle,
                           context: InlineContext, attributes: Int, spaceAttributes: Int) {
+        if !firstLetters.isEmpty, writesFirstLetter(units, range, node: node, style: style, context: context,
+                                                    attributes: attributes, spaceAttributes: spaceAttributes) { return }
         prepareForContent(next: Self.scalar(units, at: range.lowerBound))
         let location = buffer.count
         if collectingRubyBase, rubyBaseStart == nil { rubyBaseStart = location }
@@ -1296,6 +1340,9 @@ final class SectionWriter {
     }
 
     private func didEmitContent() {
+        // Whatever else begins the first line leaves it without a first letter.
+        if !firstLetters.isEmpty, !holdsFirstLetter { cancelFirstLetters() }
+        holdsFirstLetter = false
         lineStart = false
         lastWasCollapsedSpace = false
         lastScalar = buffer.lastScalar
@@ -1345,6 +1392,7 @@ final class SectionWriter {
     }
 
     private func forcedBreak(node: ContentNode?, offset: Int, length: Int, attributes: Int, clear: ComputedStyle.Clear = .none) {
+        cancelFirstLetters() // An empty first line has no first letter.
         openParagraph()
         pendingSpace = nil
         lastWasCollapsedSpace = false
@@ -1386,6 +1434,7 @@ final class SectionWriter {
 
     /// The tab between a fallback table row's cells.
     private func cellSeparator() {
+        cancelFirstLetters()
         openParagraph()
         pendingSpace = nil
         flushBreaks()
@@ -1712,6 +1761,9 @@ final class SectionWriter {
             if paragraphs.isEmpty { flushSpokenParagraph() } else { flushSpokenInline() }
         }
         if block { enterBlock(node, style: style, language: context.language) }
+        // An image, a table or a formula that begins a first line leaves it without a first
+        // letter; one in a float of its own does not.
+        cancelFirstLetters()
         // Labels that open this content's own paragraph are not what it is measured by.
         let waiting = block && !paragraphOpen ? pendingSpoken.count : 0
         prepareForContent(next: Self.scalar(utf16, at: 0))
@@ -1893,16 +1945,19 @@ extension SectionWriter {
         let units = Array(text.utf16)
         guard !units.isEmpty, !(box.isOutOfFlow && !state.isFixedLayout && box.isVisuallyHiddenPositionedBox) else { return }
         if box.requiresFlowBox { state.report.report.flowBoxesReflowed = true }
-        var context = entry.context
-        if let background = box.backgroundColor, background.alpha > 0 { context.background = background }
-        switch box.verticalAlign {
-        case .sub: context.baselineOffset -= entry.style.fontSize / 5
-        case .super: context.baselineOffset += entry.style.fontSize / 3
-        case .offset(let value): context.baselineOffset += value
-        default: break
+        var context = inlineBoxContext(box, parentFontSize: entry.style.fontSize, in: entry.context)
+        // Its characters may be its element's first letter (CSS Pseudo-Elements 4 §2.2.2), unless
+        // it is out of the line: floated or positioned, though written in the line here, or an
+        // inline block, which leaves its element none.
+        if box.display == .inlineBlock { cancelFirstLetters() }
+        let outOfLine = box.float != .none || box.isOutOfFlow || box.display == .inlineBlock
+        let generating = generatingElement
+        generatingElement = element
+        if outOfLine { firstLetterSuspended += 1 }
+        defer {
+            generatingElement = generating
+            if outOfLine { firstLetterSuspended -= 1 }
         }
-        let limit = 3 * max(entry.style.fontSize, 1)
-        context.baselineOffset = min(max(context.baselineOffset, -limit), limit)
         let block = box.display.isBlockLevel && !box.requiresFlowBox
         if block && flattenDepth == 0 {
             var style = box
@@ -1917,6 +1972,139 @@ extension SectionWriter {
         if block { softBoundary() }
         appendText(units, from: nil, style: box, context: context, attributes: styling.attributes(box, context))
         if block { softBoundary() }
+    }
+
+    /// The context of an inline box of style `box` in `context`: its background and its
+    /// `vertical-align` shift, against the font size of the box it is in.
+    private func inlineBoxContext(_ box: ComputedStyle, parentFontSize: CGFloat, in context: InlineContext) -> InlineContext {
+        var context = context
+        if let background = box.backgroundColor, background.alpha > 0 { context.background = background }
+        switch box.verticalAlign {
+        case .sub: context.baselineOffset -= parentFontSize / 5
+        case .super: context.baselineOffset += parentFontSize / 3
+        case .offset(let value): context.baselineOffset += value
+        default: break
+        }
+        let limit = 3 * max(parentFontSize, 1)
+        context.baselineOffset = min(max(context.baselineOffset, -limit), limit)
+        return context
+    }
+}
+
+// MARK: - First letter and first line
+
+extension SectionWriter {
+    /// What the first line of `entry`'s element asks for, when the element is a block container
+    /// whose own lines are written in frame `frame`: its `::first-letter` is pending until the
+    /// line's first content (`writesFirstLetter`), and a `::first-line` rule, which the reader
+    /// does not apply, is disclosed (CSS Pseudo-Elements 4 §2.1, §2.2).
+    private func beginFirstLine(_ entry: Entry, frame: Int) {
+        let style = entry.style
+        guard style.firstLetter != nil || style.hasFirstLineRules, Self.isBlockContainer(style) else { return }
+        if style.hasFirstLineRules { state.report.report.firstLineStylesOmitted = true }
+        if let rules = style.firstLetter { firstLetters.append(PendingFirstLetter(entry: entry, rules: rules, frame: frame)) }
+    }
+
+    /// Whether a box of this style is a block container (CSS Display 3 §2.4), the only kind these
+    /// pseudo-elements style: a flex or grid container, a table and an inline box are not.
+    private static func isBlockContainer(_ style: ComputedStyle) -> Bool {
+        guard !style.blockifiesChildren else { return false }
+        switch style.display {
+        case .block, .listItem, .inlineBlock, .tableCell, .tableCaption: return true
+        case .inline: return style.float != .none || style.isOutOfFlow
+        default: return false
+        }
+    }
+
+    /// The first of the pending first letters that content written now would begin: those of the
+    /// block containers whose lines it is on, which a float or a positioned box between them and
+    /// it takes it off.
+    private func applicableFirstLetter() -> Int? {
+        guard !firstLetters.isEmpty, firstLetterSuspended == 0 else { return nil }
+        let barrier = frames.lastIndex { $0.style.float != .none || $0.style.isOutOfFlow } ?? 0
+        return firstLetters.firstIndex { $0.frame >= barrier }
+    }
+
+    /// The first line of the blocks whose first letter content written now would begin has
+    /// begun with something else, or ended: they have none.
+    private func cancelFirstLetters() {
+        guard let first = applicableFirstLetter() else { return }
+        firstLetters.removeSubrange(first...)
+        firstLetterPunctuation.removeAll()
+    }
+
+    /// Writes a run that begins the first line of blocks whose first letter is pending, with the
+    /// letter styled by their rules, and returns whether it did. The letter's characters are the
+    /// book's own, mapped as any: only their attributes change, and for a float the paragraph
+    /// they are written in, which is set as a floated `span` around them would be.
+    ///
+    /// The letter and the punctuation around it are those of one run of text, of one element's
+    /// text node or generated content (`FirstLetterText`). Punctuation in an earlier run, such as
+    /// a `q`'s opening mark, takes the letter's style where it stands; the letter is then set in
+    /// line even where its rules float it, since the punctuation before it could not float with
+    /// it. Nested blocks' rules apply outermost first, each pseudo-element inheriting from the
+    /// one around it, and the outermost from the box that holds the letter (CSS Pseudo-Elements 4
+    /// §2.2.3).
+    private func writesFirstLetter(_ units: [UInt16], _ range: Range<Int>, node: ContentNode?, style: ComputedStyle,
+                                   context: InlineContext, attributes: Int, spaceAttributes: Int) -> Bool {
+        guard let first = applicableFirstLetter() else { return false }
+        // A ruby base's text is annotated as a whole: its letter is not set apart.
+        if collectingRubyBase { cancelFirstLetters(); return false }
+        let end: Int
+        switch FirstLetterText.extent(units, range, afterPunctuation: !firstLetterPunctuation.isEmpty) {
+        case .none:
+            cancelFirstLetters()
+            return false
+        case .punctuation:
+            prepareForContent(next: Self.scalar(units, at: range.lowerBound))
+            firstLetterPunctuation.append((buffer.count, style, context))
+            holdsFirstLetter = true
+            return false
+        case .letter(let found):
+            end = found
+        }
+        let rules = firstLetters[first...].map(\.rules)
+        firstLetters.removeSubrange(first...)
+        let punctuation = firstLetterPunctuation
+        firstLetterPunctuation.removeAll()
+        func letterStyle(inheritingFrom style: ComputedStyle) -> ComputedStyle {
+            rules.reduce(style) { $1.style(inheritingFrom: $0) }
+        }
+        var letter = letterStyle(inheritingFrom: style)
+        let floats = letter.float != .none && punctuation.isEmpty && flattenDepth == 0
+        if !floats {
+            letter.float = .none
+            if !punctuation.isEmpty {
+                // With the space between it and the letter.
+                prepareForContent(next: Self.scalar(units, at: range.lowerBound))
+                for (index, run) in punctuation.enumerated() {
+                    let stop = index + 1 < punctuation.count ? punctuation[index + 1].location : buffer.count
+                    let style = letterStyle(inheritingFrom: run.style)
+                    let context = inlineBoxContext(style, parentFontSize: run.style.fontSize, in: run.context)
+                    buffer.restyle(run.location..<stop, attributes: styling.attributes(style, context))
+                }
+            }
+        }
+        var letterContext = floats ? context : inlineBoxContext(letter, parentFontSize: style.fontSize, in: context)
+        if floats {
+            // As for a floated element: its box's background is not drawn, nor is it raised.
+            letterContext.background = nil
+            letterContext.baselineOffset = 0
+            state.report.report.flowBoxesReflowed = true
+            enterBlock(node?.parent ?? generatingElement ?? stack[stack.count - 1].node, style: letter,
+                       language: context.language)
+        }
+        let letterAttributes = styling.attributes(letter, letterContext)
+        let letterSpaceAttributes = letter.wordSpacing != 0 && !letter.isHidden
+            ? styling.attributes(letter, letterContext, wordSpacing: true) : letterAttributes
+        emitText(units, range.lowerBound..<end, node: node, style: letter, context: letterContext,
+                 attributes: letterAttributes, spaceAttributes: letterSpaceAttributes)
+        if floats { exitBlock() }
+        if end < range.upperBound {
+            emitText(units, end..<range.upperBound, node: node, style: style, context: context, attributes: attributes,
+                     spaceAttributes: spaceAttributes)
+        }
+        return true
     }
 }
 

@@ -217,6 +217,53 @@ final class NavigationDocumentCoverageTests: XCTestCase {
         XCTAssertEqual(book.pageList, [EPUBPageListEntry(label: "1", href: "OPS/one.xhtml#p1")])
     }
 
+    func testALineBreakInALabelIsASpace() throws {
+        // A `br` renders a line break, which a label read in one line has as a space, so that
+        // the words either side of it do not run together as "AB" (#283). It is read with the
+        // white space round it, so that one or more are one space and none is left at an end.
+        let entries = try contents("<ol><li><a href=\"one.xhtml\">Chapter One<br/>The Beginning</a></li>"
+            + "<li><a href=\"two.xhtml\">Chapter Two <br/>\n The <br/><br/> End</a></li>"
+            + "<li><a href=\"one.xhtml\"><br/><span>Part<br/></span>Three<br/></a></li>"
+            + "<li><a href=\"two.xhtml\">Part <img src=\"four.png\" alt=\"Four\"/><br/><img src=\"five.png\" alt=\"Five\"/></a></li>"
+            + "<li><a href=\"one.xhtml\" title=\"Six\"><br/> <br/></a></li>"
+            + "<li><a href=\"two.xhtml\">Seven<wbr/>Eight</a></li></ol>")
+        // A `wbr` is no break, only a place one may be, and adds nothing.
+        XCTAssertEqual(entries.map(\.title), ["Chapter One The Beginning", "Chapter Two The End", "Part Three", "Part Four Five", "Six", "SevenEight"])
+        let book = try book(nav: "<nav epub:type=\"toc\"><ol><li><span>Part<br/>One</span><ol><li><a href=\"one.xhtml\">One</a></li></ol></li></ol></nav>"
+            + "<nav epub:type=\"landmarks\"><ol><li><a epub:type=\"bodymatter\" href=\"one.xhtml\">Start of<br/>the Text</a></li></ol></nav>"
+            + "<nav epub:type=\"page-list\"><ol><li><a href=\"one.xhtml#p1\">page<br/>xii</a></li></ol></nav>")
+        XCTAssertEqual(book.tableOfContents, [Item(title: "Part One", children: [Item(title: "One", href: "OPS/one.xhtml")])])
+        XCTAssertEqual(book.landmarks, [EPUBLandmark(types: ["bodymatter"], title: "Start of the Text", href: "OPS/one.xhtml")])
+        XCTAssertEqual(book.pageList, [EPUBPageListEntry(label: "page xii", href: "OPS/one.xhtml#p1")])
+    }
+
+    func testAZeroWidthNoBreakSpaceIsInNoLabelWhereverTheParserSplitsTheText() throws {
+        // The parser drops a U+FEFF that begins a piece of the text it hands over, or an
+        // attribute's value, and keeps one inside, so a label would hold one or not by how and
+        // where it was written. It is left out of every label (#283): its text, an alternative and
+        // a `title` read in its place.
+        for (written, read) in Fixture.zeroWidthNoBreakSpaces {
+            let book = try book(nav: "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">\(written)</a></li>"
+                + "<li><span>\(written)</span><ol><li><a href=\"two.xhtml\">Two</a></li></ol></li>"
+                + "<li><a href=\"two.xhtml\"><svg xmlns=\"http://www.w3.org/2000/svg\"><title>\(written)</title></svg></a></li></ol></nav>"
+                + "<nav epub:type=\"landmarks\"><ol><li><a epub:type=\"bodymatter\" href=\"one.xhtml\">\(written)</a></li></ol></nav>"
+                + "<nav epub:type=\"page-list\"><ol><li><a href=\"one.xhtml#p1\">\(written)</a></li></ol></nav>")
+            let labels = book.tableOfContents.map(\.title) + book.landmarks.map(\.title) + (book.pageList ?? []).map(\.label)
+            let name = written.unicodeScalars.count > 20 ? "\(written.unicodeScalars.count) scalars" : written.debugDescription
+            XCTAssertEqual(labels.map { Array($0.unicodeScalars) }, Array(repeating: Array(read.unicodeScalars), count: 5), name)
+        }
+        for (written, read) in Fixture.zeroWidthNoBreakSpacesInAttributes {
+            let entries = try contents("<ol><li><a href=\"one.xhtml\"><img src=\"one.png\" alt=\"\(written)\"/></a></li>"
+                + "<li><a href=\"two.xhtml\"><img src=\"two.png\" title=\"\(written)\"/></a></li>"
+                + "<li><a href=\"one.xhtml\" title=\"\(written)\"><img src=\"one.png\"/></a></li></ol>")
+            XCTAssertEqual(entries.map { Array($0.title.unicodeScalars) }, Array(repeating: Array(read.unicodeScalars), count: 3), written.debugDescription)
+        }
+        // A label of nothing else is empty, its entry kept, and then its link's `title` stands.
+        let empty = try contents("<ol><li><a href=\"one.xhtml\">&#xFEFF;</a></li><li><a href=\"two.xhtml\"><![CDATA[\u{FEFF}]]></a></li>"
+            + "<li><a href=\"one.xhtml\" title=\"Three\"><img src=\"one.png\" alt=\"\u{A0}\u{FEFF}\"/><![CDATA[\u{FEFF}]]></a></li></ol>")
+        XCTAssertEqual(empty, [Item(title: "", href: "OPS/one.xhtml"), Item(title: "", href: "OPS/two.xhtml"), Item(title: "Three", href: "OPS/one.xhtml")])
+    }
+
     func testNamedCharacterReferencesUnderAnXHTMLDoctypeDoNotVanishFromALabel() throws {
         // With an external DOCTYPE the XML parser cannot call an undeclared reference an error, and
         // it reports no text for it. Browsers know XHTML's set by this public identifier, as this

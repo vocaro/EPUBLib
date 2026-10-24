@@ -29,7 +29,13 @@ XHTML section returns its publisher-supplied alternatives, or empty text when no
 The extraction retains nonlinear entries and all semantic roles.
 It supports XHTML resources (`application/xhtml+xml`); other spine media types fail explicitly.
 Semantic types are the whitespace-separated tokens on EPUB-namespace `type` attributes throughout
-that section's body, including nested sections. They describe author markup; they are neither
+that section's body, including nested sections, but not where EPUB does not allow them, which the
+reader ignores as well: on the head and what it holds, on metadata content (`base`, `link`, `meta`,
+`noscript`, `script`, `style`, `template` and `title`), in what a script, style or template
+holds, and on an SVG element that is not renderable, such as `title`, `desc` and `defs` (EPUB 3.3
+§6.1.3.1 and §6.2.3, EPUB Reading Systems 3.3 §10;
+[#777](https://github.com/vocaro/EPUBLib/issues/777)). In recovery an `svg` and what it holds are
+SVG's up to an HTML integration point, whatever its `xmlns`, as the reader builds the tree. They describe author markup; they are neither
 trusted classifications nor instructions, and are not inferred from filenames or prose.
 
 Text includes body character data and authored root content following the body in document order,
@@ -138,7 +144,9 @@ outside one, so content after it stays in the body, as does a second document in
 file, and U+0000 is dropped
 from text and read as U+FFFD inside tags, comments and scripts instead of ending the section
 there. A `<!-->` or `<!--->` that follows a `<` kept as text, with no `>` between them, is closed
-there, as HTML closes it. A DOCTYPE ends at its first `>`, as HTML ends it even inside a quoted
+there, as HTML closes it; where closing one leads the scan or the declaration check to refuse the
+section, it is read with such comments left open instead
+([#333](https://github.com/vocaro/EPUBLib/issues/333)). A DOCTYPE ends at its first `>`, as HTML ends it even inside a quoted
 identifier, so one whose identifier has lost its closing quote no longer takes the root's start
 tag with it or refuses the section; recovery writes one letter of each `PUBLIC` and `SYSTEM` in
 it as a character reference, and libxml2 then reads no identifier there
@@ -178,12 +186,33 @@ end tags, any DOCTYPE internal subset, and, outside what libxml2 reads as a comm
 unterminated CDATA section and a start tag's quoted attribute value that never ends. It reads a
 DOCTYPE as far as libxml2 reads it: to its first `>`, or, where a `PUBLIC` or `SYSTEM` it has
 not renamed comes before that `>`, through its quoted identifiers. A bracket in what it reads,
-quoted or not, or a DOCTYPE that never ends refuses the section (#293).
+quoted or not, or a DOCTYPE that never ends refuses the section (#293). The check is one pass
+over the bytes, however many DOCTYPE openers share a `>` or a read through quoted identifiers
+([#783](https://github.com/vocaro/EPUBLib/issues/783)).
+Three of these refusals now withhold some sections whose text recovery read before
+[#226](https://github.com/vocaro/EPUBLib/pull/226): a tree with no body, a quoted attribute
+value that never ends and a CDATA section that never ends. Where #226 keeps a `<` that opens no
+tag as text, markup that recovery used to discard with everything up to the next `>` comes into
+view, and in these sections that markup never closes, or libxml2 builds no body from it. These
+are losses accepted against recovery before #226, as the reader withholds a section cut off
+inside markup ([#202](https://github.com/vocaro/EPUBLib/issues/202)): the cost is one section,
+of input broken in more than one way, on a path the caller opts into; reading on would mean
+guessing where markup that never closes ends, which is where a scan and a parser most easily
+disagree about what the bytes are, or what is the body of a tree that has none; and a browser
+showed the text read before #226 in fewer than half of the sections measured, 684 of 1,437
+([#256](https://github.com/vocaro/EPUBLib/issues/256)).
 Unsafe declarations, exceeded limits, cancellation and well-formed documents without the expected
 XHTML structure remain errors. A parser halt at its built-in nesting cap returns
 `limitExceeded("depth")` instead of partial text, even with a larger caller limit; both paths
-are capped at 257 levels. UTF-8 and detectable UTF-16/32 are supported; recovery does not
-guess other encodings. Recovery reads named references from the HTML Standard's table too, as the
+are capped at 257 levels. Recovery decodes a section as the strict path and the native reader's
+fallback do, with the reader's own code: UTF-16 or UTF-32 by a byte-order mark or the NUL
+pattern of its first characters, else the encoding its XML declaration names, by libxml2's
+decoder for it, else UTF-8 ([#247](https://github.com/vocaro/EPUBLib/issues/247)). An unclosed
+tag changes no character of a section in ISO-8859-1 or Shift_JIS, and UTF-8 bytes declared as
+`windows-1252` read as that encoding says on both paths (`cafÃ©`), as a conforming XML parser
+reads them. Bytes that the declared encoding cannot decode, and those of a section that names
+none, are read as UTF-8 and refused when they are not UTF-8, where the reader shows U+FFFD;
+recovery guesses no encoding and does not read an HTML `<meta charset>`. Recovery reads named references from the HTML Standard's table too, as the
 native reader does, not from libxml2's HTML 4 one. The parser never loads external resources. This
 option concerns headless text extraction; it does not change reader CFIs or navigation parsing.
 

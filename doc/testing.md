@@ -9,7 +9,7 @@ Set `DEVELOPER_DIR` when more than one Xcode is installed. From the repository r
 python3 scripts/eng run gate
 ```
 
-`gate` is the `exclusive` lane in `engineering.json` that runs `scripts/check-all.sh`, which
+`gate` is the `heavy` lane in `engineering.json` that runs `scripts/check-all.sh`, which
 takes no arguments. The gate checks the hosted-run and VoiceOver session scripts, verifies
 module boundaries, compares documentation snippets with compiled Swift sources, holds the
 license texts EPUBCore ships to their projects' files and to the
@@ -42,8 +42,9 @@ session deadlines and reports, the list state used when restoring VoiceOver
 ([#504](https://github.com/vocaro/EPUBLib/issues/504)), where the scripts find the shared
 toolkit ([#701](https://github.com/vocaro/EPUBLib/issues/701)), which symbols the privacy
 manifest check counts as an API to declare
-([#685](https://github.com/vocaro/EPUBLib/issues/685)), and which license copies the license
-check refuses ([#699](https://github.com/vocaro/EPUBLib/issues/699)).
+([#685](https://github.com/vocaro/EPUBLib/issues/685)), how the Mac suite's script bounds its
+build and reports an unmeasured test ([#859](https://github.com/vocaro/EPUBLib/issues/859)), and
+which license copies the license check refuses ([#699](https://github.com/vocaro/EPUBLib/issues/699)).
 They do not establish what VoiceOver reads or does; that uses the speech lanes below.
 
 These checks and `scripts/eng` need the [shared engineering toolkit](shared-engineering.md), a
@@ -55,19 +56,62 @@ so a session that shares the main checkout's clone sets nothing
 another clone and comes first; the checks give the copies of the scripts they run the clone
 they find.
 
-Run one gate at a time on this shared Mac, with its Mac and iOS suites one after the other.
-The `gate` lane waits for the host's
+The `gate` lane is heavy work, like the suites it runs: it waits for the host's
 [heavy-work admission](https://github.com/vocaro/apple-engineering/blob/main/guides/shared-host.md#heavy-work-admission)
-to have no other heavy work running and holds every slot while it runs. Keep build and test
-worker counts bounded. Admission sees only admitted work, so look for every run on the host
-first, as that section describes: on 2026-10-20 a check of the worktrees alone missed another
-session's Mac suite.
+and then runs beside other admitted work, another gate included. Admission counts it as one
+job however many workers it starts, so it runs its Mac and iOS suites one after the other,
+their tests one at a time, and builds with `EPUB_BUILD_JOBS` workers, 4 unless that is set;
+`scripts/test-ios.sh` takes the same variable. Admission sees only admitted work, so look for
+every run on the host first, as that section describes: on 2026-10-20 a check of the worktrees
+alone missed another session's Mac suite.
 EPUBLib's runs are listed by
 `ps -Ao args | grep -E '[E]PUBLib.*\.xctest|[c]heck-all\.sh|[t]est-ios\.sh'`.
-Synchronous performance assertions use thread CPU time and asynchronous readiness waits
-wall-clock deadlines; record host activity beside the results as context, as
-[CPU, scheduling and core-wait time](https://github.com/vocaro/apple-engineering/blob/main/guides/measurement.md#cpu-scheduling-and-core-wait-time)
-describes. The idle-CPU recipe [reported in #62](https://github.com/vocaro/EPUBLib/issues/62#issuecomment-6155249383)
+
+Nothing the gate runs needs the host to itself. A Mac test's windows are its own process's,
+and it sends its events to its own views, not through the window server. A copy test writes
+to a pasteboard of its own, since a named one is the whole Mac's. Each simulator is the run's
+own (below). A timing measurement does need the host, and runs by itself with
+`eng admit --exclusive` ([Probes and recorded inputs](#probes-and-recorded-inputs)).
+
+The gate's limits tolerate a busy host
+([#859](https://github.com/vocaro/EPUBLib/issues/859)). Synchronous performance assertions
+use thread CPU time (`TestCPUClock`). Every wait and settling pause in the gate's tests, and in
+`EPUBEngineContract`, is a `TestDeadline` (`Tests/EPUBTestSupport/TestDeadline.swift`); a delay
+that a test makes on purpose, as when it models a late report, stays on the wall clock. It
+holds its limit against the host's awake seconds less the seconds the test process's threads
+waited for a core, so on a quiet host the limit is the wall clock, and a backstop of four
+times the limit, and at least ten seconds more than it (two for a settling pause), ends any wait
+([CPU, scheduling and core-wait time](https://github.com/vocaro/apple-engineering/blob/main/guides/measurement.md#cpu-scheduling-and-core-wait-time)).
+A wait that the backstop ends within its own limit, or that reaches its limit under memory
+pressure, skips its test with a reason beginning `Unmeasured:`. A simulator whose first boot
+passes its limit is unmeasured too. The gate and `scripts/test-ios.sh` list each one and exit 3,
+neither passed nor failed: run those tests again when the host is quieter. The Mac suite's log
+is `.build/validation/mac.log`. The script checks bound a run of fake tools only against a
+hang, at two minutes (`HANG_SECONDS` in `scripts/tests/support.py`).
+
+Some tests are measured only at normal memory pressure. A verifier wait that is meant to run
+out, as when `ControlsCoverageContractTests` and `EngineContractTests` check that a broken
+engine is refused, reaches its limit on every run. So under memory pressure it is unmeasured
+every time, in a simulator too, whose test process reads the host's level. On 2026-10-23 five
+of them were unmeasured on the iPhone simulator, in a gate and again alone, and passed in a rerun
+during which the level read 1 throughout
+([the record](https://github.com/vocaro/EPUBLib/issues/601#issuecomment-6377013285)). Rerun
+them with the level logged beside the run:
+
+```sh
+( while sleep 2; do echo "$(date +%T) $(sysctl -n kern.memorystatus_vm_pressure_level)"; done ) > pressure.log &
+python3 scripts/eng run ios-tests -- -only-testing:EPUBViewingTests/ControlsCoverageContractTests \
+  -only-testing:EPUBViewingTests/EngineContractTests
+kill %1
+```
+
+A test that fails in a gate and passes alone may still race. Repeat its class through the same
+lane with `-test-iterations 5 -run-tests-until-failure` after `--`, and file what fails only
+under load as a defect. `LayoutPageTests`' closing test failed once that way and then passed five
+repetitions on both simulators ([#860](https://github.com/vocaro/EPUBLib/issues/860)).
+
+Record host activity beside the results as context, as that section describes. The idle-CPU
+recipe [reported in #62](https://github.com/vocaro/EPUBLib/issues/62#issuecomment-6155249383)
 is a heuristic from one session, not a gate requirement or an acceptance cutoff.
 
 When several branches are ready at once, one gate can serve them all, as
@@ -91,12 +135,13 @@ gate and before blaming a change for that failure.
 
 `scripts/test-ios.sh` runs its devices as
 [disposable simulators](https://github.com/vocaro/apple-engineering/blob/main/guides/simulator-testing.md#disposable-simulators).
-It reports `Passed` or `Failed` for each device, continues to the second after a creation, boot
-or test failure, and exits nonzero if either failed. A passed device reports the tests it ran:
+It reports `Passed`, `Failed` or `Unmeasured` for each device, continues to the second after a
+creation, boot or test failure, and exits 1 if either failed, or otherwise 3 if either was
+unmeasured. A passed device reports the tests it ran:
 XCTest's total for each test bundle, which `xcodebuild` runs one at a time, and Swift Testing's
 for each run. A device that ran none fails. Arguments go to each device's `xcodebuild test`.
 Each first boot has a 600-second limit (`EPUB_SIM_BOOT_TIMEOUT` overrides it with a positive
-number of seconds). The device and last
+number of seconds), and a boot that passes it leaves its device unmeasured. The device and last
 boot stage, including any migration plugin, are retained in
 `.build/validation/<device-kind>-boot.log`, the identifier creation printed in
 `<device-kind>-create.log`, and the test log in `<device-kind>.log`. Destination discovery gets
@@ -106,8 +151,10 @@ The failure, timeout and interruption paths can be checked without creating a si
 fresh temporary directory and checks that every created device is deleted.
 
 The Mac and iOS suites are `heavy` lanes of their own, `swift-tests` and `ios-tests`, and the
-narrower checks are runs of them. Arguments after `--` go to the lane's command: a `swift test`
-filter, or `xcodebuild test` options such as `-only-testing:` for each simulator.
+narrower checks are runs of them. `swift-tests` runs `scripts/test-mac.sh`, which runs
+`swift test` as the gate does and exits 3 when a test was unmeasured. Arguments after `--` go to
+the lane's command: a `swift test` filter, or `xcodebuild test` options such as
+`-only-testing:` for each simulator.
 
 ```sh
 python3 scripts/eng run swift-tests
@@ -251,7 +298,9 @@ misstates their sizes, contents entries that do not resolve, named character ref
 lower-case doctypes in navigation, control characters in navigation, white space in metadata
 values and navigation labels (ASCII whitespace stripped and collapsed however it is written,
 white space outside ASCII kept beside other content and a mark after a space kept, a value of
-nothing but white space of any kind empty),
+nothing but white space of any kind empty), U+FEFF left out of them wherever the parser splits
+the text, a `br` in a label read as a space, Dublin Core names in OEBPS 1.2's capitals inside
+`dc-metadata`,
 cancellation after expansion starts, and exact IDPF/Adobe font deobfuscation vectors. The font
 tests check the XOR prefix and the untouched suffix against independently specified keys.
 
@@ -882,8 +931,8 @@ take the same file from `TEST_RUNNER_EPUBLIB_SVG_CORPUS`. The runs are on
 ### SVG rendering cost probe
 
 The renderer probes and their recorded inputs moved to StaticSVG with the renderer: its
-[rendering cost probe](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/testing.md#rendering-cost-probe)
-and [font-size cost probe](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/testing.md#font-size-cost-probe).
+[rendering cost probe](https://github.com/vocaro/StaticSVG/blob/0.1.3/doc/testing.md#rendering-cost-probe)
+and [font-size cost probe](https://github.com/vocaro/StaticSVG/blob/0.1.3/doc/testing.md#font-size-cost-probe).
 The measurements already recorded stay on [#176](https://github.com/vocaro/EPUBLib/issues/176#issuecomment-6159294552)
 and [#443](https://github.com/vocaro/EPUBLib/issues/443).
 
@@ -1288,6 +1337,69 @@ What the probe saw, what was fixed and what is still unverified is on
 [#51](https://github.com/vocaro/EPUBLib/issues/51#issuecomment-6159295619) ([second
 part](https://github.com/vocaro/EPUBLib/issues/51#issuecomment-6159295950)).
 
+### Bar changes over the reader
+
+How continuous scroll moves while a bar is shown or hidden over it, animated, is watched with
+the probe patch and runner on
+[#370](https://github.com/vocaro/EPUBLib/issues/370#issuecomment-6370953916). The patch adds a
+test class that mounts `EPUBReaderView` in a `NavigationStack` three ways (under the host's own
+bar with `ignoresSafeArea()`, and under `epubReaderHidesControls` in and out of the safe area),
+changes the bar four times in a book with full-page boxes and in one with none, and logs where
+the line shown is drawn at every frame, from the scroll view's presentation layer. With
+`PROBE370_FRAMES` it draws every other frame from the window's presentation layers into PNGs.
+`simctl io recordVideo` records none of it: SwiftPM's iOS test host shows no window on the
+simulator's display. The runner creates and deletes its own iPhone 17 Pro and iPad Air
+13-inch (M4) simulators; run it with `python3 scripts/eng admit -- bash probe-370-run.sh`.
+
+### Menu bar commands
+
+`EPUBReaderMenuCommands` ([reader controls](reader-controls.md#menu-bar-commands)) is checked
+three ways ([#697](https://github.com/vocaro/EPUBLib/issues/697)), and the probe's host carries
+it on both platforms.
+
+- `ReaderMenuCommandsTests` gives each command's name, which VoiceOver reads of its item, its
+  shortcut, when it is dimmed and what it submits, against a scripted session, and Find in a
+  mounted control strip and search pane. SwiftUI builds menus from `Commands` only in an app's
+  scene, so the tests read what the menu items read.
+
+  ```sh
+  python3 scripts/eng run swift-tests --expect 10 -- --filter ReaderMenuCommandsTests
+  python3 scripts/eng run ios-tests --expect 20 -- -only-testing:EPUBViewingTests/ReaderMenuCommandsTests
+  ```
+
+- `MenuCommandShortcuts`, a UI test in the probe's bundle, types the shortcuts on an iPad
+  simulator with `XCUIElement.typeKey`, through UIKit's keyboard dispatch and the app's menu, and
+  reads each effect from the host's status line: the text size, the reading modes, Find, and Find
+  Next and Find Previous after a search. Build the probe for a disposable iPad Air 13-inch (M4)
+  simulator as above, then run it alone:
+
+  ```sh
+  xcodebuild -project Examples/ControlsQualification/ControlsQualification.xcodeproj \
+    -scheme ControlsProbeIOS -destination "platform=iOS Simulator,id=$DEVICE" \
+    -derivedDataPath .build/qualification/derived test-without-building \
+    -only-testing:ControlsProbeIOS/MenuCommandShortcuts
+  ```
+
+  XCTest sends no press for Page Up, Page Down, Home or End there (above), so the Go menu's
+  shortcuts are not typed. UIKit built the app's main menu when the first key came, and that key
+  reached no item, so the test's first key is Actual Size, dimmed at the default size. The
+  simulator's log names an item the menu builder refused ("Inserted elements conflict with
+  existing elements"):
+
+  ```sh
+  xcrun simctl spawn "$DEVICE" log show --last 10m --predicate 'process == "ControlsQualification"' | grep -A8 conflict
+  ```
+
+  On a Mac the test skips: it would take the pointer and keyboard.
+- On the Mac the host's menu bar is read in the background through the accessibility API, as
+  [driving an owned app in the background](https://github.com/vocaro/apple-engineering/blob/main/guides/background-mac-testing.md#driving-an-owned-app-in-the-background)
+  says: built signed to run locally (`CODE_SIGN_IDENTITY=-`), launched without activation,
+  addressed by its PID, and quit. The driver is on
+  [#697](https://github.com/vocaro/EPUBLib/issues/697#issuecomment-6371832258). An app in the background has no window
+  in front, and so no reader for `@FocusedValue`: every item was in its place, by its name and
+  with its shortcut, and dimmed, and pressing one did nothing. Items enabled and run from the
+  Mac's menu bar need the host's window in front.
+
 ### VoiceOver's own code on Mac
 
 What VoiceOver does with an element can be read in its own code, without running it or
@@ -1301,6 +1413,39 @@ The helper that names the stubs and strings in that output is on
 each stub's selector or function and each string's characters beside the line that uses it.
 Read so on macOS 27.0, the code is what made a departed table of data say "empty" on 27.0.1
 ([the native viewer](native-viewer.md), "Data tables", "Pages").
+
+### Contention for a test's waits
+
+To see how a test's waits hold up when its process waits for a core, run it clamped to
+background QoS beside busy processes. Other sessions' default-QoS work keeps the cores
+([#859](https://github.com/vocaro/EPUBLib/issues/859)). By default the spinners are at
+background QoS too. With `CONTEND_SPINNERS=nice` they run at default QoS and nice 20, which
+ranks them above the command and below everyone else's work. Admit the run as heavy work, and
+keep it to minutes: the spinners raise the load average that admission reads.
+
+```python
+#!/usr/bin/env python3
+"""contend.py SPINNERS -- COMMAND...: COMMAND at background QoS beside SPINNERS busy processes."""
+import os, subprocess, sys, time
+
+spinners, command = int(sys.argv[1]), sys.argv[3:]
+spinner = ["nice", "-n", "20"] if os.environ.get("CONTEND_SPINNERS") == "nice" else ["taskpolicy", "-c", "background"]
+busy = [subprocess.Popen([*spinner, "perl", "-e", "1 while 1"]) for _ in range(spinners)]
+try:
+    time.sleep(1)
+    status = subprocess.call(["taskpolicy", "-c", "background", *command])
+finally:
+    for process in busy:
+        process.kill()
+sys.exit(status)
+```
+
+```sh
+python3 scripts/eng admit -- python3 contend.py 36 -- swift test --skip-build --filter EngineContractTests
+```
+
+On 2026-10-23, neither kind of spinner made the 0.2–0.3 s contract waits that `main` had before
+#859 fail ([the runs](https://github.com/vocaro/EPUBLib/issues/859#issuecomment-6375657021)).
 
 ## Adapter contract tests
 
@@ -1333,6 +1478,12 @@ The verifier checks:
   steps: with one, every step would show that result, and no step or wrap could move the
   current match. An engine without `.searchResults` refuses the three result commands with
   `.unsupported(.searchResults)` and publishes no results.
+- An engine with `readerState` gives each `.relocated` a reason there,
+  `EPUBReaderStatus.relocationReason`, before it sends the event, and every relocation that a
+  text size or a change of flow brings gives `.relayout`
+  ([#600](https://github.com/vocaro/EPUBLib/issues/600)). The verifier reads the state as each
+  relocation arrives. It waits as after close before the style commands, so that a relocation
+  still to come for the commands before is not taken for a relayout's, and again after them.
 - Close is idempotent; closed commands fail and later callbacks are suppressed.
 
 A minimal SwiftUI test engine runs the same checks with no renderer at all, as an engine with no
@@ -1342,7 +1493,8 @@ engines demonstrate that missing/duplicate readiness, ignored cancellation, inco
 locations that carry the file's hash, a restore that refuses a location saved under it,
 late callbacks, results published after completion, steps that do not wrap, stale results that
 still navigate, results kept after a clear and a step of a cleared search that still moves the
-reader fail the verifier. Adapter-specific tests must additionally check actual rendering,
+reader fail the verifier, and in `ControlsCoverageContractTests` so do a relocation with no
+reason, one whose reason is given only after the event and a relayout reported as a move. Adapter-specific tests must additionally check actual rendering,
 selection gestures, precise bookmark semantics and resource release.
 
 A bounded quiet period after close detects late callbacks; it cannot prove that an engine will
@@ -3265,6 +3417,20 @@ offered as evidence at a fixed pause, the runner's default, on a workstation or 
    has gone to another menu with `listright` starts the next one there. With `tracking`
    sent first, which turns cursor tracking off, the same steps in pages say the heading
    and leave the page where it is.
+   Paragraphs, on an iPhone and iPad. With the rotor on Paragraphs (`rotor=Paragraphs`),
+   `flick=down` says the first line of the next paragraph, picture, list item, table or
+   heading, turning the page or scrolling to it, and `flick=up` from inside a paragraph
+   says its first line and then goes to the block before. A move by item or a touch on a
+   line of a page puts VoiceOver's rotor on Actions, so turn it again after one. In the book
+   of ordinary paragraphs,
+   `wait=8,touch=p001w01,rotor=Paragraphs,flick=down*8,forward=2,rotor=Paragraphs,flick=up*5,visible`
+   says `p002w01` to `p009w01` over page turns and then `p009w01`, `p008w01` and back to
+   `p005w01`; with `--flow scrolled` the same without the second rotor turn. On "What each
+   line offers" a link or a picture inside a line is no stop and the table row is one; on
+   "Tables of data" each table is one stop, at its caption or its first cell or row, and
+   from a cell (`touch=Twelve`) `flick=up` says the caption and the next `flick=down` the
+   words after the table. Sessions on iOS 27.2 simulators are on
+   [#711](https://github.com/vocaro/EPUBLib/issues/711#issuecomment-6372973411).
 10. Links on a Mac, in pages and in continuous scroll, with VoiceOver's link setting at Speak
     ([Links](#links)). `ax:links` lists each link on screen once as a `CHILD`, by its words:
     "Verification link" on the first page, "Parked link to the target" on the hidden-labels

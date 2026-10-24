@@ -12,6 +12,10 @@ available on demand in [testing](testing.md); they are not implied by a package 
 
 The engine identifier `org.epublib.reader` and the `epublib-cfi-v1` bookmark format are persisted
 contracts: a viewer change keeps both and must keep resolving the CFIs recorded in
-`CFIGoldenVectors.swift`. A release's verification record is in its
-[GitHub release notes](https://github.com/vocaro/EPUBLib/releases), for the revision its tag
-names, and is not rewritten by a module move.
+`CFIGoldenVectors.swift`.
+
+A release is tagged only on a commit whose gate passed. Its
+[GitHub release notes](https://github.com/vocaro/EPUBLib/releases) say what changed, its
+requirements and its compatibility, not how it was verified; published notes are not rewritten.
+The shared [releasing guide](https://github.com/vocaro/apple-engineering/blob/main/guides/releasing.md)
+has the steps.

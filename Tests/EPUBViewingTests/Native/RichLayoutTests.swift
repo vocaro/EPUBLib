@@ -1,4 +1,5 @@
 import CoreGraphics
+import EPUBTestSupport
 import XCTest
 @testable import EPUBViewing
 #if os(macOS)
@@ -55,7 +56,7 @@ import UIKit
 
     /// Lays out the viewport and draws the view until `ready`.
     func display(until ready: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(5)
+        let deadline = TestDeadline(seconds: 5)
         repeat {
             #if os(macOS)
             view.layoutSubtreeIfNeeded()
@@ -71,7 +72,7 @@ import UIKit
             #endif
             if ready() { return }
             try await Task.sleep(for: .milliseconds(50))
-        } while Date() < deadline
+        } while try !deadline.hasPassed()
     }
 
     /// Each attachment's layout fragment frame.

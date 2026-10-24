@@ -12,6 +12,10 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 from _engineering import toolkit_location
 
+# How long a script copy with fake tools may run: they take about a second, so this only bounds
+# a hang, and a gate on a busy host does not reach it (doc/testing.md, "Local gate").
+HANG_SECONDS = 120
+
 
 def engineering_configuration():
     """This checkout's engineering.json, naming the toolkit its own adapters find (#701).
@@ -51,7 +55,7 @@ class ScriptTestCase(unittest.TestCase):
     def run_script(self, name, *arguments, **environment):
         return subprocess.run([sys.executable, str(self.scripts / name), *arguments],
                               cwd=self.root, env=dict(self.env, **environment),
-                              capture_output=True, text=True, timeout=15)
+                              capture_output=True, text=True, timeout=HANG_SECONDS)
 
     def module(self, name):
         spec = importlib.util.spec_from_file_location(name.replace("-", "_"), self.scripts / name)

@@ -1,4 +1,5 @@
 import CoreGraphics
+import EPUBTestSupport
 import Foundation
 import XCTest
 @testable import EPUBViewing
@@ -762,8 +763,8 @@ import UIKit
         view.setAccessibilitySelectedTextRanges([NSValue(range: NSRange(location: 0, length: 2)), NSValue(range: NSRange(location: length, length: 1))])
         XCTAssertEqual(view.selectedRange, NSRange(location: length - 5, length: 5), "refused when any range leaves the page")
         XCTAssertEqual(view.accessibilitySelectedText(), text.substring(with: NSRange(location: offset + length - 5, length: 5)))
-        let deadline = Date().addingTimeInterval(20)
-        while host.recorder.selections.isEmpty, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        let deadline = TestDeadline(seconds: 20)
+        while host.recorder.selections.isEmpty, try !deadline.hasPassed() { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertEqual((host.recorder.selections.last ?? nil)?.range, ReaderTextRange(section: 0, (offset + length - 5)..<(offset + length)))
         // A caret, as VoiceOver places its cursor, is kept on the page and selects nothing.
         view.setAccessibilitySelectedTextRange(NSRange(location: view.textLength, length: 0))

@@ -78,8 +78,14 @@ accessibility size on an iPad mini on its side or a small iPhone upright. The pa
 the field stay on screen there, and a swipe on the strip brings the other groups up with the
 keyboard still up, wherever it starts: between the controls or on the field, a menu or the
 reading mode. With the room it needs the strip neither scrolls nor
-clips anything, and its frames are what they were before it could scroll. Its groups keep the
-height a stack gave them, so a label too long for its line is cut short and not wrapped. A
+clips anything. A label or a line under the search field that is too long for its line takes
+a second, as text at a larger Dynamic Type size does: on an upright iPhone SE at the largest
+accessibility size, Appearance is on two lines and a refused search's sentence on four.
+Before the strip could scroll each label kept to one line and was cut short, and Appearance
+read "Appearan…" there
+([#365](https://github.com/vocaro/EPUBLib/issues/365)). The strip's groups are 401 points
+tall there and scroll in the 365 the keyboard leaves them; with a refused search they are 642,
+and scroll in the 625 the screen leaves them. A
 strip with nothing in it that fills the width, such as one without `.search`, stays as wide as
 its groups. On a Mac the strip is as tall as its groups whatever it is offered: no keyboard
 takes its room and text is one size there, and a scroll view would put one more container round
@@ -120,7 +126,8 @@ appear in submenus and parent links remain selectable. An empty contents menu sa
 available”; entries without links are disabled.
 
 Search sends commands only on Return or the Search button. Typing does not search, and no
-keyboard shortcut is installed that could intercept editing keys. On a Mac, Search and Clear
+keyboard shortcut is installed that could intercept editing keys, by the controls or by the
+menu bar's commands. On a Mac, Search and Clear
 retain focus in the field. On iPhone and iPad the field gives its focus up when Return or its
 Search button submits a search, in the strip and in a search pane alike, which puts the
 keyboard away: it would cover the page or the results the search shows, and where the strip
@@ -261,6 +268,102 @@ starts at, and shows or hides nothing.
 
 Migration: hosts with exhaustive switches over `EPUBReaderControlGroup` add `.hideControls`.
 
+## Menu bar commands
+
+`EPUBReaderMenuCommands` puts the reader's commands in the menu bar of a Mac and of an iPad,
+which has one since iPadOS 26 ([#697](https://github.com/vocaro/EPUBLib/issues/697)). Add it
+to the scene, and apply `epubReaderMenuCommands(_:)` to the view that holds each reader:
+
+<!-- snippet:menuCommands -->
+```swift
+/// The reader's commands in the menu bar of a Mac and an iPad.
+struct ReaderScene<Content: View>: Scene {
+    @ViewBuilder let content: () -> Content
+
+    var body: some Scene {
+        WindowGroup(content: content)
+            .commands { EPUBReaderMenuCommands() }
+    }
+}
+
+struct MenuCommandsReader: View {
+    let controls: EPUBReaderControls // Retained alongside the existing session by the host.
+
+    var body: some View {
+        EPUBReaderView(session: controls.session)
+            .toolbar { EPUBReaderToolbar(controls: controls) }
+            // The reader the menu bar's commands act on while this window is in front.
+            .epubReaderMenuCommands(controls)
+    }
+}
+```
+<!-- /snippet -->
+
+The commands act on the reader of the window in front: `epubReaderMenuCommands(_:)` is
+`focusedSceneValue(controls)`, and the commands read `@FocusedValue(EPUBReaderControls.self)`,
+as a host's own commands can. Each keeps its place whether or not that window has a reader,
+dimmed while it cannot run, and is submitted through the controls' queue like the supplied
+control that does the same:
+
+| Menu | Item | Shortcut | Dimmed |
+| --- | --- | --- | --- |
+| Edit > Find | Find… | Command-F | Without a supplied search group on screen, or for a reader that does not search |
+| | Find Next, Find Previous | Command-G, Shift-Command-G | While there are no results to step through (`canShowSearchResults`) |
+| View | Larger Text, Smaller Text | Command-+, Command-- | Where no step changes the size drawn, as in the Appearance menu |
+| | Actual Size | Command-0 | At the style's default size, 17 points |
+| | Use System Text Size | | |
+| | Appearance > System, Light, Dark, Sepia, Black, Custom | | |
+| | Continuous Scroll, Paging | Command-1, Command-2 | For a reader without both; the mode in use is checked |
+| Go | Previous Page, Next Page | Page Up, Page Down | At a known end of the book |
+| | First Page, Last Page | Home, End | At that end, and for a reader without `.goToProgression` |
+| | Contents > the contents entries | | As in the Contents menu |
+
+Every item is dimmed before the reader is ready, after it fails and once it closes, and those
+of the View menu for a reader without `.typography`. In continuous scroll the Go menu's four are
+Scroll Backward, Scroll Forward, Scroll to Beginning and Scroll to End, as the page buttons are
+named there. The Find menu follows the Edit menu's Select All, the View menu's sections come
+before its toolbar items, and Go stands between View and Window, where Finder and Preview have
+theirs. A submenu stays enabled on a Mac, to be looked into, with its items dimmed; Contents
+holds "No contents available" when there is nothing to list, as the Contents menu does, and
+with no reader in front. Go to Page ([#693](https://github.com/vocaro/EPUBLib/issues/693)) and
+the bookmarks ([#694](https://github.com/vocaro/EPUBLib/issues/694)) will join them.
+
+The shortcuts are the platform's own. Find, Find Next and Find Previous have those of the Edit
+menu's Find in Preview. The text size has the Command-+, Command-- and Command-0 of
+Zoom In, Zoom Out and Actual Size in Preview's View menu, where Continuous Scroll and Single
+Page have Command-1 and Command-2. On an iPad simulator Command-= took Larger Text as Command-+
+did. On a Mac an `NSMenu` matched an item's `+` to Command-Shift-= and the keypad's plus, and not
+to Command-= alone (in process, with a US keyboard's events). The Go
+menu takes the reader's own Page Up, Page Down, Home and End (`EPUBPageKeyBinding.defaults`), as
+Preview's Go menu takes Page Up and Page Down, and with reader focus the reader takes them
+itself first, as before. It takes none of the reader's other keys: a Mac offers a menu's Command
+chords before the keys of the view with focus, and in a search field the arrows and Space edit
+text and Command-Up and Command-Down move the cursor. Contents, the appearances and Use System
+Text Size have none: a submenu takes no shortcut, and Apple keeps shortcuts for the commands
+used most ([Keyboards](https://developer.apple.com/design/human-interface-guidelines/keyboards)).
+
+Two placements are kept away from on purpose. On an iPad a command group placed by
+`.textEditing` has SwiftUI add the system's own Find menu, with Command-F, Command-G and
+Shift-Command-G for the standard edit actions, and UIKit's menu builder then refused the
+reader's Find items for having the same keys ("Inserted elements conflict with existing
+elements", in the simulator's log), so Find goes after the pasteboard's items instead.
+`TextEditingCommands` gives the text views a Find of their own with those keys as well: a host
+adds one or the other. And on an iPad the items of a group placed before the
+toolbar's went into the toolbar's own section one at a time, last first, with the appearances
+in the View menu itself and not under their name: each part of the View menu is a section, and
+the appearances a picker in the menu style.
+
+Find opens a toolbar's search pane, whose field then takes focus, or puts focus in a control
+strip's search field, raising the keyboard on iPhone and iPad as a touch on it would. Of several
+search groups on screen it is the one that appeared last. Hidden controls show first.
+`controls.canFind` and `controls.find()` do the same for a host's own command. A host with a
+search field of its own runs its own Find, and the supplied one stays dimmed.
+
+The menus are SwiftUI's, and what VoiceOver reads of an item is its name above, dimmed or
+checked as it is ([names, values and states](#names-values-and-states)). Read through a Mac's
+accessibility API, the menu bar of the controls probe's host held each item in its place, by
+that name and with its shortcut ([menu bar commands](testing.md#menu-bar-commands)).
+
 ## Search results
 
 An engine advertising `.searchResults` (the bundled reader does) publishes the completed
@@ -270,7 +373,8 @@ the same value. It holds the submitted `query`, the `results`, their `count`, th
 `currentIndex` / `current` match and `isTruncated`. Each `EPUBSearchResult` has its `index`,
 its section's `spineIndex` and `sectionTitle` (the contents entry in effect, else the
 document's own title), the `matchedText` as the book spells it, `contextBefore` /
-`contextAfter` from the same paragraph or table cell (about a line, cut at whole words;
+`contextAfter` from the same paragraph or table cell, in the book's own words without a list
+item's marker or other generated text (about a line, cut at whole words;
 `snippet` joins the three), and a `location` with the section `href`, overall `progression`,
 contents `title`, `quote`, page-list `page` and, in the bundled reader, a `bookmark` naming
 exactly the occurrence. Pass that location to `.restore` or keep it as an `EPUBHighlight`.
@@ -293,7 +397,14 @@ Three commands navigate, each requiring `.searchResults`:
 `controls.showNextSearchResult()`, `showPreviousSearchResult()` and `showSearchResult(_:)`
 submit them through the controls' FIFO queue; `canShowSearchResults` says whether there is
 anything to step through. Once the engine has shown the match, they have VoiceOver say it
-(`searchResultAnnouncement`), and its cursor stays on the control. A shown result is brought
+(`searchResultAnnouncement`), and its cursor stays on the control. `submitSearch()` does the
+same for the match `.search` opens, so the count comes with the first match: “Match 1 of 14,
+first match, Before the road: lantern hangs at the gate.” That is the one announcement where
+the search turns the page, as it is for a step: the bundled reader announces only a page that
+VoiceOver's own scroll turns. A search that opens no match says nothing: one that finds none,
+one that newer navigation kept from moving the reader, a refused or canceled one, and one by
+an engine that only highlights
+([#601](https://github.com/vocaro/EPUBLib/issues/601)). A shown result is brought
 into view in both flows and drawn in a stronger highlight than the other matches. Paging shows
 its page. Continuous scroll rests its line about a third of the way down the view, with the
 text before it above, or lower in a section's first lines, whose start is then at the top, so
@@ -320,8 +431,10 @@ The bundled reader and the supplied controls settle these questions as follows:
 
 Match navigation is separate from page turns throughout: its own commands, its own labels
 (“Previous Match” / “Next Match”) and up/down chevrons in a fixed logical order that an RTL
-book never mirrors. No keyboard shortcut is installed and Return still submits the query; a
-host wanting Find Next on Command-G binds it to `controls.showNextSearchResult()`.
+book never mirrors. The controls install no keyboard shortcut and Return still submits the
+query; Find Next and Find Previous in the menu bar
+([menu bar commands](#menu-bar-commands)) take Command-G and Shift-Command-G, and a host's own
+command can call `controls.showNextSearchResult()`.
 
 Once a search has results, the search pane shows the navigator under the field: `3 of 27`,
 or `27 matches` before one has been shown. As a popover or sheet the pane lists the results
@@ -532,6 +645,7 @@ controls were operated; the Mac's tree agrees where noted.
 | Previous Match, Next Match | The same | The count's value |
 | Result row | "Match 9 of 14, The cairn, page 11: lantern on the cairn. Preceded by: when the evening is quiet. Somebody has left a" | "Current match" and selected on the current row |
 | Section in the list | Its title | A heading |
+| Menu bar items | As [above](#menu-bar-commands), in the Mac's tree: "Find…", "Larger Text", "Next Page" | Dimmed where they cannot run, and a submenu's items rather than the submenu; the chosen appearance checked, System with no reader in front |
 
 In the right-to-left book the tree lists Previous Page before Next Page, as in a left-to-right
 one, though Next Page is drawn on the left.

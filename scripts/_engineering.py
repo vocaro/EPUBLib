@@ -17,7 +17,7 @@ def main_checkout(root):
 
     A linked worktree's .git is a file naming its directory inside the repository's .git, whose
     commondir file leads back to that .git: the parent of `git rev-parse --git-common-dir`.
-    It is read without running Git, which the script tests replace with fake commands on PATH.
+    It is read without running Git, which script tests may replace with fake commands on PATH.
     """
     try:
         line = (Path(root) / ".git").read_text().strip()
@@ -35,7 +35,7 @@ def main_checkout(root):
 
 def toolkit_location(root):
     """VOCARO_ENGINEERING_ROOT, else toolkit.path beside this checkout or, from a linked
-    worktree such as a session's under .claude/worktrees, beside the main checkout (#701)."""
+    worktree such as a session's under .claude/worktrees, beside the main checkout."""
     override = os.environ.get("VOCARO_ENGINEERING_ROOT")
     if override:
         return (Path(root) / override).resolve()
@@ -79,17 +79,37 @@ def support_path(name):
     return kit / candidates[name]
 
 
-if __name__ == "__main__":
-    # Used by a legacy shell gate, without disabling locking in its test fixtures.
-    if len(sys.argv) != 3 or sys.argv[1] != "--verify-exclusive":
-        raise SystemExit(2)
+def verify_admission(lock):
+    """Whether this process inherits a live admission, heavy or exclusive, in lock's namespace.
+
+    A gate fixture with its own lock file must not reuse the suite's admission that tests it.
+    """
     try:
         toolkit_root(project_root(__file__))
         from vocaro_engineering import resources
         token = json.loads(os.environ.get(resources.TOKEN, "{}"))
-        expected = Path(str(Path(sys.argv[2]).resolve()) + ".warm-push-guard")
+        expected = Path(str(Path(lock).resolve()) + ".warm-push-guard")
         supplied = Path(token.get("guard", str(expected))).resolve()
-        approved = supplied == expected and resources.inherited(exclusive=True)
+        return supplied == expected and resources.inherited()
     except (OSError, ValueError, RuntimeError):
-        approved = False
-    raise SystemExit(0 if approved else 1)
+        return False
+
+
+def admit(timeout, command):
+    """Run command as one job of the host's heavy-work queue, without `eng admit`'s policy fetch."""
+    toolkit_root(project_root(__file__))
+    from vocaro_engineering import resources
+    try:
+        return resources.main(["--timeout", timeout, "--", *command])
+    except (TimeoutError, RuntimeError) as error:
+        print(f"gate admission: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    # Used by scripts/gate-lock.sh, without disabling locking in its test fixtures.
+    if len(sys.argv) == 3 and sys.argv[1] == "--verify-admission":
+        raise SystemExit(0 if verify_admission(sys.argv[2]) else 1)
+    if len(sys.argv) > 4 and sys.argv[1] == "--admit" and sys.argv[3] == "--":
+        raise SystemExit(admit(sys.argv[2], sys.argv[4:]))
+    raise SystemExit(2)

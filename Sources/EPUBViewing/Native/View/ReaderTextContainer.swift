@@ -488,22 +488,81 @@ final class ReaderTextContainer: NSTextContainer {
 }
 
 extension ReaderTextContainer: NSTextContentStorageDelegate {
+    /// At most this many of a paragraph's interval stops are written out (`intervalStops`). Past
+    /// the last stop it is shown, TextKit 2 sets a tab at that stop plus a multiple of the
+    /// interval, which is where the next ones would have been.
+    static let maximumIntervalStops = 512
+
+    /// Whether the characters of `range` in `text` hold a tab.
+    static func holdsTab(_ text: NSAttributedString, in range: NSRange) -> Bool {
+        (text.string as NSString).range(of: "\t", options: .literal, range: range).location != NSNotFound
+    }
+
+    /// The stops a paragraph of `style` with no stops of its own has a tab land on: every
+    /// multiple of its default interval (`InlineStyling.tabInterval`) from the paragraph's
+    /// leading edge, the right in right-to-left text, through the first past `limit`. TextKit 1
+    /// sets a tab there in either direction, and TextKit 2 does left to right where it applies
+    /// the paragraph's indents itself. Elsewhere TextKit 2 measures the interval from a line's
+    /// start: in a paragraph without indents, the start the container gives each line, and right
+    /// to left, the first line's start less the tail indent. So a tab past an indent landed an
+    /// indent further along with a box in the section than without one (#334). Such a paragraph
+    /// that holds a tab is shown these stops, moved as its own would be.
+    static func intervalStops(_ style: NSParagraphStyle, through limit: CGFloat) -> [CGFloat] {
+        let interval = InlineStyling.tabInterval(style.defaultTabInterval)
+        var stops: [CGFloat] = []
+        var step = 1
+        while stops.count < maximumIntervalStops {
+            let stop = CGFloat(step) * interval
+            stops.append(stop)
+            if stop > limit { break }
+            step += 1
+        }
+        return stops
+    }
+
+    /// The tab stops of `style` measured from its first line's start, as TextKit is shown a
+    /// paragraph whose indents it is not shown: its own, moved back by the first-line indent, or,
+    /// in a paragraph that has none and `holdsTab`, its interval's (`intervalStops`) that are
+    /// past that start. A paragraph's later lines have the same stops, measured from their own
+    /// start, so where the first is indented differently (`text-indent`) a tab on a later line
+    /// lands that difference off; a page that starts within a paragraph (`ReaderPaginator`) sets
+    /// its first line at the head indent and measures them from there.
+    static func firstLineStops(_ style: NSParagraphStyle, holdsTab: Bool, through limit: CGFloat) -> [NSTextTab] {
+        let origin = max(0, style.firstLineHeadIndent)
+        guard style.tabStops.isEmpty else {
+            return style.tabStops.map { NSTextTab(textAlignment: $0.alignment, location: max(0, $0.location - origin), options: $0.options) }
+        }
+        guard holdsTab else { return [] }
+        return intervalStops(style, through: limit).compactMap {
+            $0 > origin ? NSTextTab(textAlignment: .natural, location: $0 - origin) : nil
+        }
+    }
+
     /// `style` as TextKit 2 is shown it where it applies the paragraph's indents itself, so that
     /// its tab stops are where the style puts them; nil when that is `style`. A stop is a
     /// distance from the paragraph's leading edge, the right one in right-to-left text, as
     /// TextKit 1 places it in either direction and TextKit 2 left to right. TextKit 2 measures a
     /// right-to-left paragraph's stops from its first line's start instead, less its tail
     /// indent, so a list marker's stop set the item's first line a first-line indent further
-    /// along than its wrapped lines (#276). Paragraphs without indents (`lineFragmentRect`'s)
-    /// have their stops measured from each line's start, which is what they are given.
-    static func rightToLeftStops(_ style: NSParagraphStyle, width: CGFloat) -> NSParagraphStyle? {
-        guard style.baseWritingDirection == .rightToLeft, !style.tabStops.isEmpty else { return nil }
+    /// along than its wrapped lines (#276), and so it measures the paragraph's interval: a
+    /// paragraph without stops of its own that `holdsTab` is shown its interval's
+    /// (`intervalStops`), moved in the same way. Paragraphs without indents
+    /// (`lineFragmentRect`'s) have their stops measured from each line's start, and are given
+    /// them from there (`firstLineStops`).
+    static func rightToLeftStops(_ style: NSParagraphStyle, width: CGFloat, holdsTab: Bool = false) -> NSParagraphStyle? {
+        guard style.baseWritingDirection == .rightToLeft, !style.tabStops.isEmpty || holdsTab else { return nil }
         let first = max(0, style.firstLineHeadIndent)
         let tail = max(0, style.tailIndent <= 0 ? -style.tailIndent : width - style.tailIndent)
         guard first != tail else { return nil }
         let shown = style.mutableCopy() as! NSMutableParagraphStyle
-        shown.tabStops = style.tabStops.map {
-            NSTextTab(textAlignment: $0.alignment, location: max(0, $0.location - first + tail), options: $0.options)
+        if style.tabStops.isEmpty {
+            shown.tabStops = intervalStops(style, through: width).compactMap {
+                $0 - first + tail > 0 ? NSTextTab(textAlignment: .natural, location: $0 - first + tail) : nil
+            }
+        } else {
+            shown.tabStops = style.tabStops.map {
+                NSTextTab(textAlignment: $0.alignment, location: max(0, $0.location - first + tail), options: $0.options)
+            }
         }
         return shown
     }
@@ -511,32 +570,34 @@ extension ReaderTextContainer: NSTextContentStorageDelegate {
     /// A paragraph as TextKit lays it out in a container with box geometry: without the head,
     /// first-line and tail indents that `lineFragmentRect` gives each of its lines. The stored
     /// text keeps them. Tab stops are measured from a line's start, which the first-line indent
-    /// has now moved, so they move back by it. In a plain rectangle TextKit applies the indents
-    /// itself, and a right-to-left paragraph's stops are moved to where it measures them from
-    /// (`rightToLeftStops`).
+    /// has now moved, so they move back by it, and a paragraph that holds a tab is given its
+    /// interval's stops where it has none (`firstLineStops`). In a plain rectangle TextKit
+    /// applies the indents itself, and a right-to-left paragraph's stops are moved to where it
+    /// measures them from (`rightToLeftStops`).
     func textContentStorage(_ textContentStorage: NSTextContentStorage, textParagraphWith range: NSRange) -> NSTextParagraph? {
         guard range.length > 0,
               let text = textContentStorage.textStorage ?? textContentStorage.attributedString, range.upperBound <= text.length,
               let style = text.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle else { return nil }
         guard !isSimpleRectangularTextContainer else {
-            guard let shown = Self.rightToLeftStops(style, width: size.width) else { return nil }
+            guard let shown = Self.rightToLeftStops(style, width: size.width,
+                                                    holdsTab: style.baseWritingDirection == .rightToLeft && Self.holdsTab(text, in: range)) else { return nil }
             let paragraph = NSMutableAttributedString(attributedString: text.attributedSubstring(from: range))
             paragraph.addAttribute(.paragraphStyle, value: shown, range: NSRange(location: 0, length: paragraph.length))
             return NSTextParagraph(attributedString: paragraph)
         }
         guard style.headIndent != 0 || style.firstLineHeadIndent != 0 || style.tailIndent != 0 else { return nil }
         let flat = style.mutableCopy() as! NSMutableParagraphStyle
-        let origin = max(0, style.firstLineHeadIndent)
         flat.headIndent = 0; flat.firstLineHeadIndent = 0; flat.tailIndent = 0
+        let trailing = max(0, style.tailIndent <= 0 ? -style.tailIndent : size.width - style.tailIndent)
+        let consumed = max(0, style.headIndent, style.firstLineHeadIndent) + trailing >= size.width
         if !style.tabStops.isEmpty {
-            let trailing = max(0, style.tailIndent <= 0 ? -style.tailIndent : size.width - style.tailIndent)
-            let consumed = max(0, style.headIndent, style.firstLineHeadIndent) + trailing >= size.width
             let lastStop = max(1, size.width - minimumLineWidth(at: range.location, width: size.width))
-            flat.tabStops = style.tabStops.map {
-                let location = max(0, $0.location - origin)
-                return NSTextTab(textAlignment: $0.alignment, location: consumed ? min(location, lastStop) : location, options: $0.options)
+            flat.tabStops = Self.firstLineStops(style, holdsTab: true, through: size.width).map {
+                NSTextTab(textAlignment: $0.alignment, location: consumed ? min($0.location, lastStop) : $0.location, options: $0.options)
             }
             if consumed { flat.defaultTabInterval = min(flat.defaultTabInterval, lastStop) }
+        } else if !consumed, Self.holdsTab(text, in: range) {
+            flat.tabStops = Self.firstLineStops(style, holdsTab: true, through: size.width)
         }
         let paragraph = NSMutableAttributedString(attributedString: text.attributedSubstring(from: range))
         paragraph.addAttribute(.paragraphStyle, value: flat, range: NSRange(location: 0, length: paragraph.length))

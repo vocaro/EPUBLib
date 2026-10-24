@@ -27,11 +27,12 @@ public extension EPUBReaderControls {
         if supports(.searchResults) { sendSearchResultCommand(.showSearchResult(result)) }
     }
 
-    /// What an assistive technology says once a step or a chosen result has been shown: the
-    /// current match's place, an end it is at and its section, then the text from the
-    /// occurrence onward, as “Match 3 of 14, Second Chapter: needle one, then more.” nil
-    /// without a current match. The match buttons carry the same place as their value, which
-    /// VoiceOver does not read again when it changes under its cursor: the step was silent.
+    /// What an assistive technology says once a step, a chosen result or the match a search
+    /// opens (`submitSearch()`) has been shown: the current match's place, an end it is at and
+    /// its section, then the text from the occurrence onward, as “Match 3 of 14, Second
+    /// Chapter: needle one, then more.” nil without a current match. The match buttons carry
+    /// the same place as their value, which VoiceOver does not read again when it changes
+    /// under its cursor: the step was silent.
     var searchResultAnnouncement: String? {
         guard let current = searchResults?.current, let place = searchResultAccessibilityValue else { return nil }
         let onward = (current.matchedText + current.contextAfter).trimmingCharacters(in: .whitespacesAndNewlines)

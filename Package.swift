@@ -15,7 +15,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.20"),
         .package(url: "https://github.com/vocaro/MathMLLayout.git", exact: "0.3.1"),
-        .package(url: "https://github.com/vocaro/StaticSVG.git", exact: "0.1.1"),
+        .package(url: "https://github.com/vocaro/StaticSVG.git", exact: "0.1.3"),
     ],
     targets: [
         .executableTarget(name: "SearchFocusProbe", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing", "EPUBTestSupport"], path: "Examples/SearchFocusProbe"),
@@ -28,7 +28,7 @@ let package = Package(
                                                     .product(name: "MathMLLayout", package: "MathMLLayout"),
                                                     .product(name: "StaticSVG", package: "StaticSVG")],
                 resources: [.process("Localizable.xcstrings")]),
-        .target(name: "EPUBViewingTestSupport", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing"]),
+        .target(name: "EPUBViewingTestSupport", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing", "EPUBTestSupport"]),
         .target(name: "EPUBTestSupport", dependencies: ["ZIPFoundation"], path: "Tests/EPUBTestSupport"),
         .target(name: "ReaderHostSupport", dependencies: ["EPUBCore", "EPUBReading", "EPUBText", "EPUBViewing"],
                 path: "Examples/VoiceOverVerification/Shared"),

@@ -119,6 +119,39 @@ import UIKit
             let regions = (paginator.text.attribute(.readerBoxPage, at: 0, effectiveRange: nil) as? ReaderBoxPage)?.geometry.regions ?? []
             XCTAssertEqual(regions.filter { !$0.reserved }.map(\.range), [NSRange(location: entry.pages.last!.location,
                                                                                   length: text.length - entry.pages.last!.location)])
+            // The rest is set in the same box as the scene's start, inside the column: its left
+            // edge is the box's, its 5% margin inside the container's 2em, not the indent of the
+            // verse line it starts with, and it is no wider than the column allows. At the phone's
+            // size it was set from 101 to 430 points in a column 362.7 points wide (#720).
+            let column = Self.column(entry.viewport)
+            let rest = try XCTUnwrap(regions.first { !$0.reserved })
+            let content = try XCTUnwrap(rest.contentFrame)
+            let edge = 2 * entry.fontSize, label = "\(entry.viewport) at \(entry.fontSize) pt"
+            XCTAssertEqual(content.minX, edge + (column.width - edge) * 0.05, accuracy: 0.5, label)
+            XCTAssertLessThanOrEqual(content.maxX, column.width + 0.5, label)
+            let lines = BoxLayoutHarness.lines(in: BoxLayoutHarness.pageView(paginator, page: try XCTUnwrap(paginator.allPages.last)))
+            XCTAssertFalse(lines.isEmpty, label)
+            for line in lines {
+                XCTAssertGreaterThanOrEqual(line.frame.minX, content.minX - 0.5, "\(label): \(line.range)")
+                XCTAssertLessThanOrEqual(line.frame.maxX, column.width + 0.5, "\(label): \(line.range)")
+            }
         }
+    }
+
+    /// The rest of a box that opens an indented block is below the part of the box in flow, on a
+    /// line of its own, at the box's edge as that part is: the indent of the block's first line
+    /// is the box's start's (#720).
+    func testTheRestOfABoxThatOpensAnIndentedBlockStartsAtTheBoxsEdge() throws {
+        let verse = (1...60).map { "<div>Line \($0) of the verse that the box holds.</div>" }.joined()
+        let section = try BoxLayoutHarness.build("<div class='p'><div class='b'>\(verse)</div></div>",
+            css: BoxLayoutHarness.reset + ".p { text-indent:40px } .b { display:inline-block; min-width:10em; text-indent:0 }")
+        let (paginator, pages) = BoxLayoutHarness.pages(section, size: CGSize(width: 360, height: 300))
+        XCTAssertGreaterThan(pages.count, 2, "the box is taller than a page")
+        let regions = (paginator.text.attribute(.readerBoxPage, at: 0, effectiveRange: nil) as? ReaderBoxPage)?.geometry.regions ?? []
+        let rest = try XCTUnwrap(regions.first { !$0.reserved }, "the rest that fits a page is set as a box")
+        XCTAssertGreaterThan(rest.range.location, 0, "the box's start stays in flow")
+        XCTAssertEqual(try XCTUnwrap(rest.contentFrame).minX, 0, accuracy: 0.5, "at the box's edge")
+        let inFlow = try XCTUnwrap(BoxLayoutHarness.lines(in: BoxLayoutHarness.pageView(paginator, page: pages[1])).first)
+        XCTAssertEqual(inFlow.frame.minX, 0, accuracy: 0.5, "where the part in flow is")
     }
 }
