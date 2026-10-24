@@ -33,9 +33,9 @@ NOTICES = """# Third-party notices
 - **ZIPFoundation 0.9.20** — MIT.
 - **foliate-js** at `78914aef4466eb960965702401634c2cb348e9b1` — MIT.
 - **MathMLLayout 0.3.1** — MIT. It includes **resvg 0.48.1**, which is not a list item.
-- **StaticSVG 0.1.1** — MIT.
+- **StaticSVG 0.1.3** — MIT.
 """
-VERSIONS = {"ZIPFoundation": "0.9.20", "MathMLLayout": "0.3.1", "StaticSVG": "0.1.1"}
+VERSIONS = {"ZIPFoundation": "0.9.20", "MathMLLayout": "0.3.1", "StaticSVG": "0.1.3"}
 
 
 class LicenseCheckTests(unittest.TestCase):
