@@ -3143,7 +3143,7 @@ The transcript has the rotor's settings on a line, the actions a line offers bef
 after it is selected, what VoiceOver says as the sample performs each, and the passage as the
 reader reports it, as the host's action was given it and as the pasteboard holds it. It does
 not establish that VoiceOver performs the action chosen in its rotor, which a device shows
-([acceptance rule](https://github.com/vocaro/apple-engineering/blob/main/guides/voiceover.md#acceptance-rule)).
+([acceptance rule](https://github.com/vocaro/vocaro-engineering/blob/main/guides/voiceover.md#acceptance-rule)).
 The verification host also accepts positive `-VerificationWidth POINTS` and
 `-VerificationHeight POINTS` together to constrain the reader's content size for a
 layout comparison. A constrained iPad remains an iPad; it does not establish native
