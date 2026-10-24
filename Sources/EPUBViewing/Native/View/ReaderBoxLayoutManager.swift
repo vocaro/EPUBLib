@@ -7,7 +7,7 @@ import AppKit
 
 /// TextKit's ordinary fragments and selection geometry, with margins implementing the planned
 /// flow advances. A float has zero flow height but retains all of its native glyph lines.
-final class ReaderBoxLayoutFragment: NSTextLayoutFragment {
+final class ReaderBoxLayoutFragment: ReaderLayoutFragment {
     var topAdjustment: CGFloat = 0
     var bottomAdjustment: CGFloat = 0
     var repairsPageFlow = false
@@ -62,7 +62,7 @@ final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDele
 
     override init() {
         super.init()
-        delegate = nil
+        delegate = self
     }
     required init?(coder: NSCoder) { super.init(coder: coder) }
 
@@ -76,25 +76,29 @@ final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDele
             return -(index == 0 ? fragment.topAdjustment : 0)
         }
         // A container that is not a plain rectangle can refuse TextKit a line, and its fragments
-        // are then this manager's, to keep their frames to their text.
-        delegate = container?.boxPage != nil || (container?.alignmentLead ?? 0) > 0
-            || container?.isSimpleRectangularTextContainer == false ? self : nil
+        // are then this manager's box fragments, to keep their frames to their text.
+        usesBoxFragments = container?.boxPage != nil || (container?.alignmentLead ?? 0) > 0
+            || container?.isSimpleRectangularTextContainer == false
     }
+
+    /// Whether the fragments are planned (`configureGeometry`). Every other fragment is
+    /// TextKit's own, which also draws the marks of host highlights (`ReaderLayoutFragment`).
+    private var usesBoxFragments = false
 
     func textLayoutManager(_ manager: NSTextLayoutManager, textLayoutFragmentFor location: any NSTextLocation,
                            in element: NSTextElement) -> NSTextLayoutFragment {
-        guard let container = textContainer as? ReaderTextContainer,
-              let content = textContentManager else { return NSTextLayoutFragment(textElement: element, range: nil) }
+        guard usesBoxFragments, let container = textContainer as? ReaderTextContainer,
+              let content = textContentManager else { return ReaderLayoutFragment(textElement: element, range: nil) }
         let offset = content.offset(from: content.documentRange.location, to: location)
         guard let page = container.boxPage else {
             let fragment = ReaderBoxLayoutFragment(textElement: element, range: nil)
             // An aligned box opening the text: its lead above the first line.
             if offset == 0, container.alignmentLead > 0 { fragment.topAdjustment = container.alignmentLead }
-            else if container.isSimpleRectangularTextContainer { return NSTextLayoutFragment(textElement: element, range: nil) }
+            else if container.isSimpleRectangularTextContainer { return ReaderLayoutFragment(textElement: element, range: nil) }
             return fragment
         }
         guard let paragraph = page.geometry.paragraph(at: offset + page.offset) else {
-            return NSTextLayoutFragment(textElement: element, range: nil)
+            return ReaderLayoutFragment(textElement: element, range: nil)
         }
         let fragment = ReaderBoxLayoutFragment(textElement: element, range: nil)
         fragment.topAdjustment = paragraph.topAdjustment

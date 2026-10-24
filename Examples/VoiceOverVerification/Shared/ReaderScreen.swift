@@ -123,6 +123,31 @@ struct ReaderScreen: View {
     /// `-SampleSearch <query>` submits that search once the book is ready, as its field does,
     /// so that the strip has results to step through, or `-SampleSearchAfter <seconds>` later:
     /// after the text built again for `-SampleFontSize`, which moves the view under a search.
+    /// `-SampleHighlights 'yellow=word0003_word0004|blue+underline=next_page_must_resume'`
+    /// highlights each passage in its style, a color and an optional mark by their raw values,
+    /// with an underscore for each space, since the probes split launch arguments at spaces. It
+    /// does so as a host keeps a selection: each passage is located and selected and its
+    /// location kept, and once all are, the reader draws them and shows the page it was on
+    /// again, which leaves nothing selected. A passage that is not found is left out.
+    private func highlightPassages(_ list: String) async {
+        try? await Task.sleep(for: .seconds(1))
+        let start = reader.location
+        var highlights: [EPUBHighlight] = []
+        for (index, entry) in list.split(separator: "|").enumerated() {
+            let parts = entry.split(separator: "=", maxSplits: 1).map(String.init)
+            let style = parts[0].split(separator: "+").map(String.init)
+            guard parts.count == 2, let color = style.first.flatMap(EPUBHighlightColor.init(rawValue:)) else { continue }
+            let passage = parts[1].replacingOccurrences(of: "_", with: " ")
+            reader.send(.locate(text: passage, highlight: true))
+            for _ in 0..<100 where reader.selection != passage { try? await Task.sleep(for: .milliseconds(100)) }
+            guard reader.selection == passage, let location = reader.selectionLocation else { continue }
+            highlights.append(EPUBHighlight(id: "sample-\(index)", location: location,
+                                            style: EPUBHighlightStyle(color: color, mark: style.dropFirst().first.flatMap(EPUBHighlightMark.init(rawValue:)))))
+        }
+        reader.send(.setHighlights(highlights))
+        if let start { reader.send(.restore(start)) }
+    }
+
     private func openFromLaunchArguments() {
         guard reader.session == nil, let path = UserDefaults.standard.string(forKey: "SampleBook") else { return }
         reader.open(url: URL(fileURLWithPath: path))
@@ -154,6 +179,7 @@ struct ReaderScreen: View {
                 }
             }
         }
+        if let highlights = defaults.string(forKey: "SampleHighlights") { Task { await highlightPassages(highlights) } }
         let hideAfter = defaults.double(forKey: "SampleHideAfter")
         if hideAfter > 0 {
             Task {

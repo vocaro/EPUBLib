@@ -1,4 +1,5 @@
 import CoreGraphics
+import EPUBCore
 #if os(iOS)
 import UIKit
 typealias PlatformFont = UIFont
@@ -54,10 +55,24 @@ enum ReaderPalette {
     static func rule(dark: Bool) -> PlatformColor { theme(dark).rule }
     /// Search matches (`searchHighlight`).
     static func searchHighlight(dark: Bool) -> PlatformColor { theme(dark).highlight(.search) }
-    /// Host highlights (`setHighlights`).
+    /// Host highlights (`setHighlights`) in the default style, yellow.
     static func annotationHighlight(dark: Bool) -> PlatformColor { theme(dark).highlight(.annotation) }
     /// The search result last shown: darker than the other matches as well as a different
     /// hue, so it stands apart without relying on color alone.
     static func currentSearchHighlight(dark: Bool) -> PlatformColor { theme(dark).highlight(.currentSearch) }
     static func highlight(_ kind: ReaderHighlight.Kind, dark: Bool) -> PlatformColor { theme(dark).highlight(kind) }
+    /// A host highlight's fill in a style of `color` (`ReaderTheme.highlight(_:)`).
+    static func highlight(_ color: EPUBHighlightColor, dark: Bool) -> PlatformColor { theme(dark).highlight(color) }
+    /// The line of a host highlight's mark in a style of `color` (`ReaderTheme.mark(_:)`).
+    static func mark(_ color: EPUBHighlightColor, dark: Bool) -> PlatformColor { theme(dark).mark(color) }
+}
+
+/// What a highlight draws over its characters: a fill, and for a host highlight the mark of its
+/// style, or none. A word shows the last highlight drawn on it, so a host highlight takes the
+/// place of the mark of one beneath it, with its own or with none. A search match is a fill
+/// alone and leaves the mark beneath it as it is.
+struct ReaderHighlightPaint {
+    var fill: PlatformColor
+    var replacesMarks = false
+    var mark: (style: EPUBHighlightMark, color: PlatformColor)?
 }

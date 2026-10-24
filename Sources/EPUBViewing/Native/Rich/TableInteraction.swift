@@ -353,7 +353,7 @@ struct ReaderTableAction {
             #if os(macOS)
             cell.selectedTextAttributes = ReaderCanvasView.selectedTextAttributes(canvas.configuration.theme)
             #endif
-            var runs: [(NSRange, PlatformColor)] = [], nested: [(TableNestedHighlight, PlatformColor)] = []
+            var runs: [(NSRange, ReaderHighlightPaint)] = [], nested: [(TableNestedHighlight, ReaderHighlightPaint)] = []
             guard let position = canvas.position(at: key.location, in: owner),
                   let row = storage.attribute(.attachment, at: key.location, effectiveRange: nil) as? TableRowAttachment else { continue }
             for highlight in highlights where highlight.range.start.section <= position.section && highlight.range.end.section >= position.section {
@@ -368,15 +368,15 @@ struct ReaderTableAction {
                     if row.table.sourceOrder > endpoint.table || (row.table.sourceOrder == endpoint.table && key.cell > endpoint.cell) { continue }
                     if row.table.sourceOrder == endpoint.table && key.cell == endpoint.cell { upper = endpoint.offset; last = endpoint }
                 } else if position >= end { continue }
-                let color = canvas.configuration.theme.highlight(highlight.kind)
+                let paint = canvas.configuration.theme.paint(highlight)
                 var run = NSRange(location: lower, length: max(0, upper - lower))
                 // An end in a table nested in the cell: the nested table's rows paint their part.
                 if first?.nested != nil || last?.nested != nil {
                     let parts = row.table.cells[key.cell].highlightParts(lower: lower, upper: upper, start: first, end: last)
                     run = parts.run
-                    nested += parts.nested.map { ($0, color) }
+                    nested += parts.nested.map { ($0, paint) }
                 }
-                if run.length > 0 { runs.append((run, color)) }
+                if run.length > 0 { runs.append((run, paint)) }
             }
             cell.setCellHighlights(runs, nested: nested)
         }

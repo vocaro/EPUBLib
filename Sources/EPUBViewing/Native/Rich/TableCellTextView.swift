@@ -29,7 +29,7 @@ typealias TableNativeTextView = UITextView
     var onImage: ((ReaderImageAttachment) -> Void)?
     private var actionTitle: String?
     private var menuImage: ReaderImageAttachment?
-    private var highlights: [(range: NSRange, color: PlatformColor)] = []
+    private var highlights: [(range: NSRange, paint: ReaderHighlightPaint)] = []
     private var highlightedCharacters: [NSRange] { highlights.map(\.range) }
     #if os(macOS)
     /// The accessibility element of each attachment VoiceOver is told of, by its location in
@@ -133,7 +133,7 @@ typealias TableNativeTextView = UITextView
 
     /// `runs` are characters of the cell's own text; `nested` are parts of highlights in tables
     /// nested in the cell, which the cell's layout paints over its nested rows.
-    func setCellHighlights(_ runs: [(NSRange, PlatformColor)], nested: [(TableNestedHighlight, PlatformColor)] = []) {
+    func setCellHighlights(_ runs: [(NSRange, ReaderHighlightPaint)], nested: [(TableNestedHighlight, ReaderHighlightPaint)] = []) {
         let repaints = !nested.isEmpty || !cellManager.nestedHighlights.isEmpty
         highlights = runs.map { ($0.0, $0.1) }
         cellManager.nestedHighlights = nested.map { ($0.0, $0.1) }
@@ -162,10 +162,21 @@ typealias TableNativeTextView = UITextView
         cellManager.drawnCharacterRanges = ([cellSelection] + highlightedCharacters)
             .map { NSIntersectionRange($0, shownCharacters) }.filter { $0.length > 0 }
         cellStorage.beginEditing()
-        cellStorage.removeAttribute(.backgroundColor, range: full)
-        for (range, color) in highlights {
+        for key in [NSAttributedString.Key.backgroundColor, .readerHighlightMark, .readerHighlightMarkColor] {
+            cellStorage.removeAttribute(key, range: full)
+        }
+        for (range, paint) in highlights {
             let run = NSIntersectionRange(range, shownCharacters)
-            if run.length > 0 { cellStorage.addAttribute(.backgroundColor, value: color, range: run) }
+            guard run.length > 0 else { continue }
+            cellStorage.addAttribute(.backgroundColor, value: paint.fill, range: run)
+            guard paint.replacesMarks else { continue }
+            cellStorage.removeAttribute(.readerHighlightMark, range: run)
+            cellStorage.removeAttribute(.readerHighlightMarkColor, range: run)
+            // The layout manager strokes it after the glyphs (`drawHighlightMarks`).
+            if let mark = paint.mark {
+                cellStorage.addAttribute(.readerHighlightMark, value: mark.style.rawValue, range: run)
+                cellStorage.addAttribute(.readerHighlightMarkColor, value: mark.color, range: run)
+            }
         }
         #if os(iOS)
         // UIKit's own tint for selected text. It takes a highlight's place on the characters
@@ -323,6 +334,12 @@ typealias TableNativeTextView = UITextView
             }
         }
         addAccessibilityLinks(accessibilityLinks(in: full), to: result, of: full)
+        // A host highlight's characters are highlighted text, as in the text around the table.
+        for (range, paint) in highlights where paint.replacesMarks {
+            let run = NSIntersectionRange(range, full)
+            guard run.length > 0 else { continue }
+            result.addAttribute(.accessibilityHighlightedText, value: true, range: NSRange(location: run.location - full.location, length: run.length))
+        }
         return result
     }
 

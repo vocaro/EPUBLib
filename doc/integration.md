@@ -107,6 +107,8 @@ final class BookReader {
     private(set) var disclosure: String?
     private(set) var notice: String?
     private(set) var selection: String?
+    /// Where the selection is: what to keep for a highlight of it.
+    private(set) var selectionLocation: EPUBLocation?
     private(set) var selectedText: String?
     private(set) var error: String?
     private var opening: Task<Void, Never>?
@@ -165,7 +167,7 @@ final class BookReader {
                 case .disclosure(let value): disclosure = value
                 case .notice(let value): notice = value
                 case .failed(let value): error = Self.message(for: value); ready = false
-                case .selectionChanged(let value): selection = value?.text
+                case .selectionChanged(let value): selection = value?.text; selectionLocation = value?.location
                 case .searchChanged, .searchResultsChanged: break
                 }
             })
@@ -212,7 +214,7 @@ final class BookReader {
         controls?.cancelPendingCommands(); controls = nil
         session?.close(); session = nil
         publication = nil; ready = false; loading = false
-        location = nil; disclosure = nil; notice = nil; selection = nil; selectedText = nil; error = nil
+        location = nil; disclosure = nil; notice = nil; selection = nil; selectionLocation = nil; selectedText = nil; error = nil
         savedPosition = nil
     }
 }
@@ -413,6 +415,16 @@ The reader draws the complete annotation once all segments are available, or, if
 cannot be resolved, names it in `EPUBReaderStatus.undrawnHighlights` and gives the list's one
 `.notice` ([When something fails](#when-something-fails)); it never silently draws just its first
 section.
+
+Give a highlight a style to sort highlights by color: `EPUBHighlight(id:location:style:)` with
+`EPUBHighlightStyle(color: .green, mark: .underline)`. The color is one of the
+`EPUBHighlightColor` categories, which the reader draws in a shade for each appearance, and the
+optional `EPUBHighlightMark` is a line under the text that tells highlights apart without
+color: give each category a mark of its own when a reader cannot rely on color, as when the
+system's Differentiate Without Color is on. `name` gives each color and mark a name for the
+host's own controls. The style is `Codable`; keep it with the highlight's location. VoiceOver
+says each highlight by its style's `spokenName` and moves between highlights with a Highlights
+rotor ([native viewer](native-viewer.md#input-and-accessibility)).
 
 Paginated selections can span both columns. Copy and the host action receive the complete
 passage, including a located passage extending onto later pages; the viewer shows continuation

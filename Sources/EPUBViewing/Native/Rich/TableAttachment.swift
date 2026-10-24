@@ -211,7 +211,7 @@ final class TableRowAttachment: ReaderAttachment {
     /// it, draws, where `draw` draws them: none in a cell before the start's or after the
     /// end's, and in a table nested in a cell, its part on that table's own words, at any depth
     /// (`TableCellLayout.drawHighlight`).
-    func drawHighlight(from start: ReaderTablePosition?, to end: ReaderTablePosition?, color: CGColor,
+    func drawHighlight(from start: ReaderTablePosition?, to end: ReaderTablePosition?, paint: ReaderHighlightPaint,
                        in context: CGContext, size: CGSize, viewportHeight: CGFloat) {
         guard size.width > 0, size.height > 0 else { return }
         context.saveGState()
@@ -227,7 +227,7 @@ final class TableRowAttachment: ReaderAttachment {
             let cell = table.cells[entry.cell]
             let first = start?.cell == entry.cell ? start : nil, last = end?.cell == entry.cell ? end : nil
             let parts = cell.highlightParts(lower: first?.offset ?? 0, upper: last?.offset ?? cell.content.length, start: first, end: last)
-            layout.cellText[entry.cell].drawHighlight(run: parts.run, nested: parts.nested, color: color,
+            layout.cellText[entry.cell].drawHighlight(run: parts.run, nested: parts.nested, paint: paint,
                                                       inLines: entry.lines, at: layout.contentFrames[entry.cell].origin)
         }
     }

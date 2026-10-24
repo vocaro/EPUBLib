@@ -65,6 +65,27 @@ final class PackageValueTypeCoverageTests: XCTestCase {
         XCTAssertNil(EPUBLayout(rawValue: "pre-paginated"), "the package's spelling is not the raw value")
     }
 
+    /// A host keeps a highlight's style with the highlight (#682): its fields and raw values are
+    /// what a stored one is read back by, and a style without a mark leaves the mark out.
+    func testAHighlightStyleKeepsItsFieldNamesAndRawValues() throws {
+        XCTAssertEqual(EPUBHighlightColor.allCases.map(\.rawValue), ["yellow", "green", "blue", "pink", "purple"])
+        XCTAssertEqual(EPUBHighlightMark.allCases.map(\.rawValue), ["underline", "doubleUnderline", "dottedUnderline", "dashedUnderline"])
+        let style = EPUBHighlightStyle(color: .blue, mark: .dottedUnderline)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        XCTAssertEqual(String(decoding: try encoder.encode(style), as: UTF8.self), #"{"color":"blue","mark":"dottedUnderline"}"#)
+        XCTAssertEqual(String(decoding: try encoder.encode(EPUBHighlightStyle()), as: UTF8.self), #"{"color":"yellow"}"#)
+        XCTAssertEqual(try JSONDecoder().decode(EPUBHighlightStyle.self, from: Data(#"{"color":"pink"}"#.utf8)), EPUBHighlightStyle(color: .pink))
+        XCTAssertEqual(try PropertyListDecoder().decode(EPUBHighlightStyle.self, from: PropertyListEncoder().encode(style)), style)
+        for json in [#"{}"#, #"{"color":"orange"}"#, #"{"color":"blue","mark":"wavy"}"#] {
+            XCTAssertThrowsError(try JSONDecoder().decode(EPUBHighlightStyle.self, from: Data(json.utf8)), json)
+        }
+        // The style every highlight had before there were styles.
+        let location = EPUBLocation(publicationID: "x", bookmark: bookmark)
+        XCTAssertEqual(EPUBHighlight(id: "h", location: location).style, EPUBHighlightStyle(color: .yellow, mark: nil))
+        XCTAssertNotEqual(EPUBHighlight(id: "h", location: location), EPUBHighlight(id: "h", location: location, style: style))
+    }
+
     func testAReaderStyleReportsDarkOnlyForExplicitDark() {
         XCTAssertEqual(EPUBReaderStyle(), EPUBReaderStyle(fontSize: 17, appearance: .system, flow: .paginated))
         XCTAssertFalse(EPUBReaderStyle().isDark, "System is not Dark, whatever the device shows")

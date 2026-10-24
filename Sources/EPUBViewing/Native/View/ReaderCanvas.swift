@@ -102,6 +102,12 @@ struct ReaderHighlight: Hashable, Sendable {
     /// Within one section.
     var range: ReaderTextRange
     var kind: Kind
+    /// A host highlight's style; nil for a search match, and the default style for a host
+    /// highlight without one.
+    var style: EPUBHighlightStyle?
+    init(id: String, range: ReaderTextRange, kind: Kind, style: EPUBHighlightStyle? = nil) {
+        self.id = id; self.range = range; self.kind = kind; self.style = style
+    }
 }
 
 extension ReaderHighlight {

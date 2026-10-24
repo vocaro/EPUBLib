@@ -204,18 +204,45 @@ extension ReaderTextView {
         return result
     }
 
-    /// Replaces the drawn highlights. Rendering attributes only: the text is never changed.
-    func setHighlights(_ highlights: [(range: NSRange, color: PlatformColor)]) {
+    /// Replaces the drawn highlights, in order, each over those before it. Rendering attributes
+    /// only: the text is never changed. TextKit draws the fill, and the reader's fragments the
+    /// mark (`ReaderLayoutFragment`). A mark underlines the text's characters and not an
+    /// attachment: under a picture, a formula or a table's row it would be a line under the
+    /// whole of it, and a cell's text view draws the marks of its own words
+    /// (`TableCellTextView`).
+    func setHighlights(_ highlights: [(range: NSRange, paint: ReaderHighlightPaint)]) {
         let layoutManager = readerLayoutManager
-        layoutManager.removeRenderingAttribute(.backgroundColor, for: layoutManager.documentRange)
+        for key in [NSAttributedString.Key.backgroundColor, .readerHighlightMark, .readerHighlightMarkColor] {
+            layoutManager.removeRenderingAttribute(key, for: layoutManager.documentRange)
+        }
         for highlight in highlights {
             guard let range = textRange(for: highlight.range) else { continue }
-            layoutManager.addRenderingAttribute(.backgroundColor, value: highlight.color, for: range)
+            layoutManager.addRenderingAttribute(.backgroundColor, value: highlight.paint.fill, for: range)
+            guard highlight.paint.replacesMarks else { continue }
+            layoutManager.removeRenderingAttribute(.readerHighlightMark, for: range)
+            layoutManager.removeRenderingAttribute(.readerHighlightMarkColor, for: range)
+            guard let mark = highlight.paint.mark else { continue }
+            for run in textRuns(in: highlight.range) {
+                guard let range = textRange(for: run) else { continue }
+                layoutManager.addRenderingAttribute(.readerHighlightMark, value: mark.style.rawValue, for: range)
+                layoutManager.addRenderingAttribute(.readerHighlightMarkColor, value: mark.color, for: range)
+            }
         }
         // A rendering attribute changes what a fragment draws, not its layout, and TextKit 2
         // repaints a laid-out fragment only for the latter: without this a cleared highlight
         // stays on the page, and one added in place is missing, until the text next reflows.
         setRenderedTextNeedsDisplay()
+    }
+
+    /// The parts of `range` that hold no attachment.
+    private func textRuns(in range: NSRange) -> [NSRange] {
+        guard let storage = contentStorage.textStorage else { return [] }
+        var runs: [NSRange] = []
+        storage.enumerateAttribute(.attachment, in: NSIntersectionRange(range, NSRange(location: 0, length: storage.length))) { value, run, _ in
+            guard value == nil else { return }
+            if let last = runs.last, NSMaxRange(last) == run.location { runs[runs.count - 1].length += run.length } else { runs.append(run) }
+        }
+        return runs
     }
 
     /// Native TextKit insertion offset nearest a point, without invoking TextKit 1.

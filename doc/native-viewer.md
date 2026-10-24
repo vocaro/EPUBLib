@@ -436,7 +436,8 @@ continues to describe the authored spine resource.
   the theme does not name derives from it: secondary text (words in place of a picture, a
   section that could not be shown) is the text faded toward the page as far as 4.5:1 allows;
   rules and a dark theme's table borders are a quarter of the way from the page to the text;
-  highlights keep their yellow and orange, deeper on a dark page, each drawn as strongly as it
+  search highlights keep their yellow and orange, and a host highlight the color of its style
+  (**Highlight styles**), deeper on a dark page, each drawn as strongly as it
   can be while the text over it keeps 4.5:1, down to half its usual strength; the Mac's
   selection is the theme's link colour, 30% over the page, by the same rule. The page behind
   both flows, the image inspector and a note's popover is the theme's background (on the Mac
@@ -2112,6 +2113,35 @@ continues to describe the authored spine resource.
   [TextKit 2 redraws a fragment only when its layout changes](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#textkit-2-redraws-a-fragment-when-its-layout-changes-not-when-its-attributes-do),
   each change asks for the fragments on screen to be drawn again
   ([#51](https://github.com/vocaro/EPUBLib/issues/51)).
+- **Highlight styles.** An `EPUBHighlight` carries an `EPUBHighlightStyle`: a color and an
+  optional mark ([#682](https://github.com/vocaro/EPUBLib/issues/682)). The color is a
+  category, `EPUBHighlightColor` (yellow, green, blue, pink, purple), not a value: the reader
+  draws each in a shade of its own for the theme, pale on a light background and deep on a
+  dark one, as strongly as the theme's text over it keeps WCAG 2.2's 4.5:1, as for search
+  matches (`ReaderTheme.highlightFill`, Themes above): at least 14:1 on Light, 8:1 on Black,
+  6:1 on Dark and 5:1 on Sepia. A host that gave colors of its own could not be held to that
+  in every theme. The mark, `EPUBHighlightMark`, is a line under the text in a pattern of its
+  own (a solid line, two thinner lines, round dots, dashes), in a dark shade of the color on a
+  light background and a light one on a dark background, moved toward the theme's text where
+  it needs to be to keep 3:1 against the fill (WCAG 2.2's 1.4.11 for a graphic), and with
+  Increase Contrast half the way to the text and 4.5:1 (`ReaderTheme.markColor`). It is a tenth
+  of the text's size thick and at least a point and a half. The marks are for Apple's Differentiate Without Color Alone: a host that gives each
+  of its categories its own mark has highlights a reader can tell apart without telling the
+  colors apart. Every highlight without a style is yellow with no mark, as every highlight was
+  drawn before. A style changes nothing of the text or its layout; a change of style repaints
+  in place. Where highlights overlap, the one later in the host's array is drawn over the
+  earlier, its mark or its lack of one included, and a search match over a marked highlight
+  takes the fill and leaves the mark. A mark underlines words and not an attachment: under a
+  picture, a formula or a table's row it would be a line under the whole of it.
+  TextKit 2 draws the fill of a rendering attribute but no underline one gives (macOS 27.0), so
+  the reader draws the marks itself, in the same pattern wherever the text is: each paragraph's
+  layout fragment (`ReaderLayoutFragment`) strokes the marks of its lines after its text, from
+  rendering attributes of the reader's own; a table cell's text view strokes them after its
+  highlighted glyphs (`TableInteractionLayoutManager`); and a table nested in a cell, whose
+  highlights the cell's layout paints itself (`TableCellLayout.drawHighlight`), strokes them
+  there. Each line's edges fall on the device's pixels.
+  `HighlightStyleTests` holds every style to these floors in each preset and two custom
+  themes, with Increase Contrast and without, and paints each in Light, Dark, Sepia and Black.
 - **Pages.** Locations report `EPUBPublication.pageList` entries: `page`, the last entry at or
   before the range's first character, and `pages`, that one followed by every entry whose
   marker falls inside the range. foliate-js reported only `pageItem`, the last page begun by
@@ -3684,6 +3714,45 @@ The following are the defaults. Host commands and accessibility actions stay ena
   ([sessions](https://github.com/vocaro/EPUBLib/issues/711#issuecomment-6372973411)). A hidden label that is no heading and opens the line of the
   words after it, as a parked byline does, is one block with those words. On Mac a text area
   is VoiceOver's own, which moves by paragraph in it, and has no such rotor.
+- Host highlights ([#682](https://github.com/vocaro/EPUBLib/issues/682)). On iPhone and
+  iPad an item whose words a host highlight covers has the highlights for its value, which
+  VoiceOver says after the words: each by its style's name (`EPUBHighlightStyle.spokenName`),
+  "Yellow highlight", and where it covers part of the item, with the words it covers, "Blue
+  highlight: Sky words". Two on one line are said in the order they begin, "Pink highlight:
+  Rose, Purple highlight: rest there.", and a cell of a table of data says its own. The color's
+  name is what is said, and the mark is not: the mark stands for the color, for a reader who
+  sees the page. The value is asked of the reader each time it is read, as an item's traits
+  are, so it follows the highlights as they change and the item under the cursor as it goes on
+  as another line. VoiceOver does not read a value again that changes under its cursor
+  ([knowledge](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-keeps-an-items-traits-and-actions-as-it-found-them)),
+  and the reader tells it nothing of a highlight set while it reads.
+  While any host highlight is drawn each text view gives VoiceOver a rotor of its own,
+  Highlights (`UIAccessibilityCustomRotor(name:)`), after Headings and Paragraphs: a flick down
+  goes to the item where the book's next highlight begins, and up to the one before, on the
+  page or the screen when it is there and otherwise wherever it is, which the reader turns or
+  scrolls to as it does for a heading, and goes by the item's place in the book, so that the
+  second time VoiceOver asks for one move it has the same answer. An item is one stop however
+  many highlights begin in it, and a highlight that begins inside the item VoiceOver is on is
+  that item's: the move goes past it. A highlight in several documents is one stop, where it
+  begins, and one in a section not built yet has none until it is drawn, as it is once all of
+  its sections are built. In iOS 27.2 simulators, on iPhone and iPad in pages and in
+  continuous scroll, VoiceOver lists the rotor as it lands in the text ("Use the rotor to
+  access Headings, Paragraphs, Highlights"), says a line's highlight after its words,
+  "word0001 word0002 word0003 word0004 Yellow highlight: word0003 word0004", and a cell's
+  after its words and before its row and column, "1934 Pink highlight Row 3 Column 2"; with
+  Highlights chosen each flick down went to the next highlight's line or cell, pages and a
+  section later, and each flick up back again ([Highlights](testing.md#highlights)).
+  On Mac the characters a host highlight covers are highlighted text in the rich text an
+  assistive client reads (`AXHighlight`, the attribute WebKit gives the text of a `mark`
+  element), with the fill they show on as their background (`AXBackgroundColor`), and each
+  text view gives VoiceOver a Highlights rotor (`NSAccessibilityCustomRotor(label:)`) while any
+  is drawn. Its list holds the book's highlights in order, each called by its style's name and
+  its first twelve words, "Yellow highlight: Amber words stand here.", in both flows. As for
+  headings, one whose first character a text view shows is given as that view and its
+  characters there, and any other as a loading token, which VoiceOver has the reader load when
+  it moves to the highlight: the reader turns to its page then, and not while VoiceOver walks
+  the list. The search stands at a place, not over a range: from VoiceOver's cursor on a line,
+  a highlight that begins later in that line is the next one.
 - Language: VoiceOver chooses a voice for the language it is given
   ([spoken language](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/text-layout-and-unicode.md#voiceover-speaks-the-language-each-item-and-range-names)).
   On iPhone and iPad each
@@ -3744,7 +3813,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
 | `nextSearchResult` / `previousSearchResult` | Shows the result after or before the current match, wrapping at the ends; the first or last when none is current. No effect without results. |
 | `showSearchResult(result)` | Shows a listed result and makes it current; a result of a replaced or cleared search throws `invalidCommand`. |
 | `style` | Font size 12–96, scaled by the system text size first with `followsDynamicType` (below), System/Light/Dark/Sepia/Black/Custom appearance with the style's custom colours, flow. System is the default and tracks the host color scheme live; explicit modes stay fixed. Size, resolved colours, Increase Contrast and Bold Text rebuild the text; the position is kept across rebuilds and flow switches (see Themes under Decisions). |
-| `setHighlights` | Replaces drawn host highlights. |
+| `setHighlights` | Replaces drawn host highlights, each in its style; a later one is drawn over an earlier one it overlaps. |
 | `goToProgression(value)` | Shows the place `value` of the way through the book by `progression`'s own measure (section byte size, nonlinear sections weighing nothing): the section where that share of the bytes ends, at the same share of its characters, entered at its page's first line. 0 or less is the first linear section's start and 1 or more the last one's end, so `goToStart` and `goToEnd` show the first and last page, or the top and bottom of continuous scroll; on a boundary between sections the later one's start. A value that is not finite throws `invalidCommand`. The page shown reports a progression at or after `value`, measured at its end ([#681](https://github.com/vocaro/EPUBLib/issues/681)). |
 
 `.searchResultsChanged` reports the result list before `.searchChanged(.completed)`, then each

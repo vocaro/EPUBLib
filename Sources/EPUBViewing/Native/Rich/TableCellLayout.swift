@@ -1,4 +1,5 @@
 import CoreGraphics
+import EPUBCore
 import Foundation
 #if os(iOS)
 import UIKit
@@ -204,9 +205,12 @@ final class TableCellLayout: @unchecked Sendable {
     /// continuation, all of the row where it is in `run`, and otherwise the part in `nested`
     /// whose rows hold it (`TableRowAttachment.drawHighlight`). The fill takes the place of
     /// what was painted beneath it, so a word shows the last highlight painted on it, as text
-    /// shows its last highlight attribute. Only the lines holding the highlight's characters are
-    /// visited, found by binary search, so a cell's many highlights cost what they cover.
-    func drawHighlight(run: NSRange, nested: [TableNestedHighlight], color: CGColor, inLines indices: Range<Int>, at origin: CGPoint) {
+    /// shows its last highlight attribute. A host highlight's mark is drawn under the words
+    /// after their glyphs, as the text system draws an underline. Only the lines holding the
+    /// highlight's characters are visited, found by binary search, so a cell's many highlights
+    /// cost what they cover.
+    func drawHighlight(run: NSRange, nested: [TableNestedHighlight], paint: ReaderHighlightPaint, inLines indices: Range<Int>, at origin: CGPoint) {
+        let color = paint.fill.cgColor
         #if os(iOS)
         guard let context = UIGraphicsGetCurrentContext() else { return }
         #else
@@ -224,7 +228,7 @@ final class TableCellLayout: @unchecked Sendable {
                     guard let part else { continue }
                     context.saveGState()
                     context.translateBy(x: origin.x + line.frame.minX, y: origin.y + line.frame.minY)
-                    row.drawHighlight(from: part.start, to: part.end, color: color, in: context,
+                    row.drawHighlight(from: part.start, to: part.end, paint: paint, in: context,
                                       size: line.frame.size, viewportHeight: viewportHeight)
                     context.restoreGState()
                     continue
@@ -241,6 +245,9 @@ final class TableCellLayout: @unchecked Sendable {
                 }
                 context.restoreGState()
                 manager.drawGlyphs(forGlyphRange: glyphs, at: origin)
+                if let mark = paint.mark {
+                    manager.drawHighlightMark(mark.style, color: mark.color.cgColor, under: characters, among: glyphs, at: origin, in: context)
+                }
             }
         }
     }

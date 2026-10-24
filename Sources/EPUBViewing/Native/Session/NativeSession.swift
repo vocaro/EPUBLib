@@ -783,7 +783,7 @@ import SwiftUI
             }
             for range in highlightRanges[highlight.id] ?? [] {
                 // A host id identifies every segment of the same annotation.
-                drawn.append(ReaderHighlight(id: highlight.id, range: range, kind: .annotation))
+                drawn.append(ReaderHighlight(id: highlight.id, range: range, kind: .annotation, style: highlight.style))
             }
         }
         // The current match is drawn again, last, over its ordinary search highlight.

@@ -474,6 +474,105 @@ extension ReaderCanvasView: NSTextViewDelegate {
         return ReaderTextPosition(section: section, offset: offset)
     }
 
+    // MARK: Host highlights for VoiceOver
+
+    /// What a text view's Highlights rotor answers: the host highlight after or before where
+    /// the search stands, and none past either end (`highlightStop`), each called by its style
+    /// and its words (`highlightLabel`). One whose first character a text view shows is given
+    /// as that view and its characters there; any other as a token for its place in the book,
+    /// which the reader shows only when VoiceOver moves to it (`loadHighlight`), as for a
+    /// heading on another page (`headingRotorResult`): VoiceOver walks the whole list when its
+    /// rotor opens. The search stands where the heading search would
+    /// (`headingSearchPosition`), at a place and not over a range: a highlight that begins
+    /// later in the line VoiceOver is on is the next one.
+    func highlightRotorResult(for parameters: NSAccessibilityCustomRotor.SearchParameters,
+                              askedOf view: ReaderTextView) -> NSAccessibilityCustomRotor.ItemResult? {
+        let forward = parameters.searchDirection == .next
+        let filter = parameters.filterString
+        var from = highlightSearchPosition(of: parameters.currentItem, askedOf: view, forward: forward).map { ReaderTextRange(start: $0, end: $0) }
+        while let found = highlightStop(from: from, forward: forward) {
+            from = ReaderTextRange(start: found.range.start, end: found.range.start)
+            let label = highlightLabel(found)
+            guard filter.isEmpty || label.localizedCaseInsensitiveContains(filter) else { continue }
+            let shown = shownHighlight(found)
+            let result = shown.map { NSAccessibilityCustomRotor.ItemResult(targetElement: $0.view) }
+                ?? NSAccessibilityCustomRotor.ItemResult(itemLoadingToken: Self.highlightToken(found.range.start), customLabel: label)
+            // A token's result has a range too, its characters in its section: without one the
+            // list read a heading's row as the column's own text (`headingRotorResult`).
+            result.targetRange = shown?.range ?? NSRange(location: found.range.start.offset, length: max(1, found.range.end.offset - found.range.start.offset))
+            result.customLabel = label
+            return result
+        }
+        return nil
+    }
+
+    /// Where a search of the highlights from `item` stands, as a heading search does: nowhere
+    /// without one, at a token's place, at the edge of a page that VoiceOver's cursor rests on,
+    /// or at the first character of the range it gives. The scroll view at rest stands at the
+    /// top of the screen, or after its end going back.
+    private func highlightSearchPosition(of item: NSAccessibilityCustomRotor.ItemResult?, askedOf column: ReaderTextView,
+                                         forward: Bool) -> ReaderTextPosition? {
+        guard let item else { return nil }
+        if let token = item.itemLoadingToken { return Self.highlightPosition(of: token) ?? Self.headingPosition(of: token) }
+        guard item.targetElement != nil else { return nil }
+        let view = (item.targetElement as? ReaderTextView).flatMap { $0.canvas === self ? $0 : nil } ?? column
+        let range = item.targetRange
+        if range.location == NSNotFound || range == NSRange(location: 0, length: 0) {
+            if view === scrollTextView, let visibleRange {
+                return forward ? ReaderTextPosition(section: visibleRange.start.section, offset: visibleRange.start.offset - 1) : visibleRange.end
+            }
+            guard let edge = position(at: forward ? 0 : view.shownCharacters.length, in: view) else { return nil }
+            return forward ? ReaderTextPosition(section: edge.section, offset: edge.offset - 1) : edge
+        }
+        return position(at: range.location, in: view)
+    }
+
+    /// The text view that shows where `highlight` begins, and its characters there, cut to
+    /// what the view shows: a page's column, or the scroll view once it holds the section.
+    private func shownHighlight(_ highlight: ReaderHighlight) -> (view: ReaderTextView, range: NSRange)? {
+        let start = highlight.range.start
+        let first = ReaderTextRange(section: start.section, start.offset..<(start.offset + 1))
+        for view in textViews {
+            guard let character = localRange(of: first, in: view) else { continue }
+            return (view, localRange(of: highlight.range, in: view) ?? character)
+        }
+        return nil
+    }
+
+    /// The highlight that begins at `position`, when one still does.
+    private func highlight(beginningAt position: ReaderTextPosition) -> ReaderHighlight? {
+        var before = position
+        before.offset -= 1
+        guard let found = highlightStop(from: ReaderTextRange(start: before, end: before), forward: true),
+              found.range.start.section == position.section, found.range.start.offset == position.offset else { return nil }
+        return found
+    }
+
+    /// VoiceOver moves to a highlight it was given as a token: the reader turns to the page
+    /// that shows its start, unless a text view shows it, and this is that text view.
+    func loadHighlight(_ token: any NSAccessibilityLoadingToken) -> ReaderTextView? {
+        guard let position = Self.highlightPosition(of: token), let found = highlight(beginningAt: position) else { return nil }
+        if shownHighlight(found) == nil { show(position, selecting: nil, entry: .firstLine) }
+        return shownHighlight(found)?.view
+    }
+
+    /// The highlight's characters in the text view that shows it.
+    func loadedHighlightRange(_ token: any NSAccessibilityLoadingToken) -> NSRange? {
+        guard let position = Self.highlightPosition(of: token), let found = highlight(beginningAt: position) else { return nil }
+        return shownHighlight(found)?.range
+    }
+
+    /// A highlight's place in the book as VoiceOver keeps it, apart from a heading's.
+    static func highlightToken(_ position: ReaderTextPosition) -> any NSAccessibilityLoadingToken {
+        "highlight:\(position.section):\(position.offset)" as NSString
+    }
+
+    static func highlightPosition(of token: any NSAccessibilityLoadingToken) -> ReaderTextPosition? {
+        guard let parts = (token as? String)?.split(separator: ":"), parts.count == 3, parts[0] == "highlight",
+              let section = Int(parts[1]), let offset = Int(parts[2]) else { return nil }
+        return ReaderTextPosition(section: section, offset: offset)
+    }
+
     // MARK: Input
 
     override var acceptsFirstResponder: Bool { true }

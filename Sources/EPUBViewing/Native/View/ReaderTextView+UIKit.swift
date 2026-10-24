@@ -61,6 +61,10 @@ final class ReaderTextView: UITextView {
     /// What VoiceOver calls the rotor that moves by block, as it calls its own Headings and
     /// Lines: the plural of what it moves by.
     static let blockRotorName = "Paragraphs"
+    /// A rotor of the host highlights, for the lines this view lists.
+    private lazy var highlightRotor = UIAccessibilityCustomRotor(name: "Highlights") { [weak self] predicate in
+        self?.highlight(for: predicate)
+    }
 
     init(pageColumn: Bool) {
         (contentStorage, readerLayoutManager, readerContainer) = Self.makeTextKitStack()
@@ -335,9 +339,74 @@ final class ReaderTextView: UITextView {
     // container gives it one of its own, Paragraphs, which goes on through the book as
     // Headings does. A rotor is not an action: VoiceOver says "Actions available" of a line
     // for the actions the line is offered, with these rotors and without them.
+    // The book's host highlights have a rotor of their own, named Highlights, while any is
+    // drawn: VoiceOver lists it among its settings, and a flick down or up goes to the next
+    // highlight or the one before, wherever it is.
     override var accessibilityCustomRotors: [UIAccessibilityCustomRotor]? {
-        get { listsLines ? [headingRotor, blockRotor] : super.accessibilityCustomRotors }
+        get {
+            guard listsLines else { return super.accessibilityCustomRotors }
+            return [headingRotor, blockRotor] + (canvas?.hasHostHighlights == true ? [highlightRotor] : [])
+        }
         set { super.accessibilityCustomRotors = newValue }
+    }
+
+    /// The item where the host highlight after or before the item under VoiceOver's cursor
+    /// begins: on the page or the screen when it is there, and otherwise wherever it is, which
+    /// the reader turns or scrolls to, as for a heading. The search goes by the item's place in
+    /// the book, so that the second time VoiceOver asks for one move it has the same answer
+    /// (`heading(for:)`). An item is one stop, however many highlights begin in it: VoiceOver
+    /// says each of them there (`spokenHighlights(of:)`).
+    private func highlight(for predicate: UIAccessibilityCustomRotorSearchPredicate) -> UIAccessibilityCustomRotorItemResult? {
+        guard let canvas else { return nil }
+        let forward = predicate.searchDirection == .next
+        var from = (predicate.currentItem.targetElement as? ReaderPageAccessibilityElement)?.bookRange
+        if from == nil {
+            // With the cursor on none of the reader's lines: from before the first listed, or after the last.
+            let listed = lineAccessibilityElements
+            if forward {
+                from = listed.first?.position.map { ReaderTextPosition(section: $0.section, offset: $0.offset - 1) }
+                    .map { ReaderTextRange(start: $0, end: $0) }
+            } else {
+                from = listed.last?.bookRange.map { ReaderTextRange(start: $0.end, end: $0.end) }
+            }
+        }
+        guard let from, let target = canvas.highlightStop(from: from, forward: forward) else { return nil }
+        func shown() -> ReaderPageAccessibilityElement? {
+            canvas.textViews.lazy.compactMap { $0.accessibilityItem(holding: target.range.start) }.first
+        }
+        if shown() == nil {
+            canvas.showForAccessibilityRotor(ReaderTextPosition(section: target.range.start.section, offset: target.range.start.offset))
+        }
+        return shown().map { UIAccessibilityCustomRotorItemResult(targetElement: $0, targetRange: nil) }
+    }
+
+    /// The listed line, or the cell of a data table, that holds `position`.
+    private func accessibilityItem(holding position: ReaderTextPosition) -> ReaderPageAccessibilityElement? {
+        guard listsLines else { return nil }
+        let items = lineAccessibilityElements
+        if let place = position.tableCell, let cell = items.first(where: { item in
+            guard item.isCell, let range = item.bookRange, let start = range.start.tableCell else { return false }
+            return start.table == place.table && start.cell == place.cell
+                && (range.start.section, range.start.offset) == (position.section, position.offset)
+        }) { return cell }
+        let character = ReaderTextPosition(section: position.section, offset: position.offset)
+        return items.first { item in
+            guard !item.isCell, let range = item.bookRange else { return false }
+            return range.start <= character && character < range.end
+        }
+    }
+
+    /// What VoiceOver is told of the host highlights over an item, after its words
+    /// (`ReaderCanvasView.spokenHighlights`). A part of a line's words is its spoken text, and a
+    /// part of a table's cell is the cell's text.
+    fileprivate func spokenHighlights(of item: ReaderPageAccessibilityElement) -> String? {
+        guard let canvas, canvas.hasHostHighlights, let range = item.bookRange else { return nil }
+        return canvas.spokenHighlights(over: range, reading: item.accessibilityLabel ?? "") { part in
+            if part.start.tableCell == nil, part.end.tableCell == nil, let local = canvas.localRange(of: part, in: self) {
+                return spokenText(in: local)
+            }
+            return canvas.dataSource?.selectionText(in: part)
+        }
     }
 
     /// The heading of the book after or before the item under VoiceOver's cursor: on the page
@@ -1073,6 +1142,29 @@ private struct ReaderAccessibilityList {
     var isCell: Bool { table != nil }
 
     var key: ReaderTableCellKey? { table.map { ReaderTableCellKey(table: ObjectIdentifier($0), cell: cell) } }
+
+    /// The element's characters in the book: a line's, or all of a cell's, places in its
+    /// table at its row. nil before it has a place.
+    var bookRange: ReaderTextRange? {
+        guard let position else { return nil }
+        if let table {
+            let start = ReaderTextPosition(section: position.section, offset: position.offset,
+                                           tableCell: ReaderTablePosition(table: table.sourceOrder, cell: cell, offset: 0))
+            var end = start
+            end.tableCell?.offset = Int.max
+            return ReaderTextRange(start: start, end: end)
+        }
+        return ReaderTextRange(start: position, end: ReaderTextPosition(section: position.section, offset: position.offset + range.length))
+    }
+
+    // VoiceOver says an item's value after its words: here, the host highlights over them,
+    // "Yellow highlight", with the highlighted words where a highlight covers part of the
+    // item. It is asked of the reader each time it is read, never kept, as the item's traits
+    // are: the highlights change, and the item under VoiceOver's cursor goes on as another.
+    override var accessibilityValue: String? {
+        get { view?.spokenHighlights(of: self) ?? super.accessibilityValue }
+        set { super.accessibilityValue = newValue }
+    }
 
     /// Whether `other` is the same characters of the book, wherever each view counted them
     /// from. A cell is the same cell of the same row with the same words: every cell of a row
