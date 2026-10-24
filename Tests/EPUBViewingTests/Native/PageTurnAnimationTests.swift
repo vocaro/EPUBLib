@@ -101,9 +101,12 @@ import UIKit
         XCTAssertFalse(canvas.beginPageDrag(), "no swipe is followed")
     }
 
-    func testContinuousScrollScrollsAsBeforeWhateverIsChosen() throws {
+    /// Continuous scroll has no page to slide or dissolve, and no swipe to follow: a turn
+    /// scrolls its text there instead (`ScrollStepAnimationTests`, #622).
+    func testContinuousScrollTurnsNoPageAndScrollsItsTextInstead() throws {
         let host = host()
         let canvas = host.canvas
+        canvas.voiceOverIsRunning = { false }
         canvas.configuration.flow = .scrolled
         host.layOut()
         XCTAssertNil(canvas.pageMotion)
@@ -111,6 +114,7 @@ import UIKit
         XCTAssertEqual(canvas.turnPage(forward: true), .turned)
         XCTAssertNotEqual(canvas.visibleRange, first)
         XCTAssertNil(canvas.pageTransition)
+        XCTAssertNotNil(canvas.scrollStep, "its text scrolls there")
         XCTAssertFalse(canvas.beginPageDrag())
     }
 
@@ -183,8 +187,8 @@ import UIKit
         let canvas = host.canvas
         XCTAssertEqual(canvas.turnPage(forward: true), .turned)
         let transition = try XCTUnwrap(canvas.pageTransition)
-        let deadline = Date().addingTimeInterval(5)
-        while canvas.pageTransition != nil, Date() < deadline { try await host.settle(50) }
+        let deadline = TestDeadline(seconds: 5)
+        while canvas.pageTransition != nil, try !deadline.hasPassed() { try await host.settle(50) }
         XCTAssertNil(canvas.pageTransition, "it ends once its animation is over")
         XCTAssertTrue(transition.isEnded)
         XCTAssertTrue(overlays(in: canvas).isEmpty)

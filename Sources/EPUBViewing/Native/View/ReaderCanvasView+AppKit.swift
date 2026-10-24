@@ -814,6 +814,8 @@ final class ReaderScrollView: NSScrollView {
     weak var canvas: ReaderCanvasView?
 
     override func scrollWheel(with event: NSEvent) {
+        // The wheel moves the text on from where the reader has it.
+        canvas?.endScrollStep()
         if let view = canvas?.scrollTextView { canvas?.holdScrollPlace(of: view) }
         super.scrollWheel(with: event)
         // The person's wheel or trackpad reads on, and its momentum is the same gesture.

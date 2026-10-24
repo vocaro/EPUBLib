@@ -208,8 +208,8 @@ import UIKit
         try await reader.highlight(firstPage + [("Distant words stand here.", .init(color: .green, mark: .doubleUnderline)),
                                                 ("Chapter words", .init(color: .yellow, mark: .dashedUnderline))])
         view = try XCTUnwrap(reader.canvas.textViews.first)
-        XCTAssertEqual(view.accessibilityCustomRotors?.map(\.systemRotorType), [.heading, .none], "the Headings rotor, then a rotor of its own")
-        XCTAssertEqual(view.accessibilityCustomRotors?.last?.name, "Highlights")
+        XCTAssertEqual(view.accessibilityCustomRotors?.map(\.systemRotorType), [.heading, .none, .none], "the Headings rotor, then two of the reader's own")
+        XCTAssertEqual(view.accessibilityCustomRotors?.dropFirst().map(\.name), ["Paragraphs", "Highlights"])
         let heading = try item("Marks", in: view)
         var heard: [String] = [], cursor: UIAccessibilityElement = heading
         while let next = try rotorItem(from: cursor, in: try XCTUnwrap(cursor.accessibilityContainer as? ReaderTextView), forward: true) {

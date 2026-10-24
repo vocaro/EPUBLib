@@ -1,5 +1,6 @@
 import CoreGraphics
 import EPUBCore
+import EPUBTestSupport
 import Foundation
 import XCTest
 @testable import EPUBViewing
@@ -326,8 +327,8 @@ import UIKit
         XCTAssertEqual(canvas.currentSelection?.range, ReaderTextRange(section: 0, (offset + 3)..<(offset + 8)))
         XCTAssertEqual(canvas.currentSelection?.text, second.plainText(in: NSRange(location: 3, length: 5)))
         XCTAssertNil(continuationControls(canvas), "a selection made on the page has nothing offscreen")
-        let deadline = Date().addingTimeInterval(20)
-        while host.recorder.selections.isEmpty, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        let deadline = TestDeadline(seconds: 20)
+        while host.recorder.selections.isEmpty, try !deadline.hasPassed() { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertEqual(host.recorder.selections.map { $0?.range }, [ReaderTextRange(section: 0, (offset + 3)..<(offset + 8))],
                        "only the selection that settled is reported")
     }
@@ -343,8 +344,8 @@ import UIKit
         }
         XCTAssertEqual(canvas.currentSelection?.range, ReaderTextRange(section: 0, 20..<32), "known at once")
         XCTAssertTrue(host.recorder.selections.isEmpty, "reported only once it settles")
-        let deadline = Date().addingTimeInterval(20)
-        while host.recorder.selections.isEmpty, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        let deadline = TestDeadline(seconds: 20)
+        while host.recorder.selections.isEmpty, try !deadline.hasPassed() { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertEqual(host.recorder.selections.map { $0?.range }, [ReaderTextRange(section: 0, 20..<32)])
         column.selectedRange = NSRange(location: 50, length: 5)
         canvas.textViewSelectionDidChange(column)
@@ -424,10 +425,10 @@ import UIKit
         let before = canvas.safeAreaInsets.top
         if window.toolbar == nil { window.toolbar = NSToolbar(identifier: "org.epublib.tests.view-coverage.\(UUID().uuidString)") }
         window.toolbar?.isVisible = shown
-        let deadline = Date().addingTimeInterval(5)
+        let deadline = TestDeadline(seconds: 5)
         var bar = canvas.safeAreaInsets.top
         // What every display cycle does: lay out whatever asked for it.
-        while Date() < deadline, bar == before || !followed(bar) {
+        while try !deadline.hasPassed(), bar == before || !followed(bar) {
             try await Task.sleep(for: .milliseconds(20))
             window.contentView?.layoutSubtreeIfNeeded()
             bar = canvas.safeAreaInsets.top
@@ -707,8 +708,8 @@ import UIKit
             XCTAssertNil(host.canvas.pendingSpread, "\(flow)")
             XCTAssertTrue(host.canvas.columns.allSatisfy { $0.textLength == 0 }, "\(flow): every column, hidden ones included")
             XCTAssertEqual(host.canvas.scrollTextView?.textLength ?? 0, 0, "\(flow)")
-            let deadline = Date().addingTimeInterval(10)
-            while tracked.contains(where: { $0.attachment != nil }), Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+            let deadline = TestDeadline(seconds: 10)
+            while tracked.contains(where: { $0.attachment != nil }), try !deadline.hasPassed() { try await Task.sleep(for: .milliseconds(20)) }
             XCTAssertEqual(tracked.filter { $0.attachment != nil }.count, 0, "\(flow): released text's images are still alive")
         }
     }
@@ -748,8 +749,8 @@ import UIKit
         XCTAssertEqual(canvas.spread, spread, "the old spread stays on screen")
         XCTAssertEqual(canvas.visibleRange, range)
         XCTAssertNotNil(canvas.pendingSpread)
-        let deadline = Date().addingTimeInterval(20)
-        while canvas.pendingSpread != nil, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        let deadline = TestDeadline(seconds: 20)
+        while canvas.pendingSpread != nil, try !deadline.hasPassed() { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertNil(canvas.pendingSpread)
         XCTAssertEqual(canvas.spread?.columns.count, 2)
         let after = try XCTUnwrap(canvas.visibleRange)

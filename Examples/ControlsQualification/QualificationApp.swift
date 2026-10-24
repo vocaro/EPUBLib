@@ -21,6 +21,8 @@ import SwiftUI
                 .frame(minWidth: 320, minHeight: 400)
                 #endif
         }
+        // The reader's commands in the menu bar, for the reader of the window in front (issue 697).
+        .commands { EPUBReaderMenuCommands() }
         #if os(macOS)
         .defaultSize(width: 1000, height: 760)
         #endif
@@ -70,7 +72,7 @@ struct QualificationScreen: View {
 
     var body: some View {
         Group {
-            if let controls = model.controls { host(controls) }
+            if let controls = model.controls { host(controls).epubReaderMenuCommands(controls) }
             else { Text(model.failure ?? "Opening…") }
         }
         .task { await model.open() }

@@ -73,15 +73,17 @@ import UIKit
             XCTAssertEqual(frame.minX, viewport.width / 4, accuracy: 1, "\(viewport)")
             XCTAssertEqual(frame.minY, viewport.height / 10, accuracy: 1, "\(viewport)")
             XCTAssertEqual(frame.width, viewport.width / 4, accuracy: 1, "\(viewport)")
-            let relative = try callout("left:10vw; top:10vh; width:calc(10px + 2em)", size: viewport)
+            // Wide enough for "Callout", which widens a box narrower than it (#742).
+            let relative = try callout("left:10vw; top:10vh; width:calc(40px + 2em)", size: viewport)
             XCTAssertEqual(relative.minX, viewport.width / 10, accuracy: 1, "\(viewport)")
             XCTAssertEqual(relative.minY, viewport.height / 10, accuracy: 1, "\(viewport)")
-            XCTAssertEqual(relative.width, 42, accuracy: 1, "\(viewport)")
+            XCTAssertEqual(relative.width, 72, accuracy: 1, "\(viewport)")
         }
     }
 
     func testNegativeInsetsAreClampedIntoTheColumn() throws {
-        for declarations in ["left:-50px; top:0; width:100px", "right:-50px; top:0; width:100px", "left:-999px; top:-20px; width:100px",
+        // `-998px` is drawn, a pixel short of the off-screen rule (#358).
+        for declarations in ["left:-50px; top:0; width:100px", "right:-50px; top:0; width:100px", "left:-998px; top:-20px; width:100px",
                              "left:500px; top:0; width:100px"] {
             let frame = try callout(declarations)
             XCTAssertGreaterThanOrEqual(frame.minX, -0.5, declarations); XCTAssertLessThanOrEqual(frame.maxX, 360.5, declarations)
@@ -226,18 +228,19 @@ import UIKit
 
     // MARK: Visually hidden labels
 
-    /// `doc/native-viewer.md`: "top/left offsets of -1,000 CSS pixels or less as the book wrote
-    /// them, an `em` or a `rem` counting as 16 pixels (`-62.5em`), including calculations in
-    /// those units alone"; zero-area `clip: rect(...)` and `clip-path: inset(50%)`. Everything
-    /// else stays visible.
+    /// `doc/native-viewer.md`: "top/left offsets as the book wrote them: -999 CSS pixels or less
+    /// in absolute units alone, and `-62.5em` or less, 1,000 pixels, when an `em` or a `rem` is
+    /// in the offset, each counting as 16 pixels; calculations in those units alone count too";
+    /// zero-area `clip: rect(...)` and `clip-path: inset(50%)`. Everything else stays visible.
     func testHiddenLabelHeuristicAtItsDocumentedBoundaries() throws {
         let hidden = ["left:-1000px", "top:-1000px", "left:-1000.5px", "left:-9999px", "left:calc(-1000px)", "left:calc(-500px - 500px)",
                       "left:calc(-250px * 4)", "left:-750pt", "left:-11in", "left:-1e9px", "inset:-2000px auto auto auto",
+                      "left:-999px", "top:-999px", "left:-999.01px", "left:calc(-500px - 499px)", "left:-749.25pt",
                       "left:-999em", "top:-999rem", "left:-62.5em", "top:-62.5rem", "left:calc(-999px - 1em)", "left:calc(-50em - 200px)",
                       "clip:rect(0 0 0 0)", "clip:rect(0, 0, 0, 0)", "clip:rect(1px, 1px, 1px, 1px)", "clip:rect(0px 0px 0px 0px)",
                       "clip-path:inset(50%)", "clip-path:inset(100%)", "visibility:hidden"]
-        let visible = ["left:-999px", "left:-999.99px", "top:-999px", "left:-62.49em", "top:-62rem", "left:calc(-50em - 199px)",
-                       "left:-999ex", "left:-999ch", "left:calc(-999em - 1%)", "top:-999vh",
+        let visible = ["left:-998px", "left:-998.99px", "top:-998px", "left:-800px", "left:-62.49em", "left:-62.4375em", "top:-62rem",
+                       "left:calc(-50em - 199px)", "left:-999ex", "left:-999ch", "left:calc(-999em - 1%)", "top:-999vh",
                        "left:calc(-2000px + 50%)", "left:-200%", "left:-500vw", "right:-9999px", "bottom:-9999px", "left:-749pt",
                        "right:-999em", "margin-left:-999em",
                        "margin-left:-9999px", "clip:rect(0, 0, 1px, 1px)", "clip:rect(auto, auto, auto, auto)", "clip-path:inset(49%)",
@@ -371,6 +374,65 @@ import UIKit
         XCTAssertGreaterThanOrEqual(box.minY, before.maxY - 0.5)
         XCTAssertGreaterThanOrEqual(H.frame("after words.", in: section, view: view).minY, box.maxY - 0.5)
         XCTAssertEqual(view.visibleText, section.string.string)
+    }
+
+    /// A sized inline block's own margins stand between its content and its line's edges, so one
+    /// whose width and margins together are wider than the line is as wide as the room between
+    /// its margins. It was as wide as the column and started after its left margin, running past
+    /// the column's right edge (#720).
+    func testASizedInlineBlockWiderThanItsLineKeepsItsMarginsInsideTheColumn() throws {
+        let (section, view) = try layout("<p>Before <span class='b'>Inline box.</span> after words.</p>",
+                                         css: ".b { display:inline-block; width:500px; margin:0 20px 0 30px }")
+        let region = try XCTUnwrap(H.region("Inline box.", in: section, view: view))
+        XCTAssertEqual(region.frame.minX, 30, accuracy: 0.5, "after its left margin, at the start of a row of its own")
+        XCTAssertEqual(region.frame.maxX, 340, accuracy: 1, "before its right margin, inside the column")
+        XCTAssertGreaterThanOrEqual(H.frame("Inline box.", in: section, view: view).minY, H.frame("Before", in: section, view: view).maxY - 0.5)
+        XCTAssertEqual(view.visibleText, section.string.string)
+    }
+
+    /// CSS Text 3, 5.2: a word is not broken between two characters unless `overflow-wrap` or
+    /// `word-break` lets it be, so a number wider than its box overflows the box on one line. The
+    /// reader draws nothing outside its column, so a sized inline block or an absolutely
+    /// positioned box narrower than a word it holds is as wide as the word, as far as its
+    /// containing block allows, as a float is (#152). A box 20 points wide set `12345` on three
+    /// lines, `12`, `34` and `5` (#742).
+    func testASizedInlineBlockOrPositionedBoxNarrowerThanItsLongestWordIsAsWideAsThatWord() throws {
+        for css in [".n { display:inline-block; width:20px }", ".n { display:inline-block; max-width:20px }",
+                    ".n { position:absolute; left:0; top:0; width:20px }", ".n { position:absolute; right:0; top:0; max-width:20px }",
+                    ".n { position:absolute; left:0; right:340px; top:0 }"] {
+            for fontSize: CGFloat in [16, 25] {
+                let label = "\(css) at \(fontSize) points"
+                let (section, view) = try layout("<p>Lead <span class='n'>12345</span> verse text follows.</p>", css: css, fontSize: fontSize)
+                XCTAssertEqual(H.lines(in: view, intersecting: H.range("12345", in: section)).count, 1, "the number is one word on one line: \(label)")
+                let region = try XCTUnwrap(H.region("12345", in: section, view: view), label)
+                let number = H.frame("12345", in: section, view: view)
+                XCTAssertGreaterThanOrEqual(region.frame.width, number.width - 0.5, label)
+                XCTAssertLessThan(region.frame.width, number.width + 2, "the word's width, not a share of the column: \(label)")
+                XCTAssertTrue(region.frame.insetBy(dx: -1, dy: -1).contains(number), label)
+                if css.contains("right:0") { XCTAssertEqual(region.frame.maxX, 360, accuracy: 1, "at its right inset: \(label)") }
+                let prose = H.ink("Lead", in: section, view: view) + H.ink("verse text follows.", in: section, view: view)
+                XCTAssertFalse(H.overlaps(prose, [number]), label)
+                XCTAssertEqual(view.visibleText, section.string.string, label)
+            }
+        }
+    }
+
+    /// The word's width stops at the containing block: a sized inline block or a positioned box
+    /// whose word is wider than its containing block is as wide as that block, and its word is
+    /// broken there, as nothing leaves the column.
+    func testASizedInlineBlockOrPositionedBoxWhoseWordIsWiderThanItsContainingBlockIsAsWideAsThatBlock() throws {
+        let number = String(repeating: "1234567890", count: 6)
+        for (body, css) in [("<blockquote><p><span class='n'>\(number)</span> verse text follows.</p></blockquote>",
+                             "blockquote { margin:0 40px } .n { display:inline-block; width:20px }"),
+                            ("<div class='c'><p><span class='n'>\(number)</span> verse text follows.</p></div>",
+                             ".c { position:relative; margin:0 40px } .n { position:absolute; left:0; top:0; width:20px }")] {
+            let (section, view) = try layout(body, css: css)
+            let region = try XCTUnwrap(H.region(number, in: section, view: view), css)
+            XCTAssertEqual(region.frame.minX, 40, accuracy: 0.5, css)
+            XCTAssertEqual(region.frame.maxX, 320, accuracy: 1, "the containing block's content box: \(css)")
+            XCTAssertGreaterThan(H.lines(in: view, intersecting: H.range(number, in: section)).count, 1, css)
+            XCTAssertEqual(view.visibleText, section.string.string, css)
+        }
     }
 
     func testAnInlineBlockInsideAFloatStaysReadableInOrder() throws {

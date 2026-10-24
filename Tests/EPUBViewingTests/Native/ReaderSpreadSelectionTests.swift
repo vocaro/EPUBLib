@@ -125,9 +125,9 @@ import UIKit
         defer { session.close(); window.close() }
         window.resize(to: CGSize(width: 1000, height: 600))
         func wait(_ condition: () -> Bool) async throws {
-            let deadline = Date().addingTimeInterval(20)
+            let deadline = TestDeadline(seconds: 20)
             while !condition() {
-                guard Date() < deadline else { XCTFail("Selection state did not settle"); return }
+                guard try !deadline.hasPassed() else { XCTFail("Selection state did not settle"); return }
                 try await Task.sleep(for: .milliseconds(20))
             }
         }
@@ -174,9 +174,9 @@ import UIKit
             let window = ReaderTestWindow(session: session)
             defer { session.close(); window.close() }
             window.resize(to: CGSize(width: 1000, height: 600))
-            let deadline = Date().addingTimeInterval(15)
+            let deadline = TestDeadline(seconds: 15)
             while session.canvas?.columns.count != 2 || session.canvas?.columns.first?.tableInteraction?.cells.isEmpty != false {
-                guard Date() < deadline else { XCTFail("Missing native table columns"); return }
+                guard try !deadline.hasPassed() else { XCTFail("Missing native table columns"); return }
                 try await Task.sleep(for: .milliseconds(20))
             }
             let canvas = try XCTUnwrap(session.canvas)
@@ -298,9 +298,9 @@ import UIKit
         let window = ReaderTestWindow(session: session)
         defer { session.close(); window.close() }
         window.resize(to: CGSize(width: 1000, height: 600))
-        let deadline = Date().addingTimeInterval(15)
+        let deadline = TestDeadline(seconds: 15)
         while session.canvas?.columns.count != 2 || session.canvas?.columns.first?.tableInteraction?.cells.isEmpty != false {
-            guard Date() < deadline else { XCTFail("Missing native table columns"); return }
+            guard try !deadline.hasPassed() else { XCTFail("Missing native table columns"); return }
             try await Task.sleep(for: .milliseconds(20))
         }
         let canvas = try XCTUnwrap(session.canvas), first = canvas.columns[0], last = canvas.columns[1]

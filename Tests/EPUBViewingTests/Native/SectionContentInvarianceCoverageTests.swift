@@ -72,6 +72,22 @@ final class SectionContentInvarianceCoverageTests: XCTestCase {
             """)
     }
 
+    func testFirstLettersAreTheSameAtEverySizeAndAppearance() throws {
+        // #567: a floated first letter's paragraph, an inline one's runs and those a rule for one
+        // appearance would float or size, at every size and in either appearance.
+        try assertInvariant("""
+            <p id="a" class="cap">Drop caps open the chapter.</p><p id="b">\u{201C}Quoted,\u{201D} she said.</p>
+            <p id="c"><q>Hello</q>, she said.</p><p id="d" class="note">Take care.</p><p id="e" class="dark">Dark only.</p>
+            <div id="f"><p>Nested <em>blocks</em>.</p></div>
+            """, css: """
+            p.cap::first-letter, #b::first-letter { float: left; font-size: 3em; line-height: 1 } #c::first-letter { font-size: 2em }
+            .note::before { content: 'Note: ' } .note::first-letter { font-size: 150%; text-transform: lowercase }
+            @media (prefers-color-scheme: dark) { .dark::first-letter { float: right; font-size: 4em; color: rgb(255, 0, 0) } }
+            div::first-letter { font-weight: bold } div p::first-letter { float: left; font-size: 2.5em }
+            p::first-line { font-variant: small-caps }
+            """)
+    }
+
     func testImagesFormulasTablesAndDrawingsAreTheSameAtEverySizeAndAppearance() throws {
         try assertInvariant("""
             <p>An image <img id="i1" src="photo.png" alt="A photo"/>, a missing one <img id="i2" src="gone.png" alt="Gone"/> and

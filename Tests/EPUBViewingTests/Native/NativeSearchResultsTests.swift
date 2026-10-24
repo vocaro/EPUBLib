@@ -9,9 +9,9 @@ import XCTest
 /// public commands and observed through its events, published state and visible range.
 @MainActor final class NativeSearchResultsTests: XCTestCase {
     private func wait(_ label: String, timeout: TimeInterval = 20, until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = TestDeadline(seconds: timeout)
         while !condition() {
-            guard Date() < deadline else { return XCTFail("Timed out waiting for \(label)") }
+            guard try !deadline.hasPassed() else { return XCTFail("Timed out waiting for \(label)") }
             try await Task.sleep(for: .milliseconds(20))
         }
     }
@@ -263,7 +263,7 @@ import XCTest
                 try await session.send(command)
                 XCTAssertFalse(throwing, "\(label): the stale result was accepted")
             } catch { XCTAssertEqual(error as? EPUBReaderError, .invalidCommand("That search result is no longer available"), label) }
-            try await Task.sleep(for: .milliseconds(50))
+            try await TestDeadline.pause(.milliseconds(50))
             XCTAssertEqual(session.visibleRange, before, "\(label): stale navigation moved the reader")
             XCTAssertNil(state.status.searchResults?.currentIndex, "\(label): a current match appeared")
             XCTAssertEqual(events().count, count, "\(label): events after a suppressed command")
@@ -337,7 +337,7 @@ import XCTest
             do { try await session.send(command); XCTFail("Closed session accepted \(command)") }
             catch { XCTAssertEqual(error as? EPUBReaderError, .closed) }
         }
-        try await Task.sleep(for: .milliseconds(100))
+        try await TestDeadline.pause(.milliseconds(100))
         XCTAssertEqual(events().count, count, "no callbacks after close")
     }
 
@@ -406,6 +406,40 @@ import XCTest
         try await session.send(.nextSearchResult)
         XCTAssertEqual(session.readerState?.status.searchResults?.currentIndex, 0)
         try await wait("first result visible") { self.isVisible(0, in: session) }
+    }
+
+    /// The match a search made through the controls opens is said once, as a step's is, where
+    /// the search turns the page to it (#601). The reader says nothing of its own of a page a
+    /// command turns: it announces only a page VoiceOver's own scroll turns.
+    func testTheMatchASearchOpensIsSaidOnceWhereTheSearchTurnsThePage() async throws {
+        let (session, window, _) = try open(Self.book())
+        defer { session.close(); window.close() }
+        try await wait("built book and location") { session.book.isComplete && session.lastLocation != nil }
+        try await session.send(.navigate(href: "OPS/three.xhtml"))
+        XCTAssertEqual(session.visibleRange?.start.section, 2)
+        let canvas = try XCTUnwrap(session.canvas)
+        var said: [String] = []
+        #if os(iOS)
+        canvas.postToAccessibility = { notification, words in
+            if notification == .announcement { said.append("reader: \(words ?? "")") }
+        }
+        canvas.postAccessibilityNotification = { notification, words in
+            if notification == .announcement || notification == .pageScrolled { said.append("reader: \(words ?? "")") }
+        }
+        #else
+        canvas.postAccessibilityNotification = { _, notification, info in
+            if notification == .announcementRequested { said.append("reader: \(info[.announcement] ?? "")") }
+        }
+        #endif
+        let controls = EPUBReaderControls(publication: session.publication, session: session)
+        controls.postAnnouncement = { said.append($0) }
+        controls.searchText = "findneedle"
+        controls.submitSearch()
+        await controls.waitForCommands()
+        try await wait("first result visible") { self.isVisible(0, in: session) }
+        XCTAssertEqual(session.visibleRange?.start.section, 0, "the search turned the page from the third section to the first")
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(said, ["Match 1 of 6, first match, First Chapter: findneedle one, then more."])
     }
 
     func testResultListIsBoundedAndSaysSo() async throws {
@@ -508,7 +542,7 @@ import XCTest
         let size = window.window.frame.size
         for height in [size.height * 0.55, size.height] {
             window.resize(to: CGSize(width: size.width, height: height))
-            try await Task.sleep(for: .milliseconds(300))
+            try await TestDeadline.pause(.milliseconds(300))
             try await wait("result 2 on screen at \(Int(height)) points") { self.isVisible(2, in: session) }
             XCTAssertGreaterThanOrEqual(try depth(of: 2, in: session), 0, "result 2 is below the top at \(Int(height)) points")
         }

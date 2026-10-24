@@ -10,9 +10,9 @@ import XCTest
 /// public commands, observed through its events and its own visible range.
 @MainActor final class NativeSessionTests: XCTestCase {
     private func wait(_ label: String = "the reader", timeout: TimeInterval = 20, until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = TestDeadline(seconds: timeout)
         while !condition() {
-            guard Date() < deadline else { return XCTFail("Timed out waiting for \(label)") }
+            guard try !deadline.hasPassed() else { return XCTFail("Timed out waiting for \(label)") }
             try await Task.sleep(for: .milliseconds(20))
         }
     }
@@ -399,7 +399,7 @@ import XCTest
         session.close()
         do { try await session.send(.nextPage); XCTFail("Closed session accepted command") }
         catch { XCTAssertEqual(error as? EPUBReaderError, .closed) }
-        try await Task.sleep(for: .milliseconds(100))
+        try await TestDeadline.pause(.milliseconds(100))
         XCTAssertEqual(events().count, count)
     }
 
@@ -659,7 +659,7 @@ import XCTest
             try await wait("relayout") { session.book.isComplete && canvas.currentSelection?.range == range }
             // Wait past the 150-ms selection debounce so stale session state cannot mask a lost
             // native selection when its text views were replaced during the flow change.
-            try await Task.sleep(for: .milliseconds(250))
+            try await TestDeadline.pause(.milliseconds(250))
             XCTAssertEqual(canvas.currentSelection?.range, range)
             XCTAssertEqual(session.selection?.range, range)
             XCTAssertFalse(events().dropFirst(before).contains(.selectionChanged(nil)))
@@ -920,7 +920,7 @@ import XCTest
         defer { session.close(); window.close() }
         try await wait("restored position") { locations(events).last?.href == "OPS/text/titlepage.xhtml" }
         try await wait("whole book") { session.book.isComplete }
-        try await Task.sleep(for: .milliseconds(200))
+        try await TestDeadline.pause(.milliseconds(200))
         XCTAssertEqual(locations(events).first?.href, "OPS/text/chapter-1.xhtml")
         XCTAssertEqual(locations(events).last?.href, "OPS/text/titlepage.xhtml")
         XCTAssertEqual(session.visibleRange?.start.section, 1)

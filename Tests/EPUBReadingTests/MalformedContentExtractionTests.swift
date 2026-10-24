@@ -149,7 +149,7 @@ final class MalformedContentExtractionTests: XCTestCase {
         XCTAssertEqual(recovered.text, strict.text)
     }
 
-    func testRecoveryDecodesUTF16AndRejectsUndeclaredLegacyEncodings() throws {
+    func testRecoveryDecodesUTF16AndDeclaredLegacyEncodings() throws {
         let xml = "<?xml version='1.0' encoding='UTF-16'?>" + page("<p>Caf&eacute; <b>bold</p>", head: "<title>Caf&eacute;</title>")
         for encoding in [String.Encoding.utf16, .utf16BigEndian, .utf16LittleEndian] {
             let publication = try book(try XCTUnwrap(xml.data(using: encoding)))
@@ -158,12 +158,69 @@ final class MalformedContentExtractionTests: XCTestCase {
             XCTAssertEqual(section.text, "Café bold")
             XCTAssertEqual(section.title, "Café")
         }
-        // A declared legacy encoding remains supported by the strict XML parser...
+        // A declared legacy encoding is read by the strict XML parser, and by recovery as well,
+        // which refused it (#247).
         let latin1 = "<?xml version='1.0' encoding='ISO-8859-1'?>" + page("<p>café</p>")
         XCTAssertEqual(try book(try XCTUnwrap(latin1.data(using: .isoLatin1))).textSection(at: 0, recoversMalformedMarkup: true).text, "café")
-        // ...but recovery never guesses at bytes that are not UTF-8 or UTF-16/32.
-        let broken = "<?xml version='1.0' encoding='ISO-8859-1'?>" + page("<p>café</b></p>")
-        assertMalformed(try book(try XCTUnwrap(broken.data(using: .isoLatin1))), recovering: true)
+        let broken = "<?xml version='1.0' encoding='ISO-8859-1'?>" + page("<p>café</b></p>", head: "<title>Té</title>")
+        let recovered = try book(try XCTUnwrap(broken.data(using: .isoLatin1))).textSection(at: 0, recoversMalformedMarkup: true)
+        XCTAssertTrue(recovered.recoveredAsHTML)
+        XCTAssertEqual(recovered.text, "café")
+        XCTAssertEqual(recovered.title, "Té")
+        // Recovery still never guesses at bytes that are not UTF-8 and that no declaration names.
+        let undeclared = page("<p>café</b></p>")
+        assertMalformed(try book(try XCTUnwrap(undeclared.data(using: .isoLatin1))), recovering: true)
+    }
+
+    /// Recovery decodes a section by the encoding its XML declaration names, as the strict path
+    /// and the reader's fallback do, so that an unclosed tag changes neither its characters nor
+    /// whether it is read (#247). Both rows of the issue's table are here: real ISO-8859-1 bytes,
+    /// which recovery refused, and UTF-8 bytes declared as another encoding, which now read as
+    /// that encoding says, as a conforming XML parser and the reader read them, where recovery
+    /// read them as UTF-8.
+    func testRecoveryReadsTheEncodingTheXMLDeclarationNamesAsTheStrictPathDoes() throws {
+        let cases: [(String, [UInt8], String)] = [
+            ("ISO-8859-1", [0xE9], "caf\u{E9}"), ("iso-8859-1", [0xE9, 0xFF], "caf\u{E9}\u{FF}"), ("latin1", [0xE9], "caf\u{E9}"),
+            ("windows-1252", [0xE9, 0x20, 0x93, 0x97, 0x94, 0x80], "caf\u{E9} \u{201C}\u{2014}\u{201D}\u{20AC}"),
+            ("ISO-8859-15", [0xE9, 0xA4], "caf\u{E9}\u{20AC}"), ("windows-1251", [0xEA, 0xE0, 0xF4, 0xE5], "caf\u{43A}\u{430}\u{444}\u{435}"),
+            ("KOI8-R", [0xCB, 0xC1], "caf\u{43A}\u{430}"), ("macintosh", [0x8E], "caf\u{E9}"), ("US-ASCII", [0x65], "cafe"),
+            ("Shift_JIS", [0x93, 0xFA, 0x96, 0x7B], "caf\u{65E5}\u{672C}"), ("EUC-KR", [0xC7, 0xD1, 0xB1, 0xB9], "caf\u{D55C}\u{AD6D}"),
+            ("UTF-7", Array("+AOk-".utf8), "caf\u{E9}"),
+            // The UTF-8 bytes of `é`, declared as another encoding.
+            ("ISO-8859-1", [0xC3, 0xA9], "caf\u{C3}\u{A9}"), ("windows-1252", [0xC3, 0xA9], "caf\u{C3}\u{A9}"),
+        ]
+        for (name, bytes, expected) in cases {
+            let label = "\(name) \(bytes)"
+            func section(_ tail: String) -> Data {
+                Data("<?xml version='1.0' encoding='\(name)'?><html xmlns='http://www.w3.org/1999/xhtml'><head><title>caf".utf8)
+                    + Data(bytes) + Data("</title></head><body><p>caf".utf8) + Data(bytes) + Data(" one</p>\(tail)</body></html>".utf8)
+            }
+            let strict = try book(section("")).textSection(at: 0)
+            XCTAssertFalse(strict.recoveredAsHTML, label)
+            XCTAssertEqual(strict.text, expected + " one", label)
+            XCTAssertEqual(strict.title, expected, label)
+            let publication = try book(section("</b>"))
+            assertMalformed(publication)
+            let recovered: EPUBTextSection
+            do { recovered = try publication.textSection(at: 0, recoversMalformedMarkup: true) } catch {
+                XCTFail("\(label): \(error)")
+                continue
+            }
+            XCTAssertTrue(recovered.recoveredAsHTML, label)
+            XCTAssertEqual(recovered.text, strict.text, label)
+            XCTAssertEqual(recovered.title, strict.title, label)
+        }
+        // Bytes the declared encoding cannot decode leave the XML parser no reading to agree with,
+        // and are read as they are: as UTF-8 when they are UTF-8, and refused when they are not,
+        // where the reader shows U+FFFD.
+        func undecodable(_ bytes: [UInt8]) throws -> EPUBPublication {
+            try book(Data("<?xml version='1.0' encoding='US-ASCII'?><html xmlns='http://www.w3.org/1999/xhtml'><head><title>T</title></head><body><p>caf".utf8)
+                + Data(bytes) + Data(" one</p></b></body></html>".utf8))
+        }
+        let utf8 = try undecodable([0xC3, 0xA9])
+        assertMalformed(utf8)
+        XCTAssertEqual(try utf8.textSection(at: 0, recoversMalformedMarkup: true).text, "caf\u{E9} one")
+        assertMalformed(try undecodable([0xE9]), recovering: true)
     }
 
     func testRecoveryNeverAdmitsDeclarationsOrExternalEntities() throws {

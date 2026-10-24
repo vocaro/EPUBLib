@@ -280,13 +280,15 @@ import UIKit
             _ = ReaderPaginator(text: text, size: size).allPages
             XCTAssertEqual(calls.count, 0, "not inside the layout")
         }
-        await fulfillment(of: [told], timeout: 5)
+        let toldInTime = try await TestDeadline.fulfillment(of: [told], within: 5)
+        XCTAssertTrue(toldInTime)
         try bounded { _ = H.view(text, size: size) }
-        try await Task.sleep(for: .milliseconds(50))
+        try await TestDeadline.pause(.milliseconds(50))
         XCTAssertEqual(calls.count, 1, "a second layout that finds it tells no one again")
         let late = Calls(), lateTold = expectation(description: "a later observer is told of what was found")
         section.layout.observe { late.count += 1; lateTold.fulfill() }
-        await fulfillment(of: [lateTold], timeout: 5)
+        let lateToldInTime = try await TestDeadline.fulfillment(of: [lateTold], within: 5)
+        XCTAssertTrue(lateToldInTime)
         XCTAssertEqual(late.count, 1)
     }
 }

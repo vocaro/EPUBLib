@@ -76,9 +76,14 @@ final class StyleResolver: @unchecked Sendable {
     /// The computed style of `element`, given its parent's computed style.
     func style(for element: ContentNode, parent: ComputedStyle) -> ComputedStyle {
         guard element.isElement else { return parent }
-        let order = element.order
         let matcher = SelectorMatcher(document: document, facts: facts, siblingSearches: siblingSearches,
                                       selectorPositions: selectorPositions)
+        guard author.hasTypographicPseudoElementRules else { return style(for: element, parent: parent, matcher: matcher) }
+        return typographicPseudoElements(of: element, style: style(for: element, parent: parent, matcher: matcher), matcher: matcher)
+    }
+
+    private func style(for element: ContentNode, parent: ComputedStyle, matcher: SelectorMatcher) -> ComputedStyle {
+        let order = element.order
         let userAgent = UserAgentStyleSheet.index.matching(order, matcher: matcher)
         let matched = author.matching(order, matcher: matcher)
         let hints = PresentationalHints.declarations(for: element, facts: facts, document: document)
@@ -249,6 +254,52 @@ extension StyleResolver {
     }
 }
 
+// MARK: - First letter and first line
+
+extension StyleResolver {
+    /// `style` with the element's `::first-letter` rules (`FirstLetterRules`), for the writer to
+    /// cascade where it meets the letter, and whether a `::first-line` rule matches the element.
+    @inline(never)
+    private func typographicPseudoElements(of element: ContentNode, style: ComputedStyle, matcher: SelectorMatcher) -> ComputedStyle {
+        let letter = author.matching(element.order, matcher: matcher, pseudoElement: .firstLetter)
+        let line = !author.matching(element.order, matcher: matcher, pseudoElement: .firstLine).isEmpty
+        guard !letter.isEmpty || line else { return style }
+        var style = style
+        if !letter.isEmpty { style.firstLetter = FirstLetterRules(entries: letter, resolver: self) }
+        style.hasFirstLineRules = line
+        return style
+    }
+
+    /// The computed style of a `::first-letter` whose letter is in a box of style `parent`, from
+    /// the rules `entries` of its element. Only the properties that apply to the pseudo-element
+    /// (`CSSProperty.appliesToFirstLetter`) are taken from them: the others are inherited from
+    /// `parent` or initial, so the letter is an inline box or a float. Like a floated element,
+    /// a floated letter is a box the reader's text settings leave alone
+    /// (`ReaderTextSettings.leavesAlone`): it inherits the values the book's styles alone give.
+    func firstLetterStyle(_ entries: [Int], parent: ComputedStyle) -> ComputedStyle {
+        func computed(inheriting parent: ComputedStyle) -> ComputedStyle {
+            let (cascade, custom) = resolvingSides({ direction in
+                var cascade = Cascade(direction: direction, separatesAppearance: author.hasAppearanceCustomProperties)
+                cascade.userAgent = cascade.winners
+                for entry in entries { cascade.apply(author.entries[entry], at: entry, important: false) }
+                for entry in entries where author.entries[entry].hasImportant {
+                    cascade.apply(author.entries[entry], at: entry, important: true)
+                }
+                return cascade
+            }, parent: parent)
+            var winners = cascade.winners
+            for property in CSSProperty.allCases where !property.appliesToFirstLetter { winners[property.rawValue] = nil }
+            return compute(winners: winners, userAgent: cascade.userAgent, custom: custom, parent: parent,
+                           rem: rootFontSize, isRoot: false)
+        }
+        let style = computed(inheriting: parent)
+        guard style.float != .none, let book = parent.textSettings?.book else { return style }
+        var leftAlone = computed(inheriting: book.applied(to: parent))
+        leftAlone.textSettings = .leftAlone
+        return leftAlone
+    }
+}
+
 // MARK: - Text settings
 
 extension StyleResolver {
@@ -331,11 +382,13 @@ struct CSSRuleIndex: Sendable {
         static let light = CustomSides(rawValue: 1)
         static let appearance = CustomSides(rawValue: 2)
     }
-    /// The rules of elements, and apart from them those of their `::before` and `::after`,
-    /// which are bucketed by the originating element.
+    /// The rules of elements, and apart from them those of their `::before`, `::after`,
+    /// `::first-letter` and `::first-line`, which are bucketed by the originating element.
     private var buckets = Buckets()
     private var beforeBuckets = Buckets()
     private var afterBuckets = Buckets()
+    private var firstLetterBuckets = Buckets()
+    private var firstLineBuckets = Buckets()
 
     /// The value by its code units, as the matcher compares it (`CodeUnitString`).
     private struct AttributeValueKey: Hashable {
@@ -376,6 +429,8 @@ struct CSSRuleIndex: Sendable {
 
     /// Whether some rule styles a `::before` or an `::after`.
     var hasGeneratedContentRules: Bool { !beforeBuckets.isEmpty || !afterBuckets.isEmpty }
+    /// Whether some rule styles a `::first-letter` or a `::first-line`.
+    var hasTypographicPseudoElementRules: Bool { !firstLetterBuckets.isEmpty || !firstLineBuckets.isEmpty }
 
     /// A nil sibling-search bound means no parent can use that memo, so parsed search identities
     /// need no interning. Filtered-position admission independently bounds retained `of S` lists.
@@ -406,7 +461,11 @@ struct CSSRuleIndex: Sendable {
                     guard let selector = indexed else { stylesTruncated = true; continue }
                     positionFilters.formUnion(wanted)
                     let index = Int32(entries.count)
-                    guard !declarations.isEmpty || !custom.isEmpty else { continue }
+                    // A `::first-line` is never styled, only disclosed: a rule for it counts in
+                    // either appearance where it applies in one, so that the disclosure is the
+                    // same in light and dark.
+                    let disclosed = selector.pseudoElement == .firstLine && !rule.declarations.isEmpty
+                    guard !declarations.isEmpty || !custom.isEmpty || disclosed else { continue }
                     entries.append(Entry(selector: selector, declarations: declarations, custom: custom, customSides: sides,
                                          key: UInt64(selector.specificity) << 32 | order, hasImportant: important,
                                          ancestorBits: selector.ancestorNames.map(\.bits)))
@@ -414,6 +473,8 @@ struct CSSRuleIndex: Sendable {
                     case nil: buckets.insert(index, under: selector.bucketKey)
                     case .before?: beforeBuckets.insert(index, under: selector.bucketKey)
                     case .after?: afterBuckets.insert(index, under: selector.bucketKey)
+                    case .firstLetter?: firstLetterBuckets.insert(index, under: selector.bucketKey)
+                    case .firstLine?: firstLineBuckets.insert(index, under: selector.bucketKey)
                     case .other?: break // `CSSStyleSheet` keeps none.
                     }
                 }
@@ -423,12 +484,14 @@ struct CSSRuleIndex: Sendable {
     }
 
     /// Entries whose selector matches the element, in ascending cascade order: the element's own
-    /// rules, or with `pseudoElement` those of its `::before` or `::after`.
+    /// rules, or with `pseudoElement` those of that pseudo-element of it.
     func matching(_ element: Int, matcher: SelectorMatcher, pseudoElement: CSSPseudoElement? = nil) -> [Int] {
         switch pseudoElement {
         case nil: matching(element, matcher: matcher, in: buckets)
         case .before?: beforeBuckets.isEmpty ? [] : matching(element, matcher: matcher, in: beforeBuckets)
         case .after?: afterBuckets.isEmpty ? [] : matching(element, matcher: matcher, in: afterBuckets)
+        case .firstLetter?: firstLetterBuckets.isEmpty ? [] : matching(element, matcher: matcher, in: firstLetterBuckets)
+        case .firstLine?: firstLineBuckets.isEmpty ? [] : matching(element, matcher: matcher, in: firstLineBuckets)
         case .other?: []
         }
     }

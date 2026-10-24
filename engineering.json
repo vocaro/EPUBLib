@@ -3,7 +3,7 @@
   "name": "EPUBLib",
   "repository": "vocaro/EPUBLib",
   "toolkit": {
-    "path": "../apple-engineering"
+    "path": "../vocaro-engineering"
   },
   "capabilities": [
     "simulator-disposable",
@@ -36,8 +36,8 @@
     },
     "swift-tests": {
       "command": [
-        "swift",
-        "test"
+        "bash",
+        "scripts/test-mac.sh"
       ],
       "resource": "heavy",
       "minimumTests": 2516
@@ -55,7 +55,7 @@
         "bash",
         "scripts/check-all.sh"
       ],
-      "resource": "exclusive",
+      "resource": "heavy",
       "minimumTests": 3252
     }
   },

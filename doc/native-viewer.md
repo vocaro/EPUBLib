@@ -38,8 +38,15 @@ continues to describe the authored spine resource.
    Unqualified HTML repairs remain readable but cannot issue or resolve CFIs: the reader
    discloses that saved positions and highlights are unavailable for those sections.
    For that parser a `<` that opens no markup (`x < y`, `p <.05`) is kept as text, as HTML
-   reads it; libxml2 alone discards what follows it
-   ([libxml2's HTML parser](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#libxml2s-html-parser-is-not-the-html-standard)).
+   reads it; libxml2 alone discards what follows it through the next `>`, and makes an element
+   of `<.05`
+   ([libxml2's HTML parser](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#libxml2s-html-parser-is-not-the-html-standard)).
+   Each such sign is given to the parser as a noncharacter it cannot read in the file: not
+   as itself, nor as a reference once its NULs are left out, nor as one libxml2 2.9.13
+   assembles in text from bytes that are not UTF-8, which it copies as they are and joins
+   across what it drops. Where those placeholders, two bytes longer than a sign, would take the
+   section past the byte limit, the signs are given as they are and read as before
+   ([#211](https://github.com/vocaro/EPUBLib/issues/211)).
    That parser is given UTF-8, so an unclosed tag does not change a section's characters:
    UTF-16 and UTF-32 are decoded first, told by the byte-order mark or NUL pattern the screen
    tells them by, and any other encoding by the name in the XML declaration as the XML parser
@@ -48,11 +55,21 @@ continues to describe the authored spine resource.
    cannot decode is read as UTF-8, with U+FFFD for what is not. Bytes that only a NUL tells
    as UTF-16 or UTF-32, and that hold no markup once decoded, are not a document and are
    withheld. What was decoded by a declared encoding is screened again, and what the parser
-   is given is held to the byte limit.
+   is given is held to the byte limit. So are bytes read as they are under an XML
+   declaration, which the screen may have read through the encoding it names: one written in
+   EBCDIC is read as IBM037 by the screen and the XML parser, and UTF-16 named in an ASCII
+   declaration as UTF-16 by the screen, and both as UTF-8 here, so an internal subset written in
+   ASCII after either is refused ([#743](https://github.com/vocaro/EPUBLib/issues/743)).
+   Text extraction's recovery decodes with the same code, `HTMLSourceEncoding` in EPUBCore, but
+   refuses what is not UTF-8 where this shows U+FFFD
+   ([#247](https://github.com/vocaro/EPUBLib/issues/247)).
    HTML recovery escapes content CDATA as literal text and moves the parser's actual trailing
    nodes into its body before bounded tree conversion. This keeps text after `</html>` and CDATA characters in recovered
    sections without making those sections eligible for CFIs
-   ([#237](https://github.com/vocaro/EPUBLib/issues/237)).
+   ([#237](https://github.com/vocaro/EPUBLib/issues/237)). Where the bytes on either side of a
+   section's delimiters would join into what the screen did not read there, `<!>` keeps them
+   apart, as it does for NULs below: an end the screen reads, a `>` after a DOCTYPE and a `[`,
+   and a stray `<` and what follows it, which stays a sign (#743).
    A malformed numeric-reference prefix with no first digit (`&#`, `&#x`, `&#;`) remains
    literal in text and attributes; recovery and safety scans agree that a comment can end at
    `--!>`. Parsed-string restoration cannot create active markup
@@ -88,6 +105,12 @@ continues to describe the authored spine resource.
    the screen takes for a DOCTYPE's end. `<!>` holds no quote and no `-->`, `?>` or `]]>`, so
    it ends nothing the screen may be reading there (`<!---->` would end a comment the screen
    reads in a style sheet) ([#246](https://github.com/vocaro/EPUBLib/issues/246)).
+   A text NUL is `<!>` too where leaving it out would join the bytes beside it into `?>`,
+   `-->`, `--!>` or `]]>`. The screen reads a processing instruction to `?>`, which libxml2
+   ends at its first `>`, and a comment or CDATA opened in a style sheet to its end, where
+   libxml2 ends the raw text at `</style>`; such a join would end either sooner and bring into
+   the screen's view what it passed over. In prose `why?`, a NUL and `>` reads `why?>`
+   ([#733](https://github.com/vocaro/EPUBLib/issues/733)).
    A section whose file is cut off inside markup stays withheld, with its disclosure: the
    screen refuses markup left open at the end of the input before either parser runs.
    `XMLSafety` refuses entity declarations first. No DTD or network access, depth and node limits.
@@ -189,7 +212,7 @@ continues to describe the authored spine resource.
   link or a `navigate(href:)` fragment, the TOC and page-list positions, CSS `#id` selectors, SVG
   references, and the manifest IDs that choose a fallback. Tables of IDs are keyed by
   `EPUBElementID`, which compares and hashes an ID's UTF-8 bytes ([#635](https://github.com/vocaro/EPUBLib/issues/635);
-  [element IDs](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#element-ids-compare-code-units-swift-strings-do-not)).
+  [element IDs](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#element-ids-compare-code-units-swift-strings-do-not)).
 - **Selector strings.** A selector compares everything else it names code unit for code unit
   too, as browsers do: class names, attribute names and values under every operator, element
   names, namespace URIs and `:lang()` ranges. So `.caf\E9` does not style
@@ -227,7 +250,7 @@ continues to describe the authored spine resource.
   flow, drawn by the reader's own text views in vertical orientation, and is unscheduled:
   multi-language support is not a current priority. A spike found that route open on both
   platforms
-  ([vertical orientation](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#a-text-view-takes-its-layout-stack-when-it-is-made)).
+  ([vertical orientation](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#a-text-view-takes-its-layout-stack-when-it-is-made)).
   `vertical-lr` and continuous scroll are outside that route.
 - **MathML.** A native layout engine, the [MathMLLayout](https://github.com/vocaro/MathMLLayout)
   package (CoreText and the OpenType MATH table), draws each `<math>` as an attachment,
@@ -285,7 +308,12 @@ continues to describe the authored spine resource.
   Other aspect fits, transforms and nested viewports use the SVG renderer
   ([#187](https://github.com/vocaro/EPUBLib/issues/187)). Archive raster references are resolved
   and bounded before rendering, and images in `data:` URLs read and bounded as they are
-  (**Data URLs**, below); scripts,
+  (**Data URLs**, below). An `<image>` that gives neither `width` nor `height` is laid out at its
+  picture's own size, a nested drawing's or a bitmap's with its orientation applied, as a
+  browser lays it out, though the picture reaches the renderer as a PNG of at most 2,048 pixels
+  on its long side; the image span bound charges that size, so a drawing with a large sizeless
+  bitmap can be refused ([#704](https://github.com/vocaro/EPUBLib/issues/704),
+  [#862](https://github.com/vocaro/EPUBLib/issues/862)). Scripts,
   animation, foreign content and external resources are omitted with a disclosure. Manifest
   image fallbacks apply inside SVG as well. Recursive preparation shares one memo and work
   budget per drawing: 128 request/candidate misses, 16 MiB each of loaded source and serialized
@@ -307,9 +335,10 @@ continues to describe the authored spine resource.
   character reference, so the renderer reads a class list, text and the id an `href` names as
   the book has them ([#249](https://github.com/vocaro/EPUBLib/issues/249)). A wrapper whose one
   image names a fragment wraps no file and goes to the renderer, whatever follows its `#`, which
-  is found as its byte. StaticSVG 0.1.1's serializer still finds an `href`'s `#` by `Character`,
-  so it takes a reference such as `#&#x301;x` for a file's, leaves it out and discloses it as an
-  image ([#641](https://github.com/vocaro/EPUBLib/issues/641)). An embedded font's
+  is found as its byte. StaticSVG's serializer finds an `href`'s `#` by its byte too, so a
+  reference such as `#&#x301;x` in a `<use>` or an `<image>` is kept as the fragment the
+  renderer reads, not taken for a file's and disclosed
+  ([#641](https://github.com/vocaro/EPUBLib/issues/641)). An embedded font's
   own family name, which comes from the book's font file, stands for the family a drawing names
   only when it holds nothing but letters, marks, digits, spaces and `-`, `_`, `.`, `&` and `+`.
   The renderer's direct entry point continues to refuse filters, including commented and
@@ -329,7 +358,7 @@ continues to describe the authored spine resource.
   and inspects the attachment, and turns StaticSVG's diagnostics into the section's disclosures.
   StaticSVG ships the renderer as an Apple XCFramework, so consumers do not need Rust; its source
   pins, build, panic boundary and redistribution notices are in its
-  [renderer notes](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/renderer.md).
+  [renderer notes](https://github.com/vocaro/StaticSVG/blob/0.1.3/doc/renderer.md).
 - **Data URLs.** An image a document holds in a `data:` URL, as EPUB 3.3 §3.7 permits, is shown
   as one from the archive is: an `<img>`, and an `<object>` or `<embed>` whose `type` names an
   image ([#134](https://github.com/vocaro/EPUBLib/issues/134)); and an SVG `<image>`, in a drawing
@@ -462,12 +491,12 @@ continues to describe the authored spine resource.
   over: its character stays in the text area's value with no element of its own, VoiceOver
   says nothing for it by line or in Read All, and moving by word its cursor takes one step
   across it for which no phrase was recorded. An image without words has no help text on
-  Mac ([an element without a name](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/accessibility.md#an-element-without-a-name-is-read-by-its-help-or-its-contents)).
+  Mac ([an element without a name](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/accessibility.md#an-element-without-a-name-is-read-by-its-help-or-its-contents)).
   A book can also keep an image from assistive technology, whatever its `alt` says:
   with `aria-hidden="true"` on the image or on an element round it, or with the role
   `presentation` or `none` (`ContentSemantics.isHiddenFromAssistiveTechnology`). The reader
   maps both
-  [as WAI-ARIA 1.2 and HTML-AAM do](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/accessibility.md#map-html-alternatives-and-hiding-as-html-aam-does),
+  [as WAI-ARIA 1.2 and HTML-AAM do](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/accessibility.md#map-html-alternatives-and-hiding-as-html-aam-does),
   exceptions included, to assistive technology alone. The image is
   drawn, and its words still stand for it in selections, copies and search, as a browser
   copies them: "passed over" is told apart from "has no words" (`ImageAlternative`), and only
@@ -506,7 +535,7 @@ continues to describe the authored spine resource.
   decoration to pass over because the break is part of what the book says: someone who sees
   the page gets it from the line, and without the stop two scenes are read as one. On
   iPhone and iPad
-  [VoiceOver has no word of its own for a separator](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/accessibility.md#voiceover-speaks-a-roles-own-words).
+  [VoiceOver has no word of its own for a separator](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/accessibility.md#voiceover-speaks-a-roles-own-words).
   The word is the reader's (`ReaderRuleAttachment.spokenName`), the
   name of the role, and it is English whatever the language of VoiceOver or of the book, as
   the names of the page actions are. The stop has no trait: it is neither a picture nor
@@ -549,7 +578,7 @@ continues to describe the authored spine resource.
   at a formula, a picture or a hidden label there either, whatever element the cell gave.
   A cell made a new element for each attachment at every read of its rich text and kept
   none, where a page's text keeps its elements from one read to the next, and
-  [VoiceOver asks an element what it is after the read that gave it](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#appkit-gives-a-client-the-text-character-for-character).
+  [VoiceOver asks an element what it is after the read that gave it](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#appkit-gives-a-client-the-text-character-for-character).
   A cell now
   keeps its elements for as long as it stands, gives each the place its character is
   drawn at, and makes each what the page's text makes of the same attachment, through the
@@ -563,7 +592,7 @@ continues to describe the authored spine resource.
   A note's popover on Mac is a text area of the page's kind and was not heard either.
 - **Links for VoiceOver on Mac.** AppKit gives a text view's links to an assistive client
   itself, and
-  [the way VoiceOver uses them](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#links-in-an-appkit-text-view-are-children-not-places)
+  [the way VoiceOver uses them](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#links-in-an-appkit-text-view-are-children-not-places)
   left a link that is a picture or a hidden label without a name or out of reach (macOS
   27.0.1, with "When encountering a link/attachment" at Speak, its default). The reader gives
   elements of its own in AppKit's place
@@ -611,7 +640,7 @@ continues to describe the authored spine resource.
   itself it scrolled to the link by the scroll bar, and one move right took the view back
   to the top of the book. So a link's element says whether it has the keyboard focus and
   takes it, as a heading's does, since
-  [VoiceOver focuses only an element that reports its focus](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-focuses-only-an-element-that-reports-its-focus).
+  [VoiceOver focuses only an element that reports its focus](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-focuses-only-an-element-that-reports-its-focus).
   For a link with none of it on screen the reader then shows the link, as it
   shows a link's target, and puts the insertion point on it, or on the row for a cell's
   link: `right` and `line` read on from the link, and from the row for a cell's link,
@@ -633,7 +662,7 @@ continues to describe the authored spine resource.
   over the link's name: "word." and the hint were all that was recorded of "Verification
   link hyperlink", and "grid." of a cell's link. Three ways to move VoiceOver's place in
   the text without the word
-  [moved nothing or said it all the same](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point).
+  [moved nothing or said it all the same](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point).
   With cursor tracking off VoiceOver focuses nothing: it says the link below the screen
   by its name, scrolls to it itself, and reads on from where it last read.
   Past the book's last link nothing is added, and Find Next Link does there what it does
@@ -702,12 +731,12 @@ continues to describe the authored spine resource.
   no action gives no list of actions, not an empty one.
   What UIKit gives a text view was heard by itself on 2026-10-12
   ([VoiceOver testing](testing.md#harness-pitfalls-and-current-results)) and is
-  [an action for each link of its text](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#uikit-offers-the-actions-of-every-element-that-contains-the-item).
+  [an action for each link of its text](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#uikit-offers-the-actions-of-every-element-that-contains-the-item).
   On Mac a text area has no elements for its lines, so each
   text area offers the page turn itself, the same command under the name its flow gives
   it ("Input and accessibility").
 - **Tables.** Attachments drawn natively, with cells laid out by TextKit 1
-  ([TextKit 1 and TextKit 2](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#textkit-1-and-textkit-2-apply-paragraph-indents-differently)),
+  ([TextKit 1 and TextKit 2](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#textkit-1-and-textkit-2-apply-paragraph-indents-differently)),
   one image-drawn attachment per row so pages can break between any two rows; rows a rowspan
   joins, and the header, keep with the next row and share a page when they fit. `colspan`/
   `rowspan` honored (`rowspan="0"` spans one row, as WebKit does); a spanning cell is drawn in
@@ -781,7 +810,7 @@ continues to describe the authored spine resource.
   a nested table ([#300](https://github.com/vocaro/EPUBLib/issues/300),
   [#138](https://github.com/vocaro/EPUBLib/issues/138)). Table construction keeps large style,
   preparation and placement temporaries outside recursive cell rendering
-  ([small recursive frames](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/stack-and-work-bounds.md#small-recursive-frames-and-heap-cursors-keep-depth-cheap))
+  ([small recursive frames](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/stack-and-work-bounds.md#small-recursive-frames-and-heap-cursors-keep-depth-cheap))
   to fit the production task-thread stack through both written and anonymous cells
   ([#329](https://github.com/vocaro/EPUBLib/issues/329)). Tables are drawn eight levels deep.
   Past that a cell's content is written as a shallower cell's is, with the tables in it flowing
@@ -833,14 +862,14 @@ continues to describe the authored spine resource.
   words is an image without a name, as a picture without words in a line is, and one that
   shows nothing, or decoration alone, is no element unless its page lists nothing else. The interaction
   surfaces are hidden from assistive technology there, since
-  [a text view that is merely not an element still offers UIKit's own elements](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#uikits-own-text-view-elements-are-every-paragraph).
+  [a text view that is merely not an element still offers UIKit's own elements](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#uikits-own-text-view-elements-are-every-paragraph).
   On Mac
   a table that holds data is given as a table at each of its rows ("Data tables" below), and
   a row of any other table is a group, called by its cells' words, that holds its cells'
   text areas. A row that shows nothing, or decoration alone, is nothing VoiceOver stops on
   there either, in either kind of table. A cell's lines are those its own layout
   makes, numbered from the first it shows, and
-  [the offset after its last character is on its last line](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#appkit-gives-a-client-the-text-character-for-character),
+  [the offset after its last character is on its last line](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#appkit-gives-a-client-the-text-character-for-character),
   as the offset after a page's last character is on the page's.
   Continuations retain original
   source offsets: several pages can report the same row range. Existing bookmarks naming a
@@ -851,7 +880,7 @@ continues to describe the authored spine resource.
   Interaction surfaces are mounted only for visible cells. Cell TextKit
   layouts and glyph metadata are retained for drawing in the table's bounded layout cache.
   In continuous scroll which rows are visible is read from TextKit's layout, which
-  [lags the scroll view's report of a move](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#lay-out-through-a-far-target-before-scrolling-to-it).
+  [lags the scroll view's report of a move](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#lay-out-through-a-far-target-before-scrolling-to-it).
   Looked for then alone, the rows that layout had not reached got no surfaces. So the rows
   are looked for as the view moves and again once the reader has read where the view
   stands, which every move ends in: the reader's own, to the section a book opens at, a
@@ -872,7 +901,7 @@ continues to describe the authored spine resource.
   where a cell ends, which column a value stands in or what heads it.
   - **Which tables.** HTML has no element that says a table is there for layout, so the
     reader
-    [decides as WebKit does](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#decide-whether-a-table-holds-data-as-webkit-does),
+    [decides as WebKit does](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#decide-whether-a-table-holds-data-as-webkit-does),
     from what it builds and draws. Two things differ from WebKit. Any header cell makes a table
     data, where WebKit wants a first row or a first column of them: a `th` says what it heads,
     and a row cannot say that. And cells with a background of their own, and rows of alternating
@@ -900,7 +929,7 @@ continues to describe the authored spine resource.
   - **Header cells.** A `th` heads its columns or its rows as HTML has it: by its `scope`,
     and without one its columns when it stands in `thead` or its rows hold header cells
     alone, and otherwise its rows when its columns hold header cells alone. Since
-    [UIKit asks for the headers of a row and of a column, not of a cell](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#uikit-asks-for-the-headers-of-a-row-and-of-a-column-not-of-a-cell),
+    [UIKit asks for the headers of a row and of a column, not of a cell](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#uikit-asks-for-the-headers-of-a-row-and-of-a-column-not-of-a-cell),
     the table answers with the header cells above and before the cell that was last asked
     where it stands, which is the cell VoiceOver has come to. A cell's `headers` attribute
     makes its table data and is otherwise not followed.
@@ -940,13 +969,13 @@ continues to describe the authored spine resource.
     VoiceOver reads on through a table longer than the screen in both directions and the
     rotor's Rows moves past the screen. Two things made that hold. A table lists its rows
     again, for where the cursor is now, whenever it is asked, since
-    [VoiceOver asks the table first](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#on-ios-a-data-table-is-a-container-among-the-lines);
+    [VoiceOver asks the table first](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#on-ios-a-data-table-is-a-container-among-the-lines);
     answered from the rows listed
     for the cell before, a table ended at the last of those. And the rows around a cursor
     that rests in a table the person has scrolled away from are listed in the same element
     as the rows on screen, with those between them missing, as lines are.
   - **On Mac.** VoiceOver on Mac reads a text area by line and by word, and
-    [meets a table only as the element the text gives at an attachment's character](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#on-the-mac-voiceover-meets-a-table-only-at-an-attachment-character).
+    [meets a table only as the element the text gives at an attachment's character](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#on-the-mac-voiceover-meets-a-table-only-at-an-attachment-character).
     A table is an
     attachment for each row, so each row's character gives AppKit's table, `AXTable`: the
     whole table, with the rows the view shows of it, its columns, its cells, each with the
@@ -992,7 +1021,7 @@ continues to describe the authored spine resource.
       heard on a hosted runner ([VoiceOver testing](testing.md#voiceover-testing), the entry of
       2026-10-13 on a table cell that shows a picture):
       - **What VoiceOver goes by**
-        ([a Mac cell is read by what it holds](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#a-mac-cell-is-read-by-what-it-holds-not-by-what-it-says-it-is)).
+        ([a Mac cell is read by what it holds](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#a-mac-cell-is-read-by-what-it-holds-not-by-what-it-says-it-is)).
         At a cell it reads a text area by its characters,
         and a picture's is the attachment's character, U+FFFC. Nothing the text area
         or the cell says of itself puts the picture's words there. A label on the text
@@ -1155,7 +1184,7 @@ continues to describe the authored spine resource.
         alike.
     - **Header cells, and VoiceOver quitting.** AppKit lets a cell name its own header
       cells, which is how HTML has them and what a web view does. Given that, VoiceOver
-      [quit](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#a-cell-that-names-its-own-header-cells-makes-mac-voiceover-quit)
+      [quit](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#a-cell-that-names-its-own-header-cells-makes-mac-voiceover-quit)
       at a move to a cell under a header or at Control-Option-C, whatever the header was:
       the cell listed in the header's row, holding a text area, a label as well or a label
       alone (three sessions of three at two seconds a key, and two of those recorded at
@@ -1168,7 +1197,7 @@ continues to describe the authored spine resource.
       [#483](https://github.com/vocaro/EPUBLib/issues/483).
       What heads a column or a row is its one header cell, where that cell is on screen
       with its text areas: VoiceOver
-      [reads a header cell by what the things it holds are called](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#mac-voiceover-reads-a-header-cell-by-what-it-holds),
+      [reads a header cell by what the things it holds are called](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#mac-voiceover-reads-a-header-cell-by-what-it-holds),
       a text area by its value and a link by its title, and does not read a cell under
       itself. Otherwise it is a static text with the words of its header
       cells, top or first one first: for a column under several header cells ("Hours,
@@ -1194,7 +1223,7 @@ continues to describe the authored spine resource.
       says "2 updated items", from a row group with the first line after it, and from a
       table of data with the new first row's words before it. A table of data's element is
       still a table to VoiceOver after the turn, whatever its role: VoiceOver
-      [keeps what it made of an element](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#voiceover-keeps-what-it-made-of-an-element)
+      [keeps what it made of an element](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#voiceover-keeps-what-it-made-of-an-element)
       when it first met it, and finds that again by the element. Its
       table says "empty" while it has no rows, the greater of the row count and the number
       of rows given, and when asked what it is on "3 columns, 41 rows" while it has a row
@@ -1255,7 +1284,7 @@ continues to describe the authored spine resource.
     - **A table that is not data.** A row of a table the book marks as layout, or that
       nothing marks as data, is a group where its character stands, which holds the text
       areas of its cells on screen. As it reads the text VoiceOver
-      [says what a group is called and "group", and nothing of what the group holds](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#mac-voiceover-reads-a-group-by-its-name-and-nothing-of-what-it-holds). Called "Table row", every
+      [says what a group is called and "group", and nothing of what the group holds](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#mac-voiceover-reads-a-group-by-its-name-and-nothing-of-what-it-holds). Called "Table row", every
       such row said "Table row group": a listener who read on by line, by word or with
       Read All passed the table's words unsaid, and heard them only by going into each
       row. The group is now called by its cells' words in column order, with a comma
@@ -1333,7 +1362,7 @@ continues to describe the authored spine resource.
       alone (a picture with an empty `alt`), spaces out a table used for layout, and a
       table of data can have one too. iPhone and iPad list no element for such a row. On
       Mac VoiceOver is given nothing to stop on there
-      ([a row with nothing to say](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#a-row-with-nothing-to-say-must-fold-into-the-next-line)).
+      ([a row with nothing to say](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#a-row-with-nothing-to-say-must-fold-into-the-next-line)).
       The text gives no element at the
       row's character, gives that character and the break after it as spaces, and gives
       the row's line as part of the line after it. Moving by line or by word, forward or
@@ -1427,7 +1456,7 @@ continues to describe the authored spine resource.
       header and the cell, down a column the row's, each once until it changes, and
       Control-Option-C says the column's header. The rest of what VoiceOver says differs,
       and most of that is VoiceOver's: it has
-      [one way of speaking for a table in a web page](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-tables.md#safari-reads-tables-with-web-page-speech)
+      [one way of speaking for a table in a web page](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-tables.md#safari-reads-tables-with-web-page-speech)
       and another for a table anywhere else (`SCRWebTable` and `SCRTable` in the reports
       macOS wrote). Two things a listener in the reader does not get, with what
       closing each would take, and two that were closed after the two were heard:
@@ -1528,7 +1557,7 @@ continues to describe the authored spine resource.
   either selects the words the cell shows there. Rows and cells run the same code and
   differ in the names alone.
   - **Shown.** UIKit
-    [draws a text view's selection only while the view is first responder](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-keeps-an-items-traits-and-actions-as-it-found-them).
+    [draws a text view's selection only while the view is first responder](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-keeps-an-items-traits-and-actions-as-it-found-them).
     A selection set in code was held, reported to the host and copied from, and nothing showed
     it: after the action the screen was as before, but for the selected words' ink, which the
     cell draws over the row's own and which looked a little heavier. A cell's text view now
@@ -1699,7 +1728,7 @@ continues to describe the authored spine resource.
     `q`, not « », and an unlabelled Turkish one capitalizes `i` as `I`.
   - Typesetting and speech still take the package's first `dc:language` as a hint, because
     some language has to be chosen anyway: the CoreText language attribute, which
-    [steers glyph choice and line breaking](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/text-layout-and-unicode.md#content-language-steers-glyph-choice-and-line-breaking)
+    [steers glyph choice and line breaking](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/text-layout-and-unicode.md#content-language-steers-glyph-choice-and-line-breaking)
     (every run of an unlabelled document in a Japanese book is
     tagged `ja`, so its Han characters take their Japanese forms), the language a formula
     is spoken in (see Spoken math), and the language each item VoiceOver is given on iPhone
@@ -1744,7 +1773,11 @@ continues to describe the authored spine resource.
     the book's characters alone, the same CFI with or without the styles that generate:
     a selection that takes in generated words is saved without them and comes back without
     them. Search reads the book's text, as foliate-js's did in WebKit, and finds nothing in
-    generated words, and a result's context leaves them out. The passage text a host is
+    generated words, and a result's context leaves them out, read through a table cell's own
+    map in a cell as through the section's in prose: in a cell it held a list item's marker,
+    and after a marker longer than the context it lost the item's first word, which it took
+    for one the context's cut had split
+    ([#735](https://github.com/vocaro/EPUBLib/issues/735)). The passage text a host is
     given (`.selectionChanged`, a location's `quote`, the text `.locate` looks for) and what
     Copy puts on the pasteboard are the book's own characters (the authored passage of
     [#128](https://github.com/vocaro/EPUBLib/issues/128)), as `Selection.toString()` gave
@@ -1776,6 +1809,46 @@ continues to describe the authored spine resource.
     content of a table laid out as a grid and of its rows and row groups, where that of its
     cells and captions is shown; and what passes a bound of 1,048,576 UTF-16 units of
     generated text in one section, which only a hostile stylesheet reaches.
+- **First letter and first line.** A `::first-letter` (or `:first-letter`) rule styles its
+  element's first letter (CSS Pseudo-Elements 4 §2.2,
+  [#567](https://github.com/vocaro/EPUBLib/issues/567)): the first letter, number or symbol on
+  the element's first line, as one grapheme cluster, with the punctuation before it, the
+  punctuation after it other than opening punctuation and dashes, and the typographic spaces
+  between them, those after it not word separators (§2.2.1). A `::before`'s characters are on
+  the line, so with `content: "Note: "` the first letter is the N, and the first line may be
+  that of the element's first block. An image, an inline block, a table, a `br` or a character
+  that cannot begin the letter before it on the line, or a first line with no letter, leaves the
+  element without one; a float or a positioned box is not on the line and leaves it its letter.
+  A block container has one: a block, a list item, a table cell or caption, an inline block
+  and a float, not an inline element, a table or a flex or grid container. The pseudo-element
+  inherits from the box that holds its letter, an `em` around it included (§2.2.3), and of
+  nested blocks' rules the outermost apply first. Only what applies to it is taken from its
+  rules (CSS 2 §5.12.2, Pseudo-Elements 4 §2.2.4): the font properties, `color`, the
+  background color, text decoration, `text-transform`, letter and word spacing,
+  `line-height`, `float`, `vertical-align` without a float, margins, padding and borders.
+  - **In line or floated.** Without a float the letter is styled where it stands: only its
+    characters' attributes change. Floated, as a drop cap is, it is written as a floated `span`
+    around it would be, in a paragraph of its own that the float layout sets beside the lines
+    it spans ([Floats and positioned boxes](#floats-and-positioned-boxes)), with the disclosure
+    of those boxes. Either way the characters are the book's, mapped as any, so positions,
+    CFIs and search are those of the section without the rule, and the float's paragraph break
+    is a layout separator, so the passage text and Copy keep its word whole. In a rule for one
+    appearance, `float`, the sizes and all but what paints are resolved as in the light
+    appearance ([#130](https://github.com/vocaro/EPUBLib/issues/130)), so the characters and the map are the same
+    in light and dark.
+  - **One run of text.** The letter and the punctuation taken with it are those of one run: a
+    text node, or one `::before`'s or `::after`'s characters. Punctuation in an earlier run, as
+    a `q`'s opening mark is, takes the letter's style where it stands, and a floated letter is
+    then set in line, since the mark before it cannot float with it; punctuation after the
+    letter in a later run is not taken (Pseudo-Elements 4 §2.2.3 lets a letter whose characters
+    span elements take those of one).
+  - **First line.** A `::first-line` (or `:first-line`) rule is not applied: which characters a
+    first line holds depends on where the live column breaks it, and a section's characters and
+    attributes are built once for every column and rotation. One that matches a block shown has
+    the `.disclosure` "Styling this book gives the first line of some paragraphs, such as small
+    capitals, is not shown.", once however many blocks it matches. A rule for one appearance
+    counts in either, so the disclosure is the same in light and dark. `@supports
+    selector(::first-letter)` is true and `selector(::first-line)` false.
 - **Values the reader cannot read.** A declaration with a value the reader cannot read is
   ignored, as CSS 2.2 §4.2 requires, and the one before it stays, though what the property
   sets is not drawn. So every layer of `background` is read in full
@@ -1831,6 +1904,33 @@ continues to describe the authored spine resource.
   one wider than the column is laid out too. TextKit keeps one interval for a
   paragraph, so an inline box's own `tab-size` is not read; and in the paragraph an outside
   list marker opens, the interval is the marker's width unless the item keeps its tabs.
+  The multiples are measured from the paragraph's leading edge, the edge its indents are
+  measured from, the right in right-to-left text, as TextKit 1 measures them in a table cell.
+  They are the same with and without a float or positioned box in the section, in the
+  section's layout and on its pages, and in a flex or grid item the box plan moves across.
+  With a box the text container sets each line and TextKit, shown the paragraph without its
+  indents, measured the interval from the line's start, so a tab in an indented paragraph
+  landed an indent further along; and right to left TextKit 2 measured it from the first
+  line's start less the tail indent, with a box or without. A paragraph that holds a tab and
+  has no stops of its own is shown its interval's stops, moved as its own would be
+  (`ReaderTextContainer.intervalStops`,
+  [#334](https://github.com/vocaro/EPUBLib/issues/334)). CSS measures them from the block's
+  content edge instead, inside its margin and padding. Two places are left. With a box, a
+  paragraph's stops are placed for its first line and measured from each line's start, as a
+  list marker's are: a tab on a later line of a paragraph whose first line has a
+  `text-indent` lands that indent off, except on a page that opens within the paragraph,
+  whose first line is set at the head indent and measures them from there; and a tab on a
+  line beside a float is measured from the float's edge.
+  A tab can advance by almost nothing. CSS Text 3 §4.2 skips a stop closer than half a `ch`
+  to where the tab starts; TextKit takes the next stop however near it is, because `NSTextTab`
+  has no minimum advance, and neither has the default interval. So text that ends just before
+  a stop is followed at once by what comes after the tab: 0.6 points apart in
+  `<p>Before <span style='white-space:pre'>a&#9;b</span> after the tab.</p>`, and from 1.96
+  to 29.55 points between the cells of a table flowed as rows of tabbed cells, one boundary in
+  eight narrower than a space. `pre` blocks have always been laid out so. The review of the fix
+  for [#227](https://github.com/vocaro/EPUBLib/issues/227) found no cheap and safe change
+  within it that would keep a gap: the separator is a single tab, which tests, a copy and
+  VoiceOver read as text ([#334](https://github.com/vocaro/EPUBLib/issues/334)).
 - **Custom properties.** Custom properties (`--name`) and `var()` follow CSS Custom
   Properties for Cascading Variables 1 ([#119](https://github.com/vocaro/EPUBLib/issues/119)).
   A custom property is declared on any element, `:root` and pseudo-elements included, in a
@@ -1855,7 +1955,7 @@ continues to describe the authored spine resource.
     cycle, and once a property is in a cycle its fallbacks are not substituted, as in Blink,
     whose way of finding cycles the reader follows. The properties being resolved are held on
     a stack of the reader's own rather than the call stack
-    ([heap cursors](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/stack-and-work-bounds.md#small-recursive-frames-and-heap-cursors-keep-depth-cheap)),
+    ([heap cursors](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/stack-and-work-bounds.md#small-recursive-frames-and-heap-cursors-keep-depth-cheap)),
     so a chain of references as long as
     a stylesheet can hold needs no deeper stack than a short one.
   - **Light and dark.** A custom property declared in a rule for one appearance is
@@ -1976,7 +2076,7 @@ continues to describe the authored spine resource.
   ([#26](https://github.com/vocaro/EPUBLib/issues/26)).
 
   The matcher gets primary-strength results from public Foundation APIs with
-  [swapped private-use suffixes](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/text-layout-and-unicode.md#primary-strength-collation-is-available-through-public-foundation-apis),
+  [swapped private-use suffixes](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/text-layout-and-unicode.md#primary-strength-collation-is-available-through-public-foundation-apis),
   comparing NFC-normalized copies while DOM text and UTF-16 endpoints keep their authored
   spelling ([#107](https://github.com/vocaro/EPUBLib/issues/107)). It has no ICU
   private-symbol or JavaScript dependency.
@@ -2010,7 +2110,7 @@ continues to describe the authored spine resource.
   highlights are TextKit 2 rendering attributes; they never change the text. The current
   search result is drawn again over its match in a darker, differently hued highlight.
   Since
-  [TextKit 2 redraws a fragment only when its layout changes](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#textkit-2-redraws-a-fragment-when-its-layout-changes-not-when-its-attributes-do),
+  [TextKit 2 redraws a fragment only when its layout changes](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#textkit-2-redraws-a-fragment-when-its-layout-changes-not-when-its-attributes-do),
   each change asks for the fragments on screen to be drawn again
   ([#51](https://github.com/vocaro/EPUBLib/issues/51)).
 - **Highlight styles.** An `EPUBHighlight` carries an `EPUBHighlightStyle`: a color and an
@@ -2099,7 +2199,7 @@ as they did.
   On Mac, the column uses the actual scroll viewport's horizontal extent, including width
   reserved by a legacy scrollbar; a scrollbar preference change also recalculates wrapping.
   Since a legacy scrollbar
-  [appears only after the column was first set](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#appkit-and-uikit-text-views-scroll-themselves),
+  [appears only after the column was first set](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#appkit-and-uikit-text-views-scroll-themselves),
   the text is laid out again at the narrower width in the layout pass that follows, before
   the scroll view is first drawn.
   A shown position's line rests at the top of the visible area, or the top edge of an aligned
@@ -2113,7 +2213,7 @@ as they did.
   scrolled ([#49](https://github.com/vocaro/EPUBLib/issues/49)). A scroll AppKit makes as it
   lays the whole text out again, after a change of text size, is taken for the person's, and
   VoiceOver then enters at the first line on screen. A long jump
-  [lays out through its target before scrolling](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#lay-out-through-a-far-target-before-scrolling-to-it)
+  [lays out through its target before scrolling](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#lay-out-through-a-far-target-before-scrolling-to-it)
   and checks which line the top shows: from text before the position, it lays out through the
   position in one run and scrolls to its now exact line; from text past it, it climbs above it
   first ([#13](https://github.com/vocaro/EPUBLib/issues/13)). A resize keeps the line holding
@@ -2141,7 +2241,7 @@ as they did.
   that leaves no line, every line showing at all counts
   ([#305](https://github.com/vocaro/EPUBLib/issues/305)).
   An assistive technology's read
-  [can lay the whole text out behind the view](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#accessibility-observation-can-change-layout):
+  [can lay the whole text out behind the view](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#accessibility-observation-can-change-layout):
   on Mac, and on iOS before the scroll view listed its own lines (below). So the visible
   range is read from the paragraphs the viewport laid out, once it has been laid out again
   where the view stands; while the view has not moved since it was last read, the reader
@@ -2172,7 +2272,7 @@ as they did.
   view scrolls, and on Mac an assistive client is told from it what is on screen and where:
   the text's children, the bounds of a range, a link's or a heading's place, a table row's.
   VoiceOver's question for the insertion point's line
-  [lays out all the text above](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#accessibility-observation-can-change-layout).
+  [lays out all the text above](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#accessibility-observation-can-change-layout).
   After Find Next Link had shown a table
   row below text that was only estimated, a row taller than the screen among it, the
   bounds VoiceOver asked for next put the row's own paragraph 1,430 points below where the
@@ -2190,7 +2290,7 @@ as they did.
   VoiceOver holds ([#517](https://github.com/vocaro/EPUBLib/issues/517); [VoiceOver
   testing](testing.md#harness-pitfalls-and-current-results) has the sessions).
   AppKit's text view also
-  [scrolls itself when a live resize of its window ends](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#appkit-and-uikit-text-views-scroll-themselves),
+  [scrolls itself when a live resize of its window ends](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#appkit-and-uikit-text-views-scroll-themselves),
   after a drag of the window's edge and after a resize made with animation or by an assistive
   client: the paragraph under the clip view's top edge goes to that edge, from its first
   line. That edge is above the first line on screen by the text's 48-point
@@ -2231,8 +2331,29 @@ as they did.
   rested: the visible start cannot be read then, because UIKit has moved the view for the
   bar and the text under it is being laid out again. On an iPad a paragraph shown otherwise
   ended 38.6 points below the top once the bar had hidden twice. A book with no box to
-  resolve is left as UIKit leaves it: when a bar hides, its text stays where it is on
-  screen. On the Mac the reader is laid out when a toolbar changes its safe area (Pages,
+  resolve is not laid out again, and is rested the same: UIKit left its text where it was on
+  screen when a bar hid, so that a line shown stood 53.8 points below the top of the taller
+  area, and when the bar came back moved the text down with it, the line still 53.8 points
+  low and so through every later change, where every other shown position rests at the top
+  ([#370](https://github.com/vocaro/EPUBLib/issues/370)). The text is not kept where it was
+  on screen instead, as a reading app that hides its bars on a tap may keep it: that would be
+  a second rule for where a position ends up, and the reader rests it at the top everywhere
+  else. A reader in the safe area under `epubReaderHidesControls` keeps the room the bars took
+  ([reader controls](reader-controls.md#hiding-the-controls-while-reading)), so the library's
+  own hiding moves no text: in iPhone 17 Pro and iPad Air 13-inch (M4) simulators the line
+  shown stood still through every frame of the bars going and coming back. The rest is for a
+  reader that runs under bars that come and go. A place the person scrolled to is read as the
+  first line on screen once UIKit has moved the view for the bar, which can be a line or two
+  above it ([#164](https://github.com/vocaro/EPUBLib/issues/164)).
+  Watched frame by frame in those simulators, the rest is made inside the bar's animation, so
+  UIKit animates the scroll it makes: in a book with no box the line shown slides to the top
+  of the new area with the bar, 54 points on the iPhone and 64 on the iPad, in about 0.2 s. In
+  a book whose boxes take their height from the visible area their new layout is not
+  animated. Everything below them moves at once by as much as they changed, against the way
+  the bar goes, twice the bar's height below a title page and an epigraph, and then slides to
+  its rest; while it slides, a centered line in a box is drawn shifted towards the left edge
+  ([#370](https://github.com/vocaro/EPUBLib/issues/370#issuecomment-6370953916)).
+  On the Mac the reader is laid out when a toolbar changes its safe area (Pages,
   below), and its layout lays out the scroll view, whose automatic insets follow the toolbar
   then. AppKit moves the view for the new inset inside that layout, which is no scroll by the
   person. In the middle of the book it moves the view by as much as the inset changed: the
@@ -2245,14 +2366,14 @@ as they did.
   where 586 showed until a change of appearance or a resize did
   ([#162](https://github.com/vocaro/EPUBLib/issues/162)).
   On Mac, VoiceOver
-  [enters a text view at its insertion point](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point).
+  [enters a text view at its insertion point](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point).
   New text starts with it at its first line, and the scroll view's is kept on the first line
   on screen. A move the reader
   makes itself (a shown position, a scroll step, rebuilt text) puts it there, as a page turn
   does for a column; after other scrolling it follows only while it is where the reader last
   put it, so one placed by a click or by VoiceOver, which scrolls the view as it reads, stays.
   A selection is never moved, and nothing is scrolled. Each such move also posts a
-  [layout change naming the text view](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#post-layout-changes-from-the-element-that-holds-the-text-views).
+  [layout change naming the text view](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#post-layout-changes-from-the-element-that-holds-the-text-views).
   The window posts this one. That is not enough for a spread's columns (Pages, below) and
   was heard to be enough here ([#373](https://github.com/vocaro/EPUBLib/issues/373)).
   A VoiceOver cursor inside the text follows the insertion point and not the layout change.
@@ -2270,7 +2391,7 @@ as they did.
   other scrolling it is told of once, as before. A page turn is left as it is: putting a
   page's text into a column already tells twice.
   On iOS,
-  [UIKit's own text view elements are every paragraph](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#uikits-own-text-view-elements-are-every-paragraph)
+  [UIKit's own text view elements are every paragraph](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#uikits-own-text-view-elements-are-every-paragraph)
   of the book, so the scroll view lists its lines instead, as a
   page column does, each with the links and attachments in it as elements of their own: the
   lines on screen, each by the part of it inside the area the insets leave, and the fifty
@@ -2279,7 +2400,7 @@ as they did.
   its whole frame would move the reader as VoiceOver came in
   ([#301](https://github.com/vocaro/EPUBLib/issues/301)).
   The lines after the screen are there for
-  [the way VoiceOver moves](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-moves-through-a-cache-of-the-items-around-its-cursor):
+  [the way VoiceOver moves](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-moves-through-a-cache-of-the-items-around-its-cursor):
   given the lines on screen alone, at its first move after a menu closed it read to the last
   of them and went on to the scroll bar and the host's next control. The fifty listed is
   what it asked for at such a move on iOS 27.0 and iPadOS 27.2. While the cursor is on a line,
@@ -2318,7 +2439,7 @@ as they did.
   a keyboard or the host's own command, VoiceOver read on from what it held and the step was
   undone.
   So after a move of its own the canvas posts a layout change, at which VoiceOver
-  [drops everything it holds and asks again](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#a-layout-change-makes-voiceover-drop-its-cache-about-08-s-later).
+  [drops everything it holds and asks again](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#a-layout-change-makes-voiceover-drop-its-cache-about-08-s-later).
   With the cursor outside the text
   the change names no element. The cursor stays where it is, nothing is said, and the next
   move into the text meets the first line on screen. With the cursor on a line it names the
@@ -2327,8 +2448,8 @@ as they did.
   [Input and accessibility](#input-and-accessibility)). Given no element then, a
   simulator's VoiceOver went to whichever line was drawn where its cursor had stood, the
   line after a link's target in the session that tried it. Nothing is posted while
-  VoiceOver's Headings rotor moves the reader, because VoiceOver takes its cursor to the
-  item the rotor gives it, nor for scrolling the reader does not do: a finger's, and
+  VoiceOver's Headings or Paragraphs rotor moves the reader, because VoiceOver takes its
+  cursor to the item the rotor gives it, nor for scrolling the reader does not do: a finger's, and
   UIKit's for VoiceOver's cursor and its three-finger scroll. The Mac posts a layout change
   after the same moves, for its own reason (above)
   ([#428](https://github.com/vocaro/EPUBLib/issues/428)).
@@ -2340,7 +2461,7 @@ as they did.
   before its first move, so it does not ask for fifty and goes on above that line
   ([VoiceOver testing](testing.md#voiceover-testing), "Harness pitfalls and current results").
   UIKit has no place among the lines for the scroll view's own scroll bar:
-  [the bar is a supplementary header that breaks reading order](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#the-scroll-indicator-is-a-supplementary-header-that-breaks-reading-order),
+  [the bar is a supplementary header that breaks reading order](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#the-scroll-indicator-is-a-supplementary-header-that-breaks-reading-order),
   and VoiceOver read on from the book's last line to the bar and then down the screen a
   second time.
   A bar hidden from assistive technology (`accessibilityElementsHidden`) is no such header,
@@ -2391,7 +2512,7 @@ as they did.
   accessibility text, line, style, frame and selection queries are bounded to the visible page.
   Installing a spread posts a value change for each column and a layout change naming the
   visible columns. The layout change is posted
-  [by the element that holds the columns](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#post-layout-changes-from-the-element-that-holds-the-text-views),
+  [by the element that holds the columns](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#post-layout-changes-from-the-element-that-holds-the-text-views),
   the canvas's nearest accessibility ancestor
   ([#337](https://github.com/vocaro/EPUBLib/issues/337)). The canvas is reached only through
   `EPUBReaderView`, so there is such an element in every host. It was heard with the page
@@ -2404,7 +2525,7 @@ as they did.
   insertion point after a page's last character, and an offset an assistive client kept from
   a longer page, are on its last line.
   Since VoiceOver
-  [enters a column at its insertion point](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point),
+  [enters a column at its insertion point](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point),
   installing a page puts that at the page's first line. After a place is shown (a link's target,
   a search result, a located passage, a bookmark, the place a book opens at) it goes to the
   start of the line that holds the place, in the column that holds it
@@ -2465,13 +2586,13 @@ as they did.
   The canvas lists its columns to VoiceOver in source order; by their frames alone a column
   lowered by top spacing, or the first column of a right-to-left spread, would be read second.
   VoiceOver
-  [searches inside a column given that way before taking its lines](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#uikits-own-text-view-elements-are-every-paragraph),
+  [searches inside a column given that way before taking its lines](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#uikits-own-text-view-elements-are-every-paragraph),
   so nothing the reader mounts inside a text view is offered to assistive technology (see
   Tables).
   A paragraph that continues onto the next page is laid out a few lines further (or to
   a line break) and clipped, so its lines break as in the measuring layout; justified
   text takes more, because
-  [Core Text justification depends on the paragraph's length](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#core-text-justification-depends-on-the-paragraphs-length).
+  [Core Text justification depends on the paragraph's length](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#core-text-justification-depends-on-the-paragraphs-length).
   A short justified paragraph's page takes its rest up to the next line break (`<br>`,
   written as U+2028) that ends a line of text, or its whole rest when none follows, since the
   lines before such a break are set the same whatever follows it
@@ -2519,7 +2640,7 @@ as they did.
   Handing the measuring layout to the column was left out of #570. A column is a persistent
   `ReaderTextView` that owns its TextKit stack from its creation and keeps it across page
   turns, for selection and for VoiceOver's cursor (#337), since
-  [a text view takes its layout stack when it is made](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#a-text-view-takes-its-layout-stack-when-it-is-made).
+  [a text view takes its layout stack when it is made](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#a-text-view-takes-its-layout-stack-when-it-is-made).
   The paginator measures pages ahead of display (page counts, positions, the next spread), so
   it would also have to keep the measured layouts of the pages about to be shown, and the
   column's own preparation (box geometry
@@ -2599,11 +2720,12 @@ as they did.
   A right-to-left item's marker hangs in that indent and each of its lines starts at the same
   edge, in page text and in table cells. A marker's tab stop is a distance from the paragraph's
   leading edge, the right in right-to-left text. TextKit 2
-  [measures a right-to-left stop otherwise](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#textkit-1-and-textkit-2-apply-paragraph-indents-differently)
+  [measures a right-to-left stop otherwise](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#textkit-1-and-textkit-2-apply-paragraph-indents-differently)
   and set the item's first line a first-line indent further along than its wrapped lines; the
   text container shows it the stop moved by the
   difference (`ReaderTextContainer.rightToLeftStops`,
-  [#276](https://github.com/vocaro/EPUBLib/issues/276)).
+  [#276](https://github.com/vocaro/EPUBLib/issues/276)), and the stops of a paragraph's
+  interval in the same way ([#334](https://github.com/vocaro/EPUBLib/issues/334)).
 
 ### Floats and positioned boxes
 
@@ -2618,7 +2740,11 @@ a line may end at a hyphenation point, so a word counts by its widest part and t
 after it, and a float wide enough for those keeps its width and hyphenates, as WebKit sets it. A
 verse number in a float sized in pixels stays whole at a larger reader font. Only words count:
 an image with no size of its own still shrinks to the float
-([#152](https://github.com/vocaro/EPUBLib/issues/152)). Horizontal margins and padding reserve
+([#152](https://github.com/vocaro/EPUBLib/issues/152)). A sized `inline-block`, and an
+absolutely positioned box, narrower than a word it holds by its `width` or `max-width`, or by
+its `left` and `right` together, is as wide as the word in the same way, where the word was
+broken between characters; an initial in a box of fixed width that its letter fits keeps that
+width ([#742](https://github.com/vocaro/EPUBLib/issues/742)). Horizontal margins and padding reserve
 space around the native glyph column. `clear: left`, `right` and `both` on a block start it
 below the earlier floats of the requested side, with all it holds, a float it opens with
 included; inside it nothing clears again, so its later lines wrap beside its own floats. An
@@ -2655,9 +2781,13 @@ right. A run of such boxes is therefore a row that wraps as words do: the rows o
 that mark an omission, an initial in a box of fixed width before the rest of its word. The
 text after the run goes on from its last box, on the same line where what is left of that line
 holds its first word, as beside a float, and the block that follows starts below the run's last
-row. A box's own horizontal margins, borders and padding stand between it and its neighbours.
-Each box is still a paragraph of its own in the text, so characters, offsets and CFIs are what
-they were.
+row. A box's own horizontal margins, borders and padding stand between it and its neighbors,
+and between it and the content edges of its block, so that a box whose width and margins
+together are wider than its block's line is as wide as the room between its margins, where it
+ran past the column's edge. Those edges are its block's, not the indents of the box's first
+paragraph, which hold those of any block inside the box
+([#720](https://github.com/vocaro/EPUBLib/issues/720)). Each box is still a paragraph of its
+own in the text, so characters, offsets and CFIs are what they were.
 
 Three things about a row differ from a browser. Its boxes are aligned by their tops, not
 their baselines, and prose beside a box taller than a line wraps beside it as beside a float.
@@ -2699,16 +2829,23 @@ Oversized groups and nested complex boxes instead continue as native
 blocks in reading order; fallback widths expand when necessary to leave readable lines, and
 long box text can continue across pages. A box taller than a page continues so a paragraph at
 a time, and from each of its paragraphs the rest of the box is tried as a box again, so that
-the rest that fits a page is set as one. Its end and the max-content width of each of its
-paragraphs are found once, and an attempt that the layout of the attempt before it shows to be
-more than a quarter of a page too tall is not made. A play that sets each scene as one inline
-block of hundreds of verse lines is then paginated in time in proportion to its length, not
-its square ([#573](https://github.com/vocaro/EPUBLib/issues/573)). Up to eight nested width
-constraints resolve within the enclosing box in this fallback.
+the rest that fits a page is set as one. That rest is in the box's place, on a line of its own
+below the part in flow: at the box's own edge, not at the indent of the verse line or paragraph
+it starts with, and no wider than the column. The rest of a scene set as the Cambridge
+Shakespeare sets it ran from 101 to 430 points in a phone's column 363 points wide
+([#720](https://github.com/vocaro/EPUBLib/issues/720)). Inside the rest, as inside any box, the
+blocks it holds are set without their own margins and padding, so a verse line that a block in
+the box indents keeps that indent on the pages in flow and starts at the box's edge in the
+rest. The box's end and the max-content width of each of its paragraphs are found once, and
+an attempt that the layout of the attempt before it shows to be more than a quarter of a page
+too tall is not made. A play that sets each scene as one inline block of hundreds of verse
+lines is then paginated in time in proportion to its length, not its square
+([#573](https://github.com/vocaro/EPUBLib/issues/573)). Up to eight nested width constraints
+resolve within the enclosing box in this fallback.
 
 A text that holds any of these boxes has every one of its lines placed by the reader's text
 container: one section in pages, the whole book in continuous scroll. TextKit then
-[aligns such a line as if its paragraph had no indents](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#textkit-1-and-textkit-2-apply-paragraph-indents-differently),
+[aligns such a line as if its paragraph had no indents](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#textkit-1-and-textkit-2-apply-paragraph-indents-differently),
 so the container hands TextKit paragraphs without indents and
 gives each line a rectangle that already leaves out its paragraph's head, first-line and tail
 indent. Margins, centring, right alignment, justification and list markers are then where they
@@ -2721,7 +2858,7 @@ block or list item they are in, and so are a rule and an image of `width: 100%` 
 block is indented by less than 15% of the line
 ([#376](https://github.com/vocaro/EPUBLib/issues/376); further in, they are not:
 [#769](https://github.com/vocaro/EPUBLib/issues/769)). Past a tab, TextKit 2
-[sizes an attachment at a stop it measures from the line's start](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#textkit-2-sizes-an-attachment-past-a-tab-from-the-lines-start)
+[sizes an attachment at a stop it measures from the line's start](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#textkit-2-sizes-an-attachment-past-a-tab-from-the-lines-start)
 and draws it at one it measures from the paragraph's edge. Past a list item's marker the two
 are the same stop, and the reader sizes the attachment where it is drawn; past any other tab an
 attachment can be a few points narrower than the room left on its line
@@ -2738,7 +2875,7 @@ was taller or shorter, and a page could open below its own foot and show nothing
 
 The boxes' places are planned for the whole of that text, and TextKit lays out only what is
 on screen, so a line can be
-[screens from where the plan has it](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#lay-out-through-a-far-target-before-scrolling-to-it).
+[screens from where the plan has it](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#lay-out-through-a-far-target-before-scrolling-to-it).
 The container therefore wraps each
 planned paragraph against the plan from where that paragraph's own first line is laid out,
 and takes text past the plan's end to be below every box; a point is found the same way,
@@ -2763,13 +2900,19 @@ relative vertical offsets, arbitrary overlap and `z-index`, and page-pinned or r
 boxes are outside the supported subset. Conventional positioned, visually hidden accessibility
 labels are not drawn, so that the page shows no duplicate text, and are kept for assistive
 technology as a browser keeps them (below). The offscreen heuristic recognizes
-top/left offsets of -1,000 CSS pixels or less as the book wrote them, an `em` or a `rem`
-counting as 16 pixels (`-62.5em`), including calculations in those units alone. That is the em
-media queries are given, not the element's font size or the reader's: `left: -999em`, where
-Standard Ebooks parks the heading of a title page beside an image of the same words, hides it
-at every text size, and `-62em` hides nothing at any, though it computes to more than 1,000
-points from 17 points up. Percentage and viewport offsets, offsets in a face's own metrics
-(`ex`, `ch`) and calculations holding one remain visible unless explicitly clipped or hidden:
+top/left offsets as the book wrote them: -999 CSS pixels or less in absolute units alone, and
+`-62.5em` or less, 1,000 pixels, when an `em` or a `rem` is in the offset, each counting as 16
+pixels; calculations in those units alone count too. That is the em media queries are given,
+not the element's font size or the reader's: `left: -999em`, where Standard Ebooks parks the
+heading of a title page beside an image of the same words, hides it at every text size, and
+`-62em` hides nothing at any, though it computes to more than 1,000 points from 17 points up.
+The pixel line takes in `-999px`, where stylesheets park skip links, visually hidden labels and
+inputs, and menus and tooltips until they open. Between -500 and -998 pixels they place what is
+seen: a strip of slides or tabs, a wide background, a heading set across a timeline at
+`-995px`, and panels that slide in from there, which stay drawn
+([#358](https://github.com/vocaro/EPUBLib/issues/358)). Percentage and viewport offsets,
+offsets in a face's own metrics (`ex`, `ch`) and calculations holding one remain visible
+unless explicitly clipped or hidden:
 a percentage is of a containing block of any width, and the viewport offset stylesheets use,
 `-100vw`, is the edge of the screen and not beyond it. Reading the offset as written keeps
 rendered text and saved range offsets identical across reader font-size changes. General clipping,
@@ -2814,7 +2957,7 @@ Text in the flow that `visibility: hidden` or `visibility: collapse` hides keeps
 characters, and so the room it takes: it is drawn in a clear colour, without its link, its
 decorations or its background, and its lines, pages and positions are those of the same text
 shown. CSS keeps that room and gives the text to nobody
-([hiding](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/accessibility.md#map-html-alternatives-and-hiding-as-html-aam-does)),
+([hiding](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/accessibility.md#map-html-alternatives-and-hiding-as-html-aam-does)),
 and so does the reader ([#357](https://github.com/vocaro/EPUBLib/issues/357)). Every character of it carries
 `.readerHidden`, which changes no character and no span of the text map. Safari is not
 quite that: its VoiceOver read hidden words inside a shown paragraph, and passed over a
@@ -2828,7 +2971,7 @@ quite that: its VoiceOver read hidden words inside a shown paragraph, and passed
   between two shown ones, which their room sets apart on the page. A line that holds hidden
   words alone has no element.
 - **On the Mac.** Since
-  [AppKit gives a client the text character for character](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#appkit-gives-a-client-the-text-character-for-character),
+  [AppKit gives a client the text character for character](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#appkit-gives-a-client-the-text-character-for-character),
   each hidden character but a break is given to an assistive client as a space, in the value,
   the strings, the rich text and the selected text of a page, of continuous scroll, of a note
   and of a table cell's text, so that every range still matches the text and VoiceOver has no
@@ -2878,7 +3021,7 @@ do not reach ([#550](https://github.com/vocaro/EPUBLib/issues/550)).
 Shown text that the book keeps from assistive technology with `aria-hidden="true"`, on its
 element or on one round it, is hidden from VoiceOver and from nothing else, as WAI-ARIA 1.2
 and HTML-AAM have it
-([hiding](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/accessibility.md#map-html-alternatives-and-hiding-as-html-aam-does))
+([hiding](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/accessibility.md#map-html-alternatives-and-hiding-as-html-aam-does))
 and as an image or a rule kept so is ("Alternative text" under Decisions,
 [#552](https://github.com/vocaro/EPUBLib/issues/552)): a row of stars between scenes, the
 big first letter of a word the line also gives whole, a mark repeated for the eye. It is
@@ -2972,7 +3115,7 @@ changes.
   taller box rests its own line, which the box's top edge could put off screen. A box that opens
   the scrolled text has its space restored as its first fragment's top margin, since TextKit
   drops the spacing before a document's first paragraph
-  ([paragraph spacing](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#textkit-1-and-textkit-2-apply-paragraph-indents-differently)).
+  ([paragraph spacing](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#textkit-1-and-textkit-2-apply-paragraph-indents-differently)).
 
 Everything else stays in block flow in reading order and sets a `.disclosure`: a row with
 several items (side by side in a browser), `flex-wrap` rows, reversed directions with several
@@ -3106,6 +3249,31 @@ The following are the defaults. Host commands and accessibility actions stay ena
   ([#746](https://github.com/vocaro/EPUBLib/issues/746)). Once the book is built no turn
   asks for a section's end. On iOS the scroll view's content has the whole text's height
   already.
+  Where the host chose a page-turn animation, `.slide` or `.dissolve` alike, the text of a
+  turn in continuous scroll scrolls there in 0.3 s, eased in and out, from where it was drawn
+  ([#622](https://github.com/vocaro/EPUBLib/issues/622)). The step is taken at once, as with
+  no animation, and the scroll view put back where it was drawn; `ReaderScrollStep` then
+  moves it a frame at a time, as the platform's own animated scroll does, so the lines it
+  passes are laid out and drawn on the way, and the last frame puts it where the step did.
+  What the step reports is where it lands, not where the text is on its way: the anchor, the
+  visible range, the relocation and `readerState` (its Next and Previous among them) are the
+  step's end as the turn returns, and so is what VoiceOver is told. The issue asked for them
+  at the end of the animation; reporting them at once is what a turn of pages does
+  ([#688](https://github.com/vocaro/EPUBLib/issues/688)), and a host reading the state after a
+  turn finds it whether or not the text is still moving. A turn made while a step is in motion
+  is taken from where that step ends, and its text goes on from where it is drawn, so keys
+  pressed quickly scroll on without a jump; a key held down, which steps faster than the text
+  moves, has it go on from two screens before where the step lands at most. Anything else
+  that moves the scroll view or reads it from the screen ends the step where it would have
+  ended first: a position shown, a layout for a new size or visible height, text built again,
+  a change of flow or of the animation, a touch or a drag on iPhone and iPad, a click, the
+  wheel or the trackpad on Mac, and any scrolling the reader did not do. A turn steps at once
+  with no animation chosen, under Reduce Motion, for a turn an assistive technology asks for
+  by name (VoiceOver's scroll, and on Mac its Scroll Forward and Scroll Backward actions), and
+  whenever VoiceOver is running: VoiceOver is told where a step lands as it is taken and its
+  cursor goes to a line there, which UIKit scrolls into view where the text has not yet
+  reached it, and that would undo part of a step back. A turn of pages keeps its animation
+  under VoiceOver, since only a picture over the page turned to moves.
 - Page turn animation ([#688](https://github.com/vocaro/EPUBLib/issues/688)):
   `View.epubReaderPageTurnAnimation(_:)` chooses how a page turns in paginated flow
   ([integration](integration.md#animating-page-turns)). `.none`, the default, replaces one page
@@ -3116,8 +3284,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   Every turn in pages has it: an edge tap or click, a swipe, a key, the wheel and trackpad,
   VoiceOver's actions, scroll and reading on, the selected passage's continuation, the host's
   commands, and a turn into a section not yet built, which comes in once it is
-  (`showTurned`). Continuous scroll scrolls as before whichever is chosen
-  ([#622](https://github.com/vocaro/EPUBLib/issues/622)).
+  (`showTurned`). In continuous scroll either one scrolls the text of a page turn, as above.
   The columns hold the page turned to as soon as the turn returns, as with no animation: the
   delegate is told at once, VoiceOver is told and its cursor sent as above, and the selection
   and highlights are those of the turn with none. Only what is drawn over them moves
@@ -3168,9 +3335,9 @@ The following are the defaults. Host commands and accessibility actions stay ena
   reader's SwiftUI surface has a page-turn `accessibilityScrollAction`. On Mac each text
   area offers the pair, named for the flow (the next item). The surface names no action on
   any platform: UIKit offers
-  [the actions of every element that contains the item](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#uikit-offers-the-actions-of-every-element-that-contains-the-item),
+  [the actions of every element that contains the item](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#uikit-offers-the-actions-of-every-element-that-contains-the-item),
   and SwiftUI
-  [puts named actions on the canvas](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/accessibility.md#swiftui-puts-named-actions-on-the-view-it-hosts),
+  [puts named actions on the canvas](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/accessibility.md#swiftui-puts-named-actions-on-the-view-it-hosts),
   which holds every line. With the two named there, VoiceOver said "Actions
   available" after every line of continuous scroll and offered to turn a page that flow does
   not have, and on a page it offered the pair twice. A text view that lists its lines offers
@@ -3199,7 +3366,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   Decisions). On Mac all of this holds inside a table cell too, whose text VoiceOver reads
   once it interacts with the cell's row and then with the cell.
 - A page turned under VoiceOver's cursor, on iPhone and iPad. VoiceOver
-  [keeps its cursor on the element object it was given](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#the-rotor-keeps-its-place-only-on-the-same-element-object),
+  [keeps its cursor on the element object it was given](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#the-rotor-keeps-its-place-only-on-the-same-element-object),
   and a page's lines are items of that page: turn the page and the cursor is on a line that
   is no longer shown.
   So a page column knows which of its lines the cursor is on. UIKit tells a line when the
@@ -3247,7 +3414,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   VoiceOver is still on the button. One whose line is still on the page keeps it, as when
   the same page is shown again: the host changes the appearance, or the text is built
   again. What VoiceOver holds is not left to it in either: it
-  [moves through a cache of the items around its cursor](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-moves-through-a-cache-of-the-items-around-its-cursor),
+  [moves through a cache of the items around its cursor](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-moves-through-a-cache-of-the-items-around-its-cursor),
   and nothing tells it that a page was shown under them by something it did not do, a key
   on a keyboard or the host's own command. A page shown again has new items for its lines,
   so what VoiceOver holds is gone then as it is after a turn (iOS 27.0 simulator). Back on
@@ -3289,7 +3456,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   Forward ("Continuous scroll" above), so this is for what it did not do itself; no
   device has run it
   ([VoiceOver testing](testing.md#voiceover-testing), "Harness pitfalls and current results"). And
-  a move by heading that turns the page posts
+  a move by heading or by block that turns the page posts
   nothing, since VoiceOver goes to the item the rotor gives it. VoiceOver's scroll, three
   fingers swiped, announces "Page N" as before, and the cursor is sent after the
   announcement. Posted in that order after a page turned under a simulator's cursor,
@@ -3307,7 +3474,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   data ends the page, the last cell listed, has `UIAccessibilityTraits.causesPageTurn`, and in a
   spread the last item of the right-hand page (the left-hand one in a book read right to
   left; `ReaderCanvasView.accessibilityPageTurnColumn`), since
-  [Read All turns a page only after such an item](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#read-all-turns-a-page-only-after-an-item-with-causespageturn).
+  [Read All turns a page only after such an item](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#read-all-turns-a-page-only-after-an-item-with-causespageturn).
   The item keeps all it says and offers besides. No item has it on the book's last page in
   its reading order, nor while text is selected. So reading stops at the book's last line,
   and VoiceOver went on to the book's title under the reader and ended. The trait is asked
@@ -3329,7 +3496,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   and Scroll Backward in continuous scroll. Those are the names `EPUBReaderControls` gives
   the host's buttons, and `EPUBPageAction.label(in:)` is behind both. They are on the text
   area because
-  [custom actions belong there](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#custom-actions-belong-on-the-text-area).
+  [custom actions belong there](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#custom-actions-belong-on-the-text-area).
   The menu says "Actions menu 3 items" and lists Previous Page, show menu and Next Page, or Scroll
   Backward, show menu and Scroll Forward, and the names follow a change of flow made with
   the reader open (macOS 27.0.1). Choosing one turns the spread, or scrolls one viewport
@@ -3350,7 +3517,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   its first word, with its cursor on the column and no longer inside the text.
   `ReaderCanvasView`, the view the surface wraps, is not an accessibility element, so a
   named action or a scroll action that SwiftUI is given for it
-  [reaches no element](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/accessibility.md#swiftui-puts-named-actions-on-the-view-it-hosts)
+  [reaches no element](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/accessibility.md#swiftui-puts-named-actions-on-the-view-it-hosts)
   and the surface has neither on Mac. The scroll area has AppKit's
   four scrolls by page, which are the only scroll actions in either flow.
   Two limits. An item of the text that takes VoiceOver's cursor by itself keeps its own
@@ -3389,7 +3556,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   the page or the screen when it is there and otherwise wherever it is, which the reader
   turns or scrolls to as it does for a link. The search goes by an item's place in the
   book, which each element keeps, so that it
-  [gives the same answer twice](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#a-custom-heading-rotor-must-give-the-same-answer-twice).
+  [gives the same answer twice](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#a-custom-heading-rotor-must-give-the-same-answer-twice).
   A section that is not built yet
   ends the search, as does one still built for an appearance the reader has left (**One
   appearance on screen** under [Decisions](#decisions)), and so does the end of the book. A rotor is not an action: VoiceOver says
@@ -3418,7 +3585,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   it holds the sections built so far around the page. A heading that begins on an earlier
   page and ends on this one is listed once, where it begins.
   The search is written to
-  [how VoiceOver was seen to ask](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#mac-headings-need-a-rotor-rich-text-levels-and-child-elements)
+  [how VoiceOver was seen to ask](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#mac-headings-need-a-rotor-rich-text-levels-and-child-elements)
   (macOS 27.0.1). Asked from a column at its first character and none of it, as after a
   page turn, it starts at the top of that page: a heading that opens the page is the next
   one, and going back the search stands after the page's last character. A token's result
@@ -3442,7 +3609,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   (`ReaderCanvasView.headingAfterPage`), and the last of the column's children. A chapter
   that is not built yet ends the list, as it ends the rotor's.
   VoiceOver
-  [focuses the element it moves to](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-focuses-only-an-element-that-reports-its-focus),
+  [focuses the element it moves to](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-focuses-only-an-element-that-reports-its-focus),
   and that is all it tells the reader of the move. A heading it does not show, the reader
   then shows, and puts the insertion point on it (`ReaderTextView.showHeading`). In
   continuous scroll that is a heading with no character on screen. The reader shows it as
@@ -3513,11 +3680,40 @@ The following are the defaults. Host commands and accessibility actions stay ena
   asked for them when the rotor opened and never for the move by heading. The other is
   VoiceOver's search for elements (`AXUIElementsForSearchPredicate`), which could end the
   move at the book's last heading in place of beginning again, and which
-  [nothing should offer VoiceOver](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#never-offer-voiceover-the-accessibility-element-search).
+  [nothing should offer VoiceOver](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#never-offer-voiceover-the-accessibility-element-search).
   So no text and no element of the reader offers the search, and the move from a link
   past the last heading begins again.
   Not marked for VoiceOver: a heading inside a table, whose cells are read as cells, and on
   iPhone and iPad a heading inside a note's popover, which keeps UIKit's own elements.
+- Paragraphs: on iPhone and iPad each line is an element of its own, so a flick moves one
+  line, and VoiceOver has no rotor setting that moves by paragraph. Each text view that
+  lists its lines gives VoiceOver one of its own after Headings, called Paragraphs as
+  VoiceOver calls its own settings, by the plural of what they move by
+  (`UIAccessibilityCustomRotor`, [#711](https://github.com/vocaro/EPUBLib/issues/711)). It
+  moves by block, as DAISY's reading-810 asks of a "next item" gesture: a paragraph, a
+  picture or a rule in a paragraph of its own, a list item, a table and a heading. A block is
+  one of the builder's paragraphs (`NSAttributedString.readerBlocks`), so a paragraph is one
+  stop however many lines it takes and with the links, pictures and breaks in it. A table is
+  one stop, its captions and rows together, and its stop is its caption or its first cell or
+  row. A heading is one stop however many paragraphs it takes, and it is a block of its own
+  where it shares a paragraph too: a hidden heading at the head of the words after it, or one
+  set run-in. The break that parts a sized inline box from the line it stands in parts no
+  block (`.readerLayoutBreak`), as a copy reads that line as one. A block with nothing to read
+  is passed over: decoration, a picture or a rule the book keeps from assistive technology,
+  words it keeps so or that `visibility: hidden` hides, and a table row with nothing to say.
+  The rotor gives the first element that reads the block. Forward it goes to the first block
+  that begins to be read at or after the end of the item under the cursor, and back to the
+  last that begins before the item's start: back from inside a paragraph goes to its first
+  line, and from there to the block before. It searches as the Headings rotor does, through
+  the sections page turns reach and by the place in the book and the length that each
+  element keeps, so that it gives the same answer twice, and a block on another page or past
+  the lines listed is turned or scrolled to as a heading is, with nothing posted. The lines'
+  elements are as they were. In iOS 27.2 simulators VoiceOver lists the rotor as it lands
+  in the text ("Use the rotor to access Headings, Paragraphs") and reads each block's first
+  line, in pages and in continuous scroll
+  ([sessions](https://github.com/vocaro/EPUBLib/issues/711#issuecomment-6372973411)). A hidden label that is no heading and opens the line of the
+  words after it, as a parked byline does, is one block with those words. On Mac a text area
+  is VoiceOver's own, which moves by paragraph in it, and has no such rotor.
 - Host highlights ([#682](https://github.com/vocaro/EPUBLib/issues/682)). On iPhone and
   iPad an item whose words a host highlight covers has the highlights for its value, which
   VoiceOver says after the words: each by its style's name (`EPUBHighlightStyle.spokenName`),
@@ -3528,10 +3724,10 @@ The following are the defaults. Host commands and accessibility actions stay ena
   sees the page. The value is asked of the reader each time it is read, as an item's traits
   are, so it follows the highlights as they change and the item under the cursor as it goes on
   as another line. VoiceOver does not read a value again that changes under its cursor
-  ([knowledge](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-keeps-an-items-traits-and-actions-as-it-found-them)),
+  ([knowledge](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-ios.md#voiceover-keeps-an-items-traits-and-actions-as-it-found-them)),
   and the reader tells it nothing of a highlight set while it reads.
   While any host highlight is drawn each text view gives VoiceOver a rotor of its own,
-  Highlights (`UIAccessibilityCustomRotor(name:)`), beside the Headings rotor: a flick down
+  Highlights (`UIAccessibilityCustomRotor(name:)`), after Headings and Paragraphs: a flick down
   goes to the item where the book's next highlight begins, and up to the one before, on the
   page or the screen when it is there and otherwise wherever it is, which the reader turns or
   scrolls to as it does for a heading, and goes by the item's place in the book, so that the
@@ -3552,7 +3748,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   the list. The search stands at a place, not over a range: from VoiceOver's cursor on a line,
   a highlight that begins later in that line is the next one.
 - Language: VoiceOver chooses a voice for the language it is given
-  ([spoken language](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/text-layout-and-unicode.md#voiceover-speaks-the-language-each-item-and-range-names)).
+  ([spoken language](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/text-layout-and-unicode.md#voiceover-speaks-the-language-each-item-and-range-names)).
   On iPhone and iPad each
   item of a page or of continuous scroll names the language of its words
   (`accessibilityLanguage`): the language its characters carry for typesetting, which is
@@ -3629,7 +3825,19 @@ entries it shows (see Decisions) and the visible range's CFIs. A nonlinear secti
 toward progression unless no section is linear (see Decisions). The pages of the layout on
 screen are not in the location: `EPUBReaderStatus.layoutPage` has them, set before the
 `.relocated` of the same pages and changed again, with no event, as counting goes on
-([Layout](#layout), "Page numbers"). A selection's `.selectionChanged`
+([Layout](#layout), "Page numbers"). Why each `.relocated` was sent is
+`EPUBReaderStatus.relocationReason`, set before it
+([#600](https://github.com/vocaro/EPUBLib/issues/600)): the canvas gives each report of what it
+shows the move that report is the first to show, and `.relayout` when there is none. A turn is
+every page turn and every scroll step, a key, tap, swipe, wheel or VoiceOver's own included; a
+scroll is a move of continuous scroll that the reader did not make itself; a place gone to is
+every other place shown, by command, link, Home and End, or VoiceOver's move to a heading or a
+link elsewhere; and the opening and a restore are the places the reader was put at. A place shown
+before the canvas has a size or its section's text keeps its reason until it is shown, so a
+restore in a window not yet laid out is reported as a restore when it comes. A relayout that
+shows a scroll not yet reported, 150 ms after the view moved, is reported as that scroll, and a
+scroll that showed no other range leaves no reason behind. A new view of a session already
+reading shows its place as a relayout. A selection's `.selectionChanged`
 event and host selection action carry the same complete passage: `text` omits nonlinear sections,
 and `location.rangeBookmarks` preserves all included documents. Its `page` names the entry in effect
 at its start and `pages` includes the entries it spans, omitting nonlinear pages. Save the entire
@@ -3776,7 +3984,7 @@ with at most nine element children are counted directly; retained tables are nev
 ([#262](https://github.com/vocaro/EPUBLib/issues/262)).
 
 Layout ends whatever the text. A text container that is not a plain rectangle
-[can be asked for lines forever](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/textkit-layout.md#a-non-rectangular-container-can-ask-for-lines-forever),
+[can be asked for lines forever](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/textkit-layout.md#a-non-rectangular-container-can-ask-for-lines-forever),
 as a tab with neither a stop after it nor a default tab interval did
 ([#227](https://github.com/vocaro/EPUBLib/issues/227)). Every paragraph style the builder
 writes now has an interval, and `ReaderTextContainer` answers an empty rectangle once it has been
@@ -3838,8 +4046,9 @@ Go: the native viewer is the bundled engine.
   offsets, arbitrary overlap/`z-index` and page-pinned or repeating fixed boxes are unsupported.
   A layout disclosure accompanies books using these box styles. Common positioned accessibility
   labels hidden with zero-area `clip: rect(...)`, `clip-path: inset(50%)` or
-  top/left offsets of -1,000 CSS pixels or less (16 to the `em` or `rem`, so `-62.5em`) are
-  not drawn and are read by VoiceOver where they stand; percentage and viewport
+  top/left offsets of -999 CSS pixels or less, or of `-62.5em` or less (1,000 pixels at 16 to
+  the `em` or `rem`) when either is in them, are not drawn and are read by VoiceOver where they
+  stand; percentage and viewport
   offsets remain visible unless explicitly hidden or clipped. A box parked that far to the
   left that reaches back on screen, with a `right` offset or a great width, is hidden with
   the rest. A hidden heading is read as plain text, as a shown one is. General clipping and arbitrary offscreen
@@ -3876,8 +4085,8 @@ Go: the native viewer is the bundled engine.
   ([verification](https://github.com/vocaro/EPUBLib/issues/53#issuecomment-6159293638); [the book](testing.md#networking-svg-book)). StaticSVG
   screens each drawing against its rendering limits before its renderer reads it, and an SVG
   past any shows its fallback text with the `svg` disclosure. The
-  [limits](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/design.md#limits) and
-  [how each screen reads the drawing as the renderer does](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/screens.md)
+  [limits](https://github.com/vocaro/StaticSVG/blob/0.1.3/doc/design.md#limits) and
+  [how each screen reads the drawing as the renderer does](https://github.com/vocaro/StaticSVG/blob/0.1.3/doc/screens.md)
   are StaticSVG's. Retained renderer font databases share a 64 MiB budget across the process.
   Each distinct set of fonts an SVG names is one database, with its own copy of the fallback
   faces, shared by every drawing that names those fonts. An SVG refused a database shows its fallback text. The networking book
@@ -3912,7 +4121,7 @@ Go: the native viewer is the bundled engine.
   and window-size changes, with a value-change notification for each
   ([record](https://github.com/vocaro/EPUBLib/issues/55#issuecomment-6159294286)); where
   VoiceOver re-enters a column it rests on after a page change is its
-  [own text cursor](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point).
+  [own text cursor](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/voiceover-mac.md#voiceover-enters-a-text-view-at-its-insertion-point).
   Sessions on a
   physical iPad and iPhone the same day verified reading order, the page boundary, link and
   image labels, the link's activation, and continuity across page turns made with the page
@@ -3926,10 +4135,15 @@ Go: the native viewer is the bundled engine.
   rotor there. In paging on Mac the rotor's list and VoiceOver's move to the next heading
   were heard to go through the whole book the same day, on the hosted Mac
   ([VoiceOver testing](testing.md#voiceover-testing)). With VoiceOver's cursor on a link on Mac, the
-  move goes to the book's next heading in continuous scroll and stays on the page in
-  paging, where it goes back to the page's first heading when none follows the link; from
-  a link after the book's last heading it begins again with the first heading on screen
-  ([#454](https://github.com/vocaro/EPUBLib/issues/454)).
+  move goes to the book's next heading in both flows, on a later page in paging. Reading on
+  by word or by line then starts at the heading when the reader had to turn or scroll to
+  it, and where VoiceOver last read when it was on the page or on screen already. From a
+  link after the book's last heading the move begins again with the first heading on screen
+  or on the page. That is VoiceOver's own on macOS 27.0.1: only its search for elements was
+  found to end the move there, and VoiceOver asks a text that offers the search for its
+  other moves too, which then left the text or were asked without end, so the reader offers
+  none (`HeadingAccessibilityTests.testNeitherATextNorItsElementsOfferTheSearchForElements`;
+  "Input and accessibility", Headings; [#454](https://github.com/vocaro/EPUBLib/issues/454)).
 - Flex and grid alignment covers the single-column subset described above. Side-by-side row
   items, wrapping and reversed flex, multi-column and explicitly placed grids, `order` and
   inline flex or grid containers render as blocks in reading order with a disclosure. Within
@@ -3962,6 +4176,16 @@ Go: the native viewer is the bundled engine.
   the characters shown; generated content inside a box hidden from the page and kept for
   VoiceOver is not read with it; `counter-reset`, `counter-increment` and `counter-set` of
   `list-item` do not change a list's numbering; and a counter style that `list-style-type`
-  lacks (`@counter-style`, `symbols()`, `hiragana`…) is decimal. `::first-letter`,
-  `::first-line`, `::marker` and the other pseudo-elements are not rendered: their rules are
-  dropped, and that is not disclosed.
+  lacks (`@counter-style`, `symbols()`, `hiragana`…) is decimal. `::marker` and the
+  pseudo-elements other than these and the typographic ones below are not rendered: their
+  rules are dropped, and that is not disclosed.
+- `::first-line` is not applied, with a disclosure ([Decisions](#decisions)). Of
+  `::first-letter` ([#567](https://github.com/vocaro/EPUBLib/issues/567)): `initial-letter`
+  (and `-webkit-initial-letter`) is not read, so a drop cap written with it alone is set as
+  the text around it; a floated letter's background and an inline one's margins, padding and
+  borders are not drawn, as they are not for a floated or an inline element; a letter whose
+  opening punctuation is in an earlier run, as a `q`'s mark is, is set in line though it
+  floats, and punctuation after the letter in a later run is not taken; a ruby base's first
+  letter and that of an inline block without a size, which is written in its line, are not
+  styled; and a letter a language writes with two characters, such as Dutch "IJ", takes only
+  the first.

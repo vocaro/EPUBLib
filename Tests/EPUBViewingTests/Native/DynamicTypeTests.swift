@@ -84,9 +84,9 @@ import UIKit
     }
 
     private func wait(_ label: String, timeout: TimeInterval = 30, until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = TestDeadline(seconds: timeout)
         while !condition() {
-            guard Date() < deadline else { return XCTFail("Timed out waiting for \(label)") }
+            guard try !deadline.hasPassed() else { return XCTFail("Timed out waiting for \(label)") }
             try await Task.sleep(for: .milliseconds(20))
         }
     }
@@ -141,7 +141,7 @@ import UIKit
             for (size, points) in [(DynamicTypeSize.accessibility3, 40.0), (.accessibility5, 53), (.xSmall, 14), (.large, 17), (.xxxLarge, 23)] {
                 host.textSize.size = size
                 try await wait("\(flow) at \(size)") { shows(session, at: CGFloat(points)) }
-                try await Task.sleep(for: .milliseconds(300))
+                try await TestDeadline.pause(.milliseconds(300))
                 let after = try XCTUnwrap(session.visibleRange)
                 XCTAssertEqual(session.canvas?.anchor, place, "\(flow) at \(size): the place read moved")
                 XCTAssertTrue(after.start <= place && place < after.end,

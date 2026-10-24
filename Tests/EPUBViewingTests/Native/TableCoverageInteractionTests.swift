@@ -102,7 +102,7 @@ import UIKit
         cell.cellSelection = NSRange(location: 5, length: text.length - 5)
         func copied() throws -> String? {
             #if os(macOS)
-            let pasteboard = NSPasteboard(name: .init("org.epublib.tests.TableCoverageInteraction"))
+            let pasteboard = NSPasteboard.withUniqueName()
             defer { pasteboard.releaseGlobally() }
             pasteboard.declareTypes([.string], owner: nil)
             XCTAssertTrue(cell.writeSelection(to: pasteboard, type: .string))
@@ -121,7 +121,9 @@ import UIKit
         XCTAssertEqual(try copied(), "The whole passage, across cells and pages")
         #if os(macOS)
         XCTAssertEqual(cell.writablePasteboardTypes, [.string])
-        XCTAssertFalse(cell.writeSelection(to: NSPasteboard(name: .init("org.epublib.tests.TableCoverageInteraction.rtf")), type: .rtf), "only plain text leaves the reader")
+        let rich = NSPasteboard.withUniqueName()
+        defer { rich.releaseGlobally() }
+        XCTAssertFalse(cell.writeSelection(to: rich, type: .rtf), "only plain text leaves the reader")
         #endif
     }
 

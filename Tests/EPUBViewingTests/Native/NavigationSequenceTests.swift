@@ -11,9 +11,9 @@ import AppKit
 
 @MainActor final class NavigationSequenceTests: XCTestCase {
     private func wait(_ label: String, timeout: TimeInterval = 30, until condition: () -> Bool) async throws -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = TestDeadline(seconds: timeout)
         while !condition() {
-            guard Date() < deadline else {
+            guard try !deadline.hasPassed() else {
                 XCTFail("Timed out waiting for \(label)")
                 return false
             }
@@ -134,14 +134,14 @@ import AppKit
             }
             let range = try XCTUnwrap(diagram, "Missing original diagram: \(alternative)")
             view.scrollRangeToVisible(range)
-            try await Task.sleep(for: .milliseconds(200))
+            try await TestDeadline.pause(.milliseconds(200))
         }
         let count = locations.count
         try await session.send(.navigate(href: "index_split_041.html#toc_id_238"))
         guard try await wait("strict matching target relocation", until: {
             locations.dropFirst(count).contains { $0.href == "index_split_041.html" }
         }) else { return }
-        try await Task.sleep(for: .milliseconds(300))
+        try await TestDeadline.pause(.milliseconds(300))
         XCTAssertEqual(session.lastLocation?.href, "index_split_041.html")
         let index = try XCTUnwrap(publication.spine.firstIndex { $0.resource.path == "index_split_041.html" })
         let section = try XCTUnwrap(session.book.section(index))

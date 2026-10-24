@@ -2,7 +2,9 @@ import SwiftUI
 
 /// How the bundled native reader moves from one page to the next in paginated flow. Choose one
 /// for a mounted view with `epubReaderPageTurnAnimation(_:)`; no book reload or change of
-/// reading state is needed. Continuous scroll scrolls as before whichever is chosen.
+/// reading state is needed. In continuous scroll either one scrolls the text of a page turn
+/// there in place of a jump, at once under Reduce Motion, while VoiceOver is running and for an
+/// assistive technology's own scroll.
 ///
 /// Every page turn has it: a tap or click at an edge, a swipe, a key, the wheel or trackpad,
 /// VoiceOver's own turns and the host's `.nextPage` and `.previousPage`. A swipe on iPhone and
@@ -24,7 +26,8 @@ public struct EPUBPageTurnAnimation: Hashable, Sendable {
 }
 
 public extension View {
-    /// Chooses how the native reader turns a page in paginated flow, including live updates.
+    /// Chooses how the native reader turns a page in paginated flow, and whether a turn in
+    /// continuous scroll scrolls its text in an animation, including live updates.
     /// Apply it to the retained `EPUBReaderView`, or a common ancestor of it.
     func epubReaderPageTurnAnimation(_ animation: EPUBPageTurnAnimation) -> some View {
         environment(\.epubReaderPageTurnAnimation, animation)

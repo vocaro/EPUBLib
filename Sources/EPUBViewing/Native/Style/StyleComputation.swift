@@ -162,22 +162,26 @@ extension StyleResolver {
     /// would make the section's text depend on reader typography, invalidating cached ranges and
     /// changing a saved CFI's rendered offset. Percentages, viewport units and the units of a
     /// face's own metrics say nothing about the screen by themselves and never hide.
+    ///
+    /// Absolute units alone hide from -999 CSS pixels, where stylesheets park skip links and
+    /// hidden menus, and an offset with an `em` or a `rem` in it from `-62.5em`, 1,000 pixels
+    /// (#358).
     private func isAuthoredOffscreenOffset(_ length: CSSLength) -> Bool {
-        func independent(_ unit: CSSUnit) -> Bool { unit.pixels != nil || unit == .number || unit == .em || unit == .rem }
-        func independent(_ expression: CSSCalc) -> Bool {
+        func units(_ expression: CSSCalc) -> [CSSUnit] {
             switch expression {
-            case .value(_, let unit): independent(unit)
-            case .sum(let terms), .min(let terms), .max(let terms): terms.allSatisfy(independent)
-            case .product(let term, _): independent(term)
-            case .clamp(let low, let value, let high): independent(low) && independent(value) && independent(high)
+            case .value(_, let unit): [unit]
+            case .sum(let terms), .min(let terms), .max(let terms): terms.flatMap(units)
+            case .product(let term, _): units(term)
+            case .clamp(let low, let value, let high): units(low) + units(value) + units(high)
             }
         }
-        let authored: Bool = switch length {
-        case .value(_, let unit): independent(unit)
-        case .calc(let expression): independent(expression)
+        let authored: [CSSUnit] = switch length {
+        case .value(_, let unit): [unit]
+        case .calc(let expression): units(expression)
         }
-        guard authored else { return false }
-        return points(length, LengthContext(em: 16, rem: 16, scale: 1)) <= -1_000
+        func fontRelative(_ unit: CSSUnit) -> Bool { unit == .em || unit == .rem }
+        guard authored.allSatisfy({ $0.pixels != nil || $0 == .number || fontRelative($0) }) else { return false }
+        return points(length, LengthContext(em: 16, rem: 16, scale: 1)) <= (authored.contains(where: fontRelative) ? -1_000 : -999)
     }
 
     private func color(_ value: CSSColor, current: ComputedStyle.Color?) -> ComputedStyle.Color? {

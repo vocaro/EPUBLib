@@ -22,6 +22,8 @@ import XCTest
         case completesWithoutResults, resultsOutOfOrder, resultsOfAnotherPublication, resultsOfAnotherQuery, currentMatchOutsideTheList
         case nextDoesNotStep, showDoesNotSelect, doesNotWrapForward, checksOnlyAResultsIndex
         case stateDoesNotMirrorResults, stateKeepsClearedResults, publishesResultsWithoutTheCapability
+        // Relocation reasons, for an engine that publishes state.
+        case relocatesWithoutAReason, reasonAfterTheRelocation, relayoutReportsAMove
     }
     static let everything: Set<EPUBReaderCapability> = [.pagination, .scrolling, .typography, .selection, .bookmarks, .locateText,
                                                         .navigateHref, .searchHighlight, .highlights, .search, .searchResults,
@@ -39,15 +41,20 @@ import XCTest
     }
 }
 
-@MainActor private final class ControlsCoverageContractSession: EPUBReaderSession {
+@MainActor private final class ControlsCoverageContractSession: EPUBEngineContract.IdleReporting {
     let capabilities: Set<EPUBReaderCapability>
     let readerState: EPUBReaderState?
+    /// It sends what it sends before the call that causes it returns, so it is idle whenever the
+    /// verifier looks, and a wait for what it did not send ends at once.
+    let isIdle = true
     private let book: EPUBPublication
     private let fault: ControlsCoverageContractEngine.Fault
     private let bareResults: Bool
     private var onEvent: (@MainActor (EPUBReaderEvent) -> Void)?
     private var closed = false, ready = false
     private var results: EPUBSearchResults?
+    /// The section shown, which a relayout shows again.
+    private var shown: String?
 
     init(engine: ControlsCoverageContractEngine, book: EPUBPublication, onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void) {
         capabilities = engine.capabilities
@@ -72,7 +79,7 @@ import XCTest
             publish { $0.lifecycle = .ready }
             onEvent?(.ready)
             // As a reader does, it reports where the book opens.
-            relocate(book.spine.first?.resource.href)
+            relocate(book.spine.first?.resource.href, reason: .opening)
         }
         return AnyView(Text(book.metadata.title))
     }
@@ -90,11 +97,17 @@ import XCTest
                             bookmark: capabilities.contains(.bookmarks) ? bookmark : nil)
     }
 
-    private func relocate(_ href: String?) {
+    private func relocate(_ href: String?, reason: EPUBRelocationReason) {
         guard let href else { return }
+        shown = href
         let location = place(href)
-        publish { $0.location = location }
+        let given: EPUBRelocationReason = fault == .relayoutReportsAMove && reason == .relayout ? .navigation : reason
+        publish {
+            $0.location = location
+            if fault != .relocatesWithoutAReason, fault != .reasonAfterTheRelocation { $0.relocationReason = given }
+        }
         onEvent?(.relocated(location))
+        if fault == .reasonAfterTheRelocation { publish { $0.relocationReason = given } }
     }
 
     private func require(_ capability: EPUBReaderCapability) throws -> Bool {
@@ -123,7 +136,7 @@ import XCTest
         guard var list = results else { return }
         list.currentIndex = index
         set(list)
-        relocate(list.current?.location.href)
+        relocate(list.current?.location.href, reason: .navigation)
     }
 
     private func search(_ text: String, opensFirst: Bool) {
@@ -152,7 +165,7 @@ import XCTest
         if fault == .currentMatchOutsideTheList { list.currentIndex = listed.count + 4 }
         publish { $0.search = completion }
         set(list)
-        if opensFirst { relocate(listed.first?.location.href) }
+        if opensFirst { relocate(listed.first?.location.href, reason: .navigation) }
         onEvent?(.searchChanged(completion))
     }
 
@@ -170,7 +183,7 @@ import XCTest
         case .nextPage, .previousPage: _ = try require(.pagination)
         case .navigate(let href):
             guard try require(.navigateHref), fault != .navigationDoesNotRelocate else { return }
-            relocate(href)
+            relocate(href, reason: .navigation)
         case .restore(let location):
             guard try require(.bookmarks) else { return }
             let compatible = (book.publicationIDs.contains(location.publicationID) || fault == .acceptsAForeignPublication)
@@ -181,8 +194,8 @@ import XCTest
             }
             switch fault {
             case .restoreDoesNotRelocate: break
-            case .restoreGoesElsewhere: relocate(book.spine.last { $0.resource.href != location.href }?.resource.href)
-            default: relocate(location.href)
+            case .restoreGoesElsewhere: relocate(book.spine.last { $0.resource.href != location.href }?.resource.href, reason: .restore)
+            default: relocate(location.href, reason: .restore)
             }
         case .locate: _ = try require(.locateText)
         case .search(let text): if try require(.search) { search(text, opensFirst: true) }
@@ -211,6 +224,8 @@ import XCTest
             if style.flow == .scrolled, try !require(.scrolling) { return }
             if style.fontSize != EPUBReaderStyle().fontSize, try !require(.typography) { return }
             publish { $0.style = style }
+            // The same place, laid out again.
+            relocate(shown, reason: .relayout)
         }
     }
 
@@ -242,6 +257,8 @@ import XCTest
         } catch let failure as EPUBEngineContract.Failure {
             XCTAssertEqual(failure.errorDescription, failure.description)
             return failure.description
+        } catch let unmeasured as TestDeadline.Unmeasured {
+            throw unmeasured.skip
         } catch { return "threw \(error)" }
     }
 
@@ -308,9 +325,9 @@ import XCTest
 
     /// "Href navigation changes sections and bookmark restoration returns to the saved section."
     func testTheVerifierRejectsEnginesThatDoNotNavigateOrRestore() async throws {
-        try await expectRejected(.navigationDoesNotRelocate, "Timed out waiting for second href")
-        try await expectRejected(.restoreDoesNotRelocate, "Timed out waiting for restoration")
-        try await expectRejected(.restoreGoesElsewhere, "Timed out waiting for restoration")
+        try await expectRejected(.navigationDoesNotRelocate, "Engine idle while waiting for second href")
+        try await expectRejected(.restoreDoesNotRelocate, "Engine idle while waiting for restoration")
+        try await expectRejected(.restoreGoesElsewhere, "Engine idle while waiting for restoration")
     }
 
     /// "Locations carry the publication identity and a valid engine-tagged bookmark when
@@ -342,19 +359,31 @@ import XCTest
         try await expectRejected(.resultsOfAnotherPublication, "Result belongs to another publication")
         try await expectRejected(.resultsOfAnotherQuery, "Results name another query")
         try await expectRejected(.currentMatchOutsideTheList, "Current match is not a listed result")
-        try await expectRejected(.nextDoesNotStep, "Timed out waiting for next search result")
-        try await expectRejected(.showDoesNotSelect, "Timed out waiting for selected search result")
+        try await expectRejected(.nextDoesNotStep, "Engine idle while waiting for next search result")
+        try await expectRejected(.showDoesNotSelect, "Engine idle while waiting for selected search result")
         try await expectRejected(.stateDoesNotMirrorResults, "Reader state does not mirror the published search results")
         try await expectRejected(.stateKeepsClearedResults, "Reader state kept cleared search results")
         try await expectRejected(.publishesResultsWithoutTheCapability, "Search results published without the capability",
                                  capabilities: Engine.everything.subtracting([.searchResults]))
     }
 
+    /// "An engine with `readerState` gives each relocation a reason there before it sends it, and
+    /// one that a text size or a flow relays out gives `.relayout`."
+    func testTheVerifierRejectsEnginesThatGiveNoReasonOrAWrongOne() async throws {
+        try await expectRejected(.relocatesWithoutAReason, "A relocation was sent before readerState gave its reason")
+        try await expectRejected(.reasonAfterTheRelocation, "A relocation was sent before readerState gave its reason")
+        try await expectRejected(.relayoutReportsAMove, "A relayout's relocation was given the reason navigation, not relayout")
+        try await expectRejected(.relayoutReportsAMove, "not relayout", capabilities: [.pagination, .typography])
+        // Without state there is no reason to give.
+        let found = try await verdict(Engine(fault: .relocatesWithoutAReason, publishesState: false))
+        XCTAssertNil(found, "without published state")
+    }
+
     /// "steps, wraps and selects as `EPUBSearchResults.steppedIndex(forward:)` says": a step
     /// forward from the last result returns to the first, as one backward from the first
     /// returns to the last.
     func testTheVerifierRejectsAnEngineThatDoesNotWrapForwardFromTheLastResult() async throws {
-        try await expectRejected(.doesNotWrapForward, "Timed out waiting for first search result after the last")
+        try await expectRejected(.doesNotWrapForward, "Engine idle while waiting for first search result after the last")
     }
 
     /// "refuses an unlisted result": `.showSearchResult` is for "one of the current

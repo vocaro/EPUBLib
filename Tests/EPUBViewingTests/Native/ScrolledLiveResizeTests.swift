@@ -2,6 +2,7 @@
 import AppKit
 import EPUBCore
 import EPUBReading
+import EPUBTestSupport
 import XCTest
 @testable import EPUBViewing
 
@@ -160,8 +161,8 @@ import XCTest
         let before = host.canvas.visibleRange
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: offset))
         scrollView.reflectScrolledClipView(scrollView.contentView)
-        let deadline = Date().addingTimeInterval(20)
-        while host.canvas.visibleRange == before, Date() < deadline { try await host.settle(20) }
+        let deadline = TestDeadline(seconds: 20)
+        while host.canvas.visibleRange == before, try !deadline.hasPassed() { try await host.settle(20) }
         return try XCTUnwrap(host.canvas.visibleRange?.start)
     }
 
@@ -236,7 +237,7 @@ import XCTest
                 XCTAssertEqual(view.accessibilitySelectedTextRange(), NSRange(location: 0, length: 0), label)
                 XCTAssertEqual(entryLine(), "First Chapter", label)
                 XCTAssertEqual(reader.session.visibleRange?.start, ReaderTextPosition(section: 0, offset: 0), label)
-                try await Task.sleep(for: .milliseconds(300))
+                try await TestDeadline.pause(.milliseconds(300))
             }
         }
     }

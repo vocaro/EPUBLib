@@ -1,4 +1,5 @@
 #if os(iOS)
+import EPUBTestSupport
 import Foundation
 import UIKit
 import XCTest
@@ -81,9 +82,9 @@ import XCTest
             print("NoteUIKit control presentation completion: \(state())")
         }
         print("NoteUIKit control after presentation call: \(state())")
-        let deadline = Date().addingTimeInterval(5)
+        let deadline = TestDeadline(seconds: 5)
         while !(completed && !content.isBeingPresented && content.viewIfLoaded?.window === window) {
-            guard Date() < deadline else {
+            guard try !deadline.hasPassed() else {
                 XCTFail("UIKit control did not complete and attach within five seconds: \(state())")
                 return
             }
@@ -98,9 +99,9 @@ import XCTest
         // behavior alive through completion and attachment, exactly as the real note does.
         withExtendedLifetime(delegate) {}
         content.dismiss(animated: false)
-        let dismissalDeadline = Date().addingTimeInterval(5)
+        let dismissalDeadline = TestDeadline(seconds: 5)
         while content.presentingViewController != nil || content.viewIfLoaded?.window != nil || content.isBeingDismissed {
-            guard Date() < dismissalDeadline else {
+            guard try !dismissalDeadline.hasPassed() else {
                 XCTFail("UIKit control did not detach within five seconds: \(state())")
                 return
             }

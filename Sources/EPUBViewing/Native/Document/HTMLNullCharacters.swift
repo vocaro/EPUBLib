@@ -30,6 +30,12 @@ import Foundation
 /// DOCTYPE in the raw text of a style sheet too, so here any `>` after the first `<!DOCTYPE`,
 /// in any case, may end one.
 ///
+/// A NUL is `<!>` too where leaving it out would join the bytes on either side into an end the
+/// screen reads (`formsEnd`): `?>`, which ends a processing instruction for it where this
+/// parser ended one at its first `>`, and `-->`, `--!>` and `]]>`, which end a comment or CDATA
+/// that it reads in a style sheet, where this parser reads raw text to `</style>`. The bytes
+/// after that end would otherwise be in view of the screen, which passed over them.
+///
 /// The scan follows what libxml2 does with the bytes it is given here, not what HTML would:
 /// raw text ends at an end tag of its own name and at no other. Where the two part (libxml2
 /// ends raw text at any end tag directly after `<style>`), a NUL reads as U+FFFD that might
@@ -88,12 +94,13 @@ enum HTMLNullCharacters {
             } else {
                 // Text. Before a byte that only continues a character, which is not UTF-8, a
                 // NUL stays, so that the bytes on either side are not joined into a character.
-                // The first of the NULs between a `>` that may end a DOCTYPE and a `[` is `<!>`.
+                // The first of the NULs between a `>` that may end a DOCTYPE and a `[` is `<!>`,
+                // and so is one whose removal would form an end the screen reads.
                 if byte != 0 {
                     output.append(byte)
                 } else if let next, next & 0xC0 == 0x80 {
                     output.append(contentsOf: replacement)
-                } else if opensSubset(at: index) {
+                } else if opensSubset(at: index) || formsEnd(output, bytes[(index + 1)...]) {
                     output.append(contentsOf: emptyComment)
                 }
                 index += 1
@@ -103,7 +110,24 @@ enum HTMLNullCharacters {
     }
 
     private static let commentOpen = Array("<!--".utf8)
-    private static let emptyComment = Array("<!>".utf8)
+    /// What keeps bytes of text apart for the screen and is nothing to libxml2 2.9.13 in text.
+    static let emptyComment = Array("<!>".utf8)
+    /// The ends the screen reads a processing instruction, a comment and CDATA to.
+    private static let ends = ["?>", "-->", "--!>", "]]>"].map { Array($0.utf8) }
+
+    /// Whether the bytes that end `output` and those of `next` before its first NUL form one of
+    /// the ends the screen reads where they meet, so that a NUL left out between them, or CDATA's
+    /// delimiters, would end a processing instruction, a comment or CDATA where the screen read
+    /// none. A NUL after that is read in its turn.
+    static func formsEnd(_ output: [UInt8], _ next: ArraySlice<UInt8>) -> Bool {
+        let next = next.prefix(3).prefix { $0 != 0 }
+        guard !output.isEmpty, !next.isEmpty else { return false }
+        return ends.contains { end in
+            (1..<end.count).contains { split in
+                split <= output.count && output[(output.count - split)...].elementsEqual(end[..<split]) && next.starts(with: end[split...])
+            }
+        }
+    }
 
     /// The index after the `-->` or `--!>` that ends the comment opened at `start`.
     static func comment(in bytes: [UInt8], at start: Int) -> Int {

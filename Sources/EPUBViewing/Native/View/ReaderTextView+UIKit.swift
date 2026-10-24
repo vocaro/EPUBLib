@@ -54,6 +54,13 @@ final class ReaderTextView: UITextView {
     private lazy var headingRotor = UIAccessibilityCustomRotor(systemType: .heading) { [weak self] predicate in
         self?.heading(for: predicate)
     }
+    /// The rotor that moves by block: by paragraph, picture, table and list item.
+    private lazy var blockRotor = UIAccessibilityCustomRotor(name: Self.blockRotorName) { [weak self] predicate in
+        self?.block(for: predicate)
+    }
+    /// What VoiceOver calls the rotor that moves by block, as it calls its own Headings and
+    /// Lines: the plural of what it moves by.
+    static let blockRotorName = "Paragraphs"
     /// A rotor of the host highlights, for the lines this view lists.
     private lazy var highlightRotor = UIAccessibilityCustomRotor(name: "Highlights") { [weak self] predicate in
         self?.highlight(for: predicate)
@@ -328,13 +335,18 @@ final class ReaderTextView: UITextView {
     // VoiceOver's own Headings rotor moves among the elements it is given, and a page or a
     // screen holds few of a book's headings: past the last of them it finds none. So the lines'
     // container gives VoiceOver that rotor itself, and goes on to the book's next heading.
-    // A rotor is not an action: VoiceOver says "Actions available" of a line for the actions
-    // the line is offered, with this rotor and without it.
+    // VoiceOver has no rotor that moves by paragraph, and a flick moves one line: the
+    // container gives it one of its own, Paragraphs, which goes on through the book as
+    // Headings does. A rotor is not an action: VoiceOver says "Actions available" of a line
+    // for the actions the line is offered, with these rotors and without them.
     // The book's host highlights have a rotor of their own, named Highlights, while any is
     // drawn: VoiceOver lists it among its settings, and a flick down or up goes to the next
     // highlight or the one before, wherever it is.
     override var accessibilityCustomRotors: [UIAccessibilityCustomRotor]? {
-        get { listsLines ? [headingRotor] + (canvas?.hasHostHighlights == true ? [highlightRotor] : []) : super.accessibilityCustomRotors }
+        get {
+            guard listsLines else { return super.accessibilityCustomRotors }
+            return [headingRotor, blockRotor] + (canvas?.hasHostHighlights == true ? [highlightRotor] : [])
+        }
         set { super.accessibilityCustomRotors = newValue }
     }
 
@@ -427,6 +439,54 @@ final class ReaderTextView: UITextView {
         }
         // It can be on the page or the screen already; otherwise the reader goes to it.
         if shown() == nil { canvas.showForAccessibilityRotor(target) }
+        return shown().map { UIAccessibilityCustomRotorItemResult(targetElement: $0, targetRange: nil) }
+    }
+
+    /// The block of the book after or before the item under VoiceOver's cursor
+    /// (`ReaderCanvasView.bookBlock`), given as the first element that reads it: on the page
+    /// or the screen when it is there, and otherwise wherever it is, which the reader turns or
+    /// scrolls to, as for a heading. A table's is its first cell or row, and a picture's the
+    /// picture. The search goes by the item's place in the book and its length, which each
+    /// element keeps, so that the second of VoiceOver's two questions for one move gets the
+    /// first one's answer after a page turn (`heading(for:)`).
+    private func block(for predicate: UIAccessibilityCustomRotorSearchPredicate) -> UIAccessibilityCustomRotorItemResult? {
+        guard let canvas else { return nil }
+        let forward = predicate.searchDirection == .next
+        var item: ReaderTextRange?
+        if let current = predicate.currentItem.targetElement as? ReaderPageAccessibilityElement, let start = current.position {
+            item = ReaderTextRange(section: start.section, start.offset..<(start.offset + max(1, current.range.length)))
+        } else {
+            // With the cursor on none of the reader's lines: from before the first listed, or after the last.
+            let listed = lineAccessibilityElements
+            let edge = forward ? listed.first?.position : listed.last.flatMap { canvas.position(at: NSMaxRange($0.range), in: self) }
+            item = edge.map { ReaderTextRange(start: $0, end: $0) }
+        }
+        guard let target = canvas.bookBlock(from: item, forward: forward) else { return nil }
+        // The first element of the views from the one that shows where the block begins to be
+        // read, among the block's characters from there.
+        func shown() -> ReaderPageAccessibilityElement? {
+            var begun = false
+            for view in canvas.textViews {
+                if !begun {
+                    let first = ReaderTextRange(section: target.section, target.block.spoken..<(target.block.spoken + 1))
+                    guard canvas.localRange(of: first, in: view) != nil else { continue }
+                    begun = true
+                }
+                guard let local = canvas.localRange(of: target.spokenRange, in: view) else { return nil }
+                let elements = view.lineAccessibilityElements
+                guard let index = elements.firstIndex(where: {
+                    NSMaxRange($0.range) > local.location && $0.range.location < NSMaxRange(local)
+                }) else { continue }
+                // The scroll view lists the lines round the screen and the cursor: a block that
+                // begins above those is not shown, though lines of it are listed.
+                let element = elements[index]
+                guard view.isPageColumn || element.range.location <= local.location
+                        || index > 0 && NSMaxRange(elements[index - 1].range) <= local.location else { return nil }
+                return element
+            }
+            return nil
+        }
+        if shown() == nil { canvas.showForAccessibilityRotor(target.position) }
         return shown().map { UIAccessibilityCustomRotorItemResult(targetElement: $0, targetRange: nil) }
     }
 
@@ -1039,7 +1099,8 @@ private struct ReaderAccessibilityList {
     private(set) var range: NSRange
     private(set) var url: URL?
     /// Where the element's first character is in the book. It holds when the page the element
-    /// was on has been turned, which is when VoiceOver asks the Headings rotor about it again.
+    /// was on has been turned, which is when VoiceOver asks the Headings or the Paragraphs rotor
+    /// about it again.
     var position: ReaderTextPosition?
     /// The image the element stands for, when it is one.
     var image: ReaderImageAttachment?

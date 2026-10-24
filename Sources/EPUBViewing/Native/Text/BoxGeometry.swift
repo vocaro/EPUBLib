@@ -335,26 +335,31 @@ enum ReaderBoxLayout {
                     x = max(0, rtl ? -paragraphStyle.tailIndent : paragraphStyle.headIndent)
                     width = max(1, viewport.width - x - max(0, rtl ? paragraphStyle.headIndent : -paragraphStyle.tailIndent))
                     let containing = style.isOutOfFlow ? scopeFrame(box.containing) : blockFrame(box)
+                    func edge(_ value: ComputedStyle.Length) -> CGFloat {
+                        max(0, min(containing.width / 3, value.resolve(reference: containing.width, viewport: viewport) ?? 0))
+                    }
+                    // The box's own margins, borders and padding on each side: a float's stand
+                    // between its content and its containing block, and so do a sized inline box's
+                    // between its content and the edges of its line (`InlineLine`).
+                    let outerLeft = edge(style.margin.left) + edge(style.padding.left) + (style.border.left.isVisible ? style.border.left.width : 0)
+                    let outerRight = edge(style.margin.right) + edge(style.padding.right) + (style.border.right.isVisible ? style.border.right.width : 0)
                     if style.float != .none || !box.replaced && !style.isOutOfFlow {
-                        func edge(_ value: ComputedStyle.Length) -> CGFloat {
-                            max(0, min(containing.width / 3, value.resolve(reference: containing.width, viewport: viewport) ?? 0))
-                        }
-                        if style.float != .none {
-                            edgeLeft = edge(style.margin.left) + edge(style.padding.left) + (style.border.left.isVisible ? style.border.left.width : 0)
-                            edgeRight = edge(style.margin.right) + edge(style.padding.right) + (style.border.right.isVisible ? style.border.right.width : 0)
-                        }
-                        let available = max(1, containing.width - edgeLeft - edgeRight)
+                        if style.float != .none { edgeLeft = outerLeft; edgeRight = outerRight }
+                        // A sized inline box wider than its line with its margins is as wide as the
+                        // room between them, where it ran past the column's edge (#720).
+                        let available = max(1, containing.width - edgeLeft - edgeRight - (isInline ? outerLeft + outerRight : 0))
                         if !box.replaced {
                             width = style.width.resolve(reference: containing.width, viewport: viewport)
                                 ?? min(available, max(1, attempts.maximumWidth(of: box.id, from: index, in: ranges, text: text)))
                             if let minimum = style.minWidth.resolve(reference: containing.width, viewport: viewport) { width = max(width, minimum) }
                             if let maximum = style.maxWidth.resolve(reference: containing.width, viewport: viewport) { width = min(width, maximum) }
-                            // A float given a width narrower than a word it holds is as wide as the
-                            // word, as far as its containing block allows (`TableMeasure.widestPiece`).
-                            // CSS lets the word overflow the float (CSS Text 3, 5.2); the reader
-                            // draws nothing outside its column, and broke the word between any two
-                            // characters instead (#152). An auto width is never narrower.
-                            if style.float != .none, style.width != .auto || style.maxWidth != .auto, width < available {
+                            // A float or a sized inline box given a width narrower than a word it
+                            // holds is as wide as the word, as far as its containing block allows
+                            // (`TableMeasure.widestPiece`). CSS lets the word overflow the box (CSS
+                            // Text 3, 5.2); the reader draws nothing outside its column, and broke
+                            // the word between any two characters instead (#152, #742). An auto
+                            // width is never narrower.
+                            if style.width != .auto || style.maxWidth != .auto, width < available {
                                 width = max(width, attempts.pieceWidth(of: box.id, from: index, in: ranges, text: text, within: width))
                             }
                             width = min(available, max(1, width))
@@ -381,16 +386,24 @@ enum ReaderBoxLayout {
                     }
                     if style.isOutOfFlow {
                         let containing = style.position == .fixed ? CGRect(origin: .zero, size: viewport) : scopeFrame(box.containing)
-                        width = resolve(style.width, containing.width) ?? min(width, containing.width)
-                        if let minimum = resolve(style.minWidth, containing.width) { width = max(width, minimum) }
-                        if let maximum = resolve(style.maxWidth, containing.width) { width = min(width, maximum) }
+                        let left = resolve(style.positionLeft, containing.width), right = resolve(style.positionRight, containing.width)
+                        // An auto width between two insets is the room between them (CSS 2.2 10.3.7).
+                        let between = style.width == .auto ? left.flatMap { left in right.map { containing.width - left - $0 } } : nil
+                        if let between { width = between } else {
+                            width = resolve(style.width, containing.width) ?? min(width, containing.width)
+                            if let minimum = resolve(style.minWidth, containing.width) { width = max(width, minimum) }
+                            if let maximum = resolve(style.maxWidth, containing.width) { width = min(width, maximum) }
+                        }
+                        // A positioned box narrower than a word it holds is as wide as the word, as
+                        // far as its containing block allows, as a float is (#742).
+                        if !box.replaced, between != nil || style.width != .auto || style.maxWidth != .auto, width < containing.width {
+                            width = max(width, attempts.pieceWidth(of: box.id, from: index, in: ranges, text: text, within: max(1, width)))
+                        }
                         width = min(containing.width, max(1, width))
-                        if let left = resolve(style.positionLeft, containing.width) { x = containing.minX + left }
-                        else if let right = resolve(style.positionRight, containing.width) { x = containing.maxX - right - width }
+                        if let left { x = containing.minX + left }
+                        else if let right { x = containing.maxX - right - width }
                         else if style.margin.left == .auto && style.margin.right == .auto { x = containing.minX + (containing.width - width) / 2 }
                         else { x = containing.minX }
-                        if style.width == .auto, let left = resolve(style.positionLeft, containing.width),
-                           let right = resolve(style.positionRight, containing.width) { width = containing.width - left - right }
                     }
                     x = min(max(0, x), max(0, viewport.width - width))
                     width = min(viewport.width - x, max(1, width))
@@ -398,20 +411,20 @@ enum ReaderBoxLayout {
                     // box before it, or at the start of the next line when that one is full.
                     var placed: InlineRow?
                     if isInline, let inline = box.inline {
-                        func outer(_ lengths: ComputedStyle.Length..., border: ComputedStyle.Border) -> CGFloat {
-                            lengths.reduce(border.isVisible ? border.width : 0) {
-                                $0 + max(0, min(containing.width / 3, $1.resolve(reference: containing.width, viewport: viewport) ?? 0))
-                            }
-                        }
-                        let insets = ReaderFlowBoxLayout.insets(at: range.location, in: text, viewport: viewport)
-                            ?? (left: x, right: max(0, viewport.width - x - width))
-                        let line = InlineLine(left: insets.left, right: max(insets.left + width, viewport.width - insets.right),
-                            before: outer(style.margin.left, style.padding.left, border: style.border.left),
-                            after: outer(style.margin.right, style.padding.right, border: style.border.right),
-                            rightToLeft: inline.rightToLeft)
-                        var open = row.flatMap { $0.end == range.location && $0.block === inline.block && inline.continuesLine ? $0 : nil }
+                        // Its line runs between the content edges of the block it is in, its
+                        // containing block. It took them from the indents of its own first
+                        // paragraph, which hold those of any block inside the box: the rest of a
+                        // box taller than a page was set as far along as the verse line it starts
+                        // with is indented, and ran past the column (#720).
+                        let line = InlineLine(left: containing.minX + outerLeft,
+                                              right: max(containing.minX + outerLeft + width, containing.maxX - outerRight),
+                                              before: outerLeft, after: outerRight, rightToLeft: inline.rightToLeft)
+                        // That rest is below the part of the box in flow, at the start of a line of
+                        // its own: the indent of the block's first line is the box's start's.
+                        let resumes = attempts.resumes(box.id, at: index)
+                        var open = resumes ? nil : row.flatMap { $0.end == range.location && $0.block === inline.block && inline.continuesLine ? $0 : nil }
                         // Text of the same block ends just before the box: its last line is the row.
-                        if open == nil, inline.continuesLine, let previous = plan.paragraphs.last, !previous.isBox,
+                        if open == nil, !resumes, inline.continuesLine, let previous = plan.paragraphs.last, !previous.isBox,
                            previous.range.upperBound == range.location, let last = previous.lines.last,
                            text.attribute(.readerParagraphFlow, at: range.location - 1, effectiveRange: nil) as? ReaderParagraphFlow === inline.block {
                             open = InlineRow(block: inline.block, rightToLeft: line.rightToLeft, end: range.location,
@@ -428,7 +441,7 @@ enum ReaderBoxLayout {
                             if let full = open, let reserved = full.reserved {
                                 plan.regions[reserved].frame = CGRect(x: 0, y: full.top, width: viewport.width, height: full.bottom - full.top)
                             }
-                            x = line.start(width, indent: open == nil ? inline.firstLineIndent : 0)
+                            x = line.start(width, indent: open == nil && !resumes ? inline.firstLineIndent : 0)
                             let top = open?.bottom ?? max(cursor + retainedSpacing, inlineFloor)
                             placed = InlineRow(block: inline.block, rightToLeft: line.rightToLeft, end: boxRange.upperBound, top: top, bottom: top,
                                                pen: x, source: boxRange, firstRegion: open?.firstRegion ?? plan.regions.count)
@@ -902,6 +915,10 @@ enum ReaderBoxLayout {
             layouts[id] = nil
             return end
         }
+
+        /// Whether what is tried as the box `id` from its paragraph `index` is the rest of it, the
+        /// paragraphs before staying in flow.
+        func resumes(_ id: UUID, at index: Int) -> Bool { runs[id].map { $0.lowerBound < index } ?? false }
 
         /// `TableMeasure.maximumWidth` of the box `id` from its paragraph `index` to its end.
         /// Earlier paragraphs of a box that stays in flow change, its later ones do not.

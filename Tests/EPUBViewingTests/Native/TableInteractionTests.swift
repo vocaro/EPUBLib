@@ -23,9 +23,9 @@ import UIKit
     """
 
     private func wait(until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(15)
+        let deadline = TestDeadline(seconds: 15)
         while !condition() {
-            guard Date() < deadline else { XCTFail("Timed out waiting for native table interaction"); return }
+            guard try !deadline.hasPassed() else { XCTFail("Timed out waiting for native table interaction"); return }
             try await Task.sleep(for: .milliseconds(20))
         }
     }
@@ -61,7 +61,9 @@ import UIKit
         XCTAssertEqual(resolved.end.node.text, "😀 beta")
         XCTAssertEqual(resolved.end.offset, 7)
         #if os(macOS)
-        let pasteboard = NSPasteboard(name: .init("EPUBLibTableInteraction"))
+        // A pasteboard is the whole Mac's: another suite's run of this test must not write to this one.
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
         pasteboard.declareTypes([.string], owner: nil)
         XCTAssertTrue(cell.writeSelection(to: pasteboard, type: .string))
         XCTAssertEqual(pasteboard.string(forType: .string), "😀 beta")
@@ -111,7 +113,7 @@ import UIKit
             let url = try XCTUnwrap(cell.cellText.attribute(.link, at: range.location, effectiveRange: nil) as? URL)
             XCTAssertFalse(cell.textView(cell, shouldInteractWith: url, in: range, interaction: .invokeDefaultAction))
             #endif
-            try await Task.sleep(for: .milliseconds(100))
+            try await TestDeadline.pause(.milliseconds(100))
             if title == "Outside link" {
                 // The session's policy for a link outside the book, by default: the reader is
                 // asked, naming the address, and nothing is opened or noticed before it answers
@@ -204,7 +206,7 @@ import UIKit
         canvas.performSelectionAction(); XCTAssertEqual(performed?.text, words)
         XCTAssertTrue(controllers.contains { $0.selectionContinues(range, forward: true) })
         XCTAssertEqual(canvas.turnPage(forward: true), .turned)
-        try await Task.sleep(for: .milliseconds(150))
+        try await TestDeadline.pause(.milliseconds(150))
         XCTAssertEqual(canvas.currentSelection?.range, range)
         canvas.performSelectionAction(); XCTAssertEqual(performed?.text, words)
         XCTAssertTrue(canvas.textViews.flatMap { $0.tableInteraction?.cells.values.map { $0 } ?? [] }
