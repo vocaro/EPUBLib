@@ -41,10 +41,13 @@ import UIKit
         // Nonlinear items before the fourth linear one are kept in their places, and not counted.
         let skipping = EPUBPreview(publication: try EPUBPublication.open(data: book(chapters: 9, nonlinear: [2, 3]).archive()))
         XCTAssertEqual(skipping.opening.spine.map(\.resource.id), (1...6).map { "chapter\($0)" })
-        // Long sections end the opening sooner: the second brings it past the bytes it holds.
-        let long = EPUBPreview(publication: try EPUBPublication.open(data: book(chapters: 6, paragraphs: 2_500).archive()))
+        // Long sections end the opening sooner: of sections of about 37 KB, the second brings it
+        // past the 64 KiB it holds, and a section of about 92 KB is an opening alone.
+        let long = EPUBPreview(publication: try EPUBPublication.open(data: book(chapters: 6, paragraphs: 600).archive()))
         XCTAssertEqual(long.opening.spine.count, 2)
-        XCTAssertEqual(EPUBPreview.openingBytes, 256 * 1024)
+        let longer = EPUBPreview(publication: try EPUBPublication.open(data: book(chapters: 6, paragraphs: 1_500).archive()))
+        XCTAssertEqual(longer.opening.spine.count, 1)
+        XCTAssertEqual(EPUBPreview.openingBytes, 64 * 1024)
     }
 
     func testThePreviewReaderBuildsTheOpeningAndReadsNoFurther() async throws {

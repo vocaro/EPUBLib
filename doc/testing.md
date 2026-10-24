@@ -1428,7 +1428,8 @@ python3 scripts/eng admit --exclusive -- python3 scripts/measure-quick-look-memo
 ```
 
 A thumbnail is made at 512 points and 2 pixels a point, the size of Finder's largest icons, and
-drawn. A preview is read off the main actor, then its view is mounted in an 800 by 600 window,
+drawn, in an autorelease pool of its own, as an extension's request is: without one a process
+for every book kept each book's archive. A preview is read off the main actor, then its view is mounted in an 800 by 600 window,
 or the simulator's screen, until its reader is ready and has built the opening; one not built
 within 30 seconds is unmeasured. The rows are in `mac.tsv`, `mac-fresh.tsv` and `simulator.tsv`,
 under a directory named for the run. Each gives the book, the call and its outcome, the

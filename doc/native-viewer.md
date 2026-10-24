@@ -3865,7 +3865,7 @@ thumbnail or a preview costs the file's size, the entries it reads and the pixel
 read to 64 MiB, so a larger book is refused (`limitExceeded("import limits")`) and the system
 shows its own icon; a host can pass other limits. The system holds an extension to far less
 memory than an app, and only a device enforces it: a simulator and the Mac enforce no extension
-limit ([extension memory](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/app-extensions.md#qualify-an-extensions-memory-limit-on-the-target-hardware)).
+limit ([extension memory](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/app-extensions.md#qualify-an-extensions-memory-limit-on-the-target-hardware)).
 Developers report about 100 MB for an iOS Quick Look preview extension, and Apple documents no
 figure for a thumbnail extension. The peaks measured on the Mac and in a simulator are on
 [#695](https://github.com/vocaro/EPUBLib/issues/695), and [testing](testing.md#quick-look-memory)
@@ -3889,8 +3889,13 @@ a Mac, and by about 5 MiB to 773, a quarter of its size, or fewer
 default, as large as the view shows it, and gives no title page for a book without one: its
 title and authors are text beside it. The opening is the spine's items from the first through
 its fourth linear item (`openingSections`), or through the linear item that brings the linear
-items' documents to 256 KiB (`openingBytes`), whichever comes first, and at most 16 items
-whatever they are. `EPUBPreviewView` shows the opening in the package's reader, in continuous
+items' documents to 64 KiB (`openingBytes`), whichever comes first, and at most 16 items
+whatever they are. The reader lays out all of an opening in continuous scroll, and its memory
+grows with it: with openings of 256 KiB, a Gutenberg book's 377 KB opening took about 450 MiB for
+a moment on a Mac in 4 runs of 5 ([#869](https://github.com/vocaro/EPUBLib/issues/869)), and
+openings with some thirty pictures to a section rose about 150 MiB. At 64 KiB the first rose at most 57 MiB, and the two
+picture books at most 108 MiB ([#695](https://github.com/vocaro/EPUBLib/issues/695)).
+`EPUBPreviewView` shows the opening in the package's reader, in continuous
 scroll, at the text start when the opening holds it and otherwise at its first linear section
 (see Decisions). The reader builds the opening and no more, and reads only the resources the
 opening's sections use. The cover, title and authors stand beside it where the view is at least

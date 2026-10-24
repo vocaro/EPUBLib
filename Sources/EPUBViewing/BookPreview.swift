@@ -13,8 +13,10 @@ import SwiftUI
 public struct EPUBPreview: Sendable {
     /// The most linear sections an opening holds.
     public static let openingSections = 4
-    /// The content documents' bytes after which an opening holds no further section.
-    public static let openingBytes = 256 * 1024
+    /// The content documents' bytes after which an opening holds no further section. The reader
+    /// lays out all of an opening in continuous scroll, and an opening of 377 KB took a moment's
+    /// 450 MiB on a Mac (`doc/native-viewer.md`, "Quick Look").
+    public static let openingBytes = 64 * 1024
 
     public let title: String
     public let authors: [String]

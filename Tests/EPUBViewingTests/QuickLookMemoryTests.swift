@@ -40,7 +40,9 @@ import UIKit
             let before = Self.footprint(), pressureBefore = Self.pressureLevel()
             let sampler = FootprintSampler(baseline: before.current)
             let start = ContinuousClock.now
-            let outcome = call == "thumbnail" ? Self.thumbnail(file) : await Self.preview(file)
+            // A thumbnail is made in a pool of its own, as an extension's request is: without one
+            // the loop kept every book's archive, 8.6 MiB a time for a 9 MB book (#695).
+            let outcome = call == "thumbnail" ? autoreleasepool { Self.thumbnail(file) } : await Self.preview(file)
             let elapsed = start.duration(to: .now)
             let rise = sampler.stop()
             let after = Self.footprint(), pressureAfter = Self.pressureLevel()
