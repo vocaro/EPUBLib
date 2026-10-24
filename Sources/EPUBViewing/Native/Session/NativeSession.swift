@@ -120,8 +120,10 @@ import SwiftUI
     /// The link outside the book the reader is being asked about, until it answers.
     @ObservationIgnored private(set) var askedLink: ExternalLinkAddress?
 
+    /// `flow` is the one the session starts in, as if a host had sent it before mounting: a
+    /// preview starts in continuous scroll without laying out pages first.
     init(publication: EPUBPublication, action: EPUBSelectionAction?, rich: any RichContentFactory,
-         onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void) throws {
+         flow: EPUBReadingFlow = .paginated, onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void) throws {
         self.publication = publication; self.action = action; self.onEvent = onEvent
         readerState = EPUBReaderState(status: EPUBReaderStatus(capabilities: capabilities))
         do { spine = try SpineCFIs(publication: publication) }
@@ -132,6 +134,8 @@ import SwiftUI
         readerState?.modify { $0.effectiveFontSize = Double(book.typography.fontSize) }
         book.onSectionBuilt = { [weak self] in self?.sectionBuilt($0) }
         book.onBookComplete = { [weak self] in self?.bookCompleted() }
+        style.flow = flow
+        readerState?.modify { $0.style = style }
         buildBook(from: initialSection)
     }
 

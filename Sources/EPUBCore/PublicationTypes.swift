@@ -22,6 +22,18 @@ public struct EPUBImportLimits: Sendable {
     public var entryCount: Int = 20_000
     public var xmlBytes: Int = 4 * 1024 * 1024
     public init() {}
+
+    /// Limits for a Quick Look thumbnail or preview extension, which the system holds to far
+    /// less memory than an app: 32 MiB compressed, 16 MiB per resource, 64 MiB expanded, and the
+    /// default entry count and XML size. A book is held in memory whole while its thumbnail or
+    /// preview is made, so the archive limit bounds the largest part of that memory.
+    public static var quickLook: Self {
+        var limits = Self()
+        limits.archiveBytes = 32 * 1024 * 1024
+        limits.resourceBytes = 16 * 1024 * 1024
+        limits.expandedBytes = 64 * 1024 * 1024
+        return limits
+    }
 }
 
 public struct EPUBMetadata: Equatable, Sendable {

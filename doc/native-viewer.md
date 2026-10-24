@@ -3838,6 +3838,72 @@ and a view's `dynamicTypeSize` is Large unless its host sets another. Whether ma
 size setting reaches a SwiftUI view's `dynamicTypeSize` has not been observed, since that would
 change the Mac's settings ([#675](https://github.com/vocaro/EPUBLib/issues/675)).
 
+## Quick Look
+
+`EPUBThumbnail` gives a Quick Look thumbnail extension a book's cover, and `EPUBPreview` with
+`EPUBPreviewView` gives a preview extension its cover, title, authors and opening pages, so that
+an app's extensions hold no rendering code ([#695](https://github.com/vocaro/EPUBLib/issues/695);
+[integration](integration.md#quick-look-extensions) has the extension code).
+
+**Reading on demand.** Both open the book on demand. The archive's directory and every entry's
+name are read, and refused, as for any book, and the entries that describe the book are
+inflated: the `mimetype`, the container, the encryption document, the package document, the
+navigation document or NCX, and a font obfuscated with a key the package gives. Every other entry
+is inflated when it is first asked for, held to its checksum and the limits then, and not kept:
+asked for again, it is inflated again and charged nothing more. An entry that would refuse the
+book read whole, by a checksum that does not match or more bytes than a resource may have, is
+then a resource that cannot be read, and the book still has its thumbnail. So that the book has
+the identities it has read whole (`persistentID`, `publicationIDs`), opening inflates each
+resource it does not keep twice, for its length and then into the hash a chunk at a time, and
+holds none of it; that reading counts toward no limit but a resource's. A book unpacked into a
+folder is read whole. The reader's books are read whole as before; reading on demand is the
+package's own (`open(at:limits:onDemand:)`).
+
+**Memory.** The archive is held in memory whole while either is made, as any book is: a
+thumbnail or a preview costs the file's size, the entries it reads and the pixels it draws.
+`EPUBImportLimits.quickLook` holds the archive to 32 MiB, a resource to 16 MiB and the entries
+read to 64 MiB, so a larger book is refused (`limitExceeded("import limits")`) and the system
+shows its own icon; a host can pass other limits. The system holds an extension to far less
+memory than an app, and only a device enforces it: a simulator and the Mac enforce no extension
+limit ([extension memory](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/app-extensions.md#qualify-an-extensions-memory-limit-on-the-target-hardware)).
+Developers report about 100 MB for an iOS Quick Look preview extension, and Apple documents no
+figure for a thumbnail extension. The peaks measured on the Mac and in a simulator are on
+[#695](https://github.com/vocaro/EPUBLib/issues/695), and [testing](testing.md#quick-look-memory)
+repeats them; what an iPhone or iPad allows is unmeasured.
+
+**Thumbnail.** The cover is the publication's `cover`, or, when that is no image the reader can
+read, the first in its manifest fallback chain that is. An SVG cover is sanitized and drawn by
+StaticSVG as an SVG in a section is, with the images it holds and no other resource. A bitmap is
+decoded by ImageIO downsampled, to the thumbnail's own pixels and never more than 2,048 on its
+long side (`maximumPixelSize`), whatever its size: the W3C layout tests' 2,397 by 3,092 cover,
+asked for at 512 points and 2 pixels a point, decodes to 794 by 1,024. The thumbnail has the
+cover's proportions within the size asked for. A book with no cover that can be drawn has a title
+page instead, two by three: its title, and each author on a line, in the system's serif face at
+the largest size that fits, on paper inside a ruled border. `draw(in:)` draws in Core Graphics
+coordinates, the origin at the lower left. Decoding takes more than the thumbnail's pixels for a
+moment: the W3C cover raised the footprint by about 23 MiB while it decoded to 1,024 pixels on
+a Mac, and by about 5 MiB to 773, a quarter of its size, or fewer
+([#695](https://github.com/vocaro/EPUBLib/issues/695)).
+
+**Preview.** `EPUBPreview` decodes the cover for 240 by 360 points at 2 pixels a point by
+default, as large as the view shows it, and gives no title page for a book without one: its
+title and authors are text beside it. The opening is the spine's items from the first through
+its fourth linear item (`openingSections`), or through the linear item that brings the linear
+items' documents to 64 KiB (`openingBytes`), whichever comes first, and at most 16 items
+whatever they are. The reader lays out all of an opening in continuous scroll, and its memory
+grows with it: with openings of 256 KiB, a Gutenberg book's 377 KB opening took about 450 MiB for
+a moment on a Mac in 4 runs of 5 ([#869](https://github.com/vocaro/EPUBLib/issues/869)), and
+openings with some thirty pictures to a section rose about 150 MiB. At 64 KiB the first rose at most 57 MiB, and the two
+picture books at most 108 MiB ([#695](https://github.com/vocaro/EPUBLib/issues/695)).
+`EPUBPreviewView` shows the opening in the package's reader, in continuous
+scroll, at the text start when the opening holds it and otherwise at its first linear section
+(see Decisions). The reader builds the opening and no more, and reads only the resources the
+opening's sections use. The cover, title and authors stand beside it where the view is at least
+560 points wide and wider than it is tall, and above it otherwise. The reader keeps selection and
+Copy, and claims no edge or swipe, since a swipe in Quick Look moves to the next file; what it
+discloses is shown under the authors, and a failure in place of the text. The view opens its
+reader when it appears and closes it when it disappears.
+
 ## Security
 
 Books are untrusted. Nothing is executed: there is no JavaScript engine. Every reference
