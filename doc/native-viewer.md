@@ -308,7 +308,12 @@ continues to describe the authored spine resource.
   Other aspect fits, transforms and nested viewports use the SVG renderer
   ([#187](https://github.com/vocaro/EPUBLib/issues/187)). Archive raster references are resolved
   and bounded before rendering, and images in `data:` URLs read and bounded as they are
-  (**Data URLs**, below); scripts,
+  (**Data URLs**, below). An `<image>` that gives neither `width` nor `height` is laid out at its
+  picture's own size, a nested drawing's or a bitmap's with its orientation applied, as a
+  browser lays it out, though the picture reaches the renderer as a PNG of at most 2,048 pixels
+  on its long side; the image span bound charges that size, so a drawing with a large sizeless
+  bitmap can be refused ([#704](https://github.com/vocaro/EPUBLib/issues/704),
+  [#862](https://github.com/vocaro/EPUBLib/issues/862)). Scripts,
   animation, foreign content and external resources are omitted with a disclosure. Manifest
   image fallbacks apply inside SVG as well. Recursive preparation shares one memo and work
   budget per drawing: 128 request/candidate misses, 16 MiB each of loaded source and serialized
@@ -330,9 +335,10 @@ continues to describe the authored spine resource.
   character reference, so the renderer reads a class list, text and the id an `href` names as
   the book has them ([#249](https://github.com/vocaro/EPUBLib/issues/249)). A wrapper whose one
   image names a fragment wraps no file and goes to the renderer, whatever follows its `#`, which
-  is found as its byte. StaticSVG 0.1.1's serializer still finds an `href`'s `#` by `Character`,
-  so it takes a reference such as `#&#x301;x` for a file's, leaves it out and discloses it as an
-  image ([#641](https://github.com/vocaro/EPUBLib/issues/641)). An embedded font's
+  is found as its byte. StaticSVG's serializer finds an `href`'s `#` by its byte too, so a
+  reference such as `#&#x301;x` in a `<use>` or an `<image>` is kept as the fragment the
+  renderer reads, not taken for a file's and disclosed
+  ([#641](https://github.com/vocaro/EPUBLib/issues/641)). An embedded font's
   own family name, which comes from the book's font file, stands for the family a drawing names
   only when it holds nothing but letters, marks, digits, spaces and `-`, `_`, `.`, `&` and `+`.
   The renderer's direct entry point continues to refuse filters, including commented and
@@ -352,7 +358,7 @@ continues to describe the authored spine resource.
   and inspects the attachment, and turns StaticSVG's diagnostics into the section's disclosures.
   StaticSVG ships the renderer as an Apple XCFramework, so consumers do not need Rust; its source
   pins, build, panic boundary and redistribution notices are in its
-  [renderer notes](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/renderer.md).
+  [renderer notes](https://github.com/vocaro/StaticSVG/blob/0.1.3/doc/renderer.md).
 - **Data URLs.** An image a document holds in a `data:` URL, as EPUB 3.3 §3.7 permits, is shown
   as one from the archive is: an `<img>`, and an `<object>` or `<embed>` whose `type` names an
   image ([#134](https://github.com/vocaro/EPUBLib/issues/134)); and an SVG `<image>`, in a drawing
@@ -4016,8 +4022,8 @@ Go: the native viewer is the bundled engine.
   ([verification](https://github.com/vocaro/EPUBLib/issues/53#issuecomment-6159293638); [the book](testing.md#networking-svg-book)). StaticSVG
   screens each drawing against its rendering limits before its renderer reads it, and an SVG
   past any shows its fallback text with the `svg` disclosure. The
-  [limits](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/design.md#limits) and
-  [how each screen reads the drawing as the renderer does](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/screens.md)
+  [limits](https://github.com/vocaro/StaticSVG/blob/0.1.3/doc/design.md#limits) and
+  [how each screen reads the drawing as the renderer does](https://github.com/vocaro/StaticSVG/blob/0.1.3/doc/screens.md)
   are StaticSVG's. Retained renderer font databases share a 64 MiB budget across the process.
   Each distinct set of fonts an SVG names is one database, with its own copy of the fallback
   faces, shared by every drawing that names those fonts. An SVG refused a database shows its fallback text. The networking book

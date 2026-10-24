@@ -1,7 +1,7 @@
 # StaticSVG notices
 
 Copies, unchanged, of the license and notice texts of [StaticSVG](https://github.com/vocaro/StaticSVG)
-at tag `0.1.1`, which EPUBViewing links:
+at tag `0.1.3`, which EPUBViewing links:
 
 - `LICENSE.txt`: StaticSVG's MIT license (its `LICENSE`).
 - `dependencies.json`: the renderer library's locked Rust dependencies, with their versions,

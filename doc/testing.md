@@ -903,8 +903,8 @@ take the same file from `TEST_RUNNER_EPUBLIB_SVG_CORPUS`. The runs are on
 ### SVG rendering cost probe
 
 The renderer probes and their recorded inputs moved to StaticSVG with the renderer: its
-[rendering cost probe](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/testing.md#rendering-cost-probe)
-and [font-size cost probe](https://github.com/vocaro/StaticSVG/blob/0.1.1/doc/testing.md#font-size-cost-probe).
+[rendering cost probe](https://github.com/vocaro/StaticSVG/blob/0.1.3/doc/testing.md#rendering-cost-probe)
+and [font-size cost probe](https://github.com/vocaro/StaticSVG/blob/0.1.3/doc/testing.md#font-size-cost-probe).
 The measurements already recorded stay on [#176](https://github.com/vocaro/EPUBLib/issues/176#issuecomment-6159294552)
 and [#443](https://github.com/vocaro/EPUBLib/issues/443).
 
