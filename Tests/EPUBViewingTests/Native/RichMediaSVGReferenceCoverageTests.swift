@@ -141,4 +141,45 @@ final class RichMediaSVGReferenceCoverageTests: XCTestCase {
             }
         }
     }
+
+    // MARK: Drawn as the renderer reads them
+
+    /// The issue's drawing ([#316](https://github.com/vocaro/EPUBLib/issues/316)): a gradient
+    /// whose empty `href` overrides an `xlink:href` that leads to a gradient that repeats. The
+    /// renderer cannot use the `href` and pads the gradient, as written and as serialized, since
+    /// the serializer leaves out the `xlink:href` with it; kept, the `xlink:href` took over and led
+    /// the renderer into the repeat that panics. The drawing is shown, white, inline and from the
+    /// archive, and only its `href` is disclosed.
+    func testAnXLinkHrefThatAnHrefOverridesIsNotFollowed() throws {
+        let body = gradient("href='' xlink:href='#b'", after: "<radialGradient id='b' spreadMethod='repeat'/>")
+        let inline = try RichMediaBook(body: "<p>\(drawing(body))</p>").build()
+        let archive = try RichMediaBook(body: "<p><img src='d.svg' alt='Padded'/></p>", files: ["d.svg": Data(drawing(body).utf8)]).build()
+        for (form, text) in [("inline", inline), ("from the archive", archive)] {
+            let bitmap = try XCTUnwrap(text.richMediaImages.first?.source.decode(maxPixelSize: 10), "\(form): drawn")
+            XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 2, y: 2), [255, 255, 255, 255], form)
+            XCTAssertEqual(text.report.unsupportedElements, ["svg:image": 1], "\(form): the href alone is disclosed")
+        }
+    }
+
+    /// A drawing's class rules reach the elements the renderer styles: class names are compared
+    /// by their bytes, and a class list is split at spaces alone
+    /// ([#752](https://github.com/vocaro/EPUBLib/issues/752)). A rule for the class after a space
+    /// that a combining mark follows closes a ring of masks, and the drawing shows its fallback; a
+    /// rule for `ñ` (U+00F1) does not reach `n&#x303;`, which `String` compares equal to it, and
+    /// the drawing is drawn.
+    func testAClassRuleReachesTheElementsTheRendererStylesByTheirBytes() throws {
+        let ring = linked("mask", count: 3, .sheet)
+        let spaced = ring.replacingOccurrences(of: "class='k1'", with: "class='k1 &#x301;z'")
+        if let text = try refusedSection("<title>Masks</title>" + spaced, as: { "<p>\($0)</p>" }) {
+            XCTAssertTrue(text.richMediaImages.isEmpty)
+            XCTAssertEqual(text.richMediaPlain, "Masks")
+            XCTAssertEqual(text.report.unsupportedElements["svg"], 1)
+        }
+        let equivalent = ring.replacingOccurrences(of: "class='k1'", with: "class='n&#x303;'").replacingOccurrences(of: ".k1{", with: ".\u{F1}{")
+        let text = try RichMediaBook(body: "<p>\(drawing(equivalent))</p>").build()
+        let bitmap = try XCTUnwrap(text.richMediaImages.first?.source.decode(maxPixelSize: 10), "drawn, not refused")
+        XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 2, y: 2)[3], 255, "the masked rectangle shows")
+        XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 7, y: 7)[3], 0)
+        XCTAssertEqual(text.report.unsupportedElements, [:])
+    }
 }

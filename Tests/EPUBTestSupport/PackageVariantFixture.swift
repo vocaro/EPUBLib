@@ -45,6 +45,28 @@ public extension Fixture {
     static let valuesOfOnlyWhiteSpace = spacesOutsideASCII + ["&#160;", "&nbsp;", "&#x200B;", " \u{A0}\n", "\u{A0}\t\u{3000} \u{200B}",
                                                               "&#x3000;&#9;&#x2003;", "<i>\u{A0}</i> <![CDATA[\u{3000}\n]]><!-- none -->"]
 
+    /// A metadata value or a label holding U+FEFF, the zero-width no-break space, in element
+    /// content, and the same without it. Foundation's parser drops one that begins a piece of the
+    /// text it hands over and keeps one inside a piece, and each is written here in one place or
+    /// the other: a piece begins at a character reference, where ASCII is followed by any other
+    /// character, after a comment or an element and every 300 bytes or so of a run outside ASCII,
+    /// which the runs of é here put it before, at and after, and a CDATA section is handed over
+    /// whole (#283).
+    static let zeroWidthNoBreakSpaces: [(written: String, read: String)] = {
+        func run(_ count: Int) -> String { String(repeating: "\u{E9}", count: count) }
+        return [("A&#xFEFF;B", "AB"), ("A&#65279;B", "AB"), ("A\u{FEFF}B", "AB"), ("\u{FEFF}A", "A"), ("A\u{FEFF}", "A"),
+                ("A\u{FEFF}\u{FEFF}B", "AB"), ("\u{E9}\u{FEFF}B", "\u{E9}B"), ("\u{65E5}\u{FEFF}\u{672C}", "\u{65E5}\u{672C}"),
+                ("A\u{A0}\u{FEFF}B", "A\u{A0}B"), ("<![CDATA[A\u{FEFF}B]]>", "AB"), ("<![CDATA[\u{FEFF}A]]>", "A"),
+                ("A<!-- a note -->\u{FEFF}B", "AB"), ("A<i>\u{FEFF}B</i>", "AB"), ("A<i/>\u{FEFF}B", "AB")]
+            + [149, 150, 151, 299, 300, 301].map { ("\(run($0))\u{FEFF}B", "\(run($0))B") }
+    }()
+
+    /// An attribute value holding U+FEFF, and the same without it: the parser drops one at its
+    /// start, written or as a reference, and keeps one after it.
+    static let zeroWidthNoBreakSpacesInAttributes: [(written: String, read: String)] = [
+        ("\u{FEFF}A", "A"), ("&#xFEFF;A", "A"), ("A\u{FEFF}B", "AB"), ("A&#xFEFF;B", "AB"), ("A\u{FEFF}", "A"), ("\u{E9}\u{FEFF}B", "\u{E9}B"),
+    ]
+
     /// `text` with each byte outside ASCII percent-encoded, as a resolved reference writes it.
     static func escapingNonASCII(_ text: String) -> String {
         text.utf8.map { $0 < 0x80 ? String(UnicodeScalar($0)) : String(format: "%%%02X", $0) }.joined()

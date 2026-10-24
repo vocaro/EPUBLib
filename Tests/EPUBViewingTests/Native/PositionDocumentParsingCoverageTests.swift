@@ -15,7 +15,10 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
     private static let xhtml11 = #"<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">"#
 
     private func parse(_ markup: String, limits: ContentLimits = .init()) throws -> ContentDocument {
-        try ContentDocument.parse(Data(markup.utf8), path: "parsing.xhtml", limits: limits)
+        try parse(Data(markup.utf8), limits: limits)
+    }
+    private func parse(_ data: Data, limits: ContentLimits = .init()) throws -> ContentDocument {
+        try ContentDocument.parse(data, path: "parsing.xhtml", limits: limits)
     }
     private func page(_ body: String, prolog: String = "", root: String = "") throws -> ContentDocument {
         try parse("\(prolog)<html \(Self.xhtml)\(root)>\(Self.head)<body>\(body)</body></html>")
@@ -658,7 +661,7 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
     /// has, and UTF-16 is decoded before its signs are sought.
     func testAStraySignIsGivenToTheParserAsACharacterTheDocumentDoesNotHold() throws {
         func replaced(_ markup: String) throws -> (text: String, placeholder: Unicode.Scalar?) {
-            let result = try XCTUnwrap(HTMLStraySigns.replaced(in: Data(markup.utf8), limit: .max))
+            let result = HTMLStraySigns.replaced(in: Data(markup.utf8), limit: .max)
             return (String(decoding: result.data, as: UTF8.self), result.placeholder)
         }
         let unchanged = [
@@ -702,16 +705,16 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
     }
 
     /// The bytes given to the parser are held to the byte limit, the tree to the depth and node
-    /// limits, and the scan reads its input once.
+    /// limits, and the scan reads its input once. A section that the placeholders would take past
+    /// the byte limit is read as it was before them, its signs as they are, and not refused
+    /// (#211).
     func testReplacedSignsKeepTheLimitsAndTheInputIsReadOnce() throws {
         let stray = "<html><body><p>a < b</p></body></html>" // The placeholder is two bytes longer than the sign.
         var limits = ContentLimits(); limits.bytes = stray.utf8.count + 2
         XCTAssertEqual(try parse(stray, limits: limits).body?.textContent, "a < b")
         for bytes in [stray.utf8.count + 1, stray.utf8.count] {
             limits.bytes = bytes
-            XCTAssertThrowsError(try parse(stray, limits: limits), "\(bytes) bytes") { error in
-                XCTAssertEqual(error as? ContentDocumentError, .limitExceeded("bytes"), "\(bytes) bytes")
-            }
+            try assertReadAsTheSignsAre(Data(stray.utf8), limits: limits, "\(bytes) bytes")
         }
         // Without a stray sign nothing is added, so a file of exactly the limit is still read.
         let plain = "<html><body><p>a b</b></p></body></html>"
@@ -736,12 +739,116 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
             let label = prefix + repeated
             let data = Data((prefix + String(repeating: repeated, count: 300_000 / repeated.utf8.count)).utf8)
             let start = TestCPUClock.seconds()
-            let result = try XCTUnwrap(HTMLStraySigns.replaced(in: data, limit: .max), label)
+            let result = HTMLStraySigns.replaced(in: data, limit: .max)
             XCTAssertLessThan(TestCPUClock.seconds() - start, 30, label)
             XCTAssertNotNil(result.placeholder, label)
             XCTAssertLessThanOrEqual(result.data.count, data.count * 3, label)
-            XCTAssertNil(HTMLStraySigns.replaced(in: data, limit: result.data.count - 1), label)
+            let over = HTMLStraySigns.replaced(in: data, limit: result.data.count - 1)
+            XCTAssertNil(over.placeholder, label)
+            XCTAssertEqual(over.data, data, label)
         }
+    }
+
+    /// A section just under the byte limit with a sign in every fifteen bytes, which its
+    /// placeholders would take a megabyte past it, is read as it was before them rather than
+    /// refused (#211).
+    func testASectionThatPlaceholdersWouldTakePastTheLimitIsReadWithItsSigns() throws {
+        let open = "<html><body><p>", close = "</p></body></html>", unit = "fifteen byte < "
+        let room = ContentLimits().bytes - 15 - open.utf8.count - close.utf8.count
+        let markup = open + String(repeating: unit, count: room / 15) + String(repeating: " ", count: room % 15) + close
+        XCTAssertEqual(markup.utf8.count, 8_388_593)
+        try assertReadAsTheSignsAre(Data(markup.utf8), limits: ContentLimits(), "a sign in every fifteen bytes")
+        // Fewer signs, which the limit admits replaced, are kept with their text.
+        XCTAssertEqual(try parse(open + String(repeating: unit, count: 1_000) + close).body?.textContent, String(repeating: unit, count: 1_000))
+    }
+
+    /// The placeholder is no character the parser can read in the file. libxml2 2.9.13 copies a
+    /// byte that is not UTF-8 into text as it is, and joins such bytes where it drops what stood
+    /// between them, so that it can make a noncharacter of bytes that are none; a reference that
+    /// a NUL stands in is one once the NUL is left out. Either is the author's character and
+    /// stays so, as it is with `&lt;` in the sign's place, where no placeholder is needed, and
+    /// the sign is kept with the text after it (#211).
+    func testThePlaceholderIsNoCharacterTheParserCanReadInTheFile() throws {
+        let one = String(Self.noncharacter())
+        func document(_ bytes: [UInt8], sign: String = "<") -> Data {
+            Data("<html><body><p>".utf8) + Data(bytes) + Data(" x \(sign) y</p><p>after</p></body></html>".utf8)
+        }
+        let cases: [(String, [UInt8], String?)] = [
+            ("a character libxml2 drops", [0xEF, 0x01, 0xB7, 0x90], one), ("an end tag with no name", [0xEF] + Array("</".utf8) + [0xB7, 0x90], one),
+            ("an end tag that closes nothing", [0xEF, 0xB7] + Array("</b>".utf8) + [0x90], one), ("the start of a reference", [0xEF] + Array("&#".utf8) + [0xB7, 0x90], nil),
+            ("a comment and a processing instruction", [0xEF] + Array("<!-- c -->".utf8) + [0xB7] + Array("<?pi?>".utf8) + [0x90], nil),
+            ("an element", [0xEF] + Array("<b>".utf8) + [0xB7] + Array("</b>".utf8) + [0x90], nil),
+            ("NULs, which are left out", Array("&\u{0}#xFDD0;".utf8), one), ("a NUL in a hexadecimal reference", Array("&#xFD\u{0}D0;".utf8), one),
+            ("a NUL before a semicolon", Array("&#xFDD0\u{0};".utf8), one), ("a NUL in a decimal reference", Array("&\u{0}#649\u{0}76;".utf8), one),
+            ("NULs after the number sign", Array("&#\u{0}xFDD0; &#x\u{0}FDD0;".utf8), nil),
+        ]
+        for (label, bytes, character) in cases {
+            let text = bodyText(try parse(document(bytes)))
+            XCTAssertEqual(text, bodyText(try parse(document(bytes, sign: "&lt;"))), label)
+            XCTAssertTrue(text.hasSuffix(" x < yafter"), "\(label): \(text.debugDescription)")
+            if let character { XCTAssertEqual(text, "\(character) x < yafter", label) }
+        }
+    }
+
+    /// Over generated text with bytes that are not UTF-8, NULs, the parts of references to
+    /// noncharacters and markup that libxml2 drops, a stray sign is read as `&lt;` in its place
+    /// is: whatever characters the parser makes of the rest, the placeholder is none of them
+    /// (#211).
+    func testGeneratedTextIsReadWithItsSignsAsWithReferencesInTheirPlace() throws {
+        let tokens: [[UInt8]] = [[0xEF], [0xEF], [0xB7], [0xB7], [0x90], [0x91], [0xA0], [0xC3], [0x01], [0], [0], Array("x".utf8), Array(" ".utf8), Array("< ".utf8),
+                                 Array("< ".utf8), Array("&#xFDD".utf8), Array("0;".utf8), Array("1;".utf8), Array("6;".utf8), Array("&#".utf8), Array("&".utf8),
+                                 Array("#x".utf8), Array("FDD0;".utf8), Array("6497".utf8), Array("</b>".utf8), Array("<b>".utf8), Array("</".utf8),
+                                 Array("<!-- c -->".utf8), Array("<br>".utf8), Array(String(Self.noncharacter(2)).utf8), Array("\u{E9}".utf8)]
+        var state: UInt64 = 211
+        func random(_ bound: Int) -> Int {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return Int((state >> 33) % UInt64(bound))
+        }
+        let open = Data("<html><body><p>".utf8), close = Data("</p><p>after</p></body></html>".utf8)
+        var compared = 0, made = 0
+        for _ in 0..<12_000 {
+            var withSigns: [UInt8] = [], withReferences: [UInt8] = []
+            for _ in 0...random(16) {
+                let token = tokens[random(tokens.count)]
+                withSigns += token
+                withReferences += token == Array("< ".utf8) ? Array("&lt; ".utf8) : token
+            }
+            guard withSigns != withReferences, let document = try? parse(open + Data(withSigns) + close),
+                  let twin = try? parse(open + Data(withReferences) + close) else { continue }
+            compared += 1
+            if bodyText(twin).unicodeScalars.contains(where: { (0xFDD0...0xFDEF).contains($0.value) }) { made += 1 }
+            guard bodyText(document) == bodyText(twin) else {
+                return XCTFail("\(withSigns.map { String($0, radix: 16) }) reads \(bodyText(document).debugDescription), not \(bodyText(twin).debugDescription)")
+            }
+        }
+        XCTAssertGreaterThan(compared, 4_000, "the generator has stopped making sections the fallback reads")
+        XCTAssertGreaterThan(made, 600, "the generator has stopped making noncharacters")
+    }
+
+    /// That `data`, which the placeholders for its signs would take past `limits`, is given to the
+    /// parser as it is and shown as libxml2 reads those bytes, as it was before them.
+    private func assertReadAsTheSignsAre(_ data: Data, limits: ContentLimits, _ label: String, file: StaticString = #filePath, line: UInt = #line) throws {
+        let source = try ContentDocument.htmlSource(data, rewritten: data, path: "parsing.xhtml", limits: limits)
+        XCTAssertNil(source.placeholder, label, file: file, line: line)
+        XCTAssertEqual(source.data, data, label, file: file, line: line)
+        let document = try ContentDocument.parse(data, path: "parsing.xhtml", limits: limits)
+        XCTAssertTrue(document.recoveredAsHTML, label, file: file, line: line)
+        XCTAssertEqual(document.root.textContent, libxml2Text(data), label, file: file, line: line)
+    }
+
+    /// The text of libxml2's own HTML tree for `data`, in document order.
+    private func libxml2Text(_ data: Data) -> String {
+        let options = Int32(HTML_PARSE_NONET.rawValue | HTML_PARSE_NOERROR.rawValue | HTML_PARSE_NOWARNING.rawValue
+            | HTML_PARSE_RECOVER.rawValue | HTML_PARSE_NODEFDTD.rawValue)
+        let parsed = data.withUnsafeBytes { buffer in
+            htmlReadMemory(buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, "UTF-8", options)
+        }
+        guard let parsed else { return "" }
+        defer { xmlFreeDoc(parsed) }
+        guard let buffer = xmlBufferCreate() else { return "" }
+        defer { xmlBufferFree(buffer) }
+        guard xmlNodeBufGetContent(buffer, xmlDocGetRootElement(parsed)) == 0, let content = xmlBufferContent(buffer) else { return "" }
+        return String(cString: content)
     }
 
     /// libxml2's own HTML tree for `data`: each element with its attributes and each text node,
@@ -807,7 +914,7 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
         for _ in 0..<30_000 {
             let markup = (random(2) == 0 ? "<html><body>" : "") + (0...random(18)).map { _ in tokens[random(tokens.count)] }.joined()
             let data = Data(markup.utf8)
-            let replaced = try XCTUnwrap(HTMLStraySigns.replaced(in: data, limit: .max))
+            let replaced = HTMLStraySigns.replaced(in: data, limit: .max)
             guard let placeholder = replaced.placeholder else { continue }
             replacements += 1
             guard HTMLStraySigns.restored(String(decoding: replaced.data, as: UTF8.self), from: placeholder) == markup else {

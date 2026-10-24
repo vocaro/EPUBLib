@@ -20,6 +20,11 @@ import UIKit
         var received: [EPUBReaderCommand] = []
         /// Refuses a chosen result, as an engine refuses one of a replaced search.
         var refusesResults = false
+        /// What `.search` completes with, as an engine publishes it before `send` returns: its
+        /// first match current where it opened one. nil leaves the state alone.
+        var searchFinds: EPUBSearchResults?
+        /// Refuses `.search`, as an engine refuses a query it cannot search for.
+        var refusesSearches = false
         /// `everyGroup` adds what Contents and Appearance need, so that a strip has all five groups.
         init(results: Bool = true, navigates: Bool = true, everyGroup: Bool = false) {
             var capabilities: Set<EPUBReaderCapability> = [.pagination, .scrolling, .searchHighlight]
@@ -37,9 +42,16 @@ import UIKit
             if refusesResults, case .showSearchResult = command {
                 throw EPUBReaderError.invalidCommand("That search result is no longer available")
             }
+            if refusesSearches, case .search = command {
+                throw EPUBReaderError.invalidCommand("The search is empty or longer than 512 characters.")
+            }
             readerState?.modify { status in
                 let results = status.searchResults
                 switch command {
+                case .search(let text), .searchHighlight(let text):
+                    guard let found = searchFinds else { break }
+                    status.searchResults = found
+                    status.search = .completed(query: text, hasMatches: !found.isEmpty)
                 case .nextSearchResult: status.searchResults?.currentIndex = results?.steppedIndex(forward: true)
                 case .previousSearchResult: status.searchResults?.currentIndex = results?.steppedIndex(forward: false)
                 case .showSearchResult(let result): status.searchResults?.currentIndex = result.index
@@ -212,7 +224,7 @@ import UIKit
         session.refusesResults = false
         model.showNextSearchResult()
         model.cancelPendingCommands()
-        try await Task.sleep(for: .milliseconds(50))
+        try await TestDeadline.pause(.milliseconds(50))
         model.send(.nextPage)
         await model.waitForCommands()
         XCTAssertEqual(announced.count, 3, "refused, cancelled and other commands say nothing: \(announced)")
@@ -223,6 +235,59 @@ import UIKit
         XCTAssertEqual(model.searchResultAnnouncement, "Match 1 of 1, only match, First Chapter: needle")
         session.publish(.completed(query: "needle", hasMatches: true), Self.results(40, current: 39, truncated: true))
         XCTAssertEqual(model.searchResultAnnouncement, "Match 40 of at least 40, last match, Later Chapter 19: needle one, then more.")
+    }
+
+    /// The match a search opens is said as a step's is, once the engine has shown it, with the
+    /// count in it: one announcement, also where the search turns the page, which says nothing
+    /// of its own (#601). A search that opens no match says nothing: one that finds none, one
+    /// that newer navigation kept from moving the reader, a refused or canceled one, one whose
+    /// results a search the host made meanwhile replaced, and one by an engine that only
+    /// highlights.
+    func testTheMatchASearchOpensIsAnnouncedOnceItIsShown() async throws {
+        let session = Session(), model = try controls(session)
+        var announced: [String] = []
+        model.postAnnouncement = { announced.append($0) }
+        session.searchFinds = Self.results(7, current: 0)
+        model.searchText = "needle"
+        model.submitSearch()
+        XCTAssertEqual(model.pendingSearches, 1, "it is still a search to the field's feedback")
+        await model.waitForCommands()
+        XCTAssertEqual(session.received, [.search(text: "needle")])
+        XCTAssertEqual(announced, ["Match 1 of 7, first match, First Chapter: needle one, then more."])
+        model.showNextSearchResult()
+        await model.waitForCommands()
+        XCTAssertEqual(announced.last, "Match 2 of 7, First Chapter: needle one, then more.", "a step goes on from the match opened")
+        XCTAssertEqual(announced.count, 2)
+
+        var other = Self.results(3, current: 0)
+        other.query = "other"
+        for (found, label) in [(EPUBSearchResults(query: "needle"), "no matches"), (Self.results(7), "none shown"),
+                               (other, "another search's results")] {
+            session.searchFinds = found
+            model.submitSearch()
+            await model.waitForCommands()
+            XCTAssertEqual(announced.count, 2, "\(label): nothing is said")
+        }
+        session.searchFinds = Self.results(7, current: 0)
+        session.refusesSearches = true
+        model.submitSearch()
+        await model.waitForCommands()
+        XCTAssertNotNil(model.commandError)
+        session.refusesSearches = false
+        model.submitSearch()
+        model.cancelPendingCommands()
+        try await Task.sleep(for: .milliseconds(50))
+        await model.waitForCommands()
+        XCTAssertEqual(announced.count, 2, "refused and canceled searches say nothing: \(announced)")
+
+        let highlighting = Session(navigates: false), highlighter = try controls(highlighting)
+        highlighter.postAnnouncement = { announced.append($0) }
+        highlighting.searchFinds = Self.results(7, current: 0)
+        highlighter.searchText = "needle"
+        highlighter.submitSearch()
+        await highlighter.waitForCommands()
+        XCTAssertEqual(highlighting.received, [.searchHighlight(text: "needle")])
+        XCTAssertEqual(announced.count, 2, "a search that only highlights opens no match and says nothing")
     }
 
     func testIndicatorTextStatesZeroPendingFailedCountAndEnds() throws {
@@ -391,12 +456,12 @@ import UIKit
                 let pane = Self.searchPane(model).dynamicTypeSize(textSize)
                 // Held to a size, so that the device's safe area is no part of what is measured.
                 let asking = MountedView(pane, size: CGSize(width: 400, height: 400))
-                try await Task.sleep(for: .milliseconds(60))
+                try await TestDeadline.pause(.milliseconds(60))
                 let ideal = asking.idealSize()
                 asking.close()
                 let popover = MountedView(pane, size: ideal)
                 defer { popover.close() }
-                try await Task.sleep(for: .milliseconds(60))
+                try await TestDeadline.pause(.milliseconds(60))
                 XCTAssertNil(popover.paneScroller(), "\(name): the pane scrolls in a popover of the \(ideal) it asked for")
                 if results?.isEmpty == false {
                     let list = try XCTUnwrap(popover.listFrame(), name)
@@ -416,7 +481,7 @@ import UIKit
                     let rounded = MountedView(pane, size: CGSize(width: ideal.width, height: ideal.height - 0.75))
                     let short = MountedView(pane, size: CGSize(width: ideal.width, height: ideal.height - 2))
                     defer { rounded.close(); short.close() }
-                    try await Task.sleep(for: .milliseconds(60))
+                    try await TestDeadline.pause(.milliseconds(60))
                     XCTAssertNil(rounded.paneScroller(), name)
                     XCTAssertNotNil(short.paneScroller(), name)
                 }
@@ -436,14 +501,14 @@ import UIKit
             let mounted = MountedView(Color.clear.presentationProbe(probe).environment(\.horizontalSizeClass, .compact),
                                       size: CGSize(width: 360, height: 640), windowWidth: width)
             defer { mounted.close() }
-            try await Task.sleep(for: .milliseconds(60))
+            try await TestDeadline.pause(.milliseconds(60))
             XCTAssertEqual(probe.coversReader, width == .compact, "a \(width == .compact ? "compact" : "regular") window")
         }
         #else
         let probe = EPUBPresentationProbe()
         let mounted = MountedView(Color.clear.presentationProbe(probe), size: CGSize(width: 360, height: 640))
         defer { mounted.close() }
-        try await Task.sleep(for: .milliseconds(60))
+        try await TestDeadline.pause(.milliseconds(60))
         XCTAssertFalse(probe.coversReader)
         #endif
     }
@@ -465,7 +530,7 @@ import UIKit
         let name = "\(textSize) in \(Int(room.width)) by \(Int(room.height)) points"
         let pane = MountedView(Self.searchPane(model).environment(\.verticalSizeClass, height).dynamicTypeSize(textSize), size: room)
         defer { pane.close() }
-        try await Task.sleep(for: .milliseconds(60))
+        try await TestDeadline.pause(.milliseconds(60))
         let field = try XCTUnwrap(pane.views(UITextField.self).first, name)
         let list = try XCTUnwrap(pane.listFrame(), name)
         // Content over by less than a point is not scrolled for it.
@@ -518,7 +583,7 @@ import UIKit
         #if os(iOS)
         // A room that is short by less than a point is not a reason to scroll: 2 points are.
         let room = CGSize(width: 375, height: 667)
-        let needed = try await groupsAsTheyWere(model, groups: EPUBReaderControlGroup.allCases, width: room.width, .large, padded: true).strip.height
+        let needed = try await wholeGroups(model, groups: EPUBReaderControlGroup.allCases, width: room.width, .large, padded: true).strip.height
         let rounded = try await frames(of: EPUBReaderControlStrip(controls: model), stackedIn: CGSize(width: 375, height: needed + Self.hostLine - 0.75), .large)
         let short = try await frames(of: EPUBReaderControlStrip(controls: model), stackedIn: CGSize(width: 375, height: needed + Self.hostLine - 2), .large)
         XCTAssertEqual(rounded.strip.height, needed, accuracy: 0.1)
@@ -548,8 +613,8 @@ import UIKit
                     }
                     let host = MountedView(stack.environment(\.verticalSizeClass, .compact).dynamicTypeSize(textSize), size: room)
                     defer { session.close(); host.close() }
-                    let deadline = Date().addingTimeInterval(20)
-                    while !(session.isReady && session.book.isComplete && session.visibleRange != nil), Date() < deadline {
+                    let deadline = TestDeadline(seconds: 20)
+                    while !(session.isReady && session.book.isComplete && session.visibleRange != nil), try !deadline.hasPassed() {
                         try await Task.sleep(for: .milliseconds(20))
                     }
                     XCTAssertTrue(session.isReady && session.book.isComplete, name)
@@ -604,6 +669,50 @@ import UIKit
         }
     }
 
+    #if os(iOS)
+    /// On an upright iPhone SE at the largest text size the strip's column is 343 points across,
+    /// too narrow for Appearance on one line, and it read "Appearan…": the strip kept each label
+    /// to one line, as a stack's share of its height had before the strip could scroll. A label,
+    /// or a line under the search field, that does not fit its line takes a second, as text at a
+    /// larger Dynamic Type size does, where the strip has the room, and the strip scrolls where
+    /// it has not (issue 365).
+    func testALabelOrSearchFeedbackTooLongForItsLineIsWholeInTheStrip() async throws {
+        let session = Session(everyGroup: true), model = try controls(session)
+        let room = CGSize(width: 375, height: 667), textSize = DynamicTypeSize.accessibility5
+        let tooLong = String(repeating: "a", count: NativeSession.maximumSearchLength + 1)
+        let cases: [(name: String, group: EPUBReaderControlGroup, search: EPUBSearchState, wraps: Bool)] = [
+            ("Appearance", .appearance, .idle, true),
+            ("a refused search", .search, .failed(query: tooLong, error: NativeRefusal.searchLength.error), true),
+            ("a search with no matches", .search, .completed(query: "absent", hasMatches: false), false),
+            ("a search under way", .search, .searching(query: "needle"), false),
+        ]
+        for (name, group, search, wraps) in cases {
+            session.publish(search)
+            let control = EPUBReaderControl(controls: model, group: group, inlineSearch: true)
+            let whole = try await height(of: control, width: room.width, offered: nil, textSize)
+            if wraps {
+                let oneLine = try await height(of: control, width: room.width, offered: 0, textSize)
+                XCTAssertGreaterThan(whole, oneLine + 1, "\(name) fits on one line in this width: nothing here takes a second")
+            }
+            let held = try await frames(of: EPUBReaderControlStrip(controls: model, groups: [group]), stackedIn: room, textSize)
+            XCTAssertEqual(held.strip.height, whole, accuracy: 0.5, "\(name) is cut short in the strip")
+            XCTAssertLessThan(held.toScroll, 1, "\(name): the strip scrolls with the room it needs")
+        }
+        // Every group with a refused search is more than the 625 points an upright iPhone SE has
+        // for the strip under its status bar and above the host's line. The strip scrolls, and its
+        // groups are laid out as they are whole. The sentence lost its last line to "…" there, and
+        // a line's height was empty under the reading mode, while the groups were placed in their
+        // scroll view's height, rounded to its pixels.
+        session.publish(.failed(query: tooLong, error: NativeRefusal.searchLength.error))
+        let phone = CGSize(width: 375, height: 625 + Self.hostLine)
+        let whole = try await wholeGroups(model, groups: EPUBReaderControlGroup.allCases, width: phone.width, textSize, padded: true)
+        let held = try await frames(of: EPUBReaderControlStrip(controls: model), stackedIn: phone, textSize)
+        XCTAssertGreaterThan(held.toScroll, 1, "every group fits: nothing here scrolls")
+        let picker = try XCTUnwrap(held.picker), was = try XCTUnwrap(whole.picker)
+        XCTAssertEqual(picker.minY, was.minY, accuracy: 0.5, "a group above the reading mode is cut short")
+    }
+    #endif
+
     /// A search from the strip's own field left the keyboard over the page it was about to show,
     /// and where the strip fills what the keyboard leaves there is no page to tap to put it
     /// away. On iPhone and iPad the field gives up its focus when it submits a search, in the
@@ -623,8 +732,8 @@ import UIKit
 
     /// The strip's groups as it arranged them before it could scroll: in a row where that fits
     /// the width and in a column where it does not, as tall as they are. With the room it needs
-    /// the strip is this, to the point, and on a Mac it is this in any room. `groupsAsTheyWere`
-    /// gives them the height a host's stack gave them.
+    /// the strip is this, to the point, and on a Mac it is this in any room. `wholeGroups` gives
+    /// them the height they need.
     private static func rigidStrip(_ model: EPUBReaderControls, groups: [EPUBReaderControlGroup]) -> some View {
         ViewThatFits(in: .horizontal) {
             HStack { ForEach(groups, id: \.self) { EPUBReaderControl(controls: model, group: $0, inlineSearch: true) } }
@@ -636,6 +745,8 @@ import UIKit
     private struct StripFrames {
         var strip: CGRect
         var field: CGRect?
+        /// The reading mode, the last group: a control above it that gave up a line moves it up.
+        var picker: CGRect?
         var scroller: CGRect?
         /// How much of the scroll view's content is out of sight.
         var toScroll: CGFloat = 0
@@ -643,18 +754,32 @@ import UIKit
         var clips = false
     }
 
-    /// The groups as a host's stack laid them out before the strip could scroll. Such a stack
-    /// offered the strip an equal share of its height with the reader, which at the larger text
-    /// sizes is less than the groups need, so that a label too long for its line was cut short
-    /// and not wrapped: Appearance, 375 points across at the largest size. Measured here in a
-    /// stack that has the height they need and offers them half of it.
-    private func groupsAsTheyWere(_ model: EPUBReaderControls, groups: [EPUBReaderControlGroup], width: CGFloat,
-                                  _ textSize: DynamicTypeSize, padded: Bool) async throws -> StripFrames {
-        let rigid = Self.rigidStrip(model, groups: groups)
-        let wrapped = try await frames(of: rigid, stackedIn: CGSize(width: width, height: 2000), textSize, padded: padded, first: false)
-        let room = CGSize(width: width, height: wrapped.strip.height + Self.hostLine)
-        return try await frames(of: rigid, stackedIn: room, textSize, padded: padded, first: false)
+    /// The groups as a host's stack lays them out where it has the height they need, each label
+    /// on as many lines as it takes: Appearance, too wide at the largest text size for the 343
+    /// points an upright iPhone SE leaves it, on two (issue 365). Before that a stack's share of
+    /// its height, less than the groups need at the larger text sizes, was the strip's, and each
+    /// label was cut short on one line. Measured here in a stack that offers them half of a
+    /// height more than twice theirs.
+    private func wholeGroups(_ model: EPUBReaderControls, groups: [EPUBReaderControlGroup], width: CGFloat,
+                             _ textSize: DynamicTypeSize, padded: Bool) async throws -> StripFrames {
+        let room = CGSize(width: width, height: 2000)
+        let whole = try await frames(of: Self.rigidStrip(model, groups: groups), stackedIn: room, textSize, padded: padded, first: false)
+        XCTAssertLessThan(whole.strip.height, (room.height - Self.hostLine) / 2 - 1, "\(textSize) in \(Int(width)) points: the groups may not have the height they need")
+        return whole
     }
+
+    #if os(iOS)
+    /// How tall `view` is in `width`, padded as the strip is, when it is offered `height`, or with
+    /// nil the height it needs.
+    private func height(of view: some View, width: CGFloat, offered height: CGFloat?, _ textSize: DynamicTypeSize) async throws -> CGFloat {
+        let marked = view.background(FrameMarker()).frame(height: height, alignment: .top)
+            .padding(.horizontal).frame(maxHeight: .infinity, alignment: .top)
+        let host = MountedView(marked.environment(\.verticalSizeClass, .regular).dynamicTypeSize(textSize), size: CGSize(width: width, height: 2000))
+        defer { host.close() }
+        try await Task.sleep(for: .milliseconds(60))
+        return host.frame(of: try XCTUnwrap(host.views(FrameMarker.Marker.self).first)).height
+    }
+    #endif
 
     /// Mounts `strip` as the documented hosts stack it, held to `room`: over a reader that gives
     /// way, with a line of the host's own beneath. A host that pads the strip gives it its layout
@@ -675,9 +800,10 @@ import UIKit
         let host = MountedView(stack.dynamicTypeSize(textSize), size: room)
         #endif
         defer { host.close() }
-        try await Task.sleep(for: .milliseconds(60))
+        try await TestDeadline.pause(.milliseconds(60))
         let marker = try XCTUnwrap(host.views(FrameMarker.Marker.self).first)
-        var frames = StripFrames(strip: host.frame(of: marker), field: host.searchField().map(host.frame(of:)))
+        var frames = StripFrames(strip: host.frame(of: marker), field: host.searchField().map(host.frame(of:)),
+                                 picker: host.views(PlatformSegmentedControl.self).first.map(host.frame(of:)))
         if let scroller = host.paneScroller() {
             frames.scroller = host.frame(of: scroller)
             frames.toScroll = host.heightOutOfSight(in: scroller)
@@ -702,13 +828,20 @@ import UIKit
         for room in rooms {
             for textSize in textSizes {
                 let name = "\(textSize) in \(Int(room.width)) by \(Int(room.height)) points\(padded ? "" : ", not padded")"
-                let rigid = try await groupsAsTheyWere(model, groups: groups, width: room.width, textSize, padded: padded)
+                let rigid = try await wholeGroups(model, groups: groups, width: room.width, textSize, padded: padded)
                 let held = try await frames(of: EPUBReaderControlStrip(controls: model, groups: groups), stackedIn: room, textSize, padded: padded)
                 let available = room.height - Self.hostLine
                 XCTAssertEqual(held.strip.minX, rigid.strip.minX, accuracy: 0.5, name)
                 XCTAssertEqual(held.strip.width, rigid.strip.width, accuracy: 0.5, "\(name): the strip is not as wide as its groups")
                 if rigid.strip.width < room.width - (padded ? 32 : 0) - 0.5 { met.narrow += 1 }
                 XCTAssertEqual(held.field == nil, !groups.contains(.search), name)
+                // Every group is laid out as it is whole, scrolled or not: one that gave up a line
+                // of its text moves the reading mode, the last group, up the strip.
+                XCTAssertEqual(held.picker == nil, rigid.picker == nil, name)
+                if let picker = held.picker, let was = rigid.picker {
+                    XCTAssertEqual(picker.minY - held.strip.minY, was.minY - rigid.strip.minY, accuracy: 0.5,
+                                   "\(name): a group above the reading mode is not laid out as it is whole")
+                }
                 let fits = rigid.strip.height <= available + 0.5
                 if fits { met.whole += 1 } else { met.short += 1 }
                 if fits, rigid.strip.height > available / 2 { met.wholeInOverHalf += 1 }
@@ -785,7 +918,7 @@ import UIKit
         ]
         for (name, search, results) in states {
             session.publish(search, results)
-            try await Task.sleep(for: .milliseconds(60))
+            try await TestDeadline.pause(.milliseconds(60))
             let fitted = plain.fittingSize()
             XCTAssertGreaterThan(fitted.width, 0, name)
             XCTAssertGreaterThan(fitted.height, 0, name)
@@ -798,7 +931,7 @@ import UIKit
         XCTAssertGreaterThan(try XCTUnwrap(sizes["listed"]).height, try XCTUnwrap(sizes["idle"]).height,
                              "results add the match navigator and the result list to the pane")
         session.close()
-        try await Task.sleep(for: .milliseconds(60))
+        try await TestDeadline.pause(.milliseconds(60))
         XCTAssertGreaterThan(plain.fittingSize().height, 0)
         XCTAssertTrue(session.received.isEmpty, "laying the views out submits nothing")
     }
@@ -807,9 +940,11 @@ import UIKit
 #if os(macOS)
 private typealias PlatformView = NSView
 private typealias PlatformScrollView = NSScrollView
+private typealias PlatformSegmentedControl = NSSegmentedControl
 #else
 private typealias PlatformView = UIView
 private typealias PlatformScrollView = UIScrollView
+private typealias PlatformSegmentedControl = UISegmentedControl
 #endif
 
 /// An empty platform view to put behind a SwiftUI view that has none of its own, to read where
@@ -1001,7 +1136,7 @@ extension FrameMarker: UIViewRepresentable {
     /// Writes the window's content as a PNG when a snapshot directory is configured.
     func snapshot(_ name: String) async throws {
         guard let directory = ProcessInfo.processInfo.environment["EPUB_SNAPSHOT_DIR"], !directory.isEmpty else { return }
-        try await Task.sleep(for: .milliseconds(250))
+        try await TestDeadline.pause(.milliseconds(250))
         #if os(macOS)
         // The window's frame view, so a toolbar SwiftUI installs in the title bar is included.
         let view = window.contentView?.superview ?? host

@@ -1,5 +1,6 @@
 import EPUBCore
 import EPUBReading
+import EPUBTestSupport
 import EPUBViewing
 import Foundation
 
@@ -13,17 +14,38 @@ import Foundation
         public var errorDescription: String? { description }
     }
 
-    /// Tests lifecycle, advertised commands, cancellation, location identity and bookmark restoration.
+    /// A session that can say when it has sent all it will: no timer, task or layout of its own
+    /// is still to report on what it was given. A wait for an event that has not come then fails
+    /// as soon as the session is idle, before any limit runs out, so neither the host's load nor
+    /// its memory pressure decides it. While the session is busy the wait's limit holds, so an
+    /// event that comes after the limit is still late.
+    public protocol IdleReporting: EPUBReaderSession {
+        var isIdle: Bool { get }
+    }
+
+    /// Tests lifecycle, advertised commands, cancellation, location identity, bookmark restoration
+    /// and, from an engine with `readerState`, the reason given for each relocation.
     /// Rendering fidelity, input gestures and resource release require adapter-specific tests.
-    /// The mount closure returns cleanup; it must retain its window until cleanup runs.
+    /// The mount closure returns cleanup; it must retain its window until cleanup runs. Each wait
+    /// for an event is a `TestDeadline` of `timeout` on `clock`, the host's own unless a test of
+    /// the verifier gives its own; one the host decided throws `TestDeadline.Unmeasured`. A wait
+    /// for a session that is `IdleReporting` fails once the session is idle without the event.
     public static func verify(
         engine: any EPUBReaderEngine, publication: EPUBPublication,
         firstHref: String, secondHref: String, text: String,
-        timeout: TimeInterval = 20,
+        timeout: TimeInterval = 20, clock: @escaping @Sendable () -> TestDeadline.Reading = TestDeadline.reading,
         mount: (any EPUBReaderSession) throws -> (@MainActor () -> Void)
     ) async throws {
         var events: [EPUBReaderEvent] = []
-        let session = try engine.makeSession(publication: publication, selectionAction: nil) { events.append($0) }
+        /// The state's `relocationReason` as each `.relocated` was sent, by the event's index:
+        /// an engine sets it before it sends the event.
+        var reasons: [Int: EPUBRelocationReason] = [:]
+        var state: EPUBReaderState?
+        let session = try engine.makeSession(publication: publication, selectionAction: nil) { event in
+            if case .relocated = event, let reason = state?.status.relocationReason { reasons[events.count] = reason }
+            events.append(event)
+        }
+        state = session.readerState
         defer { session.close() }
         func require(_ condition: Bool, _ message: String) throws {
             if !condition { throw Failure(description: message) }
@@ -31,13 +53,20 @@ import Foundation
         try require(timeout.isFinite && timeout > 0, "Timeout must be positive and finite")
         try require(firstHref != secondHref && publication.spine.contains { $0.resource.href == firstHref }
             && publication.spine.contains { $0.resource.href == secondHref }, "Provide two distinct spine resource hrefs")
+        let idling = session as? any IdleReporting
         func wait(_ label: String, _ condition: () -> Bool) async throws {
-            let deadline = Date().addingTimeInterval(timeout)
+            let deadline = TestDeadline(seconds: timeout, read: clock)
             while !condition() {
                 if let failure = events.compactMap({ event -> EPUBReaderError? in
                     if case .failed(let error) = event { return error }; return nil
                 }).first { throw Failure(description: "Engine failed: \(failure)") }
-                guard Date() < deadline else { throw Failure(description: "Timed out waiting for \(label)") }
+                // What an idle engine has not sent it will not send, however long the host took.
+                if idling?.isIdle == true { throw Failure(description: "Engine idle while waiting for \(label)") }
+                switch deadline.state {
+                case .running: break
+                case .exceeded: throw Failure(description: "Timed out waiting for \(label)")
+                case .unmeasured(let reason): throw TestDeadline.Unmeasured(description: "waiting for \(label): \(reason)")
+                }
                 try await Task.sleep(for: .milliseconds(20))
             }
         }
@@ -50,12 +79,13 @@ import Foundation
             throw Failure(description: "Accepted command that should throw \(expected)")
         }
         /// A fixed wait for what the engine has still to send, before events are counted or a
-        /// late one is looked for. The yield lets what the engine has queued start first, so that
-        /// a timer it starts there is due before the 150 ms end. The second sleep is for an event
+        /// late one is looked for: 150 ms, and on a busy host as long again as the process waited
+        /// for a core meanwhile. The yield lets what the engine has queued start first, so that a
+        /// timer it starts there is due before the 150 ms end. The last sleep is for an event
         /// delivered with that end: two sleeps overdue together resume in either order.
         func settle() async throws {
             await Task.yield()
-            try await Task.sleep(for: .milliseconds(150))
+            try await TestDeadline.pause(.milliseconds(150))
             try await Task.sleep(for: .milliseconds(20))
         }
         func locations(since index: Int = 0) -> [EPUBLocation] {
@@ -134,7 +164,7 @@ import Foundation
             // Let the last step's relocation arrive before judging what a stale command does. An
             // event that comes just after this wait is still counted before the stale commands,
             // by the wait after the clear.
-            try await Task.sleep(for: .milliseconds(150))
+            try await TestDeadline.pause(.milliseconds(150))
             let cleared = events.count
             try await session.send(.clearSearch)
             try await wait("withdrawn search results") { published(since: cleared).last == .some(nil) }
@@ -228,6 +258,9 @@ import Foundation
             try require(!events.contains { if case .searchResultsChanged = $0 { return true }; return false },
                         "Search results published without the capability")
         }
+        // What the engine still sends for the commands before is not taken for a relayout's.
+        if state != nil { try await settle() }
+        let relayouts = events.count
         if session.capabilities.contains(.typography) {
             try await session.send(.style(.init(fontSize: 21)))
         } else { try await expect(.style(.init(fontSize: 21)), error: .unsupported(.typography)) }
@@ -235,6 +268,18 @@ import Foundation
             try await session.send(.style(.init(flow: .scrolled)))
             try await session.send(.style(.init()))
         } else { try await expect(.style(.init(flow: .scrolled)), error: .unsupported(.scrolling)) }
+        if state != nil {
+            // A text size and a flow keep the place: what they show of it is a relayout.
+            try await settle()
+            for (index, event) in events.enumerated() {
+                guard case .relocated = event else { continue }
+                guard let reason = reasons[index] else {
+                    throw Failure(description: "A relocation was sent before readerState gave its reason")
+                }
+                try require(index < relayouts || reason == .relayout,
+                            "A relayout's relocation was given the reason \(reason), not relayout")
+            }
+        }
         try require(!events.contains { if case .failed = $0 { return true }; return false }, "Engine emitted a failure")
         try require(events.filter { $0 == .ready }.count == 1, "Ready must be emitted exactly once")
         let count = events.count

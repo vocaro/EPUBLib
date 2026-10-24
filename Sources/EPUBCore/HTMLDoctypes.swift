@@ -44,8 +44,11 @@ package enum HTMLDoctypes {
         return letters
     }
 
-    /// Whether `range` holds a `PUBLIC` or `SYSTEM`, in any case.
-    package static func holdsKeyword(_ bytes: [UInt8], in range: Range<Int>) -> Bool { keyword(bytes, in: range) != nil }
+    /// The index of the first `PUBLIC` or `SYSTEM`, in any case, that begins at or after
+    /// `position`, or `nil`.
+    package static func firstKeyword(_ bytes: [UInt8], from position: Int) -> Int? {
+        keyword(bytes, in: min(position, bytes.count)..<bytes.count)
+    }
 
     private static func keyword(_ bytes: [UInt8], in range: Range<Int>) -> Int? {
         var index = range.lowerBound

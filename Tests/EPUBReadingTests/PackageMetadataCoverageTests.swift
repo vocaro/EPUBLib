@@ -114,6 +114,38 @@ final class PackageMetadataCoverageTests: XCTestCase {
         }
     }
 
+    func testAZeroWidthNoBreakSpaceIsInNoValueWhereverTheParserSplitsTheText() throws {
+        // The parser drops a U+FEFF that begins a piece of the text it hands over and keeps one
+        // inside a piece, so a value would hold one or not by how and where it was written. It is
+        // left out of every value however it is written (#283), the unique identifier's too.
+        for (written, read) in Fixture.zeroWidthNoBreakSpaces {
+            let book = try book(metadata: "<dc:title>\(written)</dc:title><dc:creator>\(written)</dc:creator><dc:language>en</dc:language>"
+                + "<dc:identifier id=\"uid\">\(written)</dc:identifier>")
+            let name = written.unicodeScalars.count > 20 ? "\(written.unicodeScalars.count) scalars" : written.debugDescription
+            XCTAssertEqual(Array(book.metadata.title.unicodeScalars), Array(read.unicodeScalars), name)
+            XCTAssertEqual(book.metadata.authors.map { Array($0.unicodeScalars) }, [Array(read.unicodeScalars)], name)
+            XCTAssertEqual(book.metadata.identifiers.map { Array($0.unicodeScalars) }, [Array(read.unicodeScalars)], name)
+            XCTAssertEqual(book.uniqueIdentifier.map { Array($0.unicodeScalars) }, Array(read.unicodeScalars), name)
+        }
+        // An element of nothing else has no value, as one of white space has none.
+        for written in ["&#xFEFF;", "\u{FEFF}", "<![CDATA[\u{FEFF}]]>", " \u{FEFF}\u{FEFF} ", "\u{A0}\u{FEFF}"] {
+            let book = try book(metadata: "<dc:title>\(written)</dc:title><dc:title>Real</dc:title><dc:creator>\(written)</dc:creator>"
+                + "<dc:language>en</dc:language><dc:identifier id=\"uid\">test-book</dc:identifier>")
+            XCTAssertEqual(book.metadata, EPUBMetadata(title: "Real", authors: [], languages: ["en"], identifiers: ["test-book"]), written.debugDescription)
+        }
+        // A `rendition:layout` of `pre-paginated` with one before or after it is fixed layout,
+        // however it is written, where in a CDATA section it was not.
+        for written in ["pre-paginated&#xFEFF;", "pre-paginated\u{FEFF}", "&#xFEFF;pre-paginated", "\u{FEFF}pre-paginated",
+                        "<![CDATA[pre-paginated\u{FEFF}]]>", "<![CDATA[\u{FEFF}pre-paginated]]>", "pre-pag\u{FEFF}inated"] {
+            let book = try book(metadata: "<dc:title>A Test Book</dc:title><dc:language>en</dc:language><dc:identifier id=\"uid\">test-book</dc:identifier>"
+                + "<meta property=\"rendition:layout\">\(written)</meta>")
+            XCTAssertEqual(book.spine.map(\.layout), [.prePaginated, .prePaginated], written.debugDescription)
+        }
+        // U+2060, the word joiner Unicode has in its place, is the author's character.
+        let joined = try book(metadata: "<dc:title>A\u{2060}B&#x2060;C</dc:title><dc:language>en</dc:language><dc:identifier id=\"uid\">test-book</dc:identifier>")
+        XCTAssertEqual(Array(joined.metadata.title.unicodeScalars), Array("A\u{2060}B\u{2060}C".unicodeScalars))
+    }
+
     func testAValueIsCollapsedWhateverXMLSpaceSays() throws {
         // `xml:space="preserve"` asks an application to keep white space. The package's schema
         // has no such attribute and EPUB Reading Systems 3.3 §5.3 makes no exception for it.
@@ -210,6 +242,50 @@ final class PackageMetadataCoverageTests: XCTestCase {
             + "<other><dc:creator>Not an Author</dc:creator></other>", epub2: true)
         XCTAssertEqual(mixed.metadata, EPUBMetadata(title: "The Main Title", authors: ["First Author", "Second Author"], languages: ["en"],
                                                     identifiers: ["mixed-book"]))
+    }
+
+    func testDublinCoreNamesInsideDCMetadataAreReadInTheCapitalsOfOEBPS12() throws {
+        // OEBPS 1.2 named its Dublin Core elements `dc:Title`, `dc:Creator` and so on, and OPF
+        // 2.0.1 §1.4.3 says they "must now be lower case". A package converted lightly from such
+        // a book keeps the capitals inside `dc-metadata`, where they are read in any case of
+        // ASCII letters, its unique identifier among them (#608). The probe package of the issue
+        // under OPF 2.0, and the same in an EPUB 3 package, as `dc-metadata` is read in either.
+        for epub2 in [true, false] {
+            for (title, creator, language, identifier) in [("Title", "Creator", "Language", "Identifier"),
+                                                           ("TITLE", "CREATOR", "LANGUAGE", "IDENTIFIER"),
+                                                           ("tItLe", "creAtor", "LanGuage", "identiFier")] {
+                let book = try book(metadata: "<dc-metadata \(Self.dublinCore)><dc:\(title)>An OEBPS Book</dc:\(title)>"
+                    + "<dc:\(creator)>An Author</dc:\(creator)><dc:\(creator)>Another</dc:\(creator)><dc:\(language)>en</dc:\(language)>"
+                    + "<dc:\(identifier) id=\"uid\">oebps-book</dc:\(identifier)><dc:\(identifier)>urn:isbn:9780000000002</dc:\(identifier)>"
+                    + "</dc-metadata>", attributes: "", epub2: epub2)
+                let name = "\(title) in EPUB \(epub2 ? 2 : 3)"
+                XCTAssertEqual(book.metadata, EPUBMetadata(title: "An OEBPS Book", authors: ["An Author", "Another"], languages: ["en"],
+                                                           identifiers: ["oebps-book", "urn:isbn:9780000000002"]), name)
+                XCTAssertEqual(book.uniqueIdentifier, "oebps-book", name)
+                XCTAssertEqual(book.persistentID, "oebps-book", name)
+            }
+        }
+        // Lower-case and capitalized names in one `dc-metadata` are read in document order.
+        let both = try book(metadata: "<dc-metadata \(Self.dublinCore)><dc:creator>First</dc:creator><dc:Title>The Title</dc:Title>"
+            + "<dc:Creator>Second</dc:Creator><dc:title>A Later Title</dc:title><dc:Language>en</dc:Language>"
+            + "<dc:identifier id=\"uid\">both-book</dc:identifier></dc-metadata>", attributes: "", epub2: true)
+        XCTAssertEqual(both.metadata, EPUBMetadata(title: "The Title", authors: ["First", "Second"], languages: ["en"], identifiers: ["both-book"]))
+        // Anywhere else a name is matched as written, as OPF 2.0.1 and EPUB 3 have it: directly
+        // in `metadata`, inside `x-metadata`, and further down inside `dc-metadata`.
+        let elsewhere = try book(metadata: "<dc:Title>Not the Title</dc:Title><dc:title>The Title</dc:title><dc:Creator>Not an Author</dc:Creator>"
+            + "<x-metadata><dc:Creator>Not an Author</dc:Creator><dc:Language>fr</dc:Language></x-metadata>"
+            + "<dc-metadata><other><dc:Creator>Not an Author</dc:Creator></other><dc:Language>en</dc:Language></dc-metadata>"
+            + "<dc:Identifier id=\"uid\">not-the-identifier</dc:Identifier><dc:identifier>the-identifier</dc:identifier>", epub2: true)
+        XCTAssertEqual(elsewhere.metadata, EPUBMetadata(title: "The Title", authors: [], languages: ["en"], identifiers: ["the-identifier"]))
+        XCTAssertNil(elsewhere.uniqueIdentifier)
+        // A name that is not one of Dublin Core's fifteen is not read for one: `dc:Titles` and a
+        // `meta` in capitals among them.
+        let others = try book(metadata: "<dc-metadata \(Self.dublinCore)><dc:Titles>Not the Title</dc:Titles><dc:Title>The Title</dc:Title>"
+            + "<META name=\"cover\" content=\"cover\"/><dc:Identifier id=\"uid\">others-book</dc:Identifier></dc-metadata>", attributes: "", epub2: true,
+            adding: ["OPS/cover.jpg": Data([0xFF, 0xD8, 0xFF])],
+            opf: { $0.replacingOccurrences(of: "<manifest>", with: "<manifest><item id=\"cover\" href=\"cover.jpg\" media-type=\"image/jpeg\"/>") })
+        XCTAssertEqual(others.metadata, EPUBMetadata(title: "The Title", authors: [], languages: [], identifiers: ["others-book"]))
+        XCTAssertNil(others.cover)
     }
 
     func testCharacterDataSectionsCommentsAndReferencesInATitle() throws {

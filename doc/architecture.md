@@ -1,7 +1,8 @@
 # Architecture
 
 EPUBLib contains five independently selectable products. `EPUBCore` owns shared publication,
-resource, navigation and reader value types. `EPUBReading` owns immutable publications and
+resource, navigation and reader value types, and in its resource bundle the license texts of
+EPUBLib and the code its products contain ([third-party notices](third-party-notices.md)). `EPUBReading` owns immutable publications and
 bounded archive/metadata parsing; `EPUBText` adds structural extraction, including text and anchor
 positions from one libxml2 walk. `EPUBWriting` generates EPUB 3 package/navigation documents from
 explicit publication facts and streams file-backed resources into an OCF archive. These targets
@@ -55,6 +56,11 @@ and the identifiers a font key is made from are read from the children of `metad
 they stand among them, from those of the `dc-metadata` and `x-metadata` elements that OPF 2.0.1
 §2.2 deprecates and has a reading system allow. EPUB 3 has neither, but a package that says it
 is EPUB 3 and has one is read the same ([#85](https://github.com/vocaro/EPUBLib/issues/85)).
+Inside `dc-metadata` a Dublin Core element is read by its name in any case of ASCII letters, as
+OEBPS 1.2 wrote `dc:Title` and `dc:Creator` before OPF 2.0.1 §1.4.3 had them lower case, so that
+a package converted lightly from such a book has its title, creators, languages and unique
+identifier, and its obfuscated fonts can be read. Anywhere else a name is matched as written
+([#608](https://github.com/vocaro/EPUBLib/issues/608)).
 Reading resource
 bytes does not execute document content. XML expansion and external entity resolution are refused. Declaration screening distinguishes
 actual DTD syntax from comments, CDATA, processing instructions and quoted identifiers. It decodes
@@ -64,7 +70,7 @@ and refuses ambiguous encoding switches and encodings it cannot decode
 gives the calling thread's handlers to one that keeps nothing and puts the thread's own back
 after, so nothing libxml2 says about a book reaches the host's standard error or its own handlers
 ([#392](https://github.com/vocaro/EPUBLib/issues/392);
-[libxml2's error handlers](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#parser-choice-can-change-text)).
+[libxml2's error handlers](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#parser-choice-can-change-text)).
 
 A metadata value and a navigation label are read as text: the element's and that of everything
 inside it, with each run of ASCII whitespace (tab, line feed, form feed, carriage return, space)
@@ -81,13 +87,23 @@ characters or an object's fallback, and an image without them adds nothing. A la
 then is its link or heading's own `title`, read as a label is, when it has one: EPUB 3.3 §7.3 has
 a link or heading holding embedded content with no text alternative carry its label there, and
 foliate-js reads it
-([#83](https://github.com/vocaro/EPUBLib/issues/83)). White space outside
+([#83](https://github.com/vocaro/EPUBLib/issues/83)). A `br` in a label is a space, the line
+break it renders read in one line, so that the words either side of it do not run together; a
+`wbr` adds nothing. U+FEFF, a zero-width no-break space inside text, is left out of every value
+and label, its text and an attribute read into it alike, and of the identifier a font key is made
+from. Foundation XMLParser drops one that begins a piece of the text it hands over, or an
+attribute's value, and keeps one inside a piece: a piece begins at a character reference, where
+ASCII is followed by any other character and every 300 bytes or so of a run of those, and a CDATA
+section is one piece. Left out everywhere, a value does not depend on how or where the character
+was written; U+2060, the word joiner Unicode has in its place, is kept
+([#283](https://github.com/vocaro/EPUBLib/issues/283)). Content documents are read by another
+parser, which keeps it ([structural text](#structural-text)). White space outside
 ASCII, a no-break or an ideographic space among it, is the author's character and is kept
 inside and at the ends of a value that holds anything else, but a value that is nothing but
 white space of any kind is empty: some tools write a lone no-break space as a placeholder, and
 no host can show one. A value left empty is not listed among the metadata; an entry whose label
 is left empty stays, without a title. `xml:space` changes nothing. White space is found as
-[normalizing by scalar and by byte](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#normalize-text-by-scalar-and-by-byte-not-by-character)
+[normalizing by scalar and by byte](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#normalize-text-by-scalar-and-by-byte-not-by-character)
 says. An attribute's value is not such text, but for an alternative or `title` read into
 a label and a guide reference's `title`. A font obfuscation key is made from the identifier's text by its algorithm's own rule,
 not from the value read here. IDPF's removes the space, tab, carriage return and line feed and
@@ -111,7 +127,7 @@ reference is found as its byte, not by `Character`, and paths are compared as Sw
 canonical equivalence:
 an entry answers to a reference in either normalization form, and two entry names equal after
 normalization are duplicates
-([archive paths](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#archive-paths-need-byte-level-delimiters-and-deliberate-normalization)).
+([archive paths](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#archive-paths-need-byte-level-delimiters-and-deliberate-normalization)).
 
 Default limits are 256 MiB compressed, 512 MiB expanded, 32 MiB per resource, 20,000 entries and
 4 MiB per XML document, with depth/node limits. Hosts may lower or raise import limits. Resources
@@ -263,10 +279,10 @@ disclosed:
   The directory pre-scan charges the exact size of each local header (30 fixed bytes plus its
   name and extra field) against the archive's byte count. Real, separate headers fit that
   budget; repeated large headers cannot multiply copying and ZIP64 field scans indefinitely
-  ([bounding archive work](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#bound-archive-work-by-decoder-calls-not-by-output-alone)).
+  ([bounding archive work](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#bound-archive-work-by-decoder-calls-not-by-output-alone)).
   A deflated entry is inflated with zlib, the system's, not by ZIPFoundation 0.9.20, whose
   decoder is
-  [not deterministic on damaged streams](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#apples-compression-inflater-is-not-deterministic-on-damaged-streams)
+  [not deterministic on damaged streams](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#apples-compression-inflater-is-not-deterministic-on-damaged-streams)
   ([#583](https://github.com/vocaro/EPUBLib/issues/583)). zlib refuses such a stream as damage, `invalidArchive("<path>: corruptedData")`, on every
   open, as it does a stream cut short of its end. ZIPFoundation reads stored entries.
   The inflater calls the consumer after every call to zlib's `inflate`, including steps that
@@ -317,6 +333,13 @@ disclosed:
   or label, or is not read, as does one that names EUC-KR `ks_c_5601-1987` or `korean`, which the
   parser reads as Windows 949. A C0 control character XML forbids, copied from PDF text into a title, reads as a
   space in an ASCII-compatible document, and so as one of the run of whitespace it stands in.
+  A name that Namespaces in XML forbids, which the parser reports and reads on, does not refuse
+  the document. One that begins or ends with its colon is read whole (`<:navPoint>`,
+  `<rootfile:>`), and one with a second colon is split at its first, so that the local name of
+  `<a:b:navPoint>` is `b:navPoint`; each is an unknown element, not the one its last piece names,
+  as libxml2's XML parser reads it. An attribute's name is split the same way, as text
+  extraction splits one, so `:epub:type` is not `epub:type` and `xmlns:` declares nothing
+  ([#644](https://github.com/vocaro/EPUBLib/issues/644)).
 
 `EPUBWriting` holds what it writes to the stricter rules: a path with a colon is refused, and so
 is a navigation or stylesheet href with white space round it, a query, a leading `/` or a step
@@ -336,7 +359,7 @@ resources. An implementation can return any SwiftUI/AppKit/UIKit-backed view; `N
 implements a minimal one using only SwiftUI and the public contract.
 
 `send` acknowledges command submission, not successful navigation or paint completion
-([submission is not completion](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/command-lifecycles.md#command-submission-is-not-completion)).
+([submission is not completion](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/command-lifecycles.md#command-submission-is-not-completion)).
 Later position/error events describe effects. Cancellation before submission throws `CancellationError`;
 a submitted page turn cannot be undone by cancelling its caller. `close` is idempotent, disables
 callbacks and releases renderer references. Hosts serialize commands whose order matters and close
@@ -353,7 +376,11 @@ conversion. The package does not promise cross-engine page, search or selection 
 
 The pages of an engine's own layout are status, not location: an engine that counts them sets
 `EPUBReaderStatus.layoutPage` in paginated flow, before the `.relocated` of the same pages, and
-leaves it nil while it counts. `.goToProgression` takes the measure of `EPUBLocation.progression`,
+leaves it nil while it counts. So is why a location was reported: an engine with `readerState`
+sets `EPUBReaderStatus.relocationReason` before each `.relocated`, a move (a turn, the person's
+scrolling, a place gone to), the place restored or opened at, or `.relayout` for the same place
+laid out again, so `.relocated`'s payload stays a location
+([#600](https://github.com/vocaro/EPUBLib/issues/600)). `.goToProgression` takes the measure of `EPUBLocation.progression`,
 so a host can send back a progression it was given; an engine without it refuses the command
 with `.unsupported(.goToProgression)`, which the [contract checks](testing.md#adapter-contract-tests)
 hold every adapter to ([#681](https://github.com/vocaro/EPUBLib/issues/681)).
@@ -376,7 +403,7 @@ the reader agrees and any other is refused with a notice
 ([links outside the book](native-viewer.md#security)), and `script`
 elements are counted and disclosed but never run. Sandboxed macOS hosts need no network entitlement.
 The general method is in
-[screening untrusted markup](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#screen-untrusted-markup-before-any-parser-sees-it).
+[screening untrusted markup](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#screen-untrusted-markup-before-any-parser-sees-it).
 
 The viewer renders reflowable EPUB on iOS/iPadOS and macOS 27 with TextKit 2: continuous scroll
 in one real scroll view over the whole book, and paginated columns sliced from one layout per
@@ -395,7 +422,7 @@ Adapter-contract tests verify session behavior; rendering fidelity stays with th
 The [text-extraction API](text-extraction.md) reads one spine occurrence at a time from the
 validated snapshot. Apple’s streaming libxml2 reader preserves literal and numeric-reference
 U+FEFF word joiners that Foundation XMLParser drops in character callbacks
-([parser choice](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#parser-choice-can-change-text)). External DTD loading,
+([parser choice](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#parser-choice-can-change-text)). External DTD loading,
 entity substitution and networking are disabled. Limits and cancellation bound the walk.
 The library reports all semantic roles and empty/nonlinear sections; filtering and indexing belong
 to the host. No third-party dependency is added for text extraction.

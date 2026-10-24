@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 import EPUBCore
+import EPUBTestSupport
 import XCTest
 @testable import EPUBViewing
 
@@ -94,8 +95,8 @@ import XCTest
         let before = canvas.textViews.map(\.frame)
         change()
         reader.window.contentView?.layoutSubtreeIfNeeded()
-        let deadline = Date().addingTimeInterval(10)
-        while canvas.textViews.map(\.frame) == before, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        let deadline = TestDeadline(seconds: 10)
+        while canvas.textViews.map(\.frame) == before, try !deadline.hasPassed() { try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertNotEqual(canvas.textViews.map(\.frame), before, "\(label): the spread was laid out again", file: file, line: line)
     }
 
@@ -399,7 +400,7 @@ import XCTest
         pasteboard.clearContents()
         XCTAssertTrue(column.writeSelection(to: pasteboard, type: .string))
         XCTAssertEqual(pasteboard.string(forType: .string), "", "Copy takes nothing from an insertion point")
-        try await Task.sleep(for: .milliseconds(300)) // Past the selection report's settling time.
+        try await TestDeadline.pause(.milliseconds(300)) // Past the selection report's settling time.
         XCTAssertTrue(reader.recorder.selections.allSatisfy { $0 == nil }, "no selection was reported")
 
         canvas.reloadContent(keeping: nil)

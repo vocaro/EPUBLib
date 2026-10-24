@@ -635,8 +635,8 @@ import UIKit
             view.contentOffset.y += 333
             #endif
             // The canvas reads the screen 150 ms after a scroll, later on a busy machine.
-            let deadline = Date().addingTimeInterval(5)
-            while Date() < deadline, canvas.visibleRange?.start == paragraph { try await host.settle(50) }
+            let deadline = TestDeadline(seconds: 5)
+            while try !deadline.hasPassed(), canvas.visibleRange?.start == paragraph { try await host.settle(50) }
             let scrolled = try XCTUnwrap(canvas.visibleRange?.start)
             XCTAssertGreaterThan(scrolled, paragraph, "\(name): scrolled by hand")
             var starts: [ReaderTextPosition] = []
@@ -649,6 +649,72 @@ import UIKit
             }
             XCTAssertEqual(Set(starts).count, 1, "\(name): the same line through every change of the bar, \(starts)")
         }
+    }
+
+    /// A book with nothing to resolve against the visible height is not laid out again when a
+    /// bar is shown or hidden over the reader, and its kept position rests at the top all the
+    /// same, as in a book with boxes. UIKit left a line shown 53.8 points below the top of the
+    /// taller area when the navigation bar hid, and moved it down with the bar when the bar
+    /// came back, so that it stood there through every later change (#370). On the Mac AppKit
+    /// moves the view with the toolbar's inset, which keeps the line at the top.
+    func testABarShownOrHiddenOverABookWithNoBoxesRestsThePlaceAtTheTop() async throws {
+        let texts = (0..<3).map { section in
+            CanvasText.body((0..<40).map {
+                "Section \(section) paragraph \($0) of ordinary reading text that wraps across the column more than once for the test.\n"
+            }.joined())
+        }
+        let source = FakeCanvasSource(texts)
+        source.book = CanvasText.book(texts)
+        let host = CanvasHost(source, size: CGSize(width: 500, height: 700), configuration: .init(flow: .scrolled), underBars: true)
+        defer { host.close() }
+        let canvas = host.canvas
+        canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        host.layOut()
+        try await host.settle()
+        let view = try XCTUnwrap(canvas.scrollTextView), book = try XCTUnwrap(canvas.scrollBook)
+        let size = canvas.bounds.size
+        func rest(_ position: ReaderTextPosition) throws -> CGFloat {
+            try XCTUnwrap(view.lineFrame(containing: book.location(of: position))).minY - canvas.scrollVisibleContainerRect.minY
+        }
+        func changeBar() async throws {
+            let before = canvas.scrollVisibleContainerRect.height
+            try await host.setBar(shown: !host.barIsShown)
+            try await host.settle()
+            XCTAssertEqual(canvas.bounds.size, size, "the canvas keeps its size")
+            XCTAssertGreaterThan(abs(canvas.scrollVisibleContainerRect.height - before), 20, "the bar changes the visible height")
+            XCTAssertFalse(view.layoutFollowsViewport, "nothing is resolved for it")
+        }
+        let paragraph = ReaderTextPosition(section: 1, offset: (texts[1].string as NSString).range(of: "Section 1 paragraph 12 ").location)
+        canvas.show(paragraph, selecting: nil)
+        try await host.settle()
+        XCTAssertEqual(try rest(paragraph), 0, accuracy: 1.5, "shown")
+        XCTAssertEqual(canvas.visibleRange?.start, paragraph, "shown")
+        for change in 1...4 {
+            try await changeBar()
+            XCTAssertEqual(try rest(paragraph), 0, accuracy: 1.5, "the line shown after \(change) change(s) of the bar")
+            XCTAssertEqual(canvas.visibleRange?.start, paragraph, "after \(change) change(s)")
+        }
+        // A place the person scrolled to: the visible start is kept, and rests at the top.
+        #if os(macOS)
+        let clip = try XCTUnwrap(canvas.scrollContainer as? NSScrollView).contentView
+        clip.scroll(to: NSPoint(x: clip.bounds.minX, y: clip.bounds.minY + 333))
+        try XCTUnwrap(clip.enclosingScrollView).reflectScrolledClipView(clip)
+        #else
+        view.contentOffset.y += 333
+        #endif
+        let deadline = TestDeadline(seconds: 5)
+        while try !deadline.hasPassed(), canvas.visibleRange?.start == paragraph { try await host.settle(50) }
+        let scrolled = try XCTUnwrap(canvas.visibleRange?.start)
+        XCTAssertGreaterThan(scrolled, paragraph, "scrolled by hand")
+        var starts: [ReaderTextPosition] = []
+        for change in 1...4 {
+            try await changeBar()
+            let start = try XCTUnwrap(canvas.visibleRange?.start)
+            XCTAssertEqual(try rest(start), 0, accuracy: 1.5, "the visible start rests at the top after \(change) change(s)")
+            XCTAssertLessThan(abs(try rest(scrolled)), 100, "the line scrolled to is still at the top of the screen, change \(change)")
+            starts.append(start)
+        }
+        XCTAssertEqual(Set(starts).count, 1, "the same line through every change of the bar, \(starts)")
     }
 
     #if os(macOS)

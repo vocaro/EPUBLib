@@ -30,9 +30,9 @@ import UIKit
     @MainActor private final class Served { var whileCounting: Bool? }
 
     private func wait(_ label: String, timeout: TimeInterval = 60, until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = TestDeadline(seconds: timeout)
         while !condition() {
-            guard Date() < deadline else {
+            guard try !deadline.hasPassed() else {
                 XCTFail("Timed out waiting for \(label)")
                 throw Timeout()
             }
@@ -272,8 +272,8 @@ import UIKit
         session.close()
         XCTAssertFalse(canvas.pageCounter.isCounting, label)
         XCTAssertFalse(canvas.pageCounter.holdsPartialCount, label)
-        let deadline = Date().addingTimeInterval(10)
-        while images.contains(where: { $0.source != nil }), Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        let deadline = TestDeadline(seconds: 10)
+        while images.contains(where: { $0.source != nil }), try !deadline.hasPassed() { try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertEqual(images.filter { $0.source != nil }.count, 0, "\(label): a closed reader still holds images through its count")
     }
 
@@ -481,7 +481,7 @@ import UIKit
     #endif
 
     /// The book's end in a section not built yet is asked of the delegate, which shows its end
-    /// once it is (`NativeSession.canvas(_:needsSection:forward:)`).
+    /// once it is (`NativeSession.canvas(_:needsSection:forward:reason:)`).
     func testTheBooksEndInASectionNotBuiltIsAskedFor() throws {
         let host = keyHost(flow: .paginated, buildEnd: false)
         host.canvas.performPageActionFromInput(.bookEnd)

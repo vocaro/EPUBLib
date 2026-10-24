@@ -19,7 +19,11 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         tap.delegate = self
         tap.cancelsTouchesInView = false
         addGestureRecognizer(tap)
-        addGestureRecognizer(ReaderTouchObserver { [weak self] in self?.takeKeyboardFocusIfFree() })
+        addGestureRecognizer(ReaderTouchObserver { [weak self] in
+            // A touch finds the text where the reader has it.
+            self?.endScrollStep()
+            self?.takeKeyboardFocusIfFree()
+        })
         let middle = ReaderMiddleTapRecognizer(target: self, action: #selector(middleTapped(_:)))
         middle.delegate = self
         middle.cancelsTouchesInView = false
@@ -418,6 +422,7 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// VoiceOver's own scrolling drags nothing.
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         guard scrollView === scrollTextView else { return }
+        endScrollStep()
         delegate?.canvasDidReadOn(self)
     }
 

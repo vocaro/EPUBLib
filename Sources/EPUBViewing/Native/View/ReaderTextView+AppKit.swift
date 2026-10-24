@@ -217,6 +217,8 @@ final class ReaderTextView: NSTextView {
 
     // A click in the canvas's edge zone turns the page; a drag from there still selects.
     override func mouseDown(with event: NSEvent) {
+        // A click finds the text where the reader has it.
+        canvas?.endScrollStep()
         let point = convert(event.locationInWindow, from: nil)
         // A fixed-layout page is its image, and a click in an edge zone of it turns the page.
         let turnsFixedPage = isPageColumn && event.clickCount == 1 && canvas?.showsFixedPages == true

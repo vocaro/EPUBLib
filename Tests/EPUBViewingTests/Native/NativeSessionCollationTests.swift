@@ -7,9 +7,9 @@ import XCTest
 
 @MainActor final class NativeSessionCollationTests: XCTestCase {
     private func wait(until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(20)
+        let deadline = TestDeadline(seconds: 20)
         while !condition() {
-            guard Date() < deadline else { return XCTFail("Timed out waiting for the reader") }
+            guard try !deadline.hasPassed() else { return XCTFail("Timed out waiting for the reader") }
             try await Task.sleep(for: .milliseconds(20))
         }
     }

@@ -78,9 +78,15 @@ enum CSSCombinator: Hashable, Sendable { case descendant, child, nextSibling, su
 enum CSSPseudoElement: Hashable, Sendable {
     /// `::before` and `::after` (`:before`, `:after`), whose `content` generates a box (CSS 2 §12.1).
     case before, after
-    /// Any other (`::first-line`, `::first-letter`, `::marker`, `::selection`…), or `::before` or
-    /// `::after` qualified by a pseudo-class (`::before:hover`), which is a state a page never
-    /// has. Their rules are dropped.
+    /// `::first-letter` (`:first-letter`), which styles its element's first letter (CSS
+    /// Pseudo-Elements 4 §2.2).
+    case firstLetter
+    /// `::first-line` (`:first-line`), whose characters depend on where the live column breaks
+    /// its element's first line (CSS Pseudo-Elements 4 §2.1). Its rules are not applied: one that
+    /// matches an element shown is disclosed (`SectionReport.firstLineStylesOmitted`).
+    case firstLine
+    /// Any other (`::marker`, `::selection`…), or one of these qualified by a pseudo-class
+    /// (`::before:hover`), which is a state a page never has. Their rules are dropped.
     case other
 }
 
@@ -173,7 +179,7 @@ struct CSSComplexSelector: Hashable, Sendable {
     /// Packed (ids, classes, types), 10 bits each.
     var specificity: UInt32
     /// The pseudo-element the subject is: a rule with one never styles the element itself, and
-    /// only `::before` and `::after` are kept (`CSSStyleSheet`).
+    /// only `::before`, `::after`, `::first-letter` and `::first-line` are kept (`CSSStyleSheet`).
     var pseudoElement: CSSPseudoElement?
     var hasPseudoElement: Bool { pseudoElement != nil }
     /// Present when a `~` combinator is. The rule index shares identities for equal left-hand searches.
@@ -595,15 +601,17 @@ struct CSSSelectorParser {
         switch name {
         case "before": .before
         case "after": .after
+        case "first-letter": .firstLetter
+        case "first-line": .firstLine
         default: .other
         }
     }
 
-    /// The pseudo-elements Chromium knows, lowercased. Only `::before` and `::after` are
-    /// rendered, but a rule for another stays valid, as does one for any `::-webkit-` name,
-    /// which Chromium keeps. Any other is invalid, and so is its selector list (Selectors 4
-    /// §3.9: "UAs must treat as invalid any pseudo-elements … for which they have no usable
-    /// level of support").
+    /// The pseudo-elements Chromium knows, lowercased. Only `::before`, `::after` and
+    /// `::first-letter` are rendered, but a rule for another stays valid, as does one for any
+    /// `::-webkit-` name, which Chromium keeps. Any other is invalid, and so is its selector
+    /// list (Selectors 4 §3.9: "UAs must treat as invalid any pseudo-elements … for which they
+    /// have no usable level of support").
     private static let pseudoElements: Set<String> = [
         "before", "after", "first-line", "first-letter", "marker", "selection", "placeholder", "backdrop",
         "file-selector-button", "cue", "spelling-error", "grammar-error", "target-text", "search-text",

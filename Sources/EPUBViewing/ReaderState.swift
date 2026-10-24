@@ -36,6 +36,11 @@ public struct EPUBReaderStatus: Equatable, Sendable {
     /// pages. It changes as `location` does, and on its own as counting goes on and after a
     /// relayout; an engine sets it before it emits the `.relocated` of the pages it describes.
     public var layoutPage: EPUBLayoutPage?
+    /// Why the latest `.relocated` was sent: a move (`turn`, `scroll`, `navigation`), the place the
+    /// book opened or was restored at, or the same place laid out again (`relayout`). An engine sets
+    /// it before it emits that `.relocated`, as it sets `layoutPage`, so a host reads it there. nil
+    /// before the first `.relocated`, and from engines that do not report it.
+    public var relocationReason: EPUBRelocationReason?
     /// The colours the mounted viewer draws with: its theme's, as Increase Contrast leaves
     /// them. A host can draw its own controls in them.
     public var effectiveColors: EPUBReaderColors = .light
@@ -55,6 +60,32 @@ public enum EPUBHighlightFailure: Hashable, Sendable {
     /// Its passage is not in this book as the reader shows it: a part of it cannot be found, or
     /// it is only content that shows nothing.
     case passageNotFound
+}
+
+/// Why the reader shows another range (`EPUBReaderStatus.relocationReason`). A host that saves
+/// the reading position as the person reads saves it after `turn`, `scroll` and `navigation`, and
+/// not after `opening`, `restore` or `relayout`, which show the place the reader was put at or
+/// kept. A move that is shown with a relayout, as the person's scrolling when a bar hides before
+/// the reader has reported it, is reported as the move.
+public enum EPUBRelocationReason: Hashable, Sendable {
+    /// A page turn, or a step of a screen in continuous scroll: `.nextPage` and `.previousPage`,
+    /// and the reader's own page keys, edge taps, swipes, wheel and assistive page turns.
+    case turn
+    /// The person's own scrolling in continuous scroll: by a finger, the wheel or trackpad, the
+    /// scroll bar, or an assistive technology that scrolls the view as it reads.
+    case scroll
+    /// A place gone to: `.navigate`, as from a contents entry; a link; a search result;
+    /// `.locate`; `.goToProgression`, and the keys that go to the book's start and end; and an
+    /// assistive technology's move to a heading or link elsewhere.
+    case navigation
+    /// The place `.restore` was given.
+    case restore
+    /// The place the book opens at before anything moves it: its text start.
+    case opening
+    /// The place kept, laid out again: for a new size, text size, style, appearance, flow or
+    /// division, for its text built again, or in a new view of the session. What the range
+    /// holds changes; the place the reader keeps does not.
+    case relayout
 }
 
 /// The pages on screen in the current paginated layout: "page 12 of 230", and the pages left

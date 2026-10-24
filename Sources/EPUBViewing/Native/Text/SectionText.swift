@@ -141,6 +141,9 @@ struct SectionReport: Equatable, Sendable {
     /// the reader does not generate (`ComputedStyle.ContentItem.unsupported`), that of a table
     /// laid out as a grid or of its rows, or characters past the section's bound.
     var generatedContentOmitted = false
+    /// A `::first-line` rule matches a block that is shown: the reader does not style first
+    /// lines, which depend on where the live column breaks them (`CSSPseudoElement.firstLine`).
+    var firstLineStylesOmitted = false
     /// Text that TextKit could set on no line at the size it was laid out at, and that is not
     /// shown (`SectionLayoutRecord`). Found by laying the section out, never by building it.
     var textNotLaidOut = false
@@ -162,6 +165,7 @@ struct SectionReport: Equatable, Sendable {
         flowBoxesReflowed = flowBoxesReflowed || other.flowBoxesReflowed
         flexGridSimplified = flexGridSimplified || other.flexGridSimplified
         generatedContentOmitted = generatedContentOmitted || other.generatedContentOmitted
+        firstLineStylesOmitted = firstLineStylesOmitted || other.firstLineStylesOmitted
         textNotLaidOut = textNotLaidOut || other.textNotLaidOut
     }
 
@@ -187,6 +191,7 @@ struct SectionReport: Equatable, Sendable {
         added.flowBoxesReflowed = flowBoxesReflowed && !earlier.flowBoxesReflowed
         added.flexGridSimplified = flexGridSimplified && !earlier.flexGridSimplified
         added.generatedContentOmitted = generatedContentOmitted && !earlier.generatedContentOmitted
+        added.firstLineStylesOmitted = firstLineStylesOmitted && !earlier.firstLineStylesOmitted
         added.textNotLaidOut = textNotLaidOut && !earlier.textNotLaidOut
         return added
     }

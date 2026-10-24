@@ -104,7 +104,7 @@ jobs:
       - name: Read the shared engineering checkout
         uses: actions/checkout@v7
         with:
-          repository: vocaro/apple-engineering
+          repository: vocaro/vocaro-engineering
           ref: main
           path: .build/engineering-toolkit
           persist-credentials: false

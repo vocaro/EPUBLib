@@ -140,9 +140,9 @@ extension ReaderImageAttachment {
 
     func wait(_ label: String, timeout: TimeInterval = 20, file: StaticString = #filePath, line: UInt = #line,
               until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = TestDeadline(seconds: timeout)
         while !condition() {
-            guard Date() < deadline else { return XCTFail("Timed out waiting for \(label)", file: file, line: line) }
+            guard try !deadline.hasPassed() else { return XCTFail("Timed out waiting for \(label)", file: file, line: line) }
             try await Task.sleep(for: .milliseconds(20))
         }
     }

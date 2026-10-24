@@ -12,9 +12,9 @@ import XCTest
 /// `persistentID`, which each such copy shares.
 @MainActor final class PublicationIdentitySessionTests: XCTestCase {
     private func wait(_ label: String, timeout: TimeInterval = 20, until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = TestDeadline(seconds: timeout)
         while !condition() {
-            guard Date() < deadline else { return XCTFail("Timed out waiting for \(label)") }
+            guard try !deadline.hasPassed() else { return XCTFail("Timed out waiting for \(label)") }
             try await Task.sleep(for: .milliseconds(20))
         }
     }

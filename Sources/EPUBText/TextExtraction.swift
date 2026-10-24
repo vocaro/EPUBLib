@@ -62,7 +62,9 @@ extension EPUBPublication {
 
     /// As `textSection(at:limits:)`. When `recoversMalformedMarkup` is true, a document that the
     /// strict XML path rejects as not well-formed is read by libxml2's network-free HTML parser,
-    /// after an HTML-specific declaration check, and the section reports `recoveredAsHTML`.
+    /// after an HTML-specific declaration check, and the section reports `recoveredAsHTML`. Its
+    /// characters are decoded as the strict path decodes them: UTF-16 or UTF-32 by its byte-order
+    /// mark or first bytes, else the encoding its XML declaration names, else UTF-8.
     public func textSection(at index: Int, limits: EPUBTextExtractionLimits = .init(),
                             recoversMalformedMarkup: Bool) throws -> EPUBTextSection {
         try Task.checkCancellation()
@@ -177,6 +179,10 @@ private final class XHTMLTextReader {
         var heading: Int?
         var math: MathTextNode?
         var startsMath: Bool
+        /// SVG's, as the reader reads a tree for structural semantics.
+        var svg: Bool
+        /// The head, or in it.
+        var head: Bool
     }
     /// The elements in a body that the HTML Standard's Rendering section gives `display: block`
     /// (flow content, sections and headings, lists, fieldset and legend, details and summary, and
@@ -287,12 +293,24 @@ private final class XHTMLTextReader {
     /// does, then walks the repaired tree through the same bounded extraction callbacks. The HTML
     /// parser loads no DTD or network resource and supports no entity declarations; in addition,
     /// `HTMLRecoverySource` refuses declaration syntax anywhere in the bytes it parses.
-    /// Input must be UTF-8 or a detectable UTF-16/32, as EPUB requires. Named references are
-    /// made numeric first, as the viewer makes them, so that they are read from the HTML
-    /// Standard's table and not from the parser's own, which is HTML 4's.
+    /// The bytes are decoded as the reader's fallback decodes them (`HTMLSourceEncoding`): a
+    /// detectable UTF-16/32, else the encoding the XML declaration names, as the strict path
+    /// reads it, so that an unclosed tag changes no character (#247). Bytes left as they are must
+    /// be UTF-8; no other encoding is guessed. Named references are made numeric next, as the
+    /// viewer makes them, so that they are read from the HTML Standard's table and not from the
+    /// parser's own, which is HTML 4's.
     static func recover(_ data: Data, path: String, limits: EPUBTextExtractionLimits) throws -> XHTMLTextReader {
-        guard let utf8 = SourceEncoding.utf8(data).map(NamedCharacterReferences.numeric(in:)),
-              let ampersands = HTMLLiteralAmpersands.prepared(utf8, limit: Int(Int32.max)),
+        let decoded: Data?
+        // Recovery reads a DOCTYPE as HTML does, to its first `>` (#293), and refuses any
+        // declaration keyword in what it parses besides.
+        do { decoded = try HTMLSourceEncoding.utf8(data, limit: Int(Int32.max), doctypesAsHTML: true) }
+        catch .limitExceeded { throw EPUBTextExtractionError.limitExceeded("inputBytes") }
+        catch .unsafe(.attributeLimitExceeded) { throw EPUBTextExtractionError.limitExceeded("attributesPerElement") }
+        catch { throw EPUBTextExtractionError.malformedContent(path) }
+        guard let utf8 = decoded ?? (String(data: data, encoding: .utf8) == nil ? nil : data) else {
+            throw EPUBTextExtractionError.malformedContent(path)
+        }
+        guard let ampersands = HTMLLiteralAmpersands.prepared(NamedCharacterReferences.numeric(in: utf8), limit: Int(Int32.max)),
               let prepared = HTMLRecoverySource.prepare(ampersands.data) else {
             throw EPUBTextExtractionError.malformedContent(path)
         }
@@ -470,7 +488,19 @@ private final class XHTMLTextReader {
         let block = (html && Self.blocks.contains(local) && inBody && !suppressed && !capturesMath)
             || (startsMath && attributes["display"] == "block")
         if block { body.lineBreak() }
-        if inBody {
+        // In a recovered tree an `svg` and what it holds are SVG's up to an HTML integration
+        // point, and everything else is HTML, as the reader builds the tree: libxml2 puts no
+        // element in a namespace, and writes each name in lowercase.
+        let svg = recovered ? local == "svg" || stack.last.map { $0.svg && !["foreignobject", "desc", "title"].contains($0.name) } == true
+            : uri == "http://www.w3.org/2000/svg"
+        let htmlElement = recovered ? !svg : html
+        let head = (htmlElement && local == "head") || stack.last?.head == true
+        // No terms where EPUB does not allow them, which the reader ignores (`StructuralSemantics`,
+        // #777): on the head or in it, on metadata content or an SVG element that is not
+        // rendered, or in what a script, a style or a template holds, which is never text.
+        let allowsTerms = !suppressed && !head && (htmlElement ? !StructuralSemantics.metadataContent.contains(local)
+            : !svg || (recovered ? StructuralSemantics.lowercaseRenderableSVG : StructuralSemantics.renderableSVG).contains(local))
+        if inBody, allowsTerms {
             for (key, value) in attributes {
                 let (prefix, local) = Self.split(key)
                 if !prefix.isEmpty, local == "type", namespaces[prefix] == "http://www.idpf.org/2007/ops" {
@@ -489,7 +519,8 @@ private final class XHTMLTextReader {
             if let parent = stack.last?.math, let math { parent.children.append(.element(math)) }
         }
         stack.append(Frame(namespaces: namespaces, body: inBody, root: root,
-            title: startsTitle || stack.last?.title == true, suppressed: suppressed, block: block, name: local, heading: heading, math: math, startsMath: startsMath))
+            title: startsTitle || stack.last?.title == true, suppressed: suppressed, block: block, name: local, heading: heading, math: math,
+            startsMath: startsMath, svg: svg, head: head))
         // Treat an authored image alternative as inline character data. Use the same normalizer
         // after registering this element's marks so image IDs, enclosing headings and later
         // anchors all refer to the returned text. Decorative whitespace-only alternatives must
@@ -519,32 +550,6 @@ private final class XHTMLTextReader {
         }
         if let heading = frame.heading { body.closeHeading(heading) }
         if frame.block { body.lineBreak() }
-    }
-}
-
-/// The Unicode encoding of an XML document's bytes, detected as `XMLSafety` does: a byte-order
-/// mark or the NUL pattern of `<?xml`. `nil` means an ASCII-compatible encoding.
-private enum SourceEncoding {
-    static func wide(_ data: Data) -> (encoding: String.Encoding, mark: Int)? {
-        let prefix = Array(data.prefix(4))
-        if prefix.starts(with: [0, 0, 0xFE, 0xFF]) { return (.utf32BigEndian, 4) }
-        if prefix.starts(with: [0, 0, 0]) { return (.utf32BigEndian, 0) }
-        if prefix.starts(with: [0xFF, 0xFE, 0, 0]) { return (.utf32LittleEndian, 4) }
-        if prefix.count == 4 && prefix[1...3].allSatisfy({ $0 == 0 }) { return (.utf32LittleEndian, 0) }
-        if prefix.starts(with: [0xFE, 0xFF]) { return (.utf16BigEndian, 2) }
-        if prefix.first == 0 { return (.utf16BigEndian, 0) }
-        if prefix.starts(with: [0xFF, 0xFE]) { return (.utf16LittleEndian, 2) }
-        if prefix.count >= 2 && prefix[1] == 0 { return (.utf16LittleEndian, 0) }
-        return nil
-    }
-
-    /// UTF-8 bytes for the HTML parser, which is told their encoding explicitly. Invalid UTF-8
-    /// and other ASCII-compatible encodings are not guessed.
-    static func utf8(_ data: Data) -> Data? {
-        if case let (encoding, mark)? = wide(data) {
-            return String(data: data.dropFirst(mark), encoding: encoding).map { Data($0.utf8) }
-        }
-        return String(data: data, encoding: .utf8) == nil ? nil : data
     }
 }
 
@@ -584,8 +589,9 @@ private enum SourceEncoding {
 ///   HTML closes the comment there and libxml2 reads on to the next `-->`, but libxml2 used to
 ///   skip from such a sign through the next `>`, the comment's own, and showed what follows.
 ///   Reading on, the scan may meet a CDATA section or a quoted value that never ends in what
-///   it used to copy as comment. Such a section is scanned again with these comments left as
-///   they are, not refused.
+///   it used to copy as comment, or write a declaration keyword of what it used to copy as
+///   comment (`<!DO<![CDATA[]]>CTYPE`). Such a section is scanned again with these comments left
+///   as they are, not refused, whether the scan or the declaration check refused it (#333).
 /// - A DOCTYPE is copied to its first `>`, where the HTML Standard ends it, with the last letter
 ///   of each `PUBLIC` and `SYSTEM` in it written as its reference, so that libxml2 reads no
 ///   quoted identifier past that `>` either (`HTMLDoctypes`, #293).
@@ -598,19 +604,23 @@ private enum SourceEncoding {
 /// attribute values) and no DOCTYPE internal subset.
 /// With the bytes come the namespace prefixes that the document's `html` start tags declare, as
 /// the map reads them (#287).
-private enum HTMLRecoverySource {
+enum HTMLRecoverySource {
     static func prepare(_ data: Data) -> (data: Data, rootPrefixes: [(prefix: String, uri: String)])? {
         let bytes = [UInt8](data)
         let map = HTMLRawTextMap(bytes)
-        var scanned = scan(bytes, map, closingAbruptComments: true)
-        if scanned.output == nil, scanned.closedComment { scanned = scan(bytes, map, closingAbruptComments: false) }
-        guard let output = scanned.output, !hasDeclarations(output) else { return nil }
+        // At most two scans, and the bytes returned are those just checked. Where the first
+        // closed an abrupt comment and its result is refused, by the scan or by the declaration
+        // check, the second leaves such comments open, and its result is checked in turn (#333).
+        let scanned = scan(bytes, map, closingAbruptComments: true)
+        if let output = scanned.output, !hasDeclarations(output) { return (Data(output), map.rootPrefixes) }
+        guard scanned.closedComment, let output = scan(bytes, map, closingAbruptComments: false).output,
+              !hasDeclarations(output) else { return nil }
         return (Data(output), map.rootPrefixes)
     }
 
     /// The rewritten bytes, or `nil` for a CDATA section or a start tag's quoted value that never
     /// ends, and whether a `<!-->` or `<!--->` was closed on the way.
-    private static func scan(_ bytes: [UInt8], _ map: HTMLRawTextMap, closingAbruptComments: Bool) -> (output: [UInt8]?, closedComment: Bool) {
+    static func scan(_ bytes: [UInt8], _ map: HTMLRawTextMap, closingAbruptComments: Bool) -> (output: [UInt8]?, closedComment: Bool) {
         var output = [UInt8](); output.reserveCapacity(bytes.count)
         let cdataOpen = Array("<![CDATA[".utf8), cdataClose = Array("]]>".utf8)
         let commentOpen = Array("<!--".utf8)
@@ -784,12 +794,21 @@ private enum HTMLRecoverySource {
         return !((byte | 0x20 >= 0x61 && byte | 0x20 <= 0x7A) || (byte >= 0x30 && byte <= 0x39) || [0x3A, 0x2D, 0x5F, 0x2E].contains(byte))
     }
 
-    private static func hasDeclarations(_ bytes: [UInt8]) -> Bool {
+    /// Whether `bytes` hold a declaration keyword anywhere or a DOCTYPE that libxml2 may read a
+    /// subset in. One pass, however many DOCTYPE openers share a `>`, a keyword or a read through
+    /// quoted identifiers (#783).
+    static func hasDeclarations(_ bytes: [UInt8]) -> Bool {
         let keywords = ["<!ENTITY", "<!ATTLIST", "<!ELEMENT", "<!NOTATION"].map { Array($0.utf8) }
         let doctype = Array("<!DOCTYPE".utf8)
-        // The next `>` at or after the last DOCTYPE looked at, found once for all those before it.
-        var greaterThan = -1
+        // The next `>`, and the next `PUBLIC` or `SYSTEM`, at or after the last DOCTYPE looked
+        // at, each found once for all those before it.
+        var greaterThan = -1, keyword = -1
         var cleanThrough = -1 // A DOCTYPE that ends here held no keyword and no bracket.
+        // The quote states (none, `"` and `'`, as 1, 2 and 4) in which a read through quoted
+        // identifiers has passed each byte. A read goes on from a byte by its state there alone,
+        // and every read so far has ended clean, so a later one that reaches a byte in a state
+        // noted there ends clean too. Each byte is read at most three times.
+        var passed: [UInt8] = []
         for index in bytes.indices where bytes[index] == 0x3C {
             if keywords.contains(where: { matches(bytes, $0, at: index) }) { return true }
             if matches(bytes, doctype, at: index) {
@@ -802,15 +821,20 @@ private enum HTMLRecoverySource {
                 guard greaterThan < bytes.count else { return true }
                 let first = greaterThan + 1
                 if first == cleanThrough { continue } // Within the span of one already read.
-                if !HTMLDoctypes.holdsKeyword(bytes, in: index..<first) {
+                if keyword < index { keyword = HTMLDoctypes.firstKeyword(bytes, from: index) ?? bytes.count }
+                if keyword + 6 > first { // No `PUBLIC` or `SYSTEM` before the `>`.
                     if bytes[index..<first].contains(0x5B) { return true } // [
                     cleanThrough = first
                     continue
                 }
+                if passed.isEmpty { passed = [UInt8](repeating: 0, count: bytes.count) }
                 var quote: UInt8?
                 var position = index + doctype.count
                 var closed = false
                 while position < bytes.count, !closed {
+                    let state: UInt8 = quote == nil ? 1 : quote == 0x22 ? 2 : 4
+                    if passed[position] & state != 0 { closed = true; break } // As an earlier read went on.
+                    passed[position] |= state
                     let byte = bytes[position]
                     if byte == 0x5B { return true } // [
                     if let delimiter = quote { if byte == delimiter { quote = nil } }
@@ -851,7 +875,7 @@ private enum HTMLRecoverySource {
 /// are translated in their own encoding, retaining any byte-order mark.
 private enum NamedCharacterReferences {
     static func numeric(in data: Data) -> Data {
-        guard case let (encoding, mark)? = SourceEncoding.wide(data) else { return translate(data) ?? data }
+        guard case let (encoding, mark)? = XMLSafety.wideEncoding(data) else { return translate(data) ?? data }
         guard let text = String(data: data.dropFirst(mark), encoding: encoding),
               let translated = translate(Data(text.utf8)),
               let encoded = String(decoding: translated, as: UTF8.self).data(using: encoding) else { return data }

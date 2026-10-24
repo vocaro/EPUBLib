@@ -9,6 +9,15 @@ import Foundation
 /// This runs before stray signs and NULs are handled, so CDATA's characters follow the same
 /// rules and DOM offsets as ordinary text. The strict XML path never calls this preparation.
 ///
+/// Writing CDATA as its text joins the bytes on either side of its delimiters, and an empty
+/// section joins those around it. Where they would join into what the screen did not read
+/// there, `<!>`, which libxml2 2.9.13 reads as nothing in text, keeps them apart, as it keeps
+/// the bytes apart where a NUL is left out (`HTMLNullCharacters`): an end the screen reads
+/// (`?>` after a processing instruction this parser ended at its first `>`, or `-->`, `--!>` or
+/// `]]>` after a comment or CDATA the screen read in a style sheet), a `>` that may end a
+/// DOCTYPE and a `[`, which the screen refuses as an internal subset, and a `<`, which stays a
+/// sign rather than open markup with what follows it.
+///
 /// With `doctypesAsHTML`, which the declaration screen read the document with, a DOCTYPE ends
 /// at its first `>`, as the HTML Standard ends it, and is written so that libxml2 ends it there
 /// too (`HTMLDoctypes`, #293): one whose quoted identifier has lost its closing quote no longer
@@ -31,6 +40,15 @@ enum HTMLRecoveryText {
         func copy(to end: Int) {
             output.append(contentsOf: bytes[index..<end]); index = end
         }
+        /// The first `<!DOCTYPE`, in any case, once a section of CDATA asks for it.
+        lazy var doctype = bytes.indices.first { HTMLDoctypes.opens(bytes, at: $0) } ?? bytes.count
+        /// Whether `next`, written after `output` where CDATA's delimiters stood, would join the
+        /// bytes before it into what the screen did not read there.
+        func joins(_ next: ArraySlice<UInt8>) -> Bool {
+            guard let last = output.last, let first = next.first else { return false }
+            return last == 0x3C || (last == 0x3E && first == 0x5B && index > doctype) // < or >[
+                || HTMLNullCharacters.formsEnd(output, next)
+        }
         while index < bytes.count {
             if let element = rawText {
                 if starts(endTagOpen, at: index),
@@ -44,16 +62,16 @@ enum HTMLRecoveryText {
                 var end = index + cdataOpen.count
                 while end < bytes.count, !starts(cdataClose, at: end) { end += 1 }
                 guard end < bytes.count else { throw ContentDocumentError.malformed(path) }
-                for byte in bytes[(index + cdataOpen.count)..<end] {
-                    switch byte {
-                    case 0x26: output.append(contentsOf: "&amp;".utf8)
-                    case 0x3C: output.append(contentsOf: "&lt;".utf8)
-                    case 0x3E: output.append(contentsOf: "&gt;".utf8)
-                    default: output.append(byte)
-                    }
+                let content = bytes[(index + cdataOpen.count)..<end]
+                var first: [UInt8] = []
+                for byte in content.prefix(3) { Self.appendText(byte, to: &first) }
+                if joins(first[...]) { output.append(contentsOf: HTMLNullCharacters.emptyComment) }
+                for byte in content {
+                    Self.appendText(byte, to: &output)
                     guard output.count <= limit else { throw ContentDocumentError.limitExceeded("bytes") }
                 }
                 index = end + cdataClose.count
+                if joins(bytes[index...]) { output.append(contentsOf: HTMLNullCharacters.emptyComment) }
             } else if bytes[index] == 0x3C, index + 1 < bytes.count {
                 let next = bytes[index + 1]
                 if HTMLNullCharacters.isLetter(next) {
@@ -85,5 +103,15 @@ enum HTMLRecoveryText {
             guard output.count <= limit else { throw ContentDocumentError.limitExceeded("bytes") }
         }
         return Data(output)
+    }
+
+    /// Appends a byte of CDATA as the text it is.
+    private static func appendText(_ byte: UInt8, to output: inout [UInt8]) {
+        switch byte {
+        case 0x26: output.append(contentsOf: "&amp;".utf8)
+        case 0x3C: output.append(contentsOf: "&lt;".utf8)
+        case 0x3E: output.append(contentsOf: "&gt;".utf8)
+        default: output.append(byte)
+        }
     }
 }

@@ -62,10 +62,10 @@ struct WriterPackageCoverageTests {
     // reads. This package's strips and collapses the ASCII whitespace of a metadata value or a
     // label (EPUB Reading Systems 3.3 §5.3) and keeps other white space, so a value given with
     // a tab, a line end or spaces at its ends is in the document as given and is read back as
-    // its words between single spaces. What the writer should write for such a value is
-    // https://github.com/vocaro/EPUBLib/issues/254.
+    // its words between single spaces. How the writer writes a tab or line end is
+    // https://github.com/vocaro/EPUBLib/issues/254, below.
     @Test func whiteSpaceIsWrittenAsGivenAndReadBackStrippedAndCollapsed() async throws {
-        let given = "  A\tLong\n   Title \u{A0} of  Two\u{3000}Lines\u{A0}\n", read = "A Long Title \u{A0} of Two\u{3000}Lines\u{A0}"
+        let given = "  A\tLong\r\n   Title \u{A0} of  Two\u{3000}Lines\u{A0}\r", read = "A Long Title \u{A0} of Two\u{3000}Lines\u{A0}"
         let facts = EPUBPackageMetadata(metadata: .init(title: given, authors: [given], languages: ["en"]), identifier: given,
                                         modificationDate: WriterCoverage.date)
         let documents = try generate(facts, contents: [.init(title: given, href: "EPUB/one.xhtml")], pages: [.init(title: given, href: "EPUB/one.xhtml")])
@@ -75,6 +75,63 @@ struct WriterPackageCoverageTests {
         let publication = try await reopened(documents)
         expectScalars([publication.metadata.title] + publication.metadata.authors + publication.metadata.identifiers, [read, read, read], "metadata read back")
         expectScalars(publication.tableOfContents.map(\.title) + (publication.pageList ?? []).map(\.label), [read, read], "labels read back")
+    }
+
+    // A parser reads a carriage return written as it stands as a line feed, and a tab or line end
+    // written as it stands in an attribute value as a space (XML 1.0 §2.11, §3.3.3), but reads a
+    // reference to one as that character. The writer writes each as Canonical XML does (§2.3): a
+    // carriage return in text as `&#13;`, and a tab, line feed and carriage return in an
+    // attribute value as `&#9;`, `&#10;` and `&#13;`, so that each reads back as given
+    // (https://github.com/vocaro/EPUBLib/issues/254). A tab and a line feed in text stay as they are.
+    @Test func tabsAndLineEndsAreWrittenAsCanonicalXMLWritesThemAndReadBackAsGiven() async throws {
+        let given = "a\tb\nc\rd\r\ne"
+        // As written in text and in an attribute value.
+        let text = "a\tb\nc&#13;d&#13;\ne", attribute = "a&#9;b&#10;c&#13;d&#13;&#10;e"
+        let odd = EPUBResource(id: "c", path: "EPUB/one.xhtml", mediaType: "application/xhtml+xml", properties: ["p" + given])
+        let data = EPUBResource(id: "d", path: "EPUB/data.bin", mediaType: "application/x-odd;v=" + given)
+        let facts = EPUBPackageMetadata(metadata: .init(title: given, authors: [given], languages: [given]), identifier: given,
+                                        modificationDate: WriterCoverage.date, summary: given, keywords: [given])
+        let contents = [EPUBNavigationItem(title: given, href: "EPUB/one.xhtml"), .init(title: given, children: [.init(title: "Last", href: "EPUB/one.xhtml")])]
+        let documents = try generate(facts, resources: [odd, data], spine: [.init(resource: odd)], contents: contents,
+                                     pages: [.init(title: given, href: "EPUB/one.xhtml")])
+        // The bytes written. `String` holds a carriage return and line feed as one `Character`,
+        // so the documents are searched by byte.
+        let package = try WriterCoverage.document("EPUB/package.opf", in: documents)
+        let navigation = try WriterCoverage.document("EPUB/nav.xhtml", in: documents)
+        func expectHolds(_ document: String, _ markup: String, sourceLocation: SourceLocation = #_sourceLocation) {
+            #expect(Data(document.utf8).range(of: Data(markup.utf8)) != nil, "\(markup.debugDescription)", sourceLocation: sourceLocation)
+        }
+        for name in ["dc:identifier", "dc:title", "dc:language", "dc:creator", "dc:description", "dc:subject"] {
+            expectHolds(package, ">\(text)</\(name)>")
+        }
+        expectHolds(package, " media-type=\"application/x-odd;v=\(attribute)\"")
+        expectHolds(package, " properties=\"p\(attribute)\"")
+        expectHolds(navigation, " xml:lang=\"\(attribute)\" lang=\"\(attribute)\"")
+        expectHolds(navigation, "<a href=\"one.xhtml\">\(text)</a>")
+        expectHolds(navigation, "<span>\(text)</span>")
+        for (path, document) in [("package", package), ("navigation", navigation)] {
+            #expect(!document.utf8.contains(0x0D), "a carriage return as it stands in the \(path) document")
+        }
+        // To an XML parser, the values that were given.
+        let parsed = try opf(documents), parsedNavigation = try nav(documents)
+        for name in ["dc:identifier", "dc:title", "dc:language", "dc:creator", "dc:description", "dc:subject"] {
+            expectScalars(parsed.named(name).map(\.text), [given], name)
+        }
+        let items = parsed.named("item")
+        expectScalars(items.map { $0.attributes["media-type"] }, ["application/xhtml+xml", odd.mediaType, data.mediaType], "media-type")
+        expectScalars(items.dropLast().map { $0.attributes["properties"] }, ["nav", "p" + given], "properties")
+        let html = try #require(parsedNavigation.elements.first)
+        expectScalars([html.attributes["xml:lang"], html.attributes["lang"]], [given, given], "lang")
+        expectScalars(parsedNavigation.named("a").map(\.text), [given, "Last", given], "links")
+        expectScalars(parsedNavigation.named("span").map(\.text), [given], "headings")
+        // And to this package's reader, which reads a media type as given, and a metadata value or
+        // a label with its ASCII whitespace collapsed, whatever was written for it.
+        let publication = try await reopened(documents, content: [odd.path: WriterCoverage.xhtml("<p>Text</p>"), data.path: Data([0])])
+        expectScalars(publication.resources.dropFirst().map(\.mediaType), [odd.mediaType, data.mediaType], "media types read back")
+        let read = "a b c d e"
+        expectScalars([publication.metadata.title] + publication.metadata.authors + publication.metadata.identifiers + publication.metadata.languages,
+                      [read, read, read, read], "metadata read back")
+        expectScalars(titles(publication.tableOfContents) + (publication.pageList ?? []).map(\.label), [read, read, "Last", read], "labels read back")
     }
 
     @Test func navigationLabelsAndFragmentsAreEscapedExactlyOnce() async throws {
@@ -510,7 +567,10 @@ struct WriterPackageCoverageTests {
     // (https://github.com/vocaro/EPUBLib/issues/240). The link written is the one checked: the
     // declared path from the navigation document, encoded as the manifest encodes it. A target is
     // found among the declared paths by canonical equivalence, so a decomposed "é" for a declared
-    // composed one, and the other way round, is written as the declared path is.
+    // composed one, and the other way round, is written as the declared path is. A target is
+    // checked by that path alone: one spelled without "EPUB/" in front, as "x/../EPUB/one.xhtml"
+    // and "%45PUB/one.xhtml" are, names the resource "EPUB/one.xhtml" does, and is accepted
+    // (https://github.com/vocaro/EPUBLib/issues/606).
     @Test func everyTargetIsWrittenAsThePathItWasCheckedByWhateverItsSpelling() async throws {
         let odd = EPUBResource(id: "odd", path: "EPUB/text/a b \u{E9}.xhtml", mediaType: "application/xhtml+xml")
         let css = EPUBResource(id: "css", path: "EPUB/css/nav.css", mediaType: "text/css")
@@ -523,16 +583,23 @@ struct WriterPackageCoverageTests {
                          ("EPUB/c:x/../one.xhtml", "one.xhtml", one), ("EPUB/./one.xhtml", "one.xhtml", one),
                          ("EPUB/text/../one.xhtml#start", "one.xhtml#start", one),
                          ("EPUB//text/a b \u{E9}.xhtml#\u{E9}", "text/a%20b%20%C3%A9.xhtml#%C3%A9", odd),
-                         // Written as it stands, a tab in an attribute value is read back as a space
-                         // (https://github.com/vocaro/EPUBLib/issues/254).
+                         // URL parsing drops a tab in a link, as it stands or written as a reference,
+                         // so it is percent-encoded (https://github.com/vocaro/EPUBLib/issues/254).
                          ("EPUB/one.xhtml#a\tb", "one.xhtml#a%09b", one),
                          // The path is the declared one; the fragment, which is not checked, as given.
-                         ("EPUB/cafe\u{301}.xhtml#e\u{301}", "caf%C3%A9.xhtml#e%CC%81", cafe), ("EPUB/cafe%CC%81.xhtml", "caf%C3%A9.xhtml", cafe)]
+                         ("EPUB/cafe\u{301}.xhtml#e\u{301}", "caf%C3%A9.xhtml#e%CC%81", cafe), ("EPUB/cafe%CC%81.xhtml", "caf%C3%A9.xhtml", cafe),
+                         // Spelled without "EPUB/" in front.
+                         ("x/../EPUB/one.xhtml", "one.xhtml", one), ("%45PUB/one.xhtml#start", "one.xhtml#start", one),
+                         ("EPUB/../EPUB/one.xhtml", "one.xhtml", one), ("%45%50%55%42/one.xhtml", "one.xhtml", one),
+                         ("./EPUB/text/a b \u{E9}.xhtml#start", "text/a%20b%20%C3%A9.xhtml#start", odd),
+                         ("x/y/../../EPUB/a/../cafe\u{301}.xhtml", "caf%C3%A9.xhtml", cafe)]
         let targets = plain + respelled
         let stylesheets = [("EPUB/css/nav.css", "css/nav.css", css), ("EPUB//css/nav.css", "css/nav.css", css),
                            ("EPUB///css/nav.css", "css/nav.css", css), ("EPUB/c:x/../css/nav.css", "css/nav.css", css),
                            ("EPUB/./css//nav.css", "css/nav.css", css), (sheet.href, "css/cafe%CC%81.css", sheet),
-                           ("EPUB/css/caf\u{E9}.css", "css/cafe%CC%81.css", sheet), ("EPUB/css/caf%C3%A9.css", "css/cafe%CC%81.css", sheet)]
+                           ("EPUB/css/caf\u{E9}.css", "css/cafe%CC%81.css", sheet), ("EPUB/css/caf%C3%A9.css", "css/cafe%CC%81.css", sheet),
+                           ("x/../EPUB/css/nav.css", "css/nav.css", css), ("%45PUB/css/nav.css", "css/nav.css", css),
+                           ("EPUB/../EPUB/css/nav.css", "css/nav.css", css)]
         let content = [one.path: WriterCoverage.xhtml("<p id=\"start\">Text</p>"), odd.path: WriterCoverage.xhtml("<p id=\"start\">Odd</p>"),
                        cafe.path: WriterCoverage.xhtml("<p>Caf\u{E9}</p>"), css.path: Data("p{}".utf8), sheet.path: Data("p{}".utf8)]
         // As a browser reads a link: by URL parsing, from the navigation document's URL.
@@ -613,7 +680,7 @@ struct WriterPackageCoverageTests {
                 try generate(resources: [resource], spine: [.init(resource: resource)], contents: [])
             }
         }
-        for mediaType in ["", " ", "\u{A0}"] {
+        for mediaType in ["", " ", "\r", "\u{A0}"] {
             let resource = EPUBResource(id: "x", path: "EPUB/one.xhtml", mediaType: mediaType)
             #expect(throws: EPUBWritingError.invalidPublication("duplicate or invalid resource: EPUB/one.xhtml"), "\(mediaType.debugDescription)") {
                 try generate(resources: [resource], spine: [.init(resource: resource)], contents: [])
@@ -707,7 +774,12 @@ struct WriterPackageCoverageTests {
     }
 
     @Test func navigationTargetsMustBeDeclaredResourcesInsideThePackage() {
-        for href in ["EPUB/missing.xhtml", "EPUB/missing.xhtml#x", "one.xhtml", "", "#frag", "META-INF/container.xml", "mimetype", "EPUB"] {
+        // A target is refused by the path it resolves to, however it is spelled: one that names a
+        // file outside EPUB/, or no file, through EPUB/ or around it
+        // (https://github.com/vocaro/EPUBLib/issues/606).
+        for href in ["EPUB/missing.xhtml", "EPUB/missing.xhtml#x", "one.xhtml", "", "#frag", "META-INF/container.xml", "mimetype", "EPUB",
+                     "EPUB/../one.xhtml", "x/../one.xhtml", "EPUB/../mimetype", "%45PUB/../META-INF/container.xml", "x/../EPUB/missing.xhtml",
+                     "%45PUB", "x/../EPUB", "EPUB/../EPUB/../mimetype#x"] {
             let expected = EPUBWritingError.invalidPublication("navigation references an undeclared resource: \(href)")
             #expect(throws: expected, "contents \(href)") { try generate(contents: [.init(title: "t", href: href)]) }
             #expect(throws: expected, "nested \(href)") {
@@ -718,7 +790,8 @@ struct WriterPackageCoverageTests {
         }
         // References that leave the archive, name another origin or carry a query never reach the output.
         for href in ["../outside.xhtml", "EPUB/../../outside.xhtml", "/EPUB/one.xhtml", "http://example.invalid/x", "EPUB/one.xhtml?q=1",
-                     "EPUB/%zz.xhtml", "EPUB/one.xhtml#%zz", "EPUB\\one.xhtml"] {
+                     "EPUB/%zz.xhtml", "EPUB/one.xhtml#%zz", "EPUB\\one.xhtml", "x/../../EPUB/one.xhtml", "%2E%2E/EPUB/one.xhtml",
+                     "EPUB%2Fone.xhtml"] {
             #expect(throws: (any Error).self, "contents \(href)") { try generate(contents: [.init(title: "t", href: href)]) }
             #expect(throws: (any Error).self, "page \(href)") { try generate(pages: [.init(title: "1", href: href)]) }
         }

@@ -31,7 +31,7 @@ viewer depends on neither text extraction nor writing. There is no umbrella modu
 
 | Product | Use it to | Depends on |
 | --- | --- | --- |
-| `EPUBCore` | Share publication, resource, navigation and reader value types | Foundation |
+| `EPUBCore` | Share publication, resource, navigation and reader value types, and the license texts | Foundation |
 | `EPUBReading` | Open and parse a book | EPUBCore, ZIPFoundation |
 | `EPUBText` | Extract a section's text, headings and anchor positions | EPUBCore, EPUBReading, Apple's libxml2 |
 | `EPUBWriting` | Generate an EPUB 3 package and archive | EPUBCore, ZIPFoundation |
@@ -69,7 +69,8 @@ with compiled examples.
 EPUBLib is copyright (c) 2026 Vocaro Technologies LLC and available under the
 [MIT license](LICENSE). ZIPFoundation, MathMLLayout, StaticSVG and the resvg renderer it bundles,
 and the code ported from foliate-js carry their own licenses; see
-[third-party notices](doc/third-party-notices.md).
+[third-party notices](doc/third-party-notices.md). An app shows them all from the package with
+`EPUBLicense.all()` ([host integration](doc/integration.md#licenses)).
 
 ## Shared engineering
 

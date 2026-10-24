@@ -1,5 +1,6 @@
 import EPUBCore
 import EPUBReading
+import EPUBTestSupport
 import Foundation
 import XCTest
 @testable import EPUBViewing
@@ -103,7 +104,7 @@ import XCTest
         try await reader.session.send(.style(EPUBReaderStyle(fontSize: 26)))
         try await reader.wait("the larger text") { reader.state.status.effectiveFontSize == 26 }
         try await reader.settle()
-        try await Task.sleep(for: .milliseconds(100))
+        try await TestDeadline.pause(.milliseconds(100))
         XCTAssertEqual(annotations(), ["kept"])
         XCTAssertEqual(reader.notices(since: count), [Self.highlightsNotDrawn], "a layout notices nothing again")
 
@@ -111,7 +112,7 @@ import XCTest
         count = reader.events.count
         try await reader.session.send(.setHighlights([EPUBHighlight(id: "kept", location: kept)]))
         try await reader.session.send(.setHighlights([]))
-        try await Task.sleep(for: .milliseconds(100))
+        try await TestDeadline.pause(.milliseconds(100))
         XCTAssertEqual(reader.notices(since: count), [])
     }
 
@@ -143,7 +144,7 @@ import XCTest
         try await reader.wait("the highlight command") { sent != nil }
         try await sent?.value
         try await reader.settle()
-        try await Task.sleep(for: .milliseconds(100))
+        try await TestDeadline.pause(.milliseconds(100))
         XCTAssertTrue(reader.session.drawnHighlights.filter { $0.kind == .annotation }.isEmpty)
         XCTAssertEqual(reader.notices(), [Self.highlightsNotDrawn], "built when sent: \(builtWhenSent)")
     }

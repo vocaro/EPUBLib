@@ -15,9 +15,9 @@ import XCTest
     private struct Timeout: Error, CustomStringConvertible { let description: String }
 
     private func wait(_ label: String, timeout: TimeInterval = 60, until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = TestDeadline(seconds: timeout)
         while !condition() {
-            guard Date() < deadline else { throw Timeout(description: "Timed out waiting for \(label)") }
+            guard try !deadline.hasPassed() else { throw Timeout(description: "Timed out waiting for \(label)") }
             try await Task.sleep(for: .milliseconds(20))
         }
     }
@@ -51,8 +51,8 @@ import XCTest
         reader.window.resize(to: size)
         // The canvas follows its window. A host that cannot give it that width (a device's own
         // scene) still relayouts whatever it has, which is all the style change needs.
-        let deadline = Date().addingTimeInterval(5)
-        while reader.session.canvas?.bounds.width != size.width, Date() < deadline {
+        let deadline = TestDeadline(seconds: 5)
+        while reader.session.canvas?.bounds.width != size.width, try !deadline.hasPassed() {
             try await Task.sleep(for: .milliseconds(20))
         }
         #if os(macOS)
@@ -226,8 +226,8 @@ import XCTest
             }
             XCTAssertEqual(images.filter { $0.source != nil }.count, book.figures.count, "\(flow)")
             session.close()
-            let deadline = Date().addingTimeInterval(10)
-            while images.contains(where: { $0.source != nil }), Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+            let deadline = TestDeadline(seconds: 10)
+            while images.contains(where: { $0.source != nil }), try !deadline.hasPassed() { try await Task.sleep(for: .milliseconds(20)) }
             XCTAssertEqual(images.filter { $0.source != nil }.count, 0, "\(flow): a closed reader still holds its images")
         }
     }
@@ -282,8 +282,8 @@ import XCTest
         second.sections = []
         host.canvas.reloadContent(keeping: nil)
         host.layOut()
-        let deadline = Date().addingTimeInterval(10)
-        while first.images.contains(where: { $0.attachment != nil }), Date() < deadline { try await host.settle(50) }
+        let deadline = TestDeadline(seconds: 10)
+        while first.images.contains(where: { $0.attachment != nil }), try !deadline.hasPassed() { try await host.settle(50) }
         XCTAssertEqual(first.images.filter { $0.attachment != nil }.count, 0, "The replaced text's images are still alive")
         XCTAssertEqual(second.images.filter { $0.attachment != nil }.count, 60, "The mounted text keeps its own")
     }

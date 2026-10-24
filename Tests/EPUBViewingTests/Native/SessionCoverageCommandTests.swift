@@ -79,7 +79,7 @@ import XCTest
         defer { reader.close() }
         reader.session.close()
         reader.mount()
-        try await Task.sleep(for: .milliseconds(300))
+        try await TestDeadline.pause(.milliseconds(300))
         XCTAssertNil(reader.session.canvas)
         XCTAssertFalse(reader.session.isReady)
         XCTAssertTrue(reader.events.isEmpty, "\(reader.events)")
@@ -105,9 +105,9 @@ import XCTest
         let state = try XCTUnwrap(session.readerState)
         XCTAssertEqual(state.status.capabilities, session.capabilities)
         func wait(_ label: String, until condition: () -> Bool) async throws {
-            let deadline = Date().addingTimeInterval(20)
+            let deadline = TestDeadline(seconds: 20)
             while !condition() {
-                guard Date() < deadline else { throw SessionCoverageTimeout(description: "Timed out waiting for \(label)") }
+                guard try !deadline.hasPassed() else { throw SessionCoverageTimeout(description: "Timed out waiting for \(label)") }
                 try await Task.sleep(for: .milliseconds(20))
             }
         }
@@ -164,7 +164,7 @@ import XCTest
             "#\u{301}start",
         ]
         for href in refused { await reader.refuses(.navigate(href: href), "the href \(href.prefix(60).debugDescription)") }
-        try await Task.sleep(for: .milliseconds(100))
+        try await TestDeadline.pause(.milliseconds(100))
         XCTAssertEqual(reader.session.visibleRange, original, "a refused navigation moved the reader")
         XCTAssertEqual(reader.events.count, count, "a refused navigation emitted \(reader.events.dropFirst(count))")
         XCTAssertEqual(reader.state.status.activeCommands, 0)
@@ -242,7 +242,7 @@ import XCTest
         try await reader.wait("the location") { reader.locations.last == reader.session.lastLocation }
         let count = reader.events.count
         try await reader.session.send(.navigate(href: "OPS/three.xhtml"))
-        try await Task.sleep(for: .milliseconds(100))
+        try await TestDeadline.pause(.milliseconds(100))
         XCTAssertEqual(reader.session.visibleRange?.start, ReaderTextPosition(section: 2, offset: 0))
         XCTAssertEqual(reader.events.count, count, "\(reader.events.dropFirst(count))")
     }
@@ -296,7 +296,7 @@ import XCTest
             try await reader.wait("the start boundary in \(flow)") { state.status.canGoPrevious == false && state.status.canGoNext == true }
             let start = try XCTUnwrap(reader.session.visibleRange)
             try await reader.session.send(.previousPage)
-            try await Task.sleep(for: .milliseconds(200))
+            try await TestDeadline.pause(.milliseconds(200))
             XCTAssertEqual(reader.session.visibleRange, start, "\(flow): nothing linear precedes the first chapter")
 
             var forward: [Int] = [1]
@@ -310,7 +310,7 @@ import XCTest
             XCTAssertEqual(state.status.canGoNext, false, "\(flow): only the nonlinear afterword follows")
             let end = try XCTUnwrap(reader.session.visibleRange)
             try await reader.session.send(.nextPage)
-            try await Task.sleep(for: .milliseconds(200))
+            try await TestDeadline.pause(.milliseconds(200))
             XCTAssertEqual(reader.session.visibleRange, end, "\(flow): a turn at the book's end stays")
 
             var backward: [Int] = [3]
@@ -371,7 +371,7 @@ import XCTest
         let count = single.events.count
         try await single.session.send(.nextPage)
         try await single.session.send(.previousPage)
-        try await Task.sleep(for: .milliseconds(200))
+        try await TestDeadline.pause(.milliseconds(200))
         XCTAssertEqual(single.events.count, count, "\(single.events.dropFirst(count))")
         XCTAssertEqual(single.session.visibleRange?.start, ReaderTextPosition(section: 0, offset: 0))
     }
@@ -391,7 +391,7 @@ import XCTest
             }
             let start = try XCTUnwrap(reader.session.visibleRange)
             try await reader.session.send(.previousPage)
-            try await Task.sleep(for: .milliseconds(150))
+            try await TestDeadline.pause(.milliseconds(150))
             XCTAssertEqual(reader.session.visibleRange, start, "\(flow): nothing precedes the first page")
             var position = start.start, progression = try XCTUnwrap(reader.session.lastLocation?.progression)
             for turn in 1...2 {
@@ -519,7 +519,7 @@ import XCTest
             do { try await reader.session.send(.restore(location)); XCTFail("Restored \(label)") }
             catch { XCTAssertEqual(error as? EPUBReaderError, .incompatibleLocation, label) }
         }
-        try await Task.sleep(for: .milliseconds(100))
+        try await TestDeadline.pause(.milliseconds(100))
         XCTAssertEqual(reader.session.visibleRange, original)
         XCTAssertEqual(reader.events.count, count, "an incompatible location emitted \(reader.events.dropFirst(count))")
 
@@ -556,9 +556,9 @@ import XCTest
                 XCTAssertEqual(error as? EPUBReaderError, .incompatibleLocation, label)
                 continue
             }
-            try await Task.sleep(for: .milliseconds(100))
+            try await TestDeadline.pause(.milliseconds(100))
             XCTAssertEqual(reader.notices(since: count), ["The saved position could not be found in this book."], label)
-            try await Task.sleep(for: .milliseconds(50))
+            try await TestDeadline.pause(.milliseconds(50))
             XCTAssertEqual(reader.session.visibleRange, original, "\(label) moved the reader")
             XCTAssertTrue(reader.locations(since: count).isEmpty, label)
         }
@@ -646,7 +646,7 @@ import XCTest
         try await reader.settle()
         try await reader.session.send(.locate(text: "findword", highlight: false))
         try await reader.wait("the note") { reader.section == 1 }
-        try await Task.sleep(for: .milliseconds(300))
+        try await TestDeadline.pause(.milliseconds(300))
         XCTAssertNil(reader.session.selection, "nothing is selected without highlight")
         XCTAssertNil(reader.session.canvas?.currentSelection)
         XCTAssertTrue(reader.selections().isEmpty, "\(reader.selections())")
@@ -692,7 +692,7 @@ import XCTest
                 let count = reader.events.count
                 try await reader.session.send(.locate(text: "Hidden lantern phrase", highlight: highlight))
                 try await reader.wait("\(label): the hidden passage's document") { reader.section == 1 }
-                try await Task.sleep(for: .milliseconds(300))
+                try await TestDeadline.pause(.milliseconds(300))
                 XCTAssertNil(reader.session.selection, "\(label): content that renders nothing cannot be selected")
                 XCTAssertNil(reader.session.canvas?.currentSelection, label)
                 XCTAssertTrue(reader.notices(since: count).isEmpty, "\(label): it was found: \(reader.notices(since: count))")

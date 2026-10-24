@@ -42,7 +42,9 @@ public struct EPUBPublication: Sendable {
     /// highlight, that carries any of them.
     public let publicationIDs: [String]
     /// The first `dc:title` that has a value and, in document order, every `dc:creator`,
-    /// `dc:language` and `dc:identifier` that has one. A value is the element's text with each
+    /// `dc:language` and `dc:identifier` that has one, each also in OEBPS 1.2's capitals, such as
+    /// `dc:Title`, where it stands inside `dc-metadata`. U+FEFF, a zero-width no-break space
+    /// inside text, is in no value. A value is the element's text with each
     /// run of ASCII whitespace read as one space and none left at either end, so one its
     /// authoring tool wrapped and indented is one line; other white space, a no-break space
     /// among it, is kept inside and at the ends of a value that holds anything else, and an
@@ -59,12 +61,12 @@ public struct EPUBPublication: Sendable {
     /// The navigation document's `toc` or, without that document, the NCX's `navMap`. An entry
     /// whose href does not resolve inside the archive keeps its title and children, without an href.
     /// A title is the text of the entry's link or heading, or of its `navLabel`, read as a
-    /// metadata value is: ASCII whitespace stripped from its ends and collapsed, and empty, its
-    /// entry kept, when the text is nothing but white space of any kind. An image, SVG drawing,
-    /// formula or other embedded element in it is read as its alternative text: its `alt`, else
-    /// its `title`, else a drawing's `title` element or a formula's `alttext`; one with none of
-    /// these is read by its content. A title that is empty then is the link or heading's own
-    /// `title`, read the same way, when it has one.
+    /// metadata value is: ASCII whitespace stripped from its ends and collapsed, U+FEFF left out,
+    /// and empty, its entry kept, when the text is nothing but white space of any kind. A `br` in
+    /// it is read as a space. An image, SVG drawing, formula or other embedded element in it is
+    /// read as its alternative text: its `alt`, else its `title`, else a drawing's `title` element
+    /// or a formula's `alttext`; one with none of these is read by its content. A title that is
+    /// empty then is the link or heading's own `title`, read the same way, when it has one.
     public let tableOfContents: [EPUBNavigationItem]
     /// The navigation document's `landmarks` in order or, when it lists none, the OPF `guide`'s
     /// references. Entries whose href does not resolve inside the archive are left out. A title
@@ -272,9 +274,17 @@ public struct EPUBPublication: Sendable {
         // The children of `metadata`, with those of a `dc-metadata` or `x-metadata` element in its
         // place. OEBPS 1.2 wrapped a package's Dublin Core elements in the first and its `meta`
         // elements in the second, and OPF 2.0.1 §2.2, which deprecates both, has a reading system
-        // allow them. They are read in a package of any version, as the rest of it is (#85).
+        // allow them. They are read in a package of any version, as the rest of it is (#85). An
+        // element of `dc-metadata` is read by its Dublin Core name in any case of ASCII letters:
+        // OEBPS 1.2 named them `dc:Title` and `dc:Creator`, and OPF 2.0.1 §1.4.3 says they "must
+        // now be lower case", but a package converted lightly from an OEBPS 1.2 book keeps the
+        // capitals. Anywhere else a name is matched as written (#608).
         let metadataElements = (opf.children.first { $0.name == "metadata" }?.children ?? []).flatMap {
-            $0.name == "dc-metadata" || $0.name == "x-metadata" ? $0.children : [$0]
+            switch $0.name {
+            case "dc-metadata": $0.children.map(\.dublinCoreNamed)
+            case "x-metadata": $0.children
+            default: [$0]
+            }
         }
         func values(_ name: String) -> [String] {
             metadataElements.filter { $0.name == name }.map(\.text).filter { !$0.isEmpty }
@@ -296,7 +306,9 @@ public struct EPUBPublication: Sendable {
             // IDPF's key is made from the unique identifier as written, less "specifically, the
             // Unicode code points U+0020, U+0009, U+000D and U+000A" (EPUB 3.3 §4.4.3) and nothing
             // else: white space outside ASCII is part of it, at its ends too. Each is removed as its
-            // UTF-8 byte, which is part of no other scalar, so a mark after a space is kept.
+            // UTF-8 byte, which is part of no other scalar, so a mark after a space is kept. U+FEFF,
+            // which the parser keeps in some places and not others, is left out of the text it is
+            // read from (`XMLNode.add`).
             let idpfIdentifier = (unique?.content ?? "").utf8.filter { $0 != 0x20 && $0 != 0x09 && $0 != 0x0D && $0 != 0x0A }
             for encrypted in encryption.descendants("EncryptedData") {
                 // The file a URI names, as a URL from the container root or else as the path it
@@ -637,11 +649,11 @@ private final class XMLNode {
     let name: String
     let attributes: [AttributeName: String]
     private(set) var children: [XMLNode] = []
-    /// The text of the element and of everything inside it, as the parser gives it. A value is
-    /// read from it as `text`, and a font obfuscation key is made from it by its algorithm's own
-    /// rule, not from `text`.
+    /// The text of the element and of everything inside it, as the parser gives it less U+FEFF
+    /// (`add`). A value is read from it as `text`, and a font obfuscation key is made from it by
+    /// its algorithm's own rule, not from `text`.
     var content = ""
-    /// The element's own text, as the parser gives it, in the runs its children divide it into:
+    /// The element's own text, as `content` holds it, in the runs its children divide it into:
     /// the first before the first child, each other after the child before it.
     private var runs = [""]
     /// The element's value: its text and that of everything inside it, with each run of ASCII
@@ -652,24 +664,28 @@ private final class XMLNode {
     /// it is in a value that holds anything else. A value of nothing but white space of any kind
     /// (Foundation's `whitespacesAndNewlines`, by scalar) is empty: a lone no-break space is a
     /// tool's placeholder, and no host can show one. ASCII whitespace is read by byte, not by
-    /// `Character`: a space is one whatever mark follows it, and the mark stays.
+    /// `Character`: a space is one whatever mark follows it, and the mark stays. U+FEFF is in
+    /// no value (`withoutZeroWidthNoBreakSpaces`).
     var text: String { Self.collapsed(content) }
     /// The element as a navigation label: its text read as `text` is, with each embedded element
-    /// inside it read as its `alternative`, or, when that is empty, its own `title` read the same
-    /// way. EPUB Reading Systems 3.3 §7 has a reading system put a non-text element's alternative
-    /// text in its place in a label, and EPUB 3.3 §7.3 has a link or heading holding embedded
-    /// content with no text alternative carry its label in a `title`, which foliate-js reads when
-    /// the label is empty.
+    /// inside it read as its `alternative` and each `br` as a space, or, when that is empty, its
+    /// own `title` read the same way. EPUB Reading Systems 3.3 §7 has a reading system put a
+    /// non-text element's alternative text in its place in a label, and EPUB 3.3 §7.3 has a link
+    /// or heading holding embedded content with no text alternative carry its label in a `title`,
+    /// which foliate-js reads when the label is empty.
     var label: String {
         let label = Self.collapsed(labelContent)
         guard label.isEmpty, let title = attribute("title") else { return label }
         return Self.collapsed(title)
     }
     /// The element's text and that of everything inside it, each embedded element's `alternative`
-    /// in place of its own.
+    /// in place of its own and each `br` a space: the line break it renders, read in one line,
+    /// so that the words either side of it do not run together (#283).
     private var labelContent: String {
         var text = runs[0]
-        for (child, run) in zip(children, runs.dropFirst()) { text += (child.alternative ?? child.labelContent) + run }
+        for (child, run) in zip(children, runs.dropFirst()) {
+            text += (child.name == "br" ? " " : child.alternative ?? child.labelContent) + run
+        }
         return text
     }
     /// What stands for an embedded element in a label: its `alt`, else its `title` (EPUB Reading
@@ -688,10 +704,22 @@ private final class XMLNode {
     /// HTML's embedded content but `picture`, whose image stands for it, by local name, as the
     /// navigation reader matches every element.
     private static let embedded: Set = ["img", "svg", "math", "audio", "video", "canvas", "object", "embed", "iframe"]
-    /// A value read as `text` reads `content`, and a guide reference's `title` as a label's.
+    /// A value read as `text` reads `content`, and a guide reference's `title` as a label's. An
+    /// attribute read so, an alternative or a `title`, is without U+FEFF, as text is (`add`).
     static func collapsed(_ value: String) -> String {
+        let value = withoutZeroWidthNoBreakSpaces(value)
         guard !value.unicodeScalars.allSatisfy(CharacterSet.whitespacesAndNewlines.contains) else { return "" }
         return joined(value) { $0 == 0x20 || $0 == 0x09 || $0 == 0x0A || $0 == 0x0C || $0 == 0x0D }
+    }
+    /// `value` without U+FEFF, which inside text is a zero-width no-break space. The parser drops
+    /// one that begins a piece of the text it hands over, or an attribute's value, and keeps one
+    /// inside a piece. A piece begins at a character reference, where ASCII is followed by any
+    /// other character and every 300 bytes of a run of those, so whether a value kept one would
+    /// depend on how and where it was written. Dropped everywhere, it stands in no value or
+    /// label. U+2060, the word joiner Unicode has in its place, is kept (#283).
+    private static func withoutZeroWidthNoBreakSpaces(_ value: String) -> String {
+        guard value.unicodeScalars.contains("\u{FEFF}") else { return value }
+        return String(value.unicodeScalars.filter { $0 != "\u{FEFF}" })
     }
     /// `value` with each run of the bytes `isSpace` names read as one space and none left at
     /// either end.
@@ -709,8 +737,27 @@ private final class XMLNode {
     init(_ name: String, _ attributes: [AttributeName: String]) { self.name = name; self.attributes = attributes }
     /// Adds the next of the element's children, in document order.
     func add(_ child: XMLNode) { children.append(child); runs.append("") }
-    /// Adds the next of the parser's text inside the element, not inside a child.
-    func add(_ text: String) { content += text; runs[runs.count - 1] += text }
+    /// Adds the next of the parser's text inside the element, not inside a child, without
+    /// U+FEFF, wherever the parser split the text (`withoutZeroWidthNoBreakSpaces`). `content`
+    /// lacks it too, and so does the identifier a font key is made from.
+    func add(_ text: String) {
+        let text = Self.withoutZeroWidthNoBreakSpaces(text)
+        content += text; runs[runs.count - 1] += text
+    }
+    /// An element of `dc-metadata` under the lower-case name of the Dublin Core element it names
+    /// without regard to the case of ASCII letters, as OEBPS 1.2 wrote them (`dc:Title`); any
+    /// other element as it is.
+    var dublinCoreNamed: XMLNode {
+        let lowered = String(decoding: name.utf8.map { $0 >= 0x41 && $0 <= 0x5A ? $0 | 0x20 : $0 }, as: UTF8.self)
+        guard lowered != name, Self.dublinCoreElements.contains(lowered) else { return self }
+        let node = XMLNode(lowered, attributes)
+        node.children = children; node.content = content; node.runs = runs
+        return node
+    }
+    /// The fifteen elements of the Dublin Core Metadata Element Set, which OEBPS 1.2 and OPF name.
+    private static let dublinCoreElements: Set = ["contributor", "coverage", "creator", "date", "description", "format",
+                                                  "identifier", "language", "publisher", "relation", "rights", "source",
+                                                  "subject", "title", "type"]
     /// The value of an attribute by local name; `namespace` nil matches an attribute in no namespace.
     func attribute(_ local: String, namespace: String? = nil) -> String? {
         attributes[AttributeName(namespace: namespace ?? "", local: local)]
@@ -779,26 +826,40 @@ private final class XMLTree: NSObject, XMLParserDelegate {
         // clears them after it, which would leave a host's own messages to standard error.
         return LibXML2Messages.silenced { parser.parse() } ? delegate.root : nil
     }
+    /// A qualified name's prefix and local part, as text extraction splits one: at its first
+    /// colon, where a name stands on each side. libxml2 reports a name that Namespaces in XML
+    /// forbids with a namespace error and reads on, and `XMLParser` hands the name on as written
+    /// (#644). One that begins or ends with its colon has no prefix and is read whole
+    /// (`:navPoint`, `script:`, `:`), and the rest of one with more colons is its local name, as
+    /// libxml2 reads it (`b:c` of `a:b:c`). So `xmlns:` declares nothing, and `xmlns:a:b` a prefix
+    /// no name can use.
+    private static func split(_ name: String) -> (prefix: String, local: String) {
+        guard let colon = name.firstIndex(of: ":"), colon != name.startIndex,
+              name.index(after: colon) != name.endIndex else { return ("", name) }
+        return (String(name[..<colon]), String(name[name.index(after: colon)...]))
+    }
     func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?,
                 qualifiedName: String?, attributes: [String: String]) {
         count += 1
         guard stack.count < 64, count <= 100_000 else { parser.abortParsing(); return }
-        let local = String(name.split(separator: ":").last ?? Substring(name))
-        func isDeclaration(_ key: String) -> Bool { key == "xmlns" || key.hasPrefix("xmlns:") }
+        // An element is matched by its local name alone. One that Namespaces in XML forbids
+        // (`:navPoint`, `script:`, `a:b:c`) is an unknown element, not the one its last piece names.
+        let local = Self.split(name).local
+        func isDeclaration(_ key: String) -> Bool { key == "xmlns" || Self.split(key).prefix == "xmlns" }
         var namespaces = scopes.last ?? ["xml": XMLNamespace.xml]
         // XMLParser gives no document order, and a dictionary's changes from run to run. Two
         // prefixes for one namespace give two attributes one name, which Namespaces in XML forbids
         // and XMLParser reads on; of those, the one whose qualified name sorts last is kept (#213).
         let attributes = attributes.sorted { $0.key < $1.key }
         for (key, value) in attributes where isDeclaration(key) {
-            namespaces[key == "xmlns" ? "" : String(key.dropFirst(6))] = value
+            namespaces[key == "xmlns" ? "" : Self.split(key).local] = value
         }
         var attrs: [XMLNode.AttributeName: String] = [:]
         for (key, value) in attributes where !isDeclaration(key) {
             // Unprefixed attributes are in no namespace, whatever the default one is.
-            let parts = key.split(separator: ":", maxSplits: 1)
-            if parts.count == 2, let uri = namespaces[String(parts[0])] {
-                attrs[.init(namespace: uri, local: String(parts[1]))] = value
+            let (prefix, local) = Self.split(key)
+            if !prefix.isEmpty, let uri = namespaces[prefix] {
+                attrs[.init(namespace: uri, local: local)] = value
             } else {
                 attrs[.init(namespace: "", local: key)] = value
             }
@@ -837,9 +898,9 @@ private enum BrowserMarkup {
     /// `data` rewritten, or as it stands: decided for the bytes given, those one parse attempt
     /// starts from, in one of three ways.
     ///
-    /// - A document `wide` takes for UTF-16 or UTF-32, by a byte-order mark or by the NUL bytes
-    ///   among its first four, is rewritten as text decoded in that encoding, if it decodes,
-    ///   whatever its XML declaration says. The mark or those bytes are trusted for the whole
+    /// - A document `XMLSafety.wideEncoding` takes for UTF-16 or UTF-32, by a byte-order mark or
+    ///   by the NUL bytes among its first four, is rewritten as text decoded in that encoding, if
+    ///   it decodes, whatever its XML declaration says. The mark or those bytes are trusted for the whole
     ///   document. The parser stays in UTF-16 when the declaration names UTF-8, but can change
     ///   after the declaration to another encoding it names, wide or not, and a document made
     ///   that way can be rewritten wrongly: when its first 90 bytes are a UTF-16LE byte-order
@@ -853,24 +914,11 @@ private enum BrowserMarkup {
     /// - Any other is rewritten when `isASCIITransparent` says so, by its XML declaration read
     ///   as ASCII.
     static func asXML(_ data: Data) -> Data {
-        guard case let (encoding, mark)? = wide(data) else { return isASCIITransparent(data) ? rewrite(data) ?? data : data }
+        guard case let (encoding, mark)? = XMLSafety.wideEncoding(data) else { return isASCIITransparent(data) ? rewrite(data) ?? data : data }
         guard let text = String(data: data.dropFirst(mark), encoding: encoding),
               let rewritten = rewrite(Data(text.utf8)),
               let encoded = String(decoding: rewritten, as: UTF8.self).data(using: encoding) else { return data }
         return data.prefix(mark) + encoded
-    }
-
-    private static func wide(_ data: Data) -> (encoding: String.Encoding, mark: Int)? {
-        let prefix = Array(data.prefix(4))
-        if prefix.starts(with: [0, 0, 0xFE, 0xFF]) { return (.utf32BigEndian, 4) }
-        if prefix.starts(with: [0, 0, 0]) { return (.utf32BigEndian, 0) }
-        if prefix.starts(with: [0xFF, 0xFE, 0, 0]) { return (.utf32LittleEndian, 4) }
-        if prefix.count == 4 && prefix[1...3].allSatisfy({ $0 == 0 }) { return (.utf32LittleEndian, 0) }
-        if prefix.starts(with: [0xFE, 0xFF]) { return (.utf16BigEndian, 2) }
-        if prefix.first == 0 { return (.utf16BigEndian, 0) }
-        if prefix.starts(with: [0xFF, 0xFE]) { return (.utf16LittleEndian, 2) }
-        if prefix.count >= 2 && prefix[1] == 0 { return (.utf16LittleEndian, 0) }
-        return nil
     }
 
     /// Whether a document that is not UTF-16 or UTF-32 keeps every byte below 0x80 for its ASCII
