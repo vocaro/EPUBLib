@@ -89,19 +89,25 @@ neither passed nor failed: run those tests again when the host is quieter. The M
 is `.build/validation/mac.log`. The script checks bound a run of fake tools only against a
 hang, at two minutes (`HANG_SECONDS` in `scripts/tests/support.py`).
 
-Some tests are measured only at normal memory pressure. A verifier wait that is meant to run
-out, as when `ControlsCoverageContractTests` and `EngineContractTests` check that a broken
-engine is refused, reaches its limit on every run. So under memory pressure it is unmeasured
-every time, in a simulator too, whose test process reads the host's level. On 2026-10-23 five
-of them were unmeasured on the iPhone simulator, in a gate and again alone, and passed in a rerun
-during which the level read 1 throughout
-([the record](https://github.com/vocaro/EPUBLib/issues/601#issuecomment-6377013285)). Rerun
-them with the level logged beside the run:
+A wait for something that is never to come is not held to a limit. `ControlsCoverageContractTests`
+and `EngineContractTests` check that the contract verifier refuses broken engines, and many of
+those never send what the verifier waits for. Their engines say when they are idle
+([adapter contract tests](#adapter-contract-tests)), so such a wait fails once the engine is
+idle, at any memory pressure. Until then each of those waits ran to its limit on every run, and
+under memory pressure was unmeasured every time, in a simulator too, whose test process reads the
+host's level: on 2026-10-23 two gates exited 3 for those checks alone
+([#859](https://github.com/vocaro/EPUBLib/issues/859)).
+
+A wait for an engine that is still busy keeps its limit, and is unmeasured when the limit passes
+under memory pressure. Whether an event still on its way would have come in time is a question of
+time, and a thread that waits for its own pages is not runnable, so no clock leaves that stall
+out and none tells it from a late engine. In the gate those waits are for correct engines, and
+end when the event comes. Rerun a test unmeasured under memory pressure with the level logged
+beside the run:
 
 ```sh
 ( while sleep 2; do echo "$(date +%T) $(sysctl -n kern.memorystatus_vm_pressure_level)"; done ) > pressure.log &
-python3 scripts/eng run ios-tests -- -only-testing:EPUBViewingTests/ControlsCoverageContractTests \
-  -only-testing:EPUBViewingTests/EngineContractTests
+python3 scripts/eng run ios-tests -- -only-testing:EPUBViewingTests/ReaderControlsTests
 kill %1
 ```
 
@@ -1447,6 +1453,14 @@ python3 scripts/eng admit -- python3 contend.py 36 -- swift test --skip-build --
 On 2026-10-23, neither kind of spinner made the 0.2–0.3 s contract waits that `main` had before
 #859 fail ([the runs](https://github.com/vocaro/EPUBLib/issues/859#issuecomment-6375657021)).
 
+To see which tests memory pressure would leave unmeasured without raising it, which on a shared
+Mac slows every other session's work, have `TestDeadline.reading()` report pressure in a
+scratch build: [#859](https://github.com/vocaro/EPUBLib/issues/859) has the patch, which reads
+an environment variable, and a simulator's test process gets it with the `TEST_RUNNER_` prefix.
+On 2026-10-23, so run, the two contract classes left five tests unmeasured on the Mac before
+their engines reported idle and none after, and the whole iOS suite after it left none on either
+simulator.
+
 ## Adapter contract tests
 
 The **EPUBViewingTestSupport** target exercises engine contracts with `EPUBEngineContract.verify`.
@@ -1488,14 +1502,29 @@ The verifier checks:
 
 A minimal SwiftUI test engine runs the same checks with no renderer at all, as an engine with no
 search, one that only highlights, one that lists results, and one that lists them and reports a
-step's relocation and a clear's idle state 30 ms late, from a timer of its own. Deliberately broken
+navigation's, a restoration's and a step's relocation and a clear's idle state 30 ms late, from
+a timer of its own. Deliberately broken
 engines demonstrate that missing/duplicate readiness, ignored cancellation, incompatible restoration,
 locations that carry the file's hash, a restore that refuses a location saved under it,
 late callbacks, results published after completion, steps that do not wrap, stale results that
-still navigate, results kept after a clear and a step of a cleared search that still moves the
-reader fail the verifier, and in `ControlsCoverageContractTests` so do a relocation with no
+still navigate, results kept after a clear, a step of a cleared search that still moves the
+reader and an engine that says it is idle before its relocation has come fail the verifier, and
+in `ControlsCoverageContractTests` so do a relocation with no
 reason, one whose reason is given only after the event and a relayout reported as a move. Adapter-specific tests must additionally check actual rendering,
 selection gestures, precise bookmark semantics and resource release.
+
+A session that adopts `EPUBEngineContract.IdleReporting` says when it has sent all it will: no
+timer, task or layout of its own is still to report on what it was given. A wait for an event
+that has not come then fails as soon as the session is idle, "Engine idle while waiting for …",
+before any limit runs out, so neither the host's load nor its memory pressure decides it. While the
+session is busy the wait's `timeout` holds: an event that comes after it is late, "Timed out
+waiting for …", and a limit that passes under memory pressure is unmeasured
+([why](#local-gate)). Both test engines report idle, the one with timers by counting them, so
+each broken one that never sends what the verifier waits for is refused as measured.
+`EngineContractTests` checks the verdicts for a busy engine on clocks of its own, `verify`'s
+`clock`, on which the limit has passed the first time the verifier looks. An engine that does not
+adopt the protocol, as the native one does not, is judged by the limit alone. The settling waits
+below stay timed for every engine, so that the test engine's 30 ms timers go on testing them.
 
 A bounded quiet period after close detects late callbacks; it cannot prove that an engine will
 never emit a much later event. The verifier waits as

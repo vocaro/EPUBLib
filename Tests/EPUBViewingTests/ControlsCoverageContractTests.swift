@@ -41,9 +41,12 @@ import XCTest
     }
 }
 
-@MainActor private final class ControlsCoverageContractSession: EPUBReaderSession {
+@MainActor private final class ControlsCoverageContractSession: EPUBEngineContract.IdleReporting {
     let capabilities: Set<EPUBReaderCapability>
     let readerState: EPUBReaderState?
+    /// It sends what it sends before the call that causes it returns, so it is idle whenever the
+    /// verifier looks, and a wait for what it did not send ends at once.
+    let isIdle = true
     private let book: EPUBPublication
     private let fault: ControlsCoverageContractEngine.Fault
     private let bareResults: Bool
@@ -322,9 +325,9 @@ import XCTest
 
     /// "Href navigation changes sections and bookmark restoration returns to the saved section."
     func testTheVerifierRejectsEnginesThatDoNotNavigateOrRestore() async throws {
-        try await expectRejected(.navigationDoesNotRelocate, "Timed out waiting for second href")
-        try await expectRejected(.restoreDoesNotRelocate, "Timed out waiting for restoration")
-        try await expectRejected(.restoreGoesElsewhere, "Timed out waiting for restoration")
+        try await expectRejected(.navigationDoesNotRelocate, "Engine idle while waiting for second href")
+        try await expectRejected(.restoreDoesNotRelocate, "Engine idle while waiting for restoration")
+        try await expectRejected(.restoreGoesElsewhere, "Engine idle while waiting for restoration")
     }
 
     /// "Locations carry the publication identity and a valid engine-tagged bookmark when
@@ -356,8 +359,8 @@ import XCTest
         try await expectRejected(.resultsOfAnotherPublication, "Result belongs to another publication")
         try await expectRejected(.resultsOfAnotherQuery, "Results name another query")
         try await expectRejected(.currentMatchOutsideTheList, "Current match is not a listed result")
-        try await expectRejected(.nextDoesNotStep, "Timed out waiting for next search result")
-        try await expectRejected(.showDoesNotSelect, "Timed out waiting for selected search result")
+        try await expectRejected(.nextDoesNotStep, "Engine idle while waiting for next search result")
+        try await expectRejected(.showDoesNotSelect, "Engine idle while waiting for selected search result")
         try await expectRejected(.stateDoesNotMirrorResults, "Reader state does not mirror the published search results")
         try await expectRejected(.stateKeepsClearedResults, "Reader state kept cleared search results")
         try await expectRejected(.publishesResultsWithoutTheCapability, "Search results published without the capability",
@@ -380,7 +383,7 @@ import XCTest
     /// forward from the last result returns to the first, as one backward from the first
     /// returns to the last.
     func testTheVerifierRejectsAnEngineThatDoesNotWrapForwardFromTheLastResult() async throws {
-        try await expectRejected(.doesNotWrapForward, "Timed out waiting for first search result after the last")
+        try await expectRejected(.doesNotWrapForward, "Engine idle while waiting for first search result after the last")
     }
 
     /// "refuses an unlisted result": `.showSearchResult` is for "one of the current

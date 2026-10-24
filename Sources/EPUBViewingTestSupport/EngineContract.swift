@@ -14,16 +14,26 @@ import Foundation
         public var errorDescription: String? { description }
     }
 
+    /// A session that can say when it has sent all it will: no timer, task or layout of its own
+    /// is still to report on what it was given. A wait for an event that has not come then fails
+    /// as soon as the session is idle, before any limit runs out, so neither the host's load nor
+    /// its memory pressure decides it. While the session is busy the wait's limit holds, so an
+    /// event that comes after the limit is still late.
+    public protocol IdleReporting: EPUBReaderSession {
+        var isIdle: Bool { get }
+    }
+
     /// Tests lifecycle, advertised commands, cancellation, location identity, bookmark restoration
     /// and, from an engine with `readerState`, the reason given for each relocation.
     /// Rendering fidelity, input gestures and resource release require adapter-specific tests.
     /// The mount closure returns cleanup; it must retain its window until cleanup runs. Each wait
-    /// for an event is a `TestDeadline` of `timeout`; one the host decided throws
-    /// `TestDeadline.Unmeasured`.
+    /// for an event is a `TestDeadline` of `timeout` on `clock`, the host's own unless a test of
+    /// the verifier gives its own; one the host decided throws `TestDeadline.Unmeasured`. A wait
+    /// for a session that is `IdleReporting` fails once the session is idle without the event.
     public static func verify(
         engine: any EPUBReaderEngine, publication: EPUBPublication,
         firstHref: String, secondHref: String, text: String,
-        timeout: TimeInterval = 20,
+        timeout: TimeInterval = 20, clock: @escaping @Sendable () -> TestDeadline.Reading = TestDeadline.reading,
         mount: (any EPUBReaderSession) throws -> (@MainActor () -> Void)
     ) async throws {
         var events: [EPUBReaderEvent] = []
@@ -43,12 +53,15 @@ import Foundation
         try require(timeout.isFinite && timeout > 0, "Timeout must be positive and finite")
         try require(firstHref != secondHref && publication.spine.contains { $0.resource.href == firstHref }
             && publication.spine.contains { $0.resource.href == secondHref }, "Provide two distinct spine resource hrefs")
+        let idling = session as? any IdleReporting
         func wait(_ label: String, _ condition: () -> Bool) async throws {
-            let deadline = TestDeadline(seconds: timeout)
+            let deadline = TestDeadline(seconds: timeout, read: clock)
             while !condition() {
                 if let failure = events.compactMap({ event -> EPUBReaderError? in
                     if case .failed(let error) = event { return error }; return nil
                 }).first { throw Failure(description: "Engine failed: \(failure)") }
+                // What an idle engine has not sent it will not send, however long the host took.
+                if idling?.isIdle == true { throw Failure(description: "Engine idle while waiting for \(label)") }
                 switch deadline.state {
                 case .running: break
                 case .exceeded: throw Failure(description: "Timed out waiting for \(label)")
