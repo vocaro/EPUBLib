@@ -57,8 +57,8 @@ import UIKit
         XCTAssertEqual(session.style.flow, .scrolled, "a preview starts in continuous scroll")
         let window = ReaderTestWindow(session: session)
         defer { window.close() }
-        let deadline = Date().addingTimeInterval(20)
-        while !(session.isReady && session.book.isComplete), Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        let deadline = TestDeadline(seconds: 20)
+        while !(session.isReady && session.book.isComplete), try !deadline.hasPassed() { try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertTrue(session.isReady && session.book.isComplete, "the opening is built")
         XCTAssertEqual(session.book.count, 4)
         XCTAssertTrue(session.book.section(0)?.string.string.contains("Words of chapter 1 alone.") == true)
@@ -106,9 +106,9 @@ import UIKit
         defer { window.isHidden = true; window.rootViewController = nil }
         func canvases() -> [ReaderCanvasView] { Self.canvases(in: window) }
         #endif
-        let deadline = Date().addingTimeInterval(20)
+        let deadline = TestDeadline(seconds: 20)
         func shown() -> String? { canvases().first?.shownText?.text.string }
-        while shown()?.contains("Words of chapter 1 alone.") != true, Date() < deadline {
+        while shown()?.contains("Words of chapter 1 alone.") != true, try !deadline.hasPassed() {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTAssertEqual(canvases().count, 1)

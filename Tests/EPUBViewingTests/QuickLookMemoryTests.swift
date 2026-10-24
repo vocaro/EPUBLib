@@ -1,6 +1,7 @@
 import Darwin
 import EPUBCore
 import EPUBReading
+import EPUBTestSupport
 import Foundation
 import SwiftUI
 import XCTest
@@ -94,9 +95,9 @@ import UIKit
         defer { window.isHidden = true; window.rootViewController = nil }
         let root: PlatformView? = window
         #endif
-        let deadline = Date().addingTimeInterval(30)
+        let deadline = TestDeadline(seconds: 30)
         var session: NativeSession?
-        while Date() < deadline {
+        while deadline.state == .running {
             session = canvases(in: root).first?.dataSource as? NativeSession
             if let session, session.isReady, session.book.isComplete { break }
             try? await Task.sleep(for: .milliseconds(10))
