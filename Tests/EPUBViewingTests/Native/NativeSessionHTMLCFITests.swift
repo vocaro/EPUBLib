@@ -7,9 +7,9 @@ import XCTest
 
 @MainActor final class NativeSessionHTMLCFITests: XCTestCase {
     private func wait(until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(15)
+        let deadline = TestDeadline(seconds: 15)
         while !condition() {
-            guard Date() < deadline else { return XCTFail("Timed out waiting for HTML CFI session") }
+            guard try !deadline.hasPassed() else { return XCTFail("Timed out waiting for HTML CFI session") }
             try await Task.sleep(for: .milliseconds(20))
         }
     }

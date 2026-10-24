@@ -263,15 +263,25 @@ enum ReaderAlignmentLayout {
         }
 
         private mutating func shift(_ index: Int, left: CGFloat, right: CGFloat) {
-            update(entries[index].range) { style in
+            let range = entries[index].range, width = viewport.width
+            let holdsTab = ReaderTextContainer.holdsTab(source, in: range)
+            update(range) { style in
                 let rtl = style.baseWritingDirection == .rightToLeft
                 let head = rtl ? right : left, tail = rtl ? left : right
                 style.headIndent += head
                 style.firstLineHeadIndent += head
                 style.tailIndent = style.tailIndent <= 0 ? style.tailIndent - tail : max(1, style.tailIndent - tail)
+                // A tab's stops move with the paragraph, so that it lands where `measure` found
+                // it: its own, and those of its interval, which TextKit would measure from the
+                // column's edge (`intervalStops`), written out past the start of its lines.
                 if head != 0, !style.tabStops.isEmpty {
                     style.tabStops = style.tabStops.map {
                         NSTextTab(textAlignment: $0.alignment, location: $0.location + head, options: $0.options)
+                    }
+                } else if head != 0, holdsTab {
+                    let start = max(0, min(style.headIndent, style.firstLineHeadIndent))
+                    style.tabStops = ReaderTextContainer.intervalStops(style, through: width).compactMap {
+                        $0 + head > start ? NSTextTab(textAlignment: .natural, location: $0 + head) : nil
                     }
                 }
             }
@@ -639,13 +649,12 @@ enum ReaderAlignmentLayout {
         let line = NSMutableAttributedString(attributedString: text.attributedSubstring(from: body))
         let original = line.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle ?? .default
         let style = original.mutableCopy() as! NSMutableParagraphStyle
-        // Tab stops (a list marker's) are measured from the first line's start.
-        let origin = original.firstLineHeadIndent
+        // Tab stops (a list marker's, or the interval's) are measured from the first line's
+        // start, as the text container shows TextKit the paragraph.
+        style.tabStops = ReaderTextContainer.firstLineStops(original, holdsTab: ReaderTextContainer.holdsTab(text, in: body),
+                                                            through: .greatestFiniteMagnitude)
         style.firstLineHeadIndent = 0; style.headIndent = 0; style.tailIndent = 0
         style.paragraphSpacing = 0; style.paragraphSpacingBefore = 0
-        style.tabStops = original.tabStops.map {
-            NSTextTab(textAlignment: $0.alignment, location: max(0, $0.location - origin), options: $0.options)
-        }
         line.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: line.length))
         let bounds = line.boundingRect(with: CGSize(width: 100_000, height: 100_000), options: [.usesLineFragmentOrigin], context: nil)
         guard bounds.width.isFinite else { return nil }

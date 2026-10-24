@@ -41,24 +41,28 @@ package enum XMLSafety {
         return scanner.scan()
     }
 
-    private static func scanBytes(_ data: Data) -> [Data]? {
+    /// A UTF-16 or UTF-32 signature, a byte-order mark or the NUL pattern of the first
+    /// characters, and the length of its mark (0 for none). Longest signatures come first. This is
+    /// the one table of them: the screen decodes by it, and so do the reader's HTML fallback and
+    /// text extraction's recovery (`HTMLSourceEncoding`), the package reader's and extraction's
+    /// rewrites of named references, and the viewer's CFI check.
+    package static func wideEncoding(_ data: Data) -> (encoding: String.Encoding, mark: Int)? {
         let prefix = Array(data.prefix(4))
-        let encoding: String.Encoding?
+        if prefix.starts(with: [0, 0, 0xFE, 0xFF]) { return (.utf32BigEndian, 4) }
+        if prefix.starts(with: [0, 0, 0]) { return (.utf32BigEndian, 0) }
+        if prefix.starts(with: [0xFF, 0xFE, 0, 0]) { return (.utf32LittleEndian, 4) }
+        if prefix.count == 4 && prefix[1...3].allSatisfy({ $0 == 0 }) { return (.utf32LittleEndian, 0) }
+        if prefix.starts(with: [0xFE, 0xFF]) { return (.utf16BigEndian, 2) }
+        if prefix.first == 0 { return (.utf16BigEndian, 0) }
+        if prefix.starts(with: [0xFF, 0xFE]) { return (.utf16LittleEndian, 2) }
+        if prefix.count >= 2 && prefix[1] == 0 { return (.utf16LittleEndian, 0) }
+        return nil
+    }
+
+    private static func scanBytes(_ data: Data) -> [Data]? {
         // Decode wide encodings rather than deleting NULs: deletion can turn an unrelated
-        // Unicode code unit into an ASCII markup delimiter. Longest signatures come first.
-        if prefix.starts(with: [0, 0, 0xFE, 0xFF]) || prefix.starts(with: [0, 0, 0]) {
-            encoding = .utf32BigEndian
-        } else if prefix.starts(with: [0xFF, 0xFE, 0, 0]) ||
-                    (prefix.count == 4 && prefix[1...3].allSatisfy { $0 == 0 }) {
-            encoding = .utf32LittleEndian
-        } else if prefix.starts(with: [0xFE, 0xFF]) || prefix.first == 0 {
-            encoding = .utf16BigEndian
-        } else if prefix.starts(with: [0xFF, 0xFE]) || (prefix.count >= 2 && prefix[1] == 0) {
-            encoding = .utf16LittleEndian
-        } else {
-            encoding = nil
-        }
-        if let encoding {
+        // Unicode code unit into an ASCII markup delimiter.
+        if let encoding = wideEncoding(data)?.encoding {
             guard let text = String(data: data, encoding: encoding) else { return nil }
             let decoded = Data(text.utf8)
             if let named = XMLMarkupEncoding.declaredEncoding(Data(decoded.dropFirst(decoded.starts(with: [0xEF, 0xBB, 0xBF]) ? 3 : 0))) {

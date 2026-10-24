@@ -310,7 +310,7 @@ import XCTest
         controls.send(.nextPage)
         controls.showNextSearchResult()
         XCTAssertEqual(controls.pendingCommands, 0, "nothing is queued for a detached reader")
-        try await Task.sleep(for: .milliseconds(150))
+        try await TestDeadline.pause(.milliseconds(150))
         XCTAssertEqual(reader.events.count, count, "a detached reader emitted \(reader.events.dropFirst(count))")
         XCTAssertEqual(state.status.location, location, "what was published stays readable")
         XCTAssertEqual(state.status.searchResults, found)
@@ -334,7 +334,7 @@ import XCTest
         XCTAssertEqual(state.status.lifecycle, .closed)
         let closed = reader.events.count
         window.stage.mounted = true
-        try await Task.sleep(for: .milliseconds(300))
+        try await TestDeadline.pause(.milliseconds(300))
         XCTAssertNil(session.canvas)
         XCTAssertEqual(state.status.lifecycle, .closed)
         XCTAssertEqual(reader.events.count, closed)
@@ -421,7 +421,7 @@ import XCTest
         for outside in ["https://example.invalid/page", "mailto:reader@example.invalid", "../../outside.xhtml"] {
             activate(.external(outside))
         }
-        try await Task.sleep(for: .milliseconds(150))
+        try await TestDeadline.pause(.milliseconds(150))
         XCTAssertEqual(reader.notices(since: count), Array(repeating: "This reader does not open links outside the book.", count: 3))
         XCTAssertEqual(reader.events.count, count + 3, "a refused link does nothing else: \(reader.events.dropFirst(count))")
         XCTAssertEqual(reader.section, 0)
@@ -441,7 +441,7 @@ import XCTest
             activate(.internal(href: dead))
             activate(.note(href: dead))
         }
-        try await Task.sleep(for: .milliseconds(200))
+        try await TestDeadline.pause(.milliseconds(200))
         XCTAssertEqual(reader.session.visibleRange, place)
         XCTAssertTrue(reader.locations(since: count).isEmpty)
         XCTAssertEqual(reader.state.status.lifecycle, .ready)
@@ -450,7 +450,7 @@ import XCTest
         count = reader.events.count
         activate(.external("https://example.invalid/page"))
         activate(.internal(href: "OPS/one.xhtml"))
-        try await Task.sleep(for: .milliseconds(100))
+        try await TestDeadline.pause(.milliseconds(100))
         XCTAssertEqual(reader.events.count, count, "a closed reader follows no link")
     }
 
@@ -472,7 +472,7 @@ import XCTest
         reader.session.canvas(canvas, needsSection: 2, forward: true)
         try await reader.session.send(.navigate(href: "OPS/three.xhtml"))
         try await reader.wait("the navigation") { reader.section == 3 }
-        try await Task.sleep(for: .milliseconds(200))
+        try await TestDeadline.pause(.milliseconds(200))
         XCTAssertEqual(reader.section, 3)
         XCTAssertEqual(reader.session.lastLocation?.href, "OPS/three.xhtml")
     }
@@ -494,7 +494,7 @@ import XCTest
         holder = reader
         try await drive(reader)
         try await reader.wait("the event that closes the reader") { closedAt != nil }
-        try await Task.sleep(for: .milliseconds(300))
+        try await TestDeadline.pause(.milliseconds(300))
         XCTAssertEqual(reader.events.count, closedAt, "events after close: \(reader.events.dropFirst(closedAt ?? 0))")
         XCTAssertEqual(reader.state.status.lifecycle, .closed)
         XCTAssertEqual(reader.state.status.activeCommands, 0)
@@ -573,7 +573,7 @@ import XCTest
         try await first.session.send(.searchHighlight(text: "findword"))
         try await first.settle()
         XCTAssertEqual(first.section, 3)
-        try await Task.sleep(for: .milliseconds(150))
+        try await TestDeadline.pause(.milliseconds(150))
         XCTAssertEqual(second.events.count, untouched, "the other session heard \(second.events.dropFirst(untouched))")
         XCTAssertEqual(second.session.visibleRange, place)
         XCTAssertEqual(second.state.status.style, EPUBReaderStyle())
@@ -607,9 +607,9 @@ import XCTest
             // Its first section is being built, and it has been asked for work it cannot do yet.
             do { try await made.send(.nextPage); XCTFail("An unmounted reader accepted a command") } catch {}
         }
-        let deadline = Date().addingTimeInterval(20)
+        let deadline = TestDeadline(seconds: 20)
         while session != nil || book != nil {
-            guard Date() < deadline else { return XCTFail("The dropped session is still alive: session \(session != nil), book \(book != nil)") }
+            guard try !deadline.hasPassed() else { return XCTFail("The dropped session is still alive: session \(session != nil), book \(book != nil)") }
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTAssertEqual(events, 0)

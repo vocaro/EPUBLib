@@ -96,18 +96,31 @@ enum SearchResultBuilder {
     /// The rendered text on each side of a range: the reader's own characters with attachments
     /// as their text equivalents, never generated list markers. An occurrence inside a table
     /// cell reads that cell, and one in a table nested in a cell the innermost cell holding it.
+    /// A cell is read through its own map, as `SectionText.tablePassage` reads it, and so as
+    /// prose is: its characters hold a list item's generated marker and the case a transform
+    /// gives, which are not the book's text (#735). A window whose far end is in generated
+    /// text, as in a list marker longer than the window, cuts none of the book's words.
     /// `characters` is the section's rendered string, passed in when reading many ranges.
     static func context(of range: ReaderTextRange, in text: SectionText,
                         characters: NSString? = nil) -> (before: String, after: String) {
         let characters = characters ?? text.string.string as NSString
         func read(_ position: ReaderTextPosition, before: Bool) -> String {
+            let string: NSAttributedString, map: TextMap?, window: (range: NSRange, isCut: Bool)
             if let endpoint = position.tableCell, let found = text.tableCell(position)?.innermost(endpoint) {
-                let content = found.cell.content
-                let window = window(at: found.endpoint.offset, before: before, in: content.string as NSString)
-                return trimmed(content.readerPlainText(in: window.range), before: before, isCut: window.isCut)
+                string = found.cell.content
+                map = found.cell.textMap?.map
+                window = Self.window(at: found.endpoint.offset, before: before, in: string.string as NSString)
+            } else {
+                string = text.string
+                map = text.map
+                window = Self.window(at: position.offset, before: before, in: characters)
             }
-            let window = window(at: position.offset, before: before, in: characters)
-            return trimmed(text.mappedText(in: window.range.location..<NSMaxRange(window.range)), before: before, isCut: window.isCut)
+            // A cell built without a map, as a custom table's may be, has only its characters.
+            guard let map else { return trimmed(string.readerPlainText(in: window.range), before: before, isCut: window.isCut) }
+            let edge = before ? window.range.location : NSMaxRange(window.range)
+            let isCut = window.isCut && map.mapsCharacter(at: edge - 1) && map.mapsCharacter(at: edge)
+            return trimmed(map.mappedText(in: window.range.location..<NSMaxRange(window.range), from: string),
+                           before: before, isCut: isCut)
         }
         return (read(range.start, before: true), read(range.end, before: false))
     }
@@ -181,5 +194,20 @@ enum SearchResultBuilder {
         if before { while text.first == " " { text.removeFirst() } }
         else { while text.last == " " { text.removeLast() } }
         return text
+    }
+}
+
+private extension TextMap {
+    /// Whether the rendered character at `location` is the book's: in a span, as generated
+    /// characters (a list item's marker, `::before` text, a break between blocks) are not.
+    /// False outside the text.
+    func mapsCharacter(at location: Int) -> Bool {
+        guard location >= 0 else { return false }
+        var low = 0, high = spans.count
+        while low < high { // first span ending after location
+            let mid = (low + high) / 2
+            if spans[mid].location + spans[mid].length <= location { low = mid + 1 } else { high = mid }
+        }
+        return low < spans.count && spans[low].location <= location
     }
 }

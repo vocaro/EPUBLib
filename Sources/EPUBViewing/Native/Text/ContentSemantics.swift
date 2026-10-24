@@ -1,3 +1,4 @@
+import EPUBCore
 import Foundation
 
 /// What the builder reads from markup beyond computed style: notes, list markers, quotation
@@ -30,14 +31,14 @@ enum ContentSemantics {
     }
 
     /// Whether an element may carry structural semantics. EPUB 3.3 §6.1.3.1: `epub:type` "MUST
-    /// NOT be used on the head element or metadata content" (`metadataContent`), and what the
-    /// head holds is taken as in it, valid there or not; §6.2.3: in SVG it goes only on a
-    /// renderable element (`renderableSVG`). A reading system "MUST ignore the terms" anywhere
-    /// else (EPUB Reading Systems 3.3 §10). ARIA in HTML allows those HTML elements no role
-    /// either, so a DPUB-ARIA role on one makes no note (`noteKind`).
+    /// NOT be used on the head element or metadata content", and what the head holds is taken as
+    /// in it, valid there or not; §6.2.3: in SVG it goes only on a renderable element. A reading
+    /// system "MUST ignore the terms" anywhere else (EPUB Reading Systems 3.3 §10). Text
+    /// extraction reads the same lists (`StructuralSemantics`). ARIA in HTML allows those HTML
+    /// elements no role either, so a DPUB-ARIA role on one makes no note (`noteKind`).
     static func allowsStructuralSemantics(_ element: ContentNode) -> Bool {
-        if element.isHTML, metadataContent.contains(element.name) { return false }
-        if element.namespace == ContentNamespace.svg, !renderableSVG.contains(element.name) { return false }
+        if element.isHTML, StructuralSemantics.metadataContent.contains(element.name) { return false }
+        if element.namespace == ContentNamespace.svg, !StructuralSemantics.renderableSVG.contains(element.name) { return false }
         var node: ContentNode? = element
         while let current = node {
             if current.isHTML("head") { return false }
@@ -45,16 +46,6 @@ enum ContentSemantics {
         }
         return true
     }
-
-    /// HTML's metadata content (HTML 3.2.5.2.1), which may stand in the body too.
-    private static let metadataContent: Set<String> = ["base", "link", "meta", "noscript", "script", "style", "template", "title"]
-
-    /// SVG 2's renderable elements (its Rendering Model chapter defines them); `symbol` is one
-    /// only as the root of a `use` element's shadow tree, which the reader does not build.
-    private static let renderableSVG: Set<String> = [
-        "a", "circle", "ellipse", "foreignObject", "g", "image", "line", "path", "polygon", "polyline", "rect", "svg",
-        "switch", "text", "textPath", "tspan", "use",
-    ]
 
     /// The note an element is (EPUB 3 `epub:type` or DPUB-ARIA `role`), or nil. `insideEndnotes`
     /// says whether an element has an endnotes container among its ancestors.

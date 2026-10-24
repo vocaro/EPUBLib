@@ -29,7 +29,13 @@ XHTML section returns its publisher-supplied alternatives, or empty text when no
 The extraction retains nonlinear entries and all semantic roles.
 It supports XHTML resources (`application/xhtml+xml`); other spine media types fail explicitly.
 Semantic types are the whitespace-separated tokens on EPUB-namespace `type` attributes throughout
-that section's body, including nested sections. They describe author markup; they are neither
+that section's body, including nested sections, but not where EPUB does not allow them, which the
+reader ignores as well: on the head and what it holds, on metadata content (`base`, `link`, `meta`,
+`noscript`, `script`, `style`, `template` and `title`), in what a script, style or template
+holds, and on an SVG element that is not renderable, such as `title`, `desc` and `defs` (EPUB 3.3
+§6.1.3.1 and §6.2.3, EPUB Reading Systems 3.3 §10;
+[#777](https://github.com/vocaro/EPUBLib/issues/777)). In recovery an `svg` and what it holds are
+SVG's up to an HTML integration point, whatever its `xmlns`, as the reader builds the tree. They describe author markup; they are neither
 trusted classifications nor instructions, and are not inferred from filenames or prose.
 
 Text includes body character data and authored root content following the body in document order,
@@ -51,9 +57,9 @@ within lines and single newlines at block boundaries. Whitespace normalization o
 Unicode scalars, so combining marks following a space or
 no-break space remain in body text, headings, image alternatives and MathML text
 ([#89](https://github.com/vocaro/EPUBLib/issues/89);
-[normalizing by scalar](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#normalize-text-by-scalar-and-by-byte-not-by-character)).
+[normalizing by scalar](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#normalize-text-by-scalar-and-by-byte-not-by-character)).
 This is structural text extraction, not a browser's computed visible-text representation
-([parser choice](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#parser-choice-can-change-text)): CSS layout, generated content, image OCR and
+([parser choice](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#parser-choice-can-change-text)): CSS layout, generated content, image OCR and
 external resources are not evaluated. The text of elements HTML does not display is therefore
 included, such as that of `hidden` elements, the content of a closed `details` and a `dialog`
 without `open`. No page numbers or engine-specific bookmarks are invented.
@@ -100,7 +106,7 @@ preflight conservatively treats a script/style end marker as markup even inside 
 quoted value, comment or another raw-text element, since malformed raw-text endings can leave
 libxml2 in another context. It follows its own comment, processing-instruction, end-tag and
 script/style contexts after source rewriting ([#196](https://github.com/vocaro/EPUBLib/issues/196);
-[screening markup](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#screen-untrusted-markup-before-any-parser-sees-it));
+[screening markup](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#screen-untrusted-markup-before-any-parser-sees-it));
 [testing](testing.md#attribute-parser-cost-probe) has the parser-only probe. Callers processing a whole book enforce
 their own cumulative text budget while iterating. `CancellationError` propagates during parsing.
 `EPUBTextExtractionError` distinguishes invalid spine indices, unsupported media types, malformed
@@ -138,7 +144,9 @@ outside one, so content after it stays in the body, as does a second document in
 file, and U+0000 is dropped
 from text and read as U+FFFD inside tags, comments and scripts instead of ending the section
 there. A `<!-->` or `<!--->` that follows a `<` kept as text, with no `>` between them, is closed
-there, as HTML closes it. A DOCTYPE ends at its first `>`, as HTML ends it even inside a quoted
+there, as HTML closes it; where closing one leads the scan or the declaration check to refuse the
+section, it is read with such comments left open instead
+([#333](https://github.com/vocaro/EPUBLib/issues/333)). A DOCTYPE ends at its first `>`, as HTML ends it even inside a quoted
 identifier, so one whose identifier has lost its closing quote no longer takes the root's start
 tag with it or refuses the section; recovery writes one letter of each `PUBLIC` and `SYSTEM` in
 it as a character reference, and libxml2 then reads no identifier there
@@ -147,7 +155,7 @@ element of HTML content in another namespace, so a root whose `xmlns` value has 
 quote is read; `svg` and `math` are SVG's and MathML's by name, and inside them `xmlns` is read
 as before. In other malformed markup the tree is libxml2's, which is not always
 the HTML Standard's
-([libxml2's HTML parser](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#libxml2s-html-parser-is-not-the-html-standard)):
+([libxml2's HTML parser](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#libxml2s-html-parser-is-not-the-html-standard)):
 it can end a script or style at an end tag that directly follows the start
 tag (any but `</body>` and `</html>`, which end nothing there either), for example, and
 elsewhere reads `<!-->` as a comment that is still open. Script and style content is read where
@@ -178,12 +186,33 @@ end tags, any DOCTYPE internal subset, and, outside what libxml2 reads as a comm
 unterminated CDATA section and a start tag's quoted attribute value that never ends. It reads a
 DOCTYPE as far as libxml2 reads it: to its first `>`, or, where a `PUBLIC` or `SYSTEM` it has
 not renamed comes before that `>`, through its quoted identifiers. A bracket in what it reads,
-quoted or not, or a DOCTYPE that never ends refuses the section (#293).
+quoted or not, or a DOCTYPE that never ends refuses the section (#293). The check is one pass
+over the bytes, however many DOCTYPE openers share a `>` or a read through quoted identifiers
+([#783](https://github.com/vocaro/EPUBLib/issues/783)).
+Three of these refusals now withhold some sections whose text recovery read before
+[#226](https://github.com/vocaro/EPUBLib/pull/226): a tree with no body, a quoted attribute
+value that never ends and a CDATA section that never ends. Where #226 keeps a `<` that opens no
+tag as text, markup that recovery used to discard with everything up to the next `>` comes into
+view, and in these sections that markup never closes, or libxml2 builds no body from it. These
+are losses accepted against recovery before #226, as the reader withholds a section cut off
+inside markup ([#202](https://github.com/vocaro/EPUBLib/issues/202)): the cost is one section,
+of input broken in more than one way, on a path the caller opts into; reading on would mean
+guessing where markup that never closes ends, which is where a scan and a parser most easily
+disagree about what the bytes are, or what is the body of a tree that has none; and a browser
+showed the text read before #226 in fewer than half of the sections measured, 684 of 1,437
+([#256](https://github.com/vocaro/EPUBLib/issues/256)).
 Unsafe declarations, exceeded limits, cancellation and well-formed documents without the expected
 XHTML structure remain errors. A parser halt at its built-in nesting cap returns
 `limitExceeded("depth")` instead of partial text, even with a larger caller limit; both paths
-are capped at 257 levels. UTF-8 and detectable UTF-16/32 are supported; recovery does not
-guess other encodings. Recovery reads named references from the HTML Standard's table too, as the
+are capped at 257 levels. Recovery decodes a section as the strict path and the native reader's
+fallback do, with the reader's own code: UTF-16 or UTF-32 by a byte-order mark or the NUL
+pattern of its first characters, else the encoding its XML declaration names, by libxml2's
+decoder for it, else UTF-8 ([#247](https://github.com/vocaro/EPUBLib/issues/247)). An unclosed
+tag changes no character of a section in ISO-8859-1 or Shift_JIS, and UTF-8 bytes declared as
+`windows-1252` read as that encoding says on both paths (`cafÃ©`), as a conforming XML parser
+reads them. Bytes that the declared encoding cannot decode, and those of a section that names
+none, are read as UTF-8 and refused when they are not UTF-8, where the reader shows U+FFFD;
+recovery guesses no encoding and does not read an HTML `<meta charset>`. Recovery reads named references from the HTML Standard's table too, as the
 native reader does, not from libxml2's HTML 4 one. The parser never loads external resources. This
 option concerns headless text extraction; it does not change reader CFIs or navigation parsing.
 
@@ -196,7 +225,7 @@ colophon is valid library behavior; whether it belongs in a study index is the h
 `EPUBElementID`, which compares IDs code unit for code unit as `getElementById` does, so
 `caf&#xE9;` and `cafe&#x301;` are two anchors; `anchors[fragment]` looks one up by a `String`
 ([#635](https://github.com/vocaro/EPUBLib/issues/635);
-[element IDs](https://github.com/vocaro/apple-engineering/blob/main/knowledge/apple/document-parsing.md#element-ids-compare-code-units-swift-strings-do-not)). `headings`
+[element IDs](https://github.com/vocaro/vocaro-engineering/blob/main/knowledge/apple/document-parsing.md#element-ids-compare-code-units-swift-strings-do-not)). `headings`
 contains each XHTML heading in document order, with normalized text and its mark. A mark's
 `offset` counts UTF-8 bytes to the first text character after the element opens; `separator`
 counts the normalized space or newline immediately before that character. An empty element

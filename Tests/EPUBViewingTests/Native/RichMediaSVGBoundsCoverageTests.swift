@@ -99,6 +99,27 @@ final class RichMediaSVGBoundsCoverageTests: XCTestCase {
         XCTAssertEqual(inlineText.report.unsupportedElements["svg"], 1)
     }
 
+    /// The marker bound counts what the renderer draws
+    /// ([#274](https://github.com/vocaro/EPUBLib/issues/274), items 2 and 3): a rounded
+    /// rectangle's radius past half its side, which the renderer clamps, and a long declaration
+    /// the renderer copies onto no element, the issue's embedded font in an `@font-face` rule, no
+    /// longer have a drawing with markers refused. Each is drawn, inline and from the archive.
+    func testAMarkerIsChargedOnlyWhatTheRendererDraws() throws {
+        let font = String(repeating: "A", count: 6_400)
+        for (name, drawing) in [
+            ("a radius of 1e40", svg(marker(), "<rect width='9' height='9' rx='1e40' marker-mid='url(#m)' stroke='black'/>")),
+            ("an embedded font", svg("<style>@font-face{font-family:F;src:url(data:font/woff2;base64,\(font))}</style>" + marker(rects: 2),
+                                     path(vertices: 1_000, "marker-mid='url(#m)' stroke='black'"))),
+        ] {
+            XCTAssertTrue(isWithinLimits(drawing), name)
+            let (inline, inlineText) = try image("<p>\(drawing)</p>")
+            let (archive, archiveText) = try image("<p><img src='d.svg' alt='D'/></p>", files: ["d.svg": Data(drawing.utf8)])
+            XCTAssertNotNil(inline, "\(name): drawn")
+            XCTAssertNotNil(archive, "\(name): drawn from the archive")
+            for text in [inlineText, archiveText] { XCTAssertNil(text.report.unsupportedElements["svg"], name) }
+        }
+    }
+
     /// The limits are read from the tree this module parses, and the renderer parses the bytes for
     /// itself. Bytes this module could only read by recovering them as HTML — here, UTF-8 that
     /// declares itself UTF-16, a declaration the renderer ignores — give a tree in which a prefixed

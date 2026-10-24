@@ -146,6 +146,21 @@ import UIKit
         XCTAssertEqual(view.visibleText, section.string.string)
     }
 
+    /// An initial in a box of fixed width before the rest of its word keeps that width where its
+    /// letter fits the box: only a word wider than a box widens it (#742).
+    func testAnInitialInABoxOfFixedWidthKeepsThatWidth() throws {
+        let (section, view) = try layout("<p><span class='i'>T</span>he rest of the word, and the words after it.</p>",
+                                         css: ".i { display:inline-block; width:1.2em; font-size:3em; line-height:1 }")
+        let box = try XCTUnwrap(boxes(in: section, view: view).first)
+        XCTAssertEqual(box.width, 57.6, accuracy: 0.5, "1.2em of the initial's 48 points")
+        XCTAssertEqual(box.minX, 0, accuracy: 0.5)
+        XCTAssertLessThan(try XCTUnwrap(glyphs(in: section, view: view).first).width, box.width, "the letter fits its box")
+        let rest = H.frame("he rest", in: section, view: view)
+        XCTAssertEqual(rest.minX, box.maxX, accuracy: 1, "the word goes on straight after the box")
+        XCTAssertEqual(rest.minY, box.minY, accuracy: 0.5)
+        XCTAssertEqual(view.visibleText, section.string.string)
+    }
+
     func testWhiteSpaceBetweenBoxesIsOneSpaceAndNoneLeavesThemTouching() throws {
         var (section, view) = try layout("<p><span class='m'>*</span><span class='m'>*</span>\n\t <span class='m'>*</span> tail</p>", css: wide)
         let gap = try space(at: "tail", in: section)

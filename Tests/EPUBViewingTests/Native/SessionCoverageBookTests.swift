@@ -10,9 +10,9 @@ import XCTest
     private typealias Section = SessionCoverageBook.Section
 
     private func wait(_ label: String, timeout: TimeInterval = 20, until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = TestDeadline(seconds: timeout)
         while !condition() {
-            guard Date() < deadline else { throw SessionCoverageTimeout(description: "Timed out waiting for \(label)") }
+            guard try !deadline.hasPassed() else { throw SessionCoverageTimeout(description: "Timed out waiting for \(label)") }
             try await Task.sleep(for: .milliseconds(10))
         }
     }
@@ -394,7 +394,7 @@ import XCTest
         XCTAssertEqual(try XCTUnwrap(book.bookText).sectionStarts.count, 24)
         // Asking again with nothing left to build neither rebuilds nor completes a second time.
         book.buildRemaining(from: 0)
-        try await Task.sleep(for: .milliseconds(100))
+        try await TestDeadline.pause(.milliseconds(100))
         XCTAssertEqual(built.count, 24)
         XCTAssertEqual(completions, 1)
     }
@@ -506,7 +506,7 @@ import XCTest
         XCTAssertEqual(late.spineIndex, 1)
         XCTAssertNil(book.section(1))
         book.buildRemaining(from: 0)
-        try await Task.sleep(for: .milliseconds(100))
+        try await TestDeadline.pause(.milliseconds(100))
         XCTAssertEqual(built, 4)
         XCTAssertNil(book.section(99), "an index outside the spine is no section")
         XCTAssertNil(book.section(-1))

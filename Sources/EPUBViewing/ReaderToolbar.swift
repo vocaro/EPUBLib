@@ -169,6 +169,8 @@ public struct EPUBReaderControl: View {
     private let group: EPUBReaderControlGroup
     private let inlineSearch: Bool
     @State private var showingSearch = false
+    /// The search group's name among the controls' Find targets (`EPUBReaderControls.find()`).
+    @State private var findTarget = UUID()
     @Environment(\.epubReaderControlsHiding) private var hiding
     public init(controls: EPUBReaderControls, group: EPUBReaderControlGroup, inlineSearch: Bool = false) {
         self.controls = controls; self.group = group; self.inlineSearch = inlineSearch
@@ -180,17 +182,21 @@ public struct EPUBReaderControl: View {
                 if controls.supports(.pagination) || controls.supports(.scrolling) { pages }
             case .search:
                 if controls.supports(.search) || controls.supports(.searchHighlight) {
-                    if inlineSearch { EPUBSearchField(controls: controls) }
-                    else {
-                        Button("Search", systemImage: "magnifyingglass") { showingSearch = true }
-                            .popover(isPresented: $showingSearch) {
-                                EPUBSearchField(controls: controls, onDismiss: { showingSearch = false }).padding()
-                                    // As a sheet the pane is offered the whole height and was centred
-                                    // in it: the field jumped to the top when results arrived and back
-                                    // to the middle on Clear Search. A popover keeps its ideal size.
-                                    .frame(maxHeight: .infinity, alignment: .top)
-                            }
+                    Group {
+                        if inlineSearch { EPUBSearchField(controls: controls, findTarget: findTarget) }
+                        else {
+                            Button("Search", systemImage: "magnifyingglass") { showingSearch = true }
+                                .popover(isPresented: $showingSearch) {
+                                    EPUBSearchField(controls: controls, onDismiss: { showingSearch = false }, findTarget: findTarget).padding()
+                                        // As a sheet the pane is offered the whole height and was centered
+                                        // in it: the field jumped to the top when results arrived and back
+                                        // to the middle on Clear Search. A popover keeps its ideal size.
+                                        .frame(maxHeight: .infinity, alignment: .top)
+                                }
+                        }
                     }
+                    // Find opens the pane, whose field then takes focus; the inline field takes it itself.
+                    .modifier(EPUBFindTarget(controls: controls, id: findTarget) { if !inlineSearch { showingSearch = true } })
                 }
             case .contents:
                 if controls.supports(.navigateHref) { contents }
@@ -234,15 +240,7 @@ public struct EPUBReaderControl: View {
                     get: { controls.status?.style.appearance ?? .system },
                     set: { appearance in controls.changeStyle { $0.appearance = appearance } }
                 )) {
-                    Text("System").tag(EPUBReaderAppearance.system)
-                    Text("Light").tag(EPUBReaderAppearance.light)
-                    Text("Dark").tag(EPUBReaderAppearance.dark)
-                    Text("Sepia").tag(EPUBReaderAppearance.sepia)
-                    Text("Black").tag(EPUBReaderAppearance.black)
-                    // The reader's own colours, once a host has given some.
-                    if controls.status?.style.customColors != nil || controls.status?.style.appearance == .custom {
-                        Text("Custom").tag(EPUBReaderAppearance.custom)
-                    }
+                    EPUBAppearanceChoices(controls: controls)
                 }
             }
             if controls.isBusy { Text("Applying commands…") }
@@ -329,7 +327,24 @@ private struct EPUBPageButton: View {
     }
 }
 
-private struct EPUBContentsItems: View {
+/// The appearances the Appearance picker offers, in the toolbar's menu and the menu bar's.
+struct EPUBAppearanceChoices: View {
+    let controls: EPUBReaderControls?
+    var body: some View {
+        Text("System").tag(EPUBReaderAppearance.system)
+        Text("Light").tag(EPUBReaderAppearance.light)
+        Text("Dark").tag(EPUBReaderAppearance.dark)
+        Text("Sepia").tag(EPUBReaderAppearance.sepia)
+        Text("Black").tag(EPUBReaderAppearance.black)
+        // The reader's own colors, once a host has given some.
+        if controls?.status?.style.customColors != nil || controls?.status?.style.appearance == .custom {
+            Text("Custom").tag(EPUBReaderAppearance.custom)
+        }
+    }
+}
+
+/// The contents entries, in the toolbar's Contents menu and the menu bar's Go menu.
+struct EPUBContentsItems: View {
     let controls: EPUBReaderControls
     let items: [EPUBNavigationItem]
     var body: some View {
@@ -358,6 +373,8 @@ private struct EPUBContentsItems: View {
 struct EPUBSearchField: View {
     @Bindable var controls: EPUBReaderControls
     var onDismiss: (() -> Void)? = nil
+    /// The search group this field belongs to: Find puts focus in the field when it names it.
+    var findTarget: UUID? = nil
     @FocusState private var focused: Bool
     /// Whether the field has focus once a search is submitted. On a Mac it does. On iPhone and
     /// iPad it gives focus up, in the control strip and in a search pane alike, which puts the
@@ -429,6 +446,15 @@ struct EPUBSearchField: View {
         // A search pane was just opened to type in. The inline field is always on screen: taking
         // focus as it appears raised the keyboard over the book as soon as it opened.
         .task { if onDismiss != nil { focused = true } }
+        // Find, for this field's group. A turn later, so that controls Find has just shown again
+        // are enabled to take it.
+        .onChange(of: controls.findRequests) {
+            guard let findTarget, controls.findTargets.last == findTarget else { return }
+            Task { @MainActor in
+                await Task.yield()
+                focused = true
+            }
+        }
     }
     @ViewBuilder private var belowField: some View {
         if onDismiss != nil {
@@ -518,11 +544,13 @@ struct EPUBControlStripFit: Layout {
 /// Holds the strip's groups inside its scroll view, which is exactly as wide as they are, and
 /// offers them what a scroll view does not.
 ///
-/// A scroll view offers its content no height, and a label that does not fit its line then
-/// takes a second. In a stack that offers the strip an equal share with the reader the groups
-/// had less height than that and each label kept to one line: on an iPhone SE upright at the
-/// largest text size the strip was 340 points tall there, and would be 401 with Appearance on
-/// two lines. So the groups are offered no height at all, and are as tall as they were.
+/// The groups are offered no limit of height, as a scroll view offers its content, and a label
+/// or a line of search feedback that does not fit its line takes a second, as text at a larger
+/// Dynamic Type size does. Before the strip could scroll a stack offered it an equal share of
+/// its height with the reader, which at the largest sizes is less than the groups need, and each
+/// label kept to one line and was cut short: on an iPhone SE upright at the largest text size,
+/// Appearance read "Appearan…" (issue 365). Where the strip has less room than its groups need,
+/// it scrolls them.
 ///
 /// The scroll view is a platform view: its edges are rounded to whole pixels, and its content
 /// is laid out in the width that leaves, which can be a fraction of a point less than the
@@ -532,6 +560,12 @@ struct EPUBControlStripFit: Layout {
 /// they are then no more than half a point wider than it, which is as much as the rounding
 /// takes. Groups that take the width they are offered, as those with a search field do, are
 /// offered what there is.
+///
+/// Its content's height is rounded to whole pixels too, and can be a fraction of a point less
+/// than the groups measure. A stack offered that gives up a line of its text, which is then cut
+/// short: on an upright iPhone SE at the largest text size a refused search's sentence lost its
+/// last line so, with the strip scrolling and a line's height empty under the reading mode. So
+/// the groups are placed with the height they were measured with, which is no limit.
 struct EPUBControlStripGroups: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         guard let groups = subviews.first else { return .zero }
@@ -540,15 +574,14 @@ struct EPUBControlStripGroups: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard let groups = subviews.first else { return }
-        let width = offer(proposal.width ?? bounds.width, to: groups).width
-        groups.place(at: bounds.origin, proposal: ProposedViewSize(width: width, height: bounds.height))
+        groups.place(at: bounds.origin, proposal: offer(proposal.width ?? bounds.width, to: groups))
     }
 
     private func offer(_ width: CGFloat?, to groups: LayoutSubview) -> ProposedViewSize {
         // Asked for their ideal size, the groups have no width to wrap a label in.
         guard let width else { return .unspecified }
-        let roomier = ProposedViewSize(width: width + 1, height: 0)
-        return groups.sizeThatFits(roomier).width <= width + 0.5 ? roomier : ProposedViewSize(width: width, height: 0)
+        let roomier = ProposedViewSize(width: width + 1, height: nil)
+        return groups.sizeThatFits(roomier).width <= width + 0.5 ? roomier : ProposedViewSize(width: width, height: nil)
     }
 }
 

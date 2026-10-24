@@ -1,5 +1,6 @@
 import EPUBCore
 import EPUBReading
+import EPUBTestSupport
 import Foundation
 import SwiftUI
 import XCTest
@@ -30,7 +31,7 @@ import UIKit
 
         let window = ReaderTestWindow(session: session, colorScheme: .dark)
         defer { window.close() }
-        await waitFor([held])
+        try await waitFor([held])
         let canvas = try await laidOutCanvas(session, dark: true)
         assertTextAgreesWithCanvas(canvas, "while the opening section's Dark build is held")
         // No page until one is built for Dark: not the Light one, on either canvas.
@@ -62,7 +63,7 @@ import UIKit
         try await wait("the Light build") { session.book.isComplete }
         let window = ReaderTestWindow(session: session, colorScheme: .dark)
         defer { window.close() }
-        await waitFor([held])
+        try await waitFor([held])
         _ = try await laidOutCanvas(session, dark: true)
         XCTAssertFalse(session.isReady)
 
@@ -94,7 +95,7 @@ import UIKit
         try await wait("the Light build") { session.book.isComplete }
         let window = ReaderTestWindow(session: session, colorScheme: .dark)
         defer { window.close() }
-        await waitFor([held])
+        try await waitFor([held])
         let canvas = try await laidOutCanvas(session, dark: true)
         XCTAssertFalse(session.isReady)
         let emitted = events.count
@@ -126,7 +127,7 @@ import UIKit
         try await wait("the Light reader") { session.isReady && session.book.isComplete }
 
         window.pageControls.colorScheme = .dark
-        await waitFor([held])
+        try await waitFor([held])
         let canvas = try await laidOutCanvas(session, dark: true)
         XCTAssertFalse(canvas.configuration.isDark, "the page left Light before its Dark rebuild")
         defer { closeNote(canvas) }
@@ -156,7 +157,7 @@ import UIKit
             XCTAssertFalse(canvas.configuration.isDark)
 
             window.pageControls.colorScheme = .dark
-            await waitFor([held])
+            try await waitFor([held])
             _ = try await laidOutCanvas(session, dark: true)
             assertTextAgreesWithCanvas(canvas, "while the shown section's Dark rebuild is held, \(flow)")
             XCTAssertEqual(session.readerState?.status.effectiveAppearance, .dark)
@@ -184,7 +185,7 @@ import UIKit
         try await wait("the Light reader") { session.isReady && session.book.isComplete }
 
         window.pageControls.colorScheme = .dark
-        await waitFor([held])
+        try await waitFor([held])
         try await wait("the first section in Dark") { session.canvas?.configuration.isDark == true }
         let canvas = try await laidOutCanvas(session, dark: true)
         var seen = [await look(canvas, "the first page in Dark")]
@@ -216,7 +217,7 @@ import UIKit
             XCTAssertEqual(session.searchResultRanges.map(\.start.section), [2])
 
             window.pageControls.colorScheme = .dark
-            await waitFor([held])
+            try await waitFor([held])
             try await wait("the first section in Dark") { session.canvas?.configuration.isDark == true }
             let canvas = try await laidOutCanvas(session, dark: true)
             var seen = [await look(canvas, "the first page in Dark, \(jump)")]
@@ -253,7 +254,7 @@ import UIKit
         try await wait("the whole book in continuous scroll") { session.canvas?.scrollBook != nil }
 
         window.pageControls.colorScheme = .dark
-        await waitFor([held])
+        try await waitFor([held])
         let canvas = try await laidOutCanvas(session, dark: true)
         var seen = [await look(canvas, "the first page while the next section's Dark build is held")]
         XCTAssertFalse(canvas.configuration.isDark, "the page changed before the section after it was built")
@@ -287,7 +288,7 @@ import UIKit
             var seen = [await look(canvas, "the Light page, \(flow)")]
 
             window.pageControls.colorScheme = .dark
-            await waitFor([held])
+            try await waitFor([held])
             _ = try await laidOutCanvas(session, dark: true)
             seen.append(await look(canvas, "Dark asked for, \(flow)"))
             window.pageControls.colorScheme = .light
@@ -319,7 +320,7 @@ import UIKit
             try await wait("the Light reader") { session.isReady && session.book.isComplete }
 
             window.pageControls.colorScheme = .dark
-            await waitFor([held])
+            try await waitFor([held])
             try await wait("the first section in Dark") { session.canvas?.configuration.isDark == true }
             let canvas = try await laidOutCanvas(session, dark: true)
             try await turnToTheEnd(of: 0, session) {}
@@ -359,7 +360,7 @@ import UIKit
         try await wait("the Light reader") { session.isReady && session.book.isComplete }
 
         window.pageControls.colorScheme = .dark
-        await waitFor([held])
+        try await waitFor([held])
         try await wait("the first section in Dark") { session.canvas?.configuration.isDark == true }
         let canvas = try await laidOutCanvas(session, dark: true)
         var seen = [await look(canvas, "the first page in Dark")]
@@ -397,7 +398,7 @@ import UIKit
         try await wait("the Light reader") { session.isReady && session.book.isComplete }
 
         window.pageControls.colorScheme = .dark
-        await waitFor([held])
+        try await waitFor([held])
         try await wait("the first section in Dark") { session.canvas?.configuration.isDark == true }
         let canvas = try await laidOutCanvas(session, dark: true)
         XCTAssertFalse(try moveToTheNextHeading(on: canvas), "the move by heading reached a section still built for Light")
@@ -421,7 +422,7 @@ import UIKit
         try await wait("the Light reader") { session.isReady && session.book.isComplete }
 
         window.pageControls.colorScheme = .dark
-        await waitFor([held])
+        try await waitFor([held])
         try await wait("the first section in Dark") { session.canvas?.configuration.isDark == true }
         let canvas = try await laidOutCanvas(session, dark: true)
         try await turnToTheEnd(of: 0, session) {}
@@ -473,16 +474,16 @@ import UIKit
     }
 
     private func wait(_ label: String, timeout: TimeInterval = 20, until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = TestDeadline(seconds: timeout)
         while !condition() {
-            guard Date() < deadline else { return XCTFail("Timed out waiting for \(label)") }
+            guard try !deadline.hasPassed() else { return XCTFail("Timed out waiting for \(label)") }
             try await Task.sleep(for: .milliseconds(20))
         }
     }
 
-    private func waitFor(_ expectations: [XCTestExpectation], file: StaticString = #filePath, line: UInt = #line) async {
-        let result = await XCTWaiter.fulfillment(of: expectations, timeout: 20)
-        XCTAssertEqual(result, .completed, file: file, line: line)
+    private func waitFor(_ expectations: [XCTestExpectation], file: StaticString = #filePath, line: UInt = #line) async throws {
+        let fulfilled = try await TestDeadline.fulfillment(of: expectations, within: 20)
+        XCTAssertTrue(fulfilled, "not fulfilled within 20 s: \(expectations)", file: file, line: line)
     }
 
     /// The mounted canvas, once the host's appearance has reached the session, laid out after
@@ -505,10 +506,11 @@ import UIKit
         #endif
     }
 
-    /// Runs `body` repeatedly for `duration`: a look at a state nothing more should change.
+    /// Runs `body` repeatedly for `duration`, less what the host kept the process waiting: a look
+    /// at a state nothing more should change.
     private func observe(for duration: TimeInterval, _ body: () async -> Void) async throws {
-        let end = Date().addingTimeInterval(duration)
-        while Date() < end {
+        let end = TestDeadline(seconds: duration)
+        while end.state == .running {
             await body()
             try await Task.sleep(for: .milliseconds(20))
         }

@@ -29,6 +29,11 @@ import Foundation
     /// Whether VoiceOver or Switch Control is running, which keeps the controls from hiding by
     /// themselves (`readerDidReadOn`). The platform's own answer, which a test takes in its place.
     @ObservationIgnored var assistiveTechnologyIsRunning: @MainActor () -> Bool = { EPUBReaderControls.assistiveTechnologyKeepsControls }
+    /// The supplied search controls on screen that Find can show (`find()`), in the order they
+    /// appeared. Find shows the last.
+    var findTargets: [UUID] = []
+    /// Counts Find requests. The search control `findTargets` ends with answers each.
+    var findRequests = 0
 
     public init(publication: EPUBPublication, session: any EPUBReaderSession) {
         self.publication = publication
@@ -92,10 +97,19 @@ import Foundation
     /// Submit-only search. Typing never sends a command. Whitespace-only input clears;
     /// the native engine validates its normalized query and 512-character limit. Engines
     /// advertising `.search` also open the first match; highlight-only engines retain their position.
+    /// The match a search opens is said once the engine has shown it, as a step's is
+    /// (`announceSearchResult`), also where it turns the page, which says nothing of its own.
+    /// A search that opens none, because it found none or newer navigation kept the reader
+    /// where it was, says nothing (#601).
     public func submitSearch() {
         let query = searchText
         if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { send(.clearSearch) }
-        else { send(supports(.search) ? .search(text: query) : .searchHighlight(text: query)) }
+        else if supports(.search) {
+            enqueue(isSearch: true, then: { [weak self] in
+                // The match this search opened, not one of a search the host made meanwhile.
+                if self?.searchResults?.query == query { self?.announceSearchResult() }
+            }) { .search(text: query) }
+        } else { send(.searchHighlight(text: query)) }
     }
     public func clearSearch() { searchText = ""; send(.clearSearch) }
 

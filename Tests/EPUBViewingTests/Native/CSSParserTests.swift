@@ -43,15 +43,18 @@ final class CSSParserTests: XCTestCase {
         let sheet = CSSStyleSheet.parse("""
             p, :unknown-state { color: red }
             p::before, q:after { color: red }
-            p, q::first-line { color: blue }
+            p, q::marker { color: blue }
+            p::first-letter, q:first-line { color: blue }
             :is(p, :bogus) { color: green }
             undeclared|p { color: red }
             p:nth-child(2n+1 of .x) {}
             """, path: "a.css")
-        XCTAssertEqual(sheet.rules.count, 3)
+        XCTAssertEqual(sheet.rules.count, 4)
         XCTAssertEqual(sheet.rules[0].selectors.map(\.pseudoElement), [.before, .after], "`::before` and `::after` generate content")
         XCTAssertEqual(sheet.rules[1].selectors.count, 1, "Another pseudo-element's selector never matches")
-        guard case .pseudo(.matchesAny(let list)) = sheet.rules[2].selectors[0].compounds[0].simple[0] else { return XCTFail() }
+        XCTAssertEqual(sheet.rules[2].selectors.map(\.pseudoElement), [.firstLetter, .firstLine],
+                       "`::first-letter` is rendered and `::first-line` disclosed")
+        guard case .pseudo(.matchesAny(let list)) = sheet.rules[3].selectors[0].compounds[0].simple[0] else { return XCTFail() }
         XCTAssertEqual(list.count, 1, ":is() forgives an invalid argument")
     }
 

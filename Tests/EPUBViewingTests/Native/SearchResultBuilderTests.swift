@@ -12,8 +12,8 @@ final class SearchResultBuilderTests: XCTestCase {
         TextSearch.matches(of: query, in: text.document, locale: "en")
     }
 
-    private func batch(_ query: String, in text: SectionText, limit: Int = .max, firstIndex: Int = 0) throws -> SearchResultBuilder.Batch {
-        let publication = BuilderHarness.publication
+    private func batch(_ query: String, in text: SectionText, limit: Int = .max, firstIndex: Int = 0,
+                       publication: EPUBPublication = BuilderHarness.publication) throws -> SearchResultBuilder.Batch {
         let section = SearchResultBuilder.Section(
             text: text, publicationID: publication.id, engineID: "engine", bookmarkFormat: "format",
             spine: try SpineCFIs(publication: publication), progress: NativeProgress(publication: publication))
@@ -157,6 +157,42 @@ final class SearchResultBuilderTests: XCTestCase {
         XCTAssertEqual(found.results[3].contextAfter, "👨‍👩‍👧‍👦")
         XCTAssertEqual(found.results[4].contextBefore, "", "a line break bounds the context")
         XCTAssertEqual(found.results[4].contextAfter, " line two")
+    }
+
+    /// A context in a table cell is read as the same words in prose are, from the book's own
+    /// text: a list item's generated marker is none of it, a bullet or a number, in a cell and
+    /// in a cell of a table nested in one, and a transformed case is read as the book spells
+    /// it. The cell's own characters held both (#735). A marker longer than the context's
+    /// window, which the window starts in, cuts none of the item's words, in prose or a cell.
+    func testAContextInATableCellIsReadAsTheSameWordsInProseAre() throws {
+        let words = """
+        <ul><li>Listed TARGET item</li></ul><ol><li>Numbered TARGET item</li></ol><p class="loud">Loud TARGET words</p>\
+        <ul class="long"><li>Long marked TARGET item</li></ul>
+        """
+        let publication = try TableCoverage.publication("""
+        \(words)<table><tr><td>\(words)</td><td>Beside</td></tr></table>\
+        <table><tr><td><table><tr><td>\(words)</td><td>Beside</td></tr></table></td><td>Outer</td></tr></table>
+        """, css: """
+        .loud { text-transform: uppercase; }
+        .long { list-style-type: 'averyveryverylongstringmarkerthatiswiderthanmostlines '; list-style-position: inside; }
+        """)
+        let text = TableCoverage.section(of: publication)
+        let found = try batch("TARGET", in: text, publication: publication)
+        XCTAssertEqual(found.results.count, 12)
+        func contexts(_ results: ArraySlice<EPUBSearchResult>) -> [[String]] { results.map { [$0.contextBefore, $0.contextAfter] } }
+        func depth(_ cell: ReaderTablePosition?) -> Int? { cell.map { 1 + (depth($0.nested) ?? 0) } }
+        XCTAssertEqual(contexts(found.results[0..<4]), [["Listed ", " item"], ["Numbered ", " item"], ["Loud ", " words"], ["Long marked ", " item"]])
+        XCTAssertEqual(found.ranges[0..<4].map { depth($0.start.tableCell) }, [nil, nil, nil, nil], "in prose")
+        for (nesting, first) in [(1, 4), (2, 8)] {
+            XCTAssertEqual(found.ranges[first..<first + 4].map { depth($0.start.tableCell) }, Array(repeating: nesting, count: 4),
+                           "the occurrences are read in a cell \(nesting) tables deep")
+            let start = found.ranges[first].start
+            let cell = try XCTUnwrap(text.tableCell(start)?.innermost(XCTUnwrap(start.tableCell)).cell)
+            XCTAssertNotEqual(cell.content.readerPlainText().components(separatedBy: "Listed").first?
+                                  .trimmingCharacters(in: .whitespacesAndNewlines), "", "the cell's characters hold the marker")
+            XCTAssertEqual(contexts(found.results[first..<first + 4]), contexts(found.results[0..<4]),
+                           "a cell \(nesting) tables deep reads its words as prose does")
+        }
     }
 
     func testTrimmingCollapsesWhiteSpaceAndKeepsTheJoiningSpace() {

@@ -15,11 +15,12 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.20"),
         .package(url: "https://github.com/vocaro/MathMLLayout.git", exact: "0.3.1"),
-        .package(url: "https://github.com/vocaro/StaticSVG.git", exact: "0.1.1"),
+        .package(url: "https://github.com/vocaro/StaticSVG.git", exact: "0.1.3"),
     ],
     targets: [
         .executableTarget(name: "SearchFocusProbe", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing", "EPUBTestSupport"], path: "Examples/SearchFocusProbe"),
-        .target(name: "EPUBCore", resources: [.process("Localizable.xcstrings")]),
+        // The license and notice texts a host shows in its acknowledgments, under their projects' names.
+        .target(name: "EPUBCore", resources: [.process("Localizable.xcstrings"), .copy("Licenses")]),
         .target(name: "EPUBReading", dependencies: ["EPUBCore", "ZIPFoundation"]),
         .target(name: "EPUBText", dependencies: ["EPUBCore", "EPUBReading"], resources: [.process("Localizable.xcstrings")]),
         .target(name: "EPUBWriting", dependencies: ["EPUBCore", "ZIPFoundation"], resources: [.process("Localizable.xcstrings")]),
@@ -27,7 +28,7 @@ let package = Package(
                                                     .product(name: "MathMLLayout", package: "MathMLLayout"),
                                                     .product(name: "StaticSVG", package: "StaticSVG")],
                 resources: [.process("Localizable.xcstrings")]),
-        .target(name: "EPUBViewingTestSupport", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing"]),
+        .target(name: "EPUBViewingTestSupport", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing", "EPUBTestSupport"]),
         .target(name: "EPUBTestSupport", dependencies: ["ZIPFoundation"], path: "Tests/EPUBTestSupport"),
         .target(name: "ReaderHostSupport", dependencies: ["EPUBCore", "EPUBReading", "EPUBText", "EPUBViewing"],
                 path: "Examples/VoiceOverVerification/Shared"),

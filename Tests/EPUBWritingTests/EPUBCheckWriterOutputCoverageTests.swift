@@ -69,7 +69,7 @@ final class EPUBCheckWriterOutputCoverageTests: XCTestCase {
         // RSC-005 "Anchors within nav elements must contain text". EPUB 3.3, 7.3: the `a` or
         // `span` "MUST provide a non-zero-length text label". Leaving the entry out would lose
         // its target, so it is refused.
-        for title in ["", "  \n", "\u{1}", "\u{A0}"] {
+        for title in ["", "  \n", "\r", "\r\n\t", "\u{1}", "\u{A0}"] {
             var link = paged, heading = paged, page = paged
             link.contents = [.init(title: title, href: "EPUB/chapter.xhtml")]
             heading.contents = [.init(title: title, children: [.init(title: "Chapter", href: "EPUB/chapter.xhtml#start")])]
@@ -86,10 +86,10 @@ final class EPUBCheckWriterOutputCoverageTests: XCTestCase {
         // leading and trailing ASCII whitespace is stripped". A list leaves out its empty values,
         // as the reader does.
         var book = paged
-        book.metadata.metadata = .init(title: "A Written Book", authors: ["", "  ", "\u{A0}", "Test Author"], languages: ["", "en", "\u{1}"],
-                                       identifiers: ["", "urn:isbn:9780000000002", "\t"])
-        book.metadata.summary = " "
-        book.metadata.keywords = ["", "\t", "kept"]
+        book.metadata.metadata = .init(title: "A Written Book", authors: ["", "  ", "\u{A0}", "\r", "Test Author"], languages: ["", "en", "\u{1}", "\r\n"],
+                                       identifiers: ["", "urn:isbn:9780000000002", "\t", "\r"])
+        book.metadata.summary = " \r"
+        book.metadata.keywords = ["", "\t", "\r\n", "kept"]
         let metadata = try XCTUnwrap(try package(book).children.first { $0.name == "metadata" })
         for element in metadata.children where element.name.hasPrefix("dc:") {
             XCTAssertFalse(element.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "an empty <\(element.name)>")
@@ -104,12 +104,12 @@ final class EPUBCheckWriterOutputCoverageTests: XCTestCase {
     func testRequiredMetadataWithoutAValueIsRefusedOrNeverWrittenEmpty() throws {
         // RSC-005, as above, for `dc:title`, `dc:identifier` and `dc:language`, each REQUIRED.
         // The writer invents neither a title nor an identifier, so it refuses a book without one.
-        for title in ["", " \n ", "\u{A0}", "\u{0}"] {
+        for title in ["", " \n ", "\r", " \r\n\t", "\u{A0}", "\u{0}"] {
             var book = paged
             book.metadata.metadata = .init(title: title, authors: ["Test Author"], languages: ["en"])
             assertRefused(book, .invalidPublication("empty title"), title.debugDescription)
         }
-        for identifier in ["", "\t"] {
+        for identifier in ["", "\t", "\r"] {
             var book = paged
             book.metadata.identifier = identifier
             book.metadata.metadata = .init(title: "A Written Book", languages: ["en"], identifiers: [identifier, "urn:isbn:9780000000002"])

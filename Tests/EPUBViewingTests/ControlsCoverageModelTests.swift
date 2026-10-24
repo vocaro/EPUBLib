@@ -52,9 +52,9 @@ import UIKit
     }
 
     private func wait(_ label: String, timeout: TimeInterval = 20, until condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = TestDeadline(seconds: timeout)
         while !condition() {
-            guard Date() < deadline else { throw SessionCoverageTimeout(description: "Timed out waiting for \(label)") }
+            guard try !deadline.hasPassed() else { throw SessionCoverageTimeout(description: "Timed out waiting for \(label)") }
             try await Task.sleep(for: .milliseconds(10))
         }
     }
@@ -370,7 +370,7 @@ import UIKit
         XCTAssertFalse(model.isBusy)
         session.release()
         for _ in 0..<20 { await Task.yield() }
-        try await Task.sleep(for: .milliseconds(50))
+        try await TestDeadline.pause(.milliseconds(50))
         XCTAssertEqual(session.received, [.navigate(href: "OPS/one.xhtml")], "what was not yet submitted never is")
         XCTAssertEqual(model.pendingCommands, 0, "the submitted command's return does not count twice")
         XCTAssertNil(model.commandError)
