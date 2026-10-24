@@ -19,6 +19,7 @@ python3 -m unittest discover -s scripts/tests -v
 python3 scripts/check-modules.py
 python3 scripts/check-docs.py
 swift build --target ReaderHostSupport --jobs "$jobs"
+python3 scripts/check-licenses.py
 # A suite that a busy host left a test or a simulator boot unmeasured in exits 3: the gate goes
 # on, and ends neither passed nor failed.
 mac=0

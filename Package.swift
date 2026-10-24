@@ -19,7 +19,8 @@ let package = Package(
     ],
     targets: [
         .executableTarget(name: "SearchFocusProbe", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing", "EPUBTestSupport"], path: "Examples/SearchFocusProbe"),
-        .target(name: "EPUBCore", resources: [.process("Localizable.xcstrings")]),
+        // The license and notice texts a host shows in its acknowledgments, under their projects' names.
+        .target(name: "EPUBCore", resources: [.process("Localizable.xcstrings"), .copy("Licenses")]),
         .target(name: "EPUBReading", dependencies: ["EPUBCore", "ZIPFoundation"]),
         .target(name: "EPUBText", dependencies: ["EPUBCore", "EPUBReading"], resources: [.process("Localizable.xcstrings")]),
         .target(name: "EPUBWriting", dependencies: ["EPUBCore", "ZIPFoundation"], resources: [.process("Localizable.xcstrings")]),

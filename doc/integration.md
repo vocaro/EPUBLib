@@ -718,3 +718,21 @@ later). The gate reads their compiled code for
 any such call ([testing](testing.md#local-gate)). ZIPFoundation, which reads and writes the
 archives, reads file timestamps and declares that in a manifest of its own, which an app built
 with EPUBLib carries in ZIPFoundation's resource bundle.
+
+## Licenses
+
+An app shows EPUBLib's license, and those of the code its products contain, from EPUBCore's
+resource bundle, which every product brings ([#699](https://github.com/vocaro/EPUBLib/issues/699)).
+`EPUBLicense.all()` gives each license and notice file, EPUBLib's first and then by component and
+path. Each has its `component` (`EPUBLib`, `foliate-js`, `MathMLLayout`, `StaticSVG` or
+`ZIPFoundation`), its `path` in that component's folder under the name its project gave it, its
+`url` in the bundle and its `text()`. The texts are plain text, Markdown and JSON, and the Rust
+standard library's notices, `StaticSVG/Licenses/rust-1.95.0/COPYRIGHT-library.html`, are HTML.
+`StaticSVG/dependencies.json` names each Rust crate with its license and the paths of its texts.
+[Third-party notices](third-party-notices.md) says what each component is and which products
+contain it.
+
+The list is the same whichever products an app links. An app without EPUBViewing contains
+neither the foliate-js port, MathMLLayout nor StaticSVG, only EPUBLib and, with EPUBReading,
+EPUBText or EPUBWriting, ZIPFoundation. Xcode embeds the bundle as `EPUBLib_EPUBCore.bundle`,
+with the texts in its `Licenses` folder; it holds no code and no privacy manifest.
